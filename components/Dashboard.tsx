@@ -13,7 +13,6 @@ import {
 import Link from 'next/link'
 
 const LO_COLORS: Record<string, string> = {
-  'Efrain Ramirez': '#3b82f6',
   'Matt': '#10b981',
   'Moe Sefati': '#f59e0b',
 }
@@ -69,10 +68,10 @@ export default function Dashboard() {
   })
 
   // LO revenue breakdown
-  const loData = ['Efrain Ramirez', 'Matt', 'Moe Sefati'].map(lo => {
+  const loData = ['Matt', 'Moe Sefati'].map(lo => {
     const loDeals = deals.filter(d => d.loan_officer?.includes(lo))
     return {
-      name: lo === 'Efrain Ramirez' ? 'Efrain' : lo,
+      name: lo,
       revenue: loDeals.reduce((s, d) => s + (d.revenue || 0), 0),
       deals: loDeals.length,
     }
@@ -211,7 +210,7 @@ export default function Dashboard() {
                     className="h-full rounded-full transition-all"
                     style={{
                       width: `${loData[0].revenue > 0 ? (lo.revenue / loData.reduce((m, l) => Math.max(m, l.revenue), 0)) * 100 : 0}%`,
-                      backgroundColor: LO_COLORS[lo.name === 'Efrain' ? 'Efrain Ramirez' : lo.name] || '#3b82f6',
+                      backgroundColor: LO_COLORS[lo.name] || '#3b82f6',
                     }}
                   />
                 </div>

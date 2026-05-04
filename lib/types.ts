@@ -94,7 +94,7 @@ export const PIPELINE_GROUPS = [
   'Lost',
 ] as const
 
-export const LOAN_OFFICERS = ['Efrain Ramirez', 'Matt', 'Moe Sefati'] as const
+export const LOAN_OFFICERS = ['Matt', 'Moe Sefati'] as const
 
 export const LOAN_TYPES = [
   'FHA - Purchase',

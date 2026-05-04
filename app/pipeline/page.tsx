@@ -390,7 +390,6 @@ export default function PipelinePage() {
               className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="All">All LOs</option>
-              <option value="Efrain">Efrain</option>
               <option value="Matt">Matt</option>
               <option value="Moe">Moe</option>
             </select>

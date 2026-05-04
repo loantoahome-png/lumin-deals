@@ -293,11 +293,9 @@ export async function POST(req: NextRequest) {
 
     // Fuzzy-match to your known loan officers so it maps cleanly
     const LO_MAP: Record<string, string> = {
-      'moe sefati':     'Moe Sefati',
-      'moe':            'Moe Sefati',
-      'efrain ramirez': 'Efrain Ramirez',
-      'efrain':         'Efrain Ramirez',
-      'matt':           'Matt',
+      'moe sefati': 'Moe Sefati',
+      'moe':        'Moe Sefati',
+      'matt':       'Matt',
     }
 
     let loanOfficer: string | null = null
