@@ -281,6 +281,35 @@ export async function POST(req: NextRequest) {
       pick(contact, 'assignedTo', 'assigned_to', 'assignedUser') ||
       pick(body, 'assignedTo', 'assigned_to')
 
+    // ── Owner → Loan Officer ──────────────────────────────────────────────────
+    // GHL opportunity webhooks send owner as { id, name, email } object.
+    // Also try flat fields like assignedTo, owner_name, etc.
+    const ownerObj = (body.owner ?? body.assignedUser ?? body.ownedBy) as Record<string, unknown> | null | undefined
+    const ownerName: string | null =
+      (typeof ownerObj?.name === 'string' && ownerObj.name.trim() ? ownerObj.name.trim() : null) ||
+      (typeof ownerObj?.fullName === 'string' && ownerObj.fullName.trim() ? ownerObj.fullName.trim() : null) ||
+      pick(body, 'owner_name', 'ownerName', 'assigned_user_name') ||
+      ghlAssignedUser // last resort — could be a user ID, will still store it
+
+    // Fuzzy-match to your known loan officers so it maps cleanly
+    const LO_MAP: Record<string, string> = {
+      'moe sefati':     'Moe Sefati',
+      'moe':            'Moe Sefati',
+      'efrain ramirez': 'Efrain Ramirez',
+      'efrain':         'Efrain Ramirez',
+      'matt':           'Matt',
+    }
+
+    let loanOfficer: string | null = null
+    if (ownerName) {
+      const lower = ownerName.toLowerCase().trim()
+      for (const [key, value] of Object.entries(LO_MAP)) {
+        if (lower.includes(key)) { loanOfficer = value; break }
+      }
+      // If no fuzzy match, store raw name so it still shows up
+      if (!loanOfficer) loanOfficer = ownerName
+    }
+
     const dateAddedGHL =
       pick(contact, 'dateAdded', 'date_added', 'createdAt') ||
       pick(body, 'dateAdded', 'date_added')
@@ -319,6 +348,7 @@ export async function POST(req: NextRequest) {
           ...(propertyFound    && { property_found: propertyFound }),
           ...(loanTimeframe    && { loan_timeframe: loanTimeframe }),
           ...(hasAcceptedOffer && { has_accepted_offer: hasAcceptedOffer }),
+          ...(loanOfficer      && { loan_officer: loanOfficer }),
           ...(ghlTags          && { ghl_tags: ghlTags }),
           ...(city             && { city }),
           ...(state            && { state }),
@@ -341,6 +371,8 @@ export async function POST(req: NextRequest) {
       status:           'Client',
       pipeline_group:   'LEADS',
       source,
+      // Team
+      loan_officer:     loanOfficer,
       // Loan fields
       loan_amount:      loanAmount,
       estimated_value:  estimatedValue,
