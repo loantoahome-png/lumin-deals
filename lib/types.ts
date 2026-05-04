@@ -18,6 +18,14 @@ export type Deal = {
   investor: string | null
   property_address: string | null
   occupancy: string | null
+  city: string | null
+  state: string | null
+  zip: string | null
+  credit_score: number | null
+  ghl_tags: string | null
+  ghl_assigned_user: string | null
+  date_added_ghl: string | null
+  raw_ghl_data: Record<string, unknown> | null
   locked: string | null
   lock_expiration: string | null
   appraisal_status: string | null
