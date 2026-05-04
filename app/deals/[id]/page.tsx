@@ -342,6 +342,67 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
             </div>
           </Card>
 
+          {/* Rate Watch */}
+          <Card title="🔔 Rate Watch">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-slate-700">Active</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Get alerted when 10yr yield hits target</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => set('rate_watch_active', !form.rate_watch_active)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                    form.rate_watch_active ? 'bg-blue-600' : 'bg-slate-200'
+                  }`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                    form.rate_watch_active ? 'translate-x-6' : 'translate-x-1'
+                  }`} />
+                </button>
+              </div>
+              {form.rate_watch_active && (
+                <>
+                  <Field label="Alert when 10yr yield drops to (%)">
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={form.rate_watch_target ?? ''}
+                      onChange={e => set('rate_watch_target', e.target.value ? Number(e.target.value) : null)}
+                      className={inp}
+                      placeholder="e.g. 4.00"
+                    />
+                  </Field>
+                  <Field label="Why are they waiting? (Notes)">
+                    <textarea
+                      value={form.rate_watch_notes || ''}
+                      onChange={e => set('rate_watch_notes', e.target.value)}
+                      rows={2}
+                      className={inp + ' resize-none'}
+                      placeholder="e.g. Needs rate below 6.5% to make refi pencil out"
+                    />
+                  </Field>
+                  {form.rate_watch_alerted_at && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                      <p className="text-xs font-semibold text-amber-800">⚡ Alert fired!</p>
+                      <p className="text-xs text-amber-600 mt-0.5">
+                        Target was hit on {new Date(form.rate_watch_alerted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => set('rate_watch_alerted_at', null)}
+                        className="text-xs text-amber-700 underline mt-1"
+                      >
+                        Reset alert (re-watch)
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </Card>
+
           {/* Lead Info */}
           <Card title="Lead Info">
             <div className="space-y-3">

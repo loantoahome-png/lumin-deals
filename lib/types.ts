@@ -46,6 +46,10 @@ export type Deal = {
   property_found: string | null
   loan_timeframe: string | null
   has_accepted_offer: string | null
+  rate_watch_active: boolean
+  rate_watch_target: number | null
+  rate_watch_notes: string | null
+  rate_watch_alerted_at: string | null
   lo_notes: string | null
   client_notes: string | null
   subbed: boolean
