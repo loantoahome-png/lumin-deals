@@ -1,21 +1,62 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Deal, LOAN_OFFICERS, LOAN_STATUSES, STATUS_COLORS } from '@/lib/types'
+import { Deal, LOAN_OFFICERS, LOAN_STATUSES, PIPELINE_GROUPS, STATUS_COLORS } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import Link from 'next/link'
-import { Search, RefreshCw, ExternalLink } from 'lucide-react'
+import { Search, RefreshCw, ExternalLink, Download, X, CheckSquare } from 'lucide-react'
+import { useSearchParams } from 'next/navigation'
+import { Suspense } from 'react'
 
-export default function DealsPage() {
+// ── CSV export ─────────────────────────────────────────────────────────────────
+function exportToCSV(deals: Deal[]) {
+  const headers = [
+    'Name', 'Status', 'Pipeline Group', 'Loan Type', 'Loan Amount', 'Estimated Value',
+    'Revenue', 'Rate (%)', 'Investor', 'Loan Officer', 'Processor', 'Property Address',
+    'Email', 'Phone', 'Credit Score', 'Occupancy', 'Locked', 'Lock Expiration',
+    'Appraisal Status', 'Source', 'Signing Date', 'Funded Date', 'Paid Date',
+    'Last Contacted', 'Arive File #', 'Investor File #', 'Created At',
+  ]
+  const rows = deals.map(d => [
+    d.name, d.status, d.pipeline_group, d.loan_type || '', d.loan_amount || '', d.estimated_value || '',
+    d.revenue || '', d.rate || '', d.investor || '', d.loan_officer || '', d.processor_status || '',
+    d.property_address || '', d.email || '', d.phone || '', d.credit_score || '', d.occupancy || '',
+    d.locked || '', d.lock_expiration || '', d.appraisal_status || '', d.source || '',
+    d.signing_date || '', d.funded_date || '', d.paid_date || '', d.last_contacted || '',
+    d.arive_file_no || '', d.investor_file_no || '', d.created_at,
+  ])
+
+  const csvContent = [headers, ...rows]
+    .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    .join('\n')
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `lumin-deals-${new Date().toISOString().split('T')[0]}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+// ── Inner page (needs useSearchParams) ────────────────────────────────────────
+function DealsPageInner() {
+  const searchParams = useSearchParams()
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(searchParams.get('search') || '')
   const [loFilter, setLoFilter] = useState('All')
   const [statusFilter, setStatusFilter] = useState('All')
   const [groupFilter, setGroupFilter] = useState('All')
 
-  async function fetchDeals() {
+  // Bulk actions
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkProcessing, setBulkProcessing] = useState(false)
+
+  const fetchDeals = useCallback(async () => {
     setLoading(true)
     const { data } = await supabase
       .from('deals')
@@ -23,15 +64,16 @@ export default function DealsPage() {
       .order('created_at', { ascending: false })
     setDeals(data || [])
     setLoading(false)
-  }
+  }, [])
 
-  useEffect(() => { fetchDeals() }, [])
+  useEffect(() => { fetchDeals() }, [fetchDeals])
 
   const filtered = deals.filter(d => {
     const matchSearch = !search ||
       d.name.toLowerCase().includes(search.toLowerCase()) ||
       d.property_address?.toLowerCase().includes(search.toLowerCase()) ||
-      d.investor?.toLowerCase().includes(search.toLowerCase())
+      d.investor?.toLowerCase().includes(search.toLowerCase()) ||
+      d.email?.toLowerCase().includes(search.toLowerCase())
     const matchLO = loFilter === 'All' || d.loan_officer?.includes(loFilter)
     const matchStatus = statusFilter === 'All' || d.status === statusFilter
     const matchGroup = groupFilter === 'All' || d.pipeline_group === groupFilter
@@ -40,12 +82,64 @@ export default function DealsPage() {
 
   const totalRevenue = filtered.reduce((s, d) => s + (d.revenue || 0), 0)
   const totalLoanAmt = filtered.reduce((s, d) => s + (d.loan_amount || 0), 0)
-
   const groups = [...new Set(deals.map(d => d.pipeline_group))].filter(Boolean)
+
+  // ── Selection helpers ──────────────────────────────────────────────────────
+  const allFilteredSelected = filtered.length > 0 && filtered.every(d => selectedIds.has(d.id))
+  const someSelected = selectedIds.size > 0
+
+  function toggleSelectAll() {
+    if (allFilteredSelected) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filtered.map(d => d.id)))
+    }
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  // ── Bulk actions ──────────────────────────────────────────────────────────
+  async function bulkChangeStatus(status: string) {
+    if (!status || selectedIds.size === 0) return
+    setBulkProcessing(true)
+    const ids = [...selectedIds]
+    await supabase.from('deals').update({ status }).in('id', ids)
+    setDeals(prev => prev.map(d => selectedIds.has(d.id) ? { ...d, status } : d))
+    setSelectedIds(new Set())
+    setBulkProcessing(false)
+  }
+
+  async function bulkChangeGroup(pipeline_group: string) {
+    if (!pipeline_group || selectedIds.size === 0) return
+    setBulkProcessing(true)
+    const ids = [...selectedIds]
+    await supabase.from('deals').update({ pipeline_group }).in('id', ids)
+    setDeals(prev => prev.map(d => selectedIds.has(d.id) ? { ...d, pipeline_group } : d))
+    setSelectedIds(new Set())
+    setBulkProcessing(false)
+  }
+
+  async function bulkDelete() {
+    if (selectedIds.size === 0) return
+    if (!confirm(`Permanently delete ${selectedIds.size} deal(s)? This cannot be undone.`)) return
+    setBulkProcessing(true)
+    const ids = [...selectedIds]
+    await supabase.from('deals').delete().in('id', ids)
+    setDeals(prev => prev.filter(d => !selectedIds.has(d.id)))
+    setSelectedIds(new Set())
+    setBulkProcessing(false)
+  }
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
+
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="px-6 py-4 bg-white border-b border-slate-200 shrink-0">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -55,6 +149,14 @@ export default function DealsPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => exportToCSV(filtered)}
+              title="Export to CSV"
+              className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              Export CSV
+            </button>
             <button onClick={fetchDeals} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg">
               <RefreshCw className="w-4 h-4" />
             </button>
@@ -73,10 +175,10 @@ export default function DealsPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               type="text"
-              placeholder="Search by name, address, investor…"
+              placeholder="Search by name, address, investor, email…"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm w-72 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm w-80 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
           <select
@@ -114,7 +216,7 @@ export default function DealsPage() {
         </div>
       </div>
 
-      {/* Table */}
+      {/* ── Table ──────────────────────────────────────────────────────────── */}
       {loading ? (
         <div className="flex items-center justify-center flex-1">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
@@ -125,6 +227,15 @@ export default function DealsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
+                  {/* Select-all checkbox */}
+                  <th className="px-4 py-3 w-10">
+                    <button onClick={toggleSelectAll} className="text-slate-400 hover:text-blue-600 transition-colors">
+                      {allFilteredSelected
+                        ? <CheckSquare className="w-4 h-4 text-blue-600" />
+                        : <div className="w-4 h-4 rounded border-2 border-slate-300 hover:border-blue-400" />
+                      }
+                    </button>
+                  </th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Name</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Status</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Loan Type</th>
@@ -141,51 +252,128 @@ export default function DealsPage() {
               <tbody className="divide-y divide-slate-100">
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="text-center py-12 text-slate-400">
+                    <td colSpan={12} className="text-center py-12 text-slate-400">
                       No deals found
                     </td>
                   </tr>
                 ) : (
-                  filtered.map(deal => (
-                    <tr key={deal.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-3">
-                        <Link href={`/deals/${deal.id}`} className="font-semibold text-slate-900 hover:text-blue-600">
-                          {deal.name}
-                        </Link>
-                        {deal.property_address && (
-                          <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[180px]">{deal.property_address}</p>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`text-xs px-2 py-1 rounded-md font-medium ${STATUS_COLORS[deal.status] || 'bg-gray-100 text-gray-600'}`}>
-                          {deal.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">{deal.loan_type || '—'}</td>
-                      <td className="px-4 py-3 font-medium text-slate-800">{formatCurrency(deal.loan_amount)}</td>
-                      <td className="px-4 py-3 font-medium text-emerald-700">{formatCurrency(deal.revenue)}</td>
-                      <td className="px-4 py-3 text-slate-600">{deal.loan_officer || '—'}</td>
-                      <td className="px-4 py-3 text-slate-600">{deal.investor || '—'}</td>
-                      <td className="px-4 py-3 text-slate-600">{deal.rate ? `${deal.rate}%` : '—'}</td>
-                      <td className="px-4 py-3">
-                        <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                          {deal.pipeline_group}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-400 text-xs">{formatDate(deal.created_at)}</td>
-                      <td className="px-4 py-3">
-                        <Link href={`/deals/${deal.id}`} className="text-slate-400 hover:text-blue-600 transition-colors">
-                          <ExternalLink className="w-4 h-4" />
-                        </Link>
-                      </td>
-                    </tr>
-                  ))
+                  filtered.map(deal => {
+                    const isSelected = selectedIds.has(deal.id)
+                    return (
+                      <tr
+                        key={deal.id}
+                        className={`hover:bg-slate-50 transition-colors ${isSelected ? 'bg-blue-50' : ''}`}
+                      >
+                        {/* Checkbox */}
+                        <td className="px-4 py-3">
+                          <button onClick={() => toggleSelect(deal.id)} className="text-slate-400 hover:text-blue-600 transition-colors">
+                            {isSelected
+                              ? <CheckSquare className="w-4 h-4 text-blue-600" />
+                              : <div className="w-4 h-4 rounded border-2 border-slate-300 hover:border-blue-400" />
+                            }
+                          </button>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Link href={`/deals/${deal.id}`} className="font-semibold text-slate-900 hover:text-blue-600">
+                            {deal.name}
+                          </Link>
+                          {deal.property_address && (
+                            <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[180px]">{deal.property_address}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`text-xs px-2 py-1 rounded-md font-medium ${STATUS_COLORS[deal.status] || 'bg-gray-100 text-gray-600'}`}>
+                            {deal.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">{deal.loan_type || '—'}</td>
+                        <td className="px-4 py-3 font-medium text-slate-800">{formatCurrency(deal.loan_amount)}</td>
+                        <td className="px-4 py-3 font-medium text-emerald-700">{formatCurrency(deal.revenue)}</td>
+                        <td className="px-4 py-3 text-slate-600">{deal.loan_officer || '—'}</td>
+                        <td className="px-4 py-3 text-slate-600">{deal.investor || '—'}</td>
+                        <td className="px-4 py-3 text-slate-600">{deal.rate ? `${deal.rate}%` : '—'}</td>
+                        <td className="px-4 py-3">
+                          <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                            {deal.pipeline_group}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-400 text-xs">{formatDate(deal.created_at)}</td>
+                        <td className="px-4 py-3">
+                          <Link href={`/deals/${deal.id}`} className="text-slate-400 hover:text-blue-600 transition-colors">
+                            <ExternalLink className="w-4 h-4" />
+                          </Link>
+                        </td>
+                      </tr>
+                    )
+                  })
                 )}
               </tbody>
             </table>
           </div>
         </div>
       )}
+
+      {/* ── Bulk action toolbar ─────────────────────────────────────────────── */}
+      {someSelected && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 z-50 border border-slate-700">
+          <span className="text-sm font-semibold text-white">{selectedIds.size} selected</span>
+          <div className="w-px h-5 bg-slate-600" />
+
+          {/* Change Status */}
+          <select
+            disabled={bulkProcessing}
+            defaultValue=""
+            onChange={e => { if (e.target.value) { bulkChangeStatus(e.target.value); e.target.value = '' } }}
+            className="bg-slate-800 text-white text-sm px-3 py-1.5 rounded-lg border border-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-50 cursor-pointer"
+          >
+            <option value="" disabled>Change Status…</option>
+            {LOAN_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+
+          {/* Change Group */}
+          <select
+            disabled={bulkProcessing}
+            defaultValue=""
+            onChange={e => { if (e.target.value) { bulkChangeGroup(e.target.value); e.target.value = '' } }}
+            className="bg-slate-800 text-white text-sm px-3 py-1.5 rounded-lg border border-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-50 cursor-pointer"
+          >
+            <option value="" disabled>Change Group…</option>
+            {PIPELINE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
+          </select>
+
+          <div className="w-px h-5 bg-slate-600" />
+
+          {/* Delete */}
+          <button
+            onClick={bulkDelete}
+            disabled={bulkProcessing}
+            className="text-red-400 hover:text-red-300 text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            {bulkProcessing ? 'Working…' : 'Delete'}
+          </button>
+
+          {/* Dismiss */}
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="text-slate-400 hover:text-white transition-colors ml-1"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
     </div>
+  )
+}
+
+// ── Export wrapped in Suspense for useSearchParams ────────────────────────────
+export default function DealsPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center h-full">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+      </div>
+    }>
+      <DealsPageInner />
+    </Suspense>
   )
 }

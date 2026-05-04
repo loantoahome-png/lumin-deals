@@ -9,6 +9,7 @@ import {
   PlusCircle,
   Building2,
 } from 'lucide-react'
+import GlobalSearch from './GlobalSearch'
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -35,8 +36,13 @@ export default function Sidebar() {
         </div>
       </div>
 
+      {/* Global Search */}
+      <div className="pt-4">
+        <GlobalSearch />
+      </div>
+
       {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-1">
+      <nav className="flex-1 px-3 py-2 space-y-1">
         {navItems.map(({ href, label, icon: Icon }) => {
           const active = pathname === href
           return (
