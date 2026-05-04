@@ -51,7 +51,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
     })
   }, [id])
 
-  function set<K extends keyof Deal>(key: K, value: string | number | boolean | null) {
+  function set<K extends keyof Deal>(key: K, value: Deal[K] | string | number | null) {
     setSaved(false)
     setForm(f => f ? { ...f, [key]: value === '' ? null : value } : f)
   }
@@ -106,7 +106,6 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
             <ArrowLeft className="w-3.5 h-3.5" /> All Deals
           </Link>
 
-          {/* Editable name */}
           <input
             value={form.name || ''}
             onChange={e => set('name', e.target.value)}
@@ -114,7 +113,6 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
             placeholder="Borrower Name"
           />
 
-          {/* Status + Group selects inline */}
           <div className="flex items-center gap-2 mt-3 flex-wrap">
             <select
               value={form.status || ''}
@@ -133,7 +131,6 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
           </div>
         </div>
 
-        {/* Action buttons */}
         <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={handleDelete}
@@ -147,9 +144,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
             onClick={handleSave}
             disabled={saving}
             className={`flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-lg transition-all ${
-              saved
-                ? 'bg-emerald-500 text-white'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
+              saved ? 'bg-emerald-500 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'
             } disabled:opacity-60`}
           >
             <Check className="w-4 h-4" />
@@ -170,6 +165,15 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
           {/* Loan Details */}
           <Card title="Loan Details">
             <div className="grid grid-cols-2 gap-4">
+              <Field label="Loan Purpose">
+                <select value={form.loan_purpose || ''} onChange={e => set('loan_purpose', e.target.value)} className={sel}>
+                  <option value="">— Select —</option>
+                  <option value="Purchase">Purchase</option>
+                  <option value="Refinance">Refinance</option>
+                  <option value="Cash-Out Refinance">Cash-Out Refinance</option>
+                  <option value="HELOC">HELOC</option>
+                </select>
+              </Field>
               <Field label="Loan Type">
                 <select value={form.loan_type || ''} onChange={e => set('loan_type', e.target.value)} className={sel}>
                   <option value="">— Select —</option>
@@ -179,8 +183,20 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
               <Field label="Loan Amount ($)">
                 <input type="number" value={form.loan_amount ?? ''} onChange={e => set('loan_amount', e.target.value ? Number(e.target.value) : null)} className={inp} placeholder="0" />
               </Field>
-              <Field label="Estimated Value ($)">
+              <Field label="Estimated / Property Value ($)">
                 <input type="number" value={form.estimated_value ?? ''} onChange={e => set('estimated_value', e.target.value ? Number(e.target.value) : null)} className={inp} placeholder="0" />
+              </Field>
+              <Field label="Current Balance ($)">
+                <input type="number" value={form.current_balance ?? ''} onChange={e => set('current_balance', e.target.value ? Number(e.target.value) : null)} className={inp} placeholder="0" />
+              </Field>
+              <Field label="LTV (%)">
+                <input type="number" step="0.01" value={form.ltv ?? ''} onChange={e => set('ltv', e.target.value ? Number(e.target.value) : null)} className={inp} placeholder="e.g. 54.23" />
+              </Field>
+              <Field label="Cash Out ($)">
+                <input type="number" value={form.cash_out ?? ''} onChange={e => set('cash_out', e.target.value ? Number(e.target.value) : null)} className={inp} placeholder="0" />
+              </Field>
+              <Field label="Down Payment ($)">
+                <input type="number" value={form.down_payment ?? ''} onChange={e => set('down_payment', e.target.value ? Number(e.target.value) : null)} className={inp} placeholder="0" />
               </Field>
               <Field label="Revenue ($)">
                 <input type="number" value={form.revenue ?? ''} onChange={e => set('revenue', e.target.value ? Number(e.target.value) : null)} className={inp} placeholder="0" />
@@ -191,17 +207,48 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
               <Field label="Investor">
                 <input value={form.investor || ''} onChange={e => set('investor', e.target.value)} className={inp} placeholder="e.g. Rocket, Figure" />
               </Field>
-              <Field label="Occupancy">
-                <select value={form.occupancy || ''} onChange={e => set('occupancy', e.target.value)} className={sel}>
-                  <option value="">— Select —</option>
-                  {OCCUPANCY_TYPES.map(o => <option key={o}>{o}</option>)}
-                </select>
-              </Field>
               <Field label="Broker / Correspondent">
                 <select value={form.broker_corr || ''} onChange={e => set('broker_corr', e.target.value)} className={sel}>
                   <option value="">— Select —</option>
                   <option value="Broker">Broker</option>
                   <option value="Correspondent">Correspondent</option>
+                </select>
+              </Field>
+            </div>
+          </Card>
+
+          {/* Property Details */}
+          <Card title="Property Details">
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Property Address">
+                <input value={form.property_address || ''} onChange={e => set('property_address', e.target.value)} className={inp} placeholder="123 Main St" />
+              </Field>
+              <Field label="City">
+                <input value={form.city || ''} onChange={e => set('city', e.target.value)} className={inp} placeholder="City" />
+              </Field>
+              <Field label="State">
+                <input value={form.state || ''} onChange={e => set('state', e.target.value)} className={inp} placeholder="CA" />
+              </Field>
+              <Field label="Zip">
+                <input value={form.zip || ''} onChange={e => set('zip', e.target.value)} className={inp} placeholder="90210" />
+              </Field>
+              <Field label="Property Use / Occupancy">
+                <select value={form.occupancy || ''} onChange={e => set('occupancy', e.target.value)} className={sel}>
+                  <option value="">— Select —</option>
+                  {OCCUPANCY_TYPES.map(o => <option key={o}>{o}</option>)}
+                  <option value="Primary Residence">Primary Residence</option>
+                </select>
+              </Field>
+              <Field label="Property Type">
+                <select value={form.property_type || ''} onChange={e => set('property_type', e.target.value)} className={sel}>
+                  <option value="">— Select —</option>
+                  <option value="Single Family">Single Family</option>
+                  <option value="Manufactured">Manufactured</option>
+                  <option value="Condo">Condo</option>
+                  <option value="Townhouse">Townhouse</option>
+                  <option value="Multi-Family (2-4)">Multi-Family (2-4)</option>
+                  <option value="Commercial">Commercial</option>
+                  <option value="Land">Land</option>
                 </select>
               </Field>
             </div>
@@ -245,22 +292,10 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
           <Card title="Notes">
             <div className="space-y-4">
               <Field label="LO Notes">
-                <textarea
-                  value={form.lo_notes || ''}
-                  onChange={e => set('lo_notes', e.target.value)}
-                  rows={3}
-                  className={inp + ' resize-none'}
-                  placeholder="Internal loan officer notes…"
-                />
+                <textarea value={form.lo_notes || ''} onChange={e => set('lo_notes', e.target.value)} rows={3} className={inp + ' resize-none'} placeholder="Internal loan officer notes…" />
               </Field>
               <Field label="Client Notes">
-                <textarea
-                  value={form.client_notes || ''}
-                  onChange={e => set('client_notes', e.target.value)}
-                  rows={3}
-                  className={inp + ' resize-none'}
-                  placeholder="Client-facing notes…"
-                />
+                <textarea value={form.client_notes || ''} onChange={e => set('client_notes', e.target.value)} rows={3} className={inp + ' resize-none'} placeholder="Client-facing notes…" />
               </Field>
             </div>
           </Card>
@@ -278,11 +313,62 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
               <Field label="Phone">
                 <input value={form.phone || ''} onChange={e => set('phone', e.target.value)} className={inp} placeholder="(555) 555-5555" />
               </Field>
-              <Field label="Property Address">
-                <input value={form.property_address || ''} onChange={e => set('property_address', e.target.value)} className={inp} placeholder="123 Main St, City, CA" />
-              </Field>
-              <Field label="Credit Score">
+              <Field label="Credit Score (FICO)">
                 <input type="number" value={form.credit_score ?? ''} onChange={e => set('credit_score', e.target.value ? Number(e.target.value) : null)} className={inp} placeholder="720" />
+              </Field>
+              <Field label="Credit Rating">
+                <select value={form.credit_rating || ''} onChange={e => set('credit_rating', e.target.value)} className={sel}>
+                  <option value="">— Select —</option>
+                  <option value="Excellent">Excellent (750+)</option>
+                  <option value="Good">Good (700–749)</option>
+                  <option value="Fair">Fair (650–699)</option>
+                  <option value="Poor">Poor (Below 650)</option>
+                </select>
+              </Field>
+              <Field label="Is Military / Veteran">
+                <select value={form.is_military || ''} onChange={e => set('is_military', e.target.value)} className={sel}>
+                  <option value="">— Select —</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                </select>
+              </Field>
+              <Field label="Current VA Loan">
+                <select value={form.current_va_loan || ''} onChange={e => set('current_va_loan', e.target.value)} className={sel}>
+                  <option value="">— Select —</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                </select>
+              </Field>
+            </div>
+          </Card>
+
+          {/* Lead Info */}
+          <Card title="Lead Info">
+            <div className="space-y-3">
+              <Field label="Loan Timeframe">
+                <input value={form.loan_timeframe || ''} onChange={e => set('loan_timeframe', e.target.value)} className={inp} placeholder="e.g. 30–60 days" />
+              </Field>
+              <Field label="Property Found?">
+                <select value={form.property_found || ''} onChange={e => set('property_found', e.target.value)} className={sel}>
+                  <option value="">— Select —</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                </select>
+              </Field>
+              <Field label="Has Accepted Offer?">
+                <select value={form.has_accepted_offer || ''} onChange={e => set('has_accepted_offer', e.target.value)} className={sel}>
+                  <option value="">— Select —</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                </select>
+              </Field>
+              <Field label="Source">
+                <select value={form.source || ''} onChange={e => set('source', e.target.value)} className={sel}>
+                  <option value="">— Select —</option>
+                  <option value="GHL">GHL</option>
+                  <option value="Self Source">Self Source</option>
+                  <option value="Referral">Referral</option>
+                </select>
               </Field>
             </div>
           </Card>
@@ -303,14 +389,6 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                   <option value="Hanh - 3rd party">Hanh - 3rd party</option>
                   <option value="Susan - In house">Susan - In house</option>
                   <option value="Self Processing">Self Processing</option>
-                </select>
-              </Field>
-              <Field label="Source">
-                <select value={form.source || ''} onChange={e => set('source', e.target.value)} className={sel}>
-                  <option value="">— Select —</option>
-                  <option value="GHL">GHL</option>
-                  <option value="Self Source">Self Source</option>
-                  <option value="Referral">Referral</option>
                 </select>
               </Field>
             </div>
@@ -348,7 +426,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
         </div>
       </div>
 
-      {/* Sticky save bar at bottom for convenience */}
+      {/* Bottom save bar */}
       <div className="mt-8 pb-8 flex justify-end">
         <button
           onClick={handleSave}

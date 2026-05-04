@@ -34,6 +34,18 @@ export type Deal = {
   lead_source_agg: string | null
   arive_file_no: string | null
   investor_file_no: string | null
+  loan_purpose: string | null
+  property_type: string | null
+  credit_rating: string | null
+  current_balance: number | null
+  ltv: number | null
+  cash_out: number | null
+  down_payment: number | null
+  is_military: string | null
+  current_va_loan: string | null
+  property_found: string | null
+  loan_timeframe: string | null
+  has_accepted_offer: string | null
   lo_notes: string | null
   client_notes: string | null
   subbed: boolean

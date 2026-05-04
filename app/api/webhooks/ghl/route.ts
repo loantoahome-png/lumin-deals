@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 type GHLCustomField = {
   id?: string
@@ -14,7 +14,7 @@ type GHLCustomField = {
 
 /**
  * Search GHL customFields array by any matching key/name pattern.
- * GHL uses many naming conventions (camelCase, snake_case, display name).
+ * Normalises everything to lowercase with no spaces/underscores/hyphens.
  */
 function getCustomField(fields: GHLCustomField[], ...searchKeys: string[]): string | null {
   if (!fields || !Array.isArray(fields)) return null
@@ -23,10 +23,10 @@ function getCustomField(fields: GHLCustomField[], ...searchKeys: string[]): stri
       .filter(Boolean)
       .join(' ')
       .toLowerCase()
-      .replace(/[\s_-]+/g, '')
+      .replace(/[\s_\-]+/g, '')
 
     for (const key of searchKeys) {
-      if (identifier.includes(key.toLowerCase().replace(/[\s_-]+/g, ''))) {
+      if (identifier.includes(key.toLowerCase().replace(/[\s_\-]+/g, ''))) {
         return field.field_value || field.value || null
       }
     }
@@ -51,7 +51,7 @@ function pick(body: Record<string, unknown>, ...keys: string[]): string | null {
   return null
 }
 
-// ── Main Handler ─────────────────────────────────────────────────────────────
+// ── Main Handler ──────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   try {
@@ -59,24 +59,28 @@ export async function POST(req: NextRequest) {
     console.log('[GHL Webhook] Received payload:', JSON.stringify(body, null, 2))
 
     // ── Contact identity ──────────────────────────────────────────────────────
-    // GHL sends different shapes depending on webhook trigger type
     const contact = (body.contact as Record<string, unknown>) || body
-    const ghlContactId = pick(contact, 'id', 'contact_id', 'contactId') ||
-                         pick(body, 'id', 'contact_id', 'contactId')
+    const ghlContactId =
+      pick(contact, 'id', 'contact_id', 'contactId') ||
+      pick(body, 'id', 'contact_id', 'contactId')
 
-    const firstName  = pick(contact, 'firstName', 'first_name', 'FirstName') ||
-                       pick(body, 'firstName', 'first_name') || ''
-    const lastName   = pick(contact, 'lastName', 'last_name', 'LastName') ||
-                       pick(body, 'lastName', 'last_name') || ''
-    const fullName   = pick(contact, 'fullName', 'full_name', 'name', 'contactName') ||
-                       pick(body, 'fullName', 'full_name', 'name', 'contact_name') ||
-                       `${firstName} ${lastName}`.trim() || 'New Lead'
+    const firstName =
+      pick(contact, 'firstName', 'first_name', 'FirstName') ||
+      pick(body, 'firstName', 'first_name') || ''
+    const lastName =
+      pick(contact, 'lastName', 'last_name', 'LastName') ||
+      pick(body, 'lastName', 'last_name') || ''
+    const fullName =
+      pick(contact, 'fullName', 'full_name', 'name', 'contactName') ||
+      pick(body, 'fullName', 'full_name', 'name', 'contact_name') ||
+      `${firstName} ${lastName}`.trim() || 'New Lead'
 
     const email = pick(contact, 'email') || pick(body, 'email')
-    const phone = pick(contact, 'phone', 'phoneNumber', 'phone_number') ||
-                  pick(body, 'phone', 'phoneNumber', 'phone_number')
+    const phone =
+      pick(contact, 'phone', 'phoneNumber', 'phone_number') ||
+      pick(body, 'phone', 'phoneNumber', 'phone_number')
 
-    // ── Custom fields ─────────────────────────────────────────────────────────
+    // ── Custom fields array ───────────────────────────────────────────────────
     const rawCustomFields = (
       (contact.customFields as GHLCustomField[]) ||
       (body.customFields as GHLCustomField[]) ||
@@ -84,45 +88,50 @@ export async function POST(req: NextRequest) {
       []
     )
 
-    // Loan Amount — try body fields first, then custom fields
+    // ── Loan & financial fields ───────────────────────────────────────────────
+
     const loanAmount = parseAmount(
       pick(body, 'loan_amount', 'loanAmount', 'loan_amt') ||
       pick(contact, 'loan_amount', 'loanAmount') ||
       getCustomField(rawCustomFields,
-        'loan_amount', 'loan amount', 'loanamount',
-        'loan_size', 'mortgage_amount', 'requested_amount')
+        'loan_amount', 'loan amount', 'loanamount', 'loan_size',
+        'mortgage_amount', 'requested_amount', 'Loan Amount')
     )
 
-    // Estimated / Property Value
     const estimatedValue = parseAmount(
       pick(body, 'estimated_value', 'propertyValue', 'property_value', 'home_value', 'estimatedValue') ||
       pick(contact, 'estimated_value', 'propertyValue') ||
       getCustomField(rawCustomFields,
-        'estimated_value', 'property_value', 'home_value',
-        'estimated value', 'property value', 'home value',
-        'purchase_price', 'purchase price', 'appraised_value')
+        'estimated_value', 'property_value', 'home_value', 'estimated value',
+        'property value', 'home value', 'purchase_price', 'purchase price',
+        'appraised_value', 'Property Value', 'propertyvalue')
     )
 
-    // Loan Type
-    const loanType = (
+    const loanType =
       pick(body, 'loan_type', 'loanType', 'loan_program') ||
       pick(contact, 'loan_type', 'loanType') ||
       getCustomField(rawCustomFields,
         'loan_type', 'loan type', 'loan_program', 'loantype',
-        'mortgage_type', 'program_type', 'product_type')
-    )
+        'mortgage_type', 'program_type', 'product_type', 'Loan Type')
 
-    // Property Address — custom field first (not contact.address which is mailing)
-    const propertyAddress = (
+    // NEW: Loan Purpose (Refinance / Purchase / etc.)
+    const loanPurpose =
+      pick(body, 'loan_purpose', 'loanPurpose') ||
+      getCustomField(rawCustomFields,
+        'loan_purpose', 'loan purpose', 'loanpurpose', 'Loan Purpose',
+        'purpose', 'loan_goal')
+
+    // Property Address — GHL uses "PhysicalAddress" as a custom field key
+    const propertyAddress =
       getCustomField(rawCustomFields,
         'property_address', 'property address', 'subject_property',
-        'property_street', 'home_address', 'prop_address') ||
+        'property_street', 'home_address', 'prop_address',
+        'PhysicalAddress', 'physicaladdress', 'physical_address',
+        'physical address') ||
       pick(body, 'property_address', 'propertyAddress') ||
       pick(contact, 'address1', 'address') ||
       pick(body, 'address1', 'address')
-    )
 
-    // Credit Score
     const creditScore = parseAmount(
       pick(body, 'credit_score', 'creditScore', 'fico', 'fico_score') ||
       getCustomField(rawCustomFields,
@@ -130,7 +139,13 @@ export async function POST(req: NextRequest) {
         'middle_score', 'beacon_score')
     )
 
-    // Revenue / Compensation
+    // NEW: Credit Rating (text like "Good", "Excellent")
+    const creditRating =
+      pick(body, 'credit_rating', 'creditRating') ||
+      getCustomField(rawCustomFields,
+        'credit_rating', 'credit rating', 'creditrating', 'Credit Rating',
+        'credit_grade', 'creditgrade')
+
     const revenue = parseAmount(
       pick(body, 'revenue', 'compensation', 'commission', 'total_comp') ||
       getCustomField(rawCustomFields,
@@ -138,50 +153,137 @@ export async function POST(req: NextRequest) {
         'estimated_revenue', 'broker_comp')
     )
 
-    // Rate
     const rate = parseAmount(
       pick(body, 'rate', 'interest_rate', 'interestRate') ||
       getCustomField(rawCustomFields,
         'rate', 'interest_rate', 'note_rate', 'quoted_rate')
     )
 
-    // Investor / Lender
-    const investor = (
+    const investor =
       pick(body, 'investor', 'lender', 'bank') ||
       getCustomField(rawCustomFields,
         'investor', 'lender', 'wholesale_lender', 'bank', 'lender_name')
-    )
 
-    // Occupancy
-    const occupancy = (
+    // Occupancy / Property Use
+    const occupancy =
       pick(body, 'occupancy', 'property_type', 'propertyType') ||
       getCustomField(rawCustomFields,
         'occupancy', 'occupancy_type', 'property_type', 'property use',
+        'propertyuse', 'Property Use', 'property_use',
         'primary', 'investment', 'second home')
+
+    // NEW: Property Type (Manufactured, Single Family, Condo, etc.)
+    const propertyType =
+      pick(body, 'property_type_detail', 'propertyTypeDetail') ||
+      getCustomField(rawCustomFields,
+        'property_type', 'Property Type', 'propertytype', 'structure_type',
+        'home_type', 'hometype', 'dwelling_type', 'dwellingtype')
+
+    // NEW: Current Balance (existing mortgage balance)
+    const currentBalance = parseAmount(
+      pick(body, 'current_balance', 'currentBalance', 'existing_balance') ||
+      getCustomField(rawCustomFields,
+        'current_balance', 'currentbalance', 'Current Balance',
+        'existing_balance', 'existingbalance', 'mortgage_balance',
+        'outstanding_balance')
     )
 
-    // Address components (contact mailing address)
-    const city  = pick(contact, 'city')  || pick(body, 'city')
-    const state = pick(contact, 'state') || pick(body, 'state')
-    const zip   = pick(contact, 'postalCode', 'postal_code', 'zip') ||
-                  pick(body, 'postalCode', 'postal_code', 'zip')
+    // NEW: LTV
+    const ltv = parseAmount(
+      pick(body, 'ltv', 'LTV', 'loan_to_value') ||
+      getCustomField(rawCustomFields,
+        'ltv', 'LTV', 'Property LTV', 'propertyltv', 'loan_to_value',
+        'loantovalue')
+    )
 
-    // Source
+    // NEW: Cash Out
+    const cashOut = parseAmount(
+      pick(body, 'cash_out', 'cashOut', 'cash_out_amount') ||
+      getCustomField(rawCustomFields,
+        'cash_out', 'cashout', 'Cash out', 'Cashout',
+        'cash_out_amount', 'cashoutamount')
+    )
+
+    // NEW: Down Payment
+    const downPayment = parseAmount(
+      pick(body, 'down_payment', 'downPayment', 'dp') ||
+      getCustomField(rawCustomFields,
+        'down_payment', 'downpayment', 'Down Payment',
+        'down_pmt', 'downpmt', 'dp')
+    )
+
+    // NEW: Is Military
+    const isMilitary =
+      pick(body, 'is_military', 'isMilitary', 'military') ||
+      getCustomField(rawCustomFields,
+        'is_military', 'ismilitary', 'IsMilitary',
+        'military', 'veteran', 'is_veteran')
+
+    // NEW: Current VA Loan (note: GHL uses typo "curentVALoan")
+    const currentVaLoan =
+      pick(body, 'current_va_loan', 'currentVaLoan', 'curentVALoan') ||
+      getCustomField(rawCustomFields,
+        'current_va_loan', 'currentvaloan', 'curentVALoan',
+        'currentvaloan', 'va_loan', 'valoan', 'existing_va_loan')
+
+    // NEW: Property Found
+    const propertyFound =
+      pick(body, 'property_found', 'propertyFound') ||
+      getCustomField(rawCustomFields,
+        'property_found', 'propertyfound', 'Property Found',
+        'found_property', 'foundproperty', 'home_found')
+
+    // NEW: Loan Timeframe
+    const loanTimeframe =
+      pick(body, 'loan_timeframe', 'loanTimeframe', 'timeframe') ||
+      getCustomField(rawCustomFields,
+        'loan_timeframe', 'loantimeframe', 'Loan Timeframe',
+        'timeframe', 'purchase_timeframe', 'closing_timeframe',
+        'when_to_close', 'timeline')
+
+    // NEW: Has Accepted Offer
+    const hasAcceptedOffer =
+      pick(body, 'has_accepted_offer', 'hasAcceptedOffer', 'accepted_offer') ||
+      getCustomField(rawCustomFields,
+        'has_accepted_offer', 'hasacceptedoffer', 'Has Accepted Offer',
+        'accepted_offer', 'acceptedoffer', 'offer_accepted')
+
+    // Address components (contact mailing / physical)
+    const city =
+      pick(contact, 'city') ||
+      pick(body, 'city') ||
+      getCustomField(rawCustomFields,
+        'phys_city', 'physcity', 'Phys City', 'physical_city',
+        'property_city', 'propertycity')
+
+    const state =
+      pick(contact, 'state') ||
+      pick(body, 'state') ||
+      getCustomField(rawCustomFields,
+        'phys_state', 'physstate', 'Phys State', 'physical_state',
+        'property_state', 'propertystate')
+
+    const zip =
+      pick(contact, 'postalCode', 'postal_code', 'zip') ||
+      pick(body, 'postalCode', 'postal_code', 'zip') ||
+      getCustomField(rawCustomFields,
+        'phys_zip', 'physzip', 'Phys Zip', 'physical_zip',
+        'property_zip', 'propertyzip')
+
     const source = pick(contact, 'source') || pick(body, 'source') || 'GHL'
 
-    // Tags
     const tagsRaw = (contact.tags || body.tags) as string[] | string | undefined
     const ghlTags = Array.isArray(tagsRaw)
       ? tagsRaw.join(', ')
       : (typeof tagsRaw === 'string' ? tagsRaw : null)
 
-    // Assigned user
-    const ghlAssignedUser = pick(contact, 'assignedTo', 'assigned_to', 'assignedUser') ||
-                            pick(body, 'assignedTo', 'assigned_to')
+    const ghlAssignedUser =
+      pick(contact, 'assignedTo', 'assigned_to', 'assignedUser') ||
+      pick(body, 'assignedTo', 'assigned_to')
 
-    // Date added to GHL
-    const dateAddedGHL = (pick(contact, 'dateAdded', 'date_added', 'createdAt') ||
-                          pick(body, 'dateAdded', 'date_added'))
+    const dateAddedGHL =
+      pick(contact, 'dateAdded', 'date_added', 'createdAt') ||
+      pick(body, 'dateAdded', 'date_added')
 
     // ── Duplicate check ───────────────────────────────────────────────────────
     const supabase = createServiceClient()
@@ -194,19 +296,33 @@ export async function POST(req: NextRequest) {
         .single()
 
       if (existing) {
-        // Update with any new info that arrived
         await supabase.from('deals').update({
           last_contacted: new Date().toISOString().split('T')[0],
-          ...(loanAmount    && { loan_amount: loanAmount }),
-          ...(estimatedValue && { estimated_value: estimatedValue }),
-          ...(loanType      && { loan_type: loanType }),
-          ...(propertyAddress && { property_address: propertyAddress }),
-          ...(creditScore   && { credit_score: creditScore }),
-          ...(revenue       && { revenue }),
-          ...(rate          && { rate }),
-          ...(investor      && { investor }),
-          ...(occupancy     && { occupancy }),
-          ...(ghlTags       && { ghl_tags: ghlTags }),
+          ...(loanAmount       && { loan_amount: loanAmount }),
+          ...(estimatedValue   && { estimated_value: estimatedValue }),
+          ...(loanType         && { loan_type: loanType }),
+          ...(loanPurpose      && { loan_purpose: loanPurpose }),
+          ...(propertyAddress  && { property_address: propertyAddress }),
+          ...(creditScore      && { credit_score: creditScore }),
+          ...(creditRating     && { credit_rating: creditRating }),
+          ...(revenue          && { revenue }),
+          ...(rate             && { rate }),
+          ...(investor         && { investor }),
+          ...(occupancy        && { occupancy }),
+          ...(propertyType     && { property_type: propertyType }),
+          ...(currentBalance   && { current_balance: currentBalance }),
+          ...(ltv              && { ltv }),
+          ...(cashOut          && { cash_out: cashOut }),
+          ...(downPayment      && { down_payment: downPayment }),
+          ...(isMilitary       && { is_military: isMilitary }),
+          ...(currentVaLoan    && { current_va_loan: currentVaLoan }),
+          ...(propertyFound    && { property_found: propertyFound }),
+          ...(loanTimeframe    && { loan_timeframe: loanTimeframe }),
+          ...(hasAcceptedOffer && { has_accepted_offer: hasAcceptedOffer }),
+          ...(ghlTags          && { ghl_tags: ghlTags }),
+          ...(city             && { city }),
+          ...(state            && { state }),
+          ...(zip              && { zip }),
           raw_ghl_data: body,
         }).eq('id', existing.id)
 
@@ -229,23 +345,35 @@ export async function POST(req: NextRequest) {
       loan_amount:      loanAmount,
       estimated_value:  estimatedValue,
       loan_type:        loanType,
+      loan_purpose:     loanPurpose,
       property_address: propertyAddress,
       credit_score:     creditScore,
+      credit_rating:    creditRating,
       revenue,
       rate,
       investor,
       occupancy,
+      property_type:    propertyType,
+      current_balance:  currentBalance,
+      ltv,
+      cash_out:         cashOut,
+      down_payment:     downPayment,
+      is_military:      isMilitary,
+      current_va_loan:  currentVaLoan,
+      property_found:   propertyFound,
+      loan_timeframe:   loanTimeframe,
+      has_accepted_offer: hasAcceptedOffer,
       // Address
       city,
       state,
       zip,
       // GHL metadata
-      ghl_contact_id:   ghlContactId || null,
-      ghl_tags:         ghlTags,
+      ghl_contact_id:    ghlContactId || null,
+      ghl_tags:          ghlTags,
       ghl_assigned_user: ghlAssignedUser,
-      date_added_ghl:   dateAddedGHL || null,
-      last_contacted:   new Date().toISOString().split('T')[0],
-      raw_ghl_data:     body,
+      date_added_ghl:    dateAddedGHL || null,
+      last_contacted:    new Date().toISOString().split('T')[0],
+      raw_ghl_data:      body,
     }
 
     const { data, error } = await supabase
@@ -259,10 +387,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    console.log('[GHL Webhook] Created deal:', data.id, '| Fields captured:', {
-      name: fullName, email, phone, loanAmount, estimatedValue,
-      loanType, propertyAddress, creditScore, source,
-    })
+    console.log('[GHL Webhook] Created deal:', data.id)
 
     return NextResponse.json({
       success: true,
@@ -275,8 +400,20 @@ export async function POST(req: NextRequest) {
         loan_amount: !!loanAmount,
         estimated_value: !!estimatedValue,
         loan_type: !!loanType,
+        loan_purpose: !!loanPurpose,
         property_address: !!propertyAddress,
         credit_score: !!creditScore,
+        credit_rating: !!creditRating,
+        property_type: !!propertyType,
+        current_balance: !!currentBalance,
+        ltv: !!ltv,
+        cash_out: !!cashOut,
+        down_payment: !!downPayment,
+        is_military: !!isMilitary,
+        current_va_loan: !!currentVaLoan,
+        property_found: !!propertyFound,
+        loan_timeframe: !!loanTimeframe,
+        has_accepted_offer: !!hasAcceptedOffer,
       }
     })
 
@@ -290,14 +427,18 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   return NextResponse.json({
     status: 'ok',
-    message: 'GHL webhook endpoint is live — capturing all custom fields',
+    message: 'GHL webhook — capturing all custom fields',
     timestamp: new Date().toISOString(),
     fields_captured: [
       'name', 'email', 'phone', 'source',
-      'loan_amount', 'estimated_value', 'loan_type',
-      'property_address', 'credit_score', 'revenue', 'rate',
-      'investor', 'occupancy', 'city', 'state', 'zip',
-      'ghl_tags', 'ghl_assigned_user', 'raw_ghl_data'
+      'loan_amount', 'estimated_value', 'loan_type', 'loan_purpose',
+      'property_address', 'credit_score', 'credit_rating',
+      'revenue', 'rate', 'investor', 'occupancy',
+      'property_type', 'current_balance', 'ltv', 'cash_out', 'down_payment',
+      'is_military', 'current_va_loan', 'property_found',
+      'loan_timeframe', 'has_accepted_offer',
+      'city', 'state', 'zip',
+      'ghl_tags', 'ghl_assigned_user', 'raw_ghl_data',
     ]
   })
 }
