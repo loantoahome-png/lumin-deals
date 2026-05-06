@@ -4,9 +4,25 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import {
-  Deal, LOAN_STATUSES, PIPELINE_GROUPS, LOAN_OFFICERS,
+  Deal, PIPELINE_GROUPS, LOAN_OFFICERS,
   LOAN_TYPES, OCCUPANCY_TYPES, APPRAISAL_STATUSES
 } from '@/lib/types'
+
+// Statuses grouped by GHL pipeline for the form dropdown
+const STATUS_GROUPS = [
+  {
+    label: 'Leads',
+    statuses: ['New Lead', 'Attempted Contact', 'Ghosted', 'Responded', 'Pitching', 'Appointment Booked', 'Arive Lead', 'App Intake', 'Qualification', 'Pre-Approved'],
+  },
+  {
+    label: 'Loans in Process',
+    statuses: ['Loan Setup', 'Disclosed', 'Submitted to UW', 'Approved w/ Conditions', 'Re-Submittal', 'Clear to Close', 'Docs Out', 'Docs Signed', 'Loan Funded', 'Broker Check Received', 'Loan Finalized'],
+  },
+  {
+    label: 'Not Ready',
+    statuses: ['Not Qualified - Credit', 'Not Qualified - Income', 'Not Ready - Timeframe', 'DND - SMS', 'Not Ready - Rate', 'Lost to Competitor', 'Non-Responsive', 'Remove from All Automations', 'STOP'],
+  },
+]
 
 type DealFormData = Omit<Deal, 'id' | 'created_at' | 'updated_at'>
 
@@ -16,8 +32,8 @@ const emptyDeal: DealFormData = {
   last_name: null,
   email: null,
   phone: null,
-  status: 'Client',
-  pipeline_group: 'LEADS',
+  status: 'New Lead',
+  pipeline_group: 'Leads',
   loan_officer: null,
   processor: null,
   processor_status: null,
@@ -169,7 +185,11 @@ export default function DealForm({ deal }: { deal?: Deal }) {
           </Field>
           <Field label="Loan Status">
             <select value={form.status} onChange={e => set('status', e.target.value)} className={selectClass}>
-              {LOAN_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              {STATUS_GROUPS.map(g => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.statuses.map(s => <option key={s} value={s}>{s}</option>)}
+                </optgroup>
+              ))}
             </select>
           </Field>
         </div>

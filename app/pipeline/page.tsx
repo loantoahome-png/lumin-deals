@@ -23,27 +23,42 @@ const STAGE_COLORS = {
 } as Record<string, { header: string; dot: string; col: string }>
 
 const STAGE_DEFAULT_STATUS: Record<string, string> = {
-  Leads:   'Client',
-  Escrows: 'Loan Registered',
-  Funded:  'PAID',
+  Leads:   'New Lead',
+  Escrows: 'Loan Setup',
+  Funded:  'Loan Funded',
 }
 const STAGE_DEFAULT_GROUP: Record<string, string> = {
-  Leads:   'LEADS',
-  Escrows: 'Active Escrows',
-  Funded:  'Closed',
+  Leads:   'Leads',
+  Escrows: 'Loans in Process',
+  Funded:  'Funded',
 }
 
-// ── Escrow sub-sections (for ordering + labels within the Escrows column) ─────
+// ── Escrow sub-sections (ordering + labels within the Escrows column) ─────────
 const ESCROW_SUBGROUPS: { label: string; dot: string; statuses: Set<string> }[] = [
-  { label: 'Processing',   dot: 'bg-blue-400',   statuses: new Set(['REGISTER', 'Loan Registered', 'F - In Process', 'Submitted to UW']) },
-  { label: 'Underwriting', dot: 'bg-amber-500',  statuses: new Set(['Underwriting', 'Conditional approval', 'Conditions', 'Waiting on Docs from Client for final approval', 'Waiting on VOE']) },
-  { label: 'Closing',      dot: 'bg-orange-500', statuses: new Set(['Submitted docs for CTC', 'Clear to Close', 'F - Notary Preparation', 'F - Note Signing', 'F - Rescission', 'Signing Scheduled', 'Signing Done - Waiting for Funding']) },
+  { label: 'Processing',   dot: 'bg-blue-400',    statuses: new Set(['Loan Setup', 'Disclosed', 'Submitted to UW']) },
+  { label: 'Underwriting', dot: 'bg-amber-500',   statuses: new Set(['Approved w/ Conditions', 'Re-Submittal']) },
+  { label: 'Closing',      dot: 'bg-orange-500',  statuses: new Set(['Clear to Close', 'Docs Out', 'Docs Signed']) },
+  { label: 'Funding',      dot: 'bg-emerald-500', statuses: new Set(['Loan Funded', 'Broker Check Received', 'Loan Finalized']) },
 ]
 function escrowSubIndex(status: string): number {
   for (let i = 0; i < ESCROW_SUBGROUPS.length; i++) {
     if (ESCROW_SUBGROUPS[i].statuses.has(status)) return i
   }
   return 99
+}
+
+// ── Column ← pipeline_group mapping (with legacy fallback) ───────────────────
+function getColumnForDeal(deal: Deal): string | null {
+  const g = deal.pipeline_group
+  // New values
+  if (g === 'Leads') return 'Leads'
+  if (g === 'Loans in Process') return 'Escrows'
+  if (g === 'Funded') return 'Funded'
+  // Legacy values (backwards compatibility with old DB records)
+  if (g === 'LEADS') return 'Leads'
+  if (g === 'Active Escrows' || g === 'Signing Scheduled') return 'Escrows'
+  if (g === 'Closed') return 'Funded'
+  return null // Not Ready, Lost, Nurture, etc. → hidden
 }
 
 // ── Source badge ──────────────────────────────────────────────────────────────
@@ -81,13 +96,6 @@ function getLockDaysLeft(deal: Deal): number | null {
   if (!deal.lock_expiration || deal.locked !== 'Yes') return null
   const exp = new Date(deal.lock_expiration)
   return Math.floor((exp.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-}
-
-function getStageForStatus(status: string): string {
-  for (const [stage, statuses] of Object.entries(PIPELINE_STAGE_MAP)) {
-    if ((statuses as readonly string[]).includes(status)) return stage
-  }
-  return 'Leads'
 }
 
 // ── Droppable Column ──────────────────────────────────────────────────────────
@@ -254,7 +262,7 @@ function ListView({ deals, onStatusChange }: {
   const sorted = [...deals].sort((a, b) => {
     let av: string | number = '', bv: string | number = ''
     if (sortKey === 'name')        { av = a.name;                     bv = b.name }
-    if (sortKey === 'stage')       { av = getStageForStatus(a.status); bv = getStageForStatus(b.status) }
+    if (sortKey === 'stage')       { av = getColumnForDeal(a) || ''; bv = getColumnForDeal(b) || '' }
     if (sortKey === 'status')      { av = a.status;                   bv = b.status }
     if (sortKey === 'loan_officer'){ av = a.loan_officer || '';        bv = b.loan_officer || '' }
     if (sortKey === 'loan_amount') { av = a.loan_amount || 0;          bv = b.loan_amount || 0 }
@@ -303,7 +311,7 @@ function ListView({ deals, onStatusChange }: {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {sorted.map(deal => {
-              const stage    = getStageForStatus(deal.status)
+              const stage    = getColumnForDeal(deal) || '—'
               const age      = getDealAge(deal)
               const lockDays = getLockDaysLeft(deal)
               const ageColor = age <= 7 ? 'text-emerald-600' : age <= 14 ? 'text-amber-600' : 'text-red-600'
@@ -442,7 +450,7 @@ export default function PipelinePage() {
     const { data } = await supabase
       .from('deals')
       .select('*')
-      .not('pipeline_group', 'in', '("Lost","Last files at WCL","Lost/Inactive/Does not qualify")')
+      .not('pipeline_group', 'in', '("Not Ready","Lost","Last files at WCL","Lost/Inactive/Does not qualify","Nurture")')
       .order('created_at', { ascending: false })
     setDeals(data || [])
     setLoading(false)
@@ -453,20 +461,20 @@ export default function PipelinePage() {
   // Determine which stages to show
   const visibleStages = STAGE_ORDER.filter(s => !(hideFunded && s === 'Funded'))
 
-  // Filter deals to visible stages + LO
+  // Filter deals to visible columns + LO
   const filteredDeals = deals.filter(d => {
-    const stage = getStageForStatus(d.status)
-    if (!visibleStages.includes(stage)) return false
+    const col = getColumnForDeal(d)
+    if (!col || !visibleStages.includes(col)) return false
     if (loFilter !== 'All' && !d.loan_officer?.includes(loFilter)) return false
     return true
   })
 
-  // Group by stage, Escrows sorted by sub-section order
+  // Group by column, Escrows sorted by sub-section order
   const stageMap: Record<string, Deal[]> = {}
   visibleStages.forEach(s => { stageMap[s] = [] })
   filteredDeals.forEach(d => {
-    const stage = getStageForStatus(d.status)
-    if (stageMap[stage]) stageMap[stage].push(d)
+    const col = getColumnForDeal(d)
+    if (col && stageMap[col]) stageMap[col].push(d)
   })
   if (stageMap['Escrows']) {
     stageMap['Escrows'].sort((a, b) => escrowSubIndex(a.status) - escrowSubIndex(b.status))
@@ -477,8 +485,17 @@ export default function PipelinePage() {
   const staleDeals = filteredDeals.filter(d => getDealAge(d) > 14).length
 
   async function handleStatusChange(dealId: string, newStatus: string) {
-    const newStage = getStageForStatus(newStatus)
-    const newGroup = STAGE_DEFAULT_GROUP[newStage]
+    // Determine which column the new status belongs to via PIPELINE_STAGE_MAP
+    let newGroup = STAGE_DEFAULT_GROUP['Leads']
+    for (const [col, statuses] of Object.entries(PIPELINE_STAGE_MAP)) {
+      if (statuses.includes(newStatus)) {
+        if (col === 'Leads')    newGroup = 'Leads'
+        else if (col === 'Escrows')  newGroup = 'Loans in Process'
+        else if (col === 'Funded')   newGroup = 'Funded'
+        else if (col === 'Not Ready') newGroup = 'Not Ready'
+        break
+      }
+    }
     setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status: newStatus, pipeline_group: newGroup, updated_at: new Date().toISOString() } : d))
     await supabase.from('deals').update({ status: newStatus, pipeline_group: newGroup }).eq('id', dealId)
   }
@@ -495,7 +512,7 @@ export default function PipelinePage() {
     if (!STAGE_ORDER.includes(targetStage)) return
     const deal = deals.find(d => d.id === dealId)
     if (!deal) return
-    const currentStage = getStageForStatus(deal.status)
+    const currentStage = getColumnForDeal(deal)
     if (currentStage === targetStage) return
     const newStatus = STAGE_DEFAULT_STATUS[targetStage]
     const newGroup  = STAGE_DEFAULT_GROUP[targetStage]

@@ -66,31 +66,61 @@ function resolveLO(ownerName: string | null): string | null {
   return ownerName
 }
 
-// GHL opportunity stage → our pipeline stage + status
+// GHL stage name → { status, pipeline_group }  (exact match = GHL stage names)
 const GHL_STAGE_MAP: Record<string, { status: string; pipeline_group: string }> = {
-  'new lead':       { status: 'Client',           pipeline_group: 'LEADS' },
-  'lead':           { status: 'Client',           pipeline_group: 'LEADS' },
-  'application':    { status: 'Working on application/docs', pipeline_group: 'LEADS' },
-  'processing':     { status: 'F - In Process',   pipeline_group: 'Active Escrows' },
-  'registered':     { status: 'Loan Registered',  pipeline_group: 'Active Escrows' },
-  'submitted':      { status: 'Submitted to UW',  pipeline_group: 'Active Escrows' },
-  'underwriting':   { status: 'Underwriting',     pipeline_group: 'Active Escrows' },
-  'conditional':    { status: 'Conditional approval', pipeline_group: 'Active Escrows' },
-  'conditions':     { status: 'Conditions',       pipeline_group: 'Active Escrows' },
-  'ctc':            { status: 'Clear to Close',   pipeline_group: 'Signing Scheduled' },
-  'clear to close': { status: 'Clear to Close',   pipeline_group: 'Signing Scheduled' },
-  'signing':        { status: 'Signing Scheduled', pipeline_group: 'Signing Scheduled' },
-  'funded':         { status: 'PAID',             pipeline_group: 'Closed' },
-  'closed':         { status: 'PAID',             pipeline_group: 'Closed' },
-  'won':            { status: 'PAID',             pipeline_group: 'Closed' },
-  'lost':           { status: 'Client',           pipeline_group: 'Lost' },
+  // ── Leads pipeline ───────────────────────────────────────────────────────────
+  'new lead':           { status: 'New Lead',           pipeline_group: 'Leads' },
+  'attempted contact':  { status: 'Attempted Contact',  pipeline_group: 'Leads' },
+  'ghosted':            { status: 'Ghosted',            pipeline_group: 'Leads' },
+  'responded':          { status: 'Responded',          pipeline_group: 'Leads' },
+  'pitching':           { status: 'Pitching',           pipeline_group: 'Leads' },
+  'appointment booked': { status: 'Appointment Booked', pipeline_group: 'Leads' },
+  'arive lead':         { status: 'Arive Lead',         pipeline_group: 'Leads' },
+  'app intake':         { status: 'App Intake',         pipeline_group: 'Leads' },
+  'qualification':      { status: 'Qualification',      pipeline_group: 'Leads' },
+  'pre-approved':       { status: 'Pre-Approved',       pipeline_group: 'Leads' },
+  // ── Loans in Process pipeline ─────────────────────────────────────────────────
+  'loan setup':               { status: 'Loan Setup',               pipeline_group: 'Loans in Process' },
+  'disclosed':                { status: 'Disclosed',                pipeline_group: 'Loans in Process' },
+  'submitted to uw':          { status: 'Submitted to UW',          pipeline_group: 'Loans in Process' },
+  'approved w/ conditions':   { status: 'Approved w/ Conditions',   pipeline_group: 'Loans in Process' },
+  're-submittal':             { status: 'Re-Submittal',             pipeline_group: 'Loans in Process' },
+  'clear to close':           { status: 'Clear to Close',           pipeline_group: 'Loans in Process' },
+  'docs out':                 { status: 'Docs Out',                 pipeline_group: 'Loans in Process' },
+  'docs signed':              { status: 'Docs Signed',              pipeline_group: 'Loans in Process' },
+  'loan funded':              { status: 'Loan Funded',              pipeline_group: 'Loans in Process' },
+  'broker check received':    { status: 'Broker Check Received',    pipeline_group: 'Loans in Process' },
+  'loan finalized':           { status: 'Loan Finalized',           pipeline_group: 'Loans in Process' },
+  // ── Not Ready pipeline ────────────────────────────────────────────────────────
+  'not qualified - credit':        { status: 'Not Qualified - Credit',       pipeline_group: 'Not Ready' },
+  'not qualified - income':        { status: 'Not Qualified - Income',       pipeline_group: 'Not Ready' },
+  'not ready - timeframe':         { status: 'Not Ready - Timeframe',        pipeline_group: 'Not Ready' },
+  'dnd - sms':                     { status: 'DND - SMS',                    pipeline_group: 'Not Ready' },
+  'not ready - rate':              { status: 'Not Ready - Rate',             pipeline_group: 'Not Ready' },
+  'lost to competitor':            { status: 'Lost to Competitor',           pipeline_group: 'Not Ready' },
+  'non-responsive':                { status: 'Non-Responsive',               pipeline_group: 'Not Ready' },
+  'remove from all automations':   { status: 'Remove from All Automations',  pipeline_group: 'Not Ready' },
+  'stop':                          { status: 'STOP',                         pipeline_group: 'Not Ready' },
 }
 
-function resolveGHLStage(stageName: string | null): { status: string; pipeline_group: string } | null {
+function resolveGHLStage(
+  stageName: string | null,
+  pipelineName?: string | null
+): { status: string; pipeline_group: string } | null {
   if (!stageName) return null
   const lower = stageName.toLowerCase().trim()
+  // 1. Exact match
+  if (GHL_STAGE_MAP[lower]) return GHL_STAGE_MAP[lower]
+  // 2. Partial match
   for (const [key, val] of Object.entries(GHL_STAGE_MAP)) {
-    if (lower.includes(key)) return val
+    if (lower.includes(key) || key.includes(lower)) return val
+  }
+  // 3. Fallback by pipeline name
+  if (pipelineName) {
+    const pl = pipelineName.toLowerCase()
+    if (pl.includes('loan') || pl.includes('process')) return { status: 'Loan Setup', pipeline_group: 'Loans in Process' }
+    if (pl.includes('not ready'))                       return { status: 'Non-Responsive', pipeline_group: 'Not Ready' }
+    if (pl.includes('funded'))                          return { status: 'Loan Funded', pipeline_group: 'Funded' }
   }
   return null
 }
@@ -234,10 +264,11 @@ export async function POST(req: NextRequest) {
       const stageName =
         pick(body, 'pipelineStageName', 'stageName', 'stage_name', 'pipelineStage') ||
         pick(body, 'status')
+      const pipelineName = pick(body, 'pipelineName', 'pipeline_name', 'pipeline')
       const oppContactId = pick(body, 'contactId', 'contact_id')
       const oppName = pick(body, 'name', 'opportunityName', 'title')
 
-      const stage = resolveGHLStage(stageName)
+      const stage = resolveGHLStage(stageName, pipelineName)
 
       if (oppContactId && stage) {
         const { data: existing } = await supabase
@@ -326,8 +357,8 @@ export async function POST(req: NextRequest) {
       last_name:         lastName  || null,
       email,
       phone,
-      status:            'Client',
-      pipeline_group:    'LEADS',
+      status:            'New Lead',
+      pipeline_group:    'Leads',
       source:            fields.source,
       loan_officer:      fields.loanOfficer,
       loan_amount:       fields.loanAmount,
