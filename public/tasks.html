@@ -986,7 +986,6 @@
         trig.classList.add('has-value');
       } else { trig.querySelector('.dd-label').textContent='No time'; trig.classList.remove('has-value'); }
     }
-    document.getElementById('date-edit-target').value = t.due || '';
     document.getElementById('date-edit-overlay').hidden = false;
   };
   window.closeDateEdit = (e) => {
