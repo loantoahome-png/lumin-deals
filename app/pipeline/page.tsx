@@ -5,44 +5,68 @@ import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
   PointerSensor, useSensor, useSensors, closestCorners,
 } from '@dnd-kit/core'
-import { useDroppable } from '@dnd-kit/core'
-import { useDraggable } from '@dnd-kit/core'
+import { useDroppable, useDraggable } from '@dnd-kit/core'
 import { supabase } from '@/lib/supabase'
 import { Deal, PIPELINE_STAGE_MAP, LOAN_STATUSES, STATUS_COLORS } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import Link from 'next/link'
-import { RefreshCw, Lock, Clock, AlertTriangle, ChevronDown, X } from 'lucide-react'
+import { RefreshCw, Lock, Clock, AlertTriangle, ChevronDown, X, EyeOff, LayoutGrid, List } from 'lucide-react'
 
-// ── Constants ────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 const STAGE_ORDER = ['Leads', 'Registered', 'Underwriting', 'Closing', 'Funded']
 
 const STAGE_COLORS = {
-  Leads:        { header: 'bg-slate-50 border-slate-300',   dot: 'bg-slate-400',   col: 'bg-slate-50/50' },
-  Registered:   { header: 'bg-blue-50 border-blue-300',     dot: 'bg-blue-500',    col: 'bg-blue-50/30' },
-  Underwriting: { header: 'bg-amber-50 border-amber-300',   dot: 'bg-amber-500',   col: 'bg-amber-50/30' },
-  Closing:      { header: 'bg-orange-50 border-orange-300', dot: 'bg-orange-500',  col: 'bg-orange-50/30' },
+  Leads:        { header: 'bg-slate-50 border-slate-300',     dot: 'bg-slate-400',   col: 'bg-slate-50/50' },
+  Registered:   { header: 'bg-blue-50 border-blue-300',       dot: 'bg-blue-500',    col: 'bg-blue-50/30' },
+  Underwriting: { header: 'bg-amber-50 border-amber-300',     dot: 'bg-amber-500',   col: 'bg-amber-50/30' },
+  Closing:      { header: 'bg-orange-50 border-orange-300',   dot: 'bg-orange-500',  col: 'bg-orange-50/30' },
   Funded:       { header: 'bg-emerald-50 border-emerald-300', dot: 'bg-emerald-500', col: 'bg-emerald-50/30' },
 } as Record<string, { header: string; dot: string; col: string }>
 
-// Default status when dropping into each stage
 const STAGE_DEFAULT_STATUS: Record<string, string> = {
-  Leads:        'Client',
-  Registered:   'Loan Registered',
-  Underwriting: 'Underwriting',
-  Closing:      'Signing Scheduled',
-  Funded:       'Comp Requested',
+  Leads: 'Client', Registered: 'Loan Registered', Underwriting: 'Underwriting',
+  Closing: 'Signing Scheduled', Funded: 'PAID',
 }
-
 const STAGE_DEFAULT_GROUP: Record<string, string> = {
-  Leads:        'LEADS',
-  Registered:   'Active Escrows',
-  Underwriting: 'Active Escrows',
-  Closing:      'Signing Scheduled',
-  Funded:       'Closed',
+  Leads: 'LEADS', Registered: 'Active Escrows', Underwriting: 'Active Escrows',
+  Closing: 'Signing Scheduled', Funded: 'Closed',
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── View presets ──────────────────────────────────────────────────────────────
+type ViewType = 'All' | 'Leads' | 'Escrows' | 'Funded'
+const VIEW_STAGES: Record<ViewType, string[]> = {
+  All:     ['Leads', 'Registered', 'Underwriting', 'Closing', 'Funded'],
+  Leads:   ['Leads'],
+  Escrows: ['Registered', 'Underwriting', 'Closing'],
+  Funded:  ['Funded'],
+}
+
+// ── Source badge ──────────────────────────────────────────────────────────────
+const SOURCE_STYLES: Record<string, string> = {
+  'Self Source':  'bg-emerald-100 text-emerald-700',
+  'Referral':     'bg-violet-100 text-violet-700',
+  'Past Client':  'bg-amber-100 text-amber-700',
+  'Open House':   'bg-sky-100 text-sky-700',
+  'Agent Partner':'bg-rose-100 text-rose-700',
+}
+
+function SourceBadge({ deal }: { deal: Deal }) {
+  const src = deal.source
+  if (!src) return null
+  const isGHL = !!deal.ghl_contact_id
+  const style = isGHL
+    ? 'bg-blue-100 text-blue-700'
+    : (SOURCE_STYLES[src] || 'bg-slate-100 text-slate-600')
+  const label = isGHL ? (src === 'GHL' ? 'GHL' : src) : src
+  return (
+    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide ${style}`}>
+      {label}
+    </span>
+  )
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function getDealAge(deal: Deal): number {
   const date = new Date(deal.updated_at || deal.created_at)
@@ -62,19 +86,17 @@ function getStageForStatus(status: string): string {
   return 'Leads'
 }
 
-// ── Droppable Column ─────────────────────────────────────────────────────────
+// ── Droppable Column ──────────────────────────────────────────────────────────
 
 function DroppableColumn({ stage, children, isOver }: {
-  stage: string
-  children: React.ReactNode
-  isOver: boolean
+  stage: string; children: React.ReactNode; isOver: boolean
 }) {
   const { setNodeRef } = useDroppable({ id: stage })
   const c = STAGE_COLORS[stage]
   return (
     <div
       ref={setNodeRef}
-      className={`flex flex-col gap-2 pt-2 overflow-y-auto max-h-[calc(100vh-180px)] rounded-b-xl transition-colors ${
+      className={`flex flex-col gap-2 pt-2 overflow-y-auto max-h-[calc(100vh-220px)] rounded-b-xl transition-colors ${
         isOver ? 'ring-2 ring-blue-400 ring-inset bg-blue-50/50' : c?.col
       }`}
     >
@@ -83,47 +105,31 @@ function DroppableColumn({ stage, children, isOver }: {
   )
 }
 
-// ── Draggable Card ───────────────────────────────────────────────────────────
+// ── Draggable Card ────────────────────────────────────────────────────────────
 
 function DraggableCard({ deal, onStatusChange }: {
-  deal: Deal
-  onStatusChange: (dealId: string, status: string) => void
+  deal: Deal; onStatusChange: (id: string, status: string) => void
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: deal.id })
-
   return (
-    <div
-      ref={setNodeRef}
-      style={{ opacity: isDragging ? 0.35 : 1 }}
-      {...listeners}
-      {...attributes}
-      className="touch-none"
-    >
+    <div ref={setNodeRef} style={{ opacity: isDragging ? 0.35 : 1 }} {...listeners} {...attributes} className="touch-none">
       <DealCard deal={deal} onStatusChange={onStatusChange} />
     </div>
   )
 }
 
-// ── Deal Card ────────────────────────────────────────────────────────────────
+// ── Deal Card ─────────────────────────────────────────────────────────────────
 
 function DealCard({ deal, onStatusChange, ghost = false }: {
-  deal: Deal
-  onStatusChange: (dealId: string, status: string) => void
-  ghost?: boolean
+  deal: Deal; onStatusChange: (id: string, status: string) => void; ghost?: boolean
 }) {
   const [showStatusMenu, setShowStatusMenu] = useState(false)
   const age = getDealAge(deal)
   const lockDays = getLockDaysLeft(deal)
   const statusClass = STATUS_COLORS[deal.status] || 'bg-gray-100 text-gray-600'
-
   const ageColor = age <= 7 ? 'text-emerald-600' : age <= 14 ? 'text-amber-600' : 'text-red-600'
   const ageBg    = age <= 7 ? 'bg-emerald-50'   : age <= 14 ? 'bg-amber-50'    : 'bg-red-50'
-
-  const lockColor = lockDays === null ? '' :
-    lockDays > 14 ? 'text-emerald-600' :
-    lockDays > 7  ? 'text-amber-600' :
-    'text-red-600'
-
+  const lockColor = lockDays === null ? '' : lockDays > 14 ? 'text-emerald-600' : lockDays > 7 ? 'text-amber-600' : 'text-red-600'
   const shortStatus = deal.status
     .replace('Signing Done - Waiting for Funding', 'Signing Done')
     .replace('Waiting on Docs from Client for final approval', 'Waiting on Docs')
@@ -133,27 +139,23 @@ function DealCard({ deal, onStatusChange, ghost = false }: {
     <div className={`bg-white rounded-xl border border-slate-200 p-3.5 transition-all group relative ${
       ghost ? 'shadow-xl rotate-1 scale-105' : 'hover:border-blue-300 hover:shadow-md cursor-grab active:cursor-grabbing'
     }`}>
-
-      {/* Lock expiration alert banner */}
+      {/* Lock expiry alerts */}
       {lockDays !== null && lockDays <= 7 && (
         <div className="flex items-center gap-1 text-xs text-red-600 bg-red-50 rounded-lg px-2 py-1 mb-2 font-medium">
-          <Lock className="w-3 h-3" />
-          Lock expires in {lockDays <= 0 ? 'EXPIRED' : `${lockDays}d`}!
+          <Lock className="w-3 h-3" />Lock expires in {lockDays <= 0 ? 'EXPIRED' : `${lockDays}d`}!
         </div>
       )}
       {lockDays !== null && lockDays > 7 && lockDays <= 14 && (
         <div className="flex items-center gap-1 text-xs text-amber-600 bg-amber-50 rounded-lg px-2 py-1 mb-2 font-medium">
-          <Lock className="w-3 h-3" />
-          Lock expires in {lockDays}d
+          <Lock className="w-3 h-3" />Lock expires in {lockDays}d
         </div>
       )}
 
-      {/* Name + quick status */}
-      <div className="flex items-start justify-between gap-2 mb-2">
+      {/* Name + status */}
+      <div className="flex items-start justify-between gap-2 mb-1.5">
         <Link
           href={`/deals/${deal.id}`}
-          onClick={e => e.stopPropagation()}
-          onMouseDown={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}
           className="font-semibold text-slate-900 text-sm leading-tight hover:text-blue-700 transition-colors"
         >
           {deal.name}
@@ -164,29 +166,17 @@ function DealCard({ deal, onStatusChange, ghost = false }: {
             onClick={e => { e.stopPropagation(); setShowStatusMenu(v => !v) }}
             className={`text-xs px-1.5 py-0.5 rounded-md font-medium flex items-center gap-0.5 ${statusClass}`}
           >
-            {shortStatus}
-            <ChevronDown className="w-2.5 h-2.5" />
+            {shortStatus}<ChevronDown className="w-2.5 h-2.5" />
           </button>
-
           {showStatusMenu && (
-            <div
-              className="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-xl border border-slate-200 py-1 w-56 max-h-72 overflow-y-auto"
-              onMouseDown={e => e.stopPropagation()}
-            >
+            <div className="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-xl border border-slate-200 py-1 w-56 max-h-72 overflow-y-auto" onMouseDown={e => e.stopPropagation()}>
               <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-100">
                 <span className="text-xs font-semibold text-slate-500">Change Status</span>
-                <button onClick={() => setShowStatusMenu(false)}>
-                  <X className="w-3 h-3 text-slate-400" />
-                </button>
+                <button onClick={() => setShowStatusMenu(false)}><X className="w-3 h-3 text-slate-400" /></button>
               </div>
               {LOAN_STATUSES.map(s => (
-                <button
-                  key={s}
-                  onClick={() => { onStatusChange(deal.id, s); setShowStatusMenu(false) }}
-                  className={`w-full text-left text-xs px-3 py-1.5 hover:bg-slate-50 transition-colors ${
-                    s === deal.status ? 'font-semibold text-blue-600' : 'text-slate-700'
-                  }`}
-                >
+                <button key={s} onClick={() => { onStatusChange(deal.id, s); setShowStatusMenu(false) }}
+                  className={`w-full text-left text-xs px-3 py-1.5 hover:bg-slate-50 transition-colors ${s === deal.status ? 'font-semibold text-blue-600' : 'text-slate-700'}`}>
                   {s}
                 </button>
               ))}
@@ -195,52 +185,237 @@ function DealCard({ deal, onStatusChange, ghost = false }: {
         </div>
       </div>
 
+      {/* Source badge */}
+      <div className="mb-2"><SourceBadge deal={deal} /></div>
+
       {/* Loan details */}
       {(deal.loan_type || deal.loan_amount) && (
         <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-          {deal.loan_type && (
-            <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">
-              {deal.loan_type}
-            </span>
-          )}
-          {deal.loan_amount && (
-            <span className="text-xs font-semibold text-slate-700">
-              {formatCurrency(deal.loan_amount)}
-            </span>
-          )}
+          {deal.loan_type && <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">{deal.loan_type}</span>}
+          {deal.loan_amount && <span className="text-xs font-semibold text-slate-700">{formatCurrency(deal.loan_amount)}</span>}
+          {deal.ltv && <span className="text-xs text-slate-400">{deal.ltv.toFixed(0)}% LTV</span>}
         </div>
       )}
 
-      {/* Credit score if available */}
-      {deal.credit_score && (
-        <div className="text-xs text-slate-500 mb-1.5">
-          FICO: <span className="font-semibold text-slate-700">{deal.credit_score}</span>
+      {/* Credit + occupancy */}
+      {(deal.credit_score || deal.credit_rating || deal.occupancy) && (
+        <div className="flex items-center gap-2 text-xs text-slate-500 mb-1.5 flex-wrap">
+          {deal.credit_score && <span>FICO: <strong className="text-slate-700">{deal.credit_score}</strong></span>}
+          {deal.credit_rating && <span className="text-slate-400">({deal.credit_rating})</span>}
+          {deal.occupancy && <span className="text-slate-400">{deal.occupancy}</span>}
         </div>
       )}
 
-      {/* Bottom row: LO + revenue */}
-      <div className="flex items-center justify-between text-xs text-slate-400 mt-2">
+      {/* LO */}
+      <div className="flex items-center text-xs text-slate-400 mt-2">
         <span className="font-medium">{deal.loan_officer || '—'}</span>
-        {deal.revenue && (
-          <span className="font-semibold text-emerald-600">{formatCurrency(deal.revenue)}</span>
-        )}
       </div>
 
-      {/* Age + investor row */}
+      {/* Age + investor */}
       <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
         <div className={`flex items-center gap-1 text-xs font-medium px-1.5 py-0.5 rounded-md ${ageBg} ${ageColor}`}>
           <Clock className="w-2.5 h-2.5" />
           {age === 0 ? 'Today' : `${age}d`}
         </div>
-        {deal.investor && (
-          <span className="text-xs text-slate-400 truncate ml-2">{deal.investor}</span>
-        )}
+        {deal.investor && <span className="text-xs text-slate-400 truncate ml-2">{deal.investor}</span>}
         {deal.locked === 'Yes' && lockDays !== null && lockDays > 14 && (
           <div className={`flex items-center gap-0.5 text-xs ${lockColor}`}>
-            <Lock className="w-2.5 h-2.5" />
-            {lockDays}d
+            <Lock className="w-2.5 h-2.5" />{lockDays}d
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ── List View ─────────────────────────────────────────────────────────────────
+
+const STAGE_DOT: Record<string, string> = {
+  Leads: 'bg-slate-400', Registered: 'bg-blue-500',
+  Underwriting: 'bg-amber-500', Closing: 'bg-orange-500', Funded: 'bg-emerald-500',
+}
+
+function ListView({ deals, onStatusChange }: {
+  deals: Deal[]
+  onStatusChange: (id: string, status: string) => void
+}) {
+  const [sortKey, setSortKey]   = useState<string>('name')
+  const [sortDir, setSortDir]   = useState<'asc' | 'desc'>('asc')
+  const [openMenu, setOpenMenu] = useState<string | null>(null)
+
+  function toggleSort(key: string) {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+  }
+
+  const sorted = [...deals].sort((a, b) => {
+    let av: string | number = '', bv: string | number = ''
+    if (sortKey === 'name')        { av = a.name;                     bv = b.name }
+    if (sortKey === 'stage')       { av = getStageForStatus(a.status); bv = getStageForStatus(b.status) }
+    if (sortKey === 'status')      { av = a.status;                   bv = b.status }
+    if (sortKey === 'loan_officer'){ av = a.loan_officer || '';        bv = b.loan_officer || '' }
+    if (sortKey === 'loan_amount') { av = a.loan_amount || 0;          bv = b.loan_amount || 0 }
+    if (sortKey === 'loan_type')   { av = a.loan_type || '';           bv = b.loan_type || '' }
+    if (sortKey === 'age')         { av = getDealAge(a);               bv = getDealAge(b) }
+    const cmp = av < bv ? -1 : av > bv ? 1 : 0
+    return sortDir === 'asc' ? cmp : -cmp
+  })
+
+  function Th({ label, k }: { label: string; k: string }) {
+    const active = sortKey === k
+    return (
+      <th
+        onClick={() => toggleSort(k)}
+        className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3 cursor-pointer select-none whitespace-nowrap hover:text-slate-800 transition-colors"
+      >
+        <span className="flex items-center gap-1">
+          {label}
+          <span className={`text-[10px] ${active ? 'text-slate-700' : 'text-slate-300'}`}>
+            {active ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
+          </span>
+        </span>
+      </th>
+    )
+  }
+
+  return (
+    <div className="flex-1 overflow-auto p-4">
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+        <table className="w-full border-collapse">
+          <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
+            <tr>
+              <Th label="Name" k="name" />
+              <Th label="Stage" k="stage" />
+              <Th label="Status" k="status" />
+              <Th label="LO" k="loan_officer" />
+              <Th label="Loan Type" k="loan_type" />
+              <Th label="Amount" k="loan_amount" />
+              <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3 whitespace-nowrap">LTV</th>
+              <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3 whitespace-nowrap">FICO</th>
+              <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3 whitespace-nowrap">Investor</th>
+              <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3 whitespace-nowrap">Lock Exp</th>
+              <Th label="Age" k="age" />
+              <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3 whitespace-nowrap">Source</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {sorted.map(deal => {
+              const stage    = getStageForStatus(deal.status)
+              const age      = getDealAge(deal)
+              const lockDays = getLockDaysLeft(deal)
+              const ageColor = age <= 7 ? 'text-emerald-600' : age <= 14 ? 'text-amber-600' : 'text-red-600'
+              const lockColor = lockDays === null ? '' : lockDays <= 7 ? 'text-red-600' : lockDays <= 14 ? 'text-amber-600' : 'text-emerald-600'
+              const statusClass = STATUS_COLORS[deal.status] || 'bg-gray-100 text-gray-600'
+              const shortStatus = deal.status
+                .replace('Signing Done - Waiting for Funding', 'Signing Done')
+                .replace('Waiting on Docs from Client for final approval', 'Waiting on Docs')
+                .replace('Figure - income verification or less', 'Figure - Income')
+
+              return (
+                <tr key={deal.id} className="hover:bg-slate-50 transition-colors group">
+                  {/* Name */}
+                  <td className="px-4 py-3 font-semibold text-slate-900 whitespace-nowrap">
+                    <Link href={`/deals/${deal.id}`} className="hover:text-blue-700 transition-colors">
+                      {deal.name}
+                    </Link>
+                  </td>
+
+                  {/* Stage */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <span className="flex items-center gap-1.5 text-xs text-slate-600">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${STAGE_DOT[stage] || 'bg-slate-300'}`} />
+                      {stage}
+                    </span>
+                  </td>
+
+                  {/* Status (editable) */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <div className="relative inline-block">
+                      <button
+                        onClick={() => setOpenMenu(openMenu === deal.id ? null : deal.id)}
+                        className={`text-xs px-2 py-1 rounded-md font-medium flex items-center gap-0.5 ${statusClass}`}
+                      >
+                        {shortStatus}<ChevronDown className="w-2.5 h-2.5 ml-0.5" />
+                      </button>
+                      {openMenu === deal.id && (
+                        <div className="absolute left-0 top-full mt-1 z-50 bg-white rounded-xl shadow-xl border border-slate-200 py-1 w-56 max-h-64 overflow-y-auto">
+                          <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-100">
+                            <span className="text-xs font-semibold text-slate-500">Change Status</span>
+                            <button onClick={() => setOpenMenu(null)}><X className="w-3 h-3 text-slate-400" /></button>
+                          </div>
+                          {LOAN_STATUSES.map(s => (
+                            <button key={s} onClick={() => { onStatusChange(deal.id, s); setOpenMenu(null) }}
+                              className={`w-full text-left text-xs px-3 py-1.5 hover:bg-slate-50 transition-colors ${s === deal.status ? 'font-semibold text-blue-600' : 'text-slate-700'}`}>
+                              {s}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+
+                  {/* LO */}
+                  <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">{deal.loan_officer || '—'}</td>
+
+                  {/* Loan Type */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    {deal.loan_type
+                      ? <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">{deal.loan_type}</span>
+                      : <span className="text-slate-300">—</span>}
+                  </td>
+
+                  {/* Amount */}
+                  <td className="px-4 py-3 text-sm font-semibold text-slate-800 whitespace-nowrap">
+                    {deal.loan_amount ? formatCurrency(deal.loan_amount) : <span className="text-slate-300">—</span>}
+                  </td>
+
+                  {/* LTV */}
+                  <td className="px-4 py-3 text-sm text-slate-500 whitespace-nowrap">
+                    {deal.ltv ? `${deal.ltv.toFixed(0)}%` : <span className="text-slate-300">—</span>}
+                  </td>
+
+                  {/* FICO */}
+                  <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">
+                    {deal.credit_score || <span className="text-slate-300">—</span>}
+                  </td>
+
+                  {/* Investor */}
+                  <td className="px-4 py-3 text-sm text-slate-500 whitespace-nowrap">
+                    {deal.investor || <span className="text-slate-300">—</span>}
+                  </td>
+
+                  {/* Lock Exp */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    {lockDays !== null ? (
+                      <span className={`flex items-center gap-1 text-xs font-medium ${lockColor}`}>
+                        <Lock className="w-3 h-3" />
+                        {lockDays <= 0 ? 'EXPIRED' : `${lockDays}d`}
+                      </span>
+                    ) : <span className="text-slate-300 text-xs">—</span>}
+                  </td>
+
+                  {/* Age */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <span className={`flex items-center gap-1 text-xs font-medium ${ageColor}`}>
+                      <Clock className="w-3 h-3" />
+                      {age === 0 ? 'Today' : `${age}d`}
+                    </span>
+                  </td>
+
+                  {/* Source */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <SourceBadge deal={deal} />
+                  </td>
+                </tr>
+              )
+            })}
+            {sorted.length === 0 && (
+              <tr>
+                <td colSpan={12} className="px-4 py-12 text-center text-slate-400 text-sm">No deals match current filters</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   )
@@ -252,12 +427,13 @@ export default function PipelinePage() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
   const [loFilter, setLoFilter] = useState('All')
+  const [view, setView] = useState<ViewType>('All')
+  const [hideFunded, setHideFunded] = useState(false)
+  const [layoutView, setLayoutView] = useState<'board' | 'list'>('board')
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
-  )
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
   const fetchDeals = useCallback(async () => {
     setLoading(true)
@@ -272,118 +448,151 @@ export default function PipelinePage() {
 
   useEffect(() => { fetchDeals() }, [fetchDeals])
 
-  const filteredDeals = loFilter === 'All'
-    ? deals
-    : deals.filter(d => d.loan_officer?.includes(loFilter))
+  // Determine which stages to show
+  const visibleStages = VIEW_STAGES[view].filter(s => !(hideFunded && s === 'Funded'))
+
+  // Filter deals to visible stages + LO
+  const filteredDeals = deals.filter(d => {
+    const stage = getStageForStatus(d.status)
+    if (!visibleStages.includes(stage)) return false
+    if (loFilter !== 'All' && !d.loan_officer?.includes(loFilter)) return false
+    return true
+  })
 
   // Group by stage
   const stageMap: Record<string, Deal[]> = {}
-  STAGE_ORDER.forEach(s => { stageMap[s] = [] })
-  filteredDeals.forEach(deal => {
-    const stage = getStageForStatus(deal.status)
-    if (stageMap[stage]) stageMap[stage].push(deal)
+  visibleStages.forEach(s => { stageMap[s] = [] })
+  filteredDeals.forEach(d => {
+    const stage = getStageForStatus(d.status)
+    if (stageMap[stage]) stageMap[stage].push(d)
   })
 
   const activeDeal = activeId ? deals.find(d => d.id === activeId) : null
-  const totalRevenue = filteredDeals.reduce((s, d) => s + (d.revenue || 0), 0)
-
-  // Alert counts
-  const lockAlerts = filteredDeals.filter(d => {
-    const days = getLockDaysLeft(d)
-    return days !== null && days <= 7
-  }).length
-
+  const lockAlerts = filteredDeals.filter(d => { const n = getLockDaysLeft(d); return n !== null && n <= 7 }).length
   const staleDeals = filteredDeals.filter(d => getDealAge(d) > 14).length
 
-  // Quick status change (from dropdown on card)
   async function handleStatusChange(dealId: string, newStatus: string) {
     const newStage = getStageForStatus(newStatus)
     const newGroup = STAGE_DEFAULT_GROUP[newStage]
-
-    setDeals(prev => prev.map(d =>
-      d.id === dealId
-        ? { ...d, status: newStatus, pipeline_group: newGroup, updated_at: new Date().toISOString() }
-        : d
-    ))
-
-    await supabase.from('deals').update({
-      status: newStatus,
-      pipeline_group: newGroup,
-    }).eq('id', dealId)
+    setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status: newStatus, pipeline_group: newGroup, updated_at: new Date().toISOString() } : d))
+    await supabase.from('deals').update({ status: newStatus, pipeline_group: newGroup }).eq('id', dealId)
   }
 
-  // Drag handlers
-  function handleDragStart(event: DragStartEvent) {
-    setActiveId(event.active.id as string)
-  }
-
-  function handleDragOver(event: { over: { id: string } | null }) {
-    setOverId(event.over?.id ?? null)
-  }
+  function handleDragStart(event: DragStartEvent) { setActiveId(event.active.id as string) }
+  function handleDragOver(event: { over: { id: string } | null }) { setOverId(event.over?.id ?? null) }
 
   async function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event
-    setActiveId(null)
-    setOverId(null)
-
+    setActiveId(null); setOverId(null)
     if (!over) return
     const dealId = active.id as string
     const targetStage = over.id as string
-
     if (!STAGE_ORDER.includes(targetStage)) return
-
     const deal = deals.find(d => d.id === dealId)
     if (!deal) return
-
     const currentStage = getStageForStatus(deal.status)
     if (currentStage === targetStage) return
-
     const newStatus = STAGE_DEFAULT_STATUS[targetStage]
     const newGroup  = STAGE_DEFAULT_GROUP[targetStage]
-
-    // Optimistic update
-    setDeals(prev => prev.map(d =>
-      d.id === dealId
-        ? { ...d, status: newStatus, pipeline_group: newGroup, updated_at: new Date().toISOString() }
-        : d
-    ))
-
-    await supabase.from('deals').update({
-      status: newStatus,
-      pipeline_group: newGroup,
-    }).eq('id', dealId)
+    setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status: newStatus, pipeline_group: newGroup, updated_at: new Date().toISOString() } : d))
+    await supabase.from('deals').update({ status: newStatus, pipeline_group: newGroup }).eq('id', dealId)
   }
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCorners}
-      onDragStart={handleDragStart}
-      onDragOver={handleDragOver as never}
-      onDragEnd={handleDragEnd}
-    >
+    <DndContext sensors={sensors} collisionDetection={closestCorners}
+      onDragStart={handleDragStart} onDragOver={handleDragOver as never} onDragEnd={handleDragEnd}>
       <div className="flex flex-col h-full">
-        {/* Header */}
-        <div className="px-6 py-4 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">Pipeline Board</h1>
-            <div className="flex items-center gap-3 mt-0.5">
-              <p className="text-sm text-slate-500">
-                {filteredDeals.length} deals · {formatCurrency(totalRevenue)}
-              </p>
-              {lockAlerts > 0 && (
-                <span className="flex items-center gap-1 text-xs font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
-                  <Lock className="w-3 h-3" /> {lockAlerts} lock{lockAlerts > 1 ? 's' : ''} expiring
-                </span>
-              )}
-              {staleDeals > 0 && (
-                <span className="flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
-                  <AlertTriangle className="w-3 h-3" /> {staleDeals} stale
-                </span>
-              )}
+
+        {/* ── Header ─────────────────────────────────────────────────────────── */}
+        <div className="px-6 py-4 bg-white border-b border-slate-200 shrink-0">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h1 className="text-xl font-bold text-slate-900">Pipeline Board</h1>
+              <div className="flex items-center gap-3 mt-0.5">
+                <p className="text-sm text-slate-500">{filteredDeals.length} deals</p>
+                {lockAlerts > 0 && (
+                  <span className="flex items-center gap-1 text-xs font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
+                    <Lock className="w-3 h-3" /> {lockAlerts} lock{lockAlerts > 1 ? 's' : ''} expiring
+                  </span>
+                )}
+                {staleDeals > 0 && (
+                  <span className="flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                    <AlertTriangle className="w-3 h-3" /> {staleDeals} stale
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {/* Layout toggle */}
+              <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5">
+                <button
+                  onClick={() => setLayoutView('board')}
+                  title="Board view"
+                  className={`p-1.5 rounded-md transition-colors ${layoutView === 'board' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setLayoutView('list')}
+                  title="List view"
+                  className={`p-1.5 rounded-md transition-colors ${layoutView === 'list' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  <List className="w-4 h-4" />
+                </button>
+              </div>
+              <button onClick={fetchDeals} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg">
+                <RefreshCw className="w-4 h-4" />
+              </button>
+              <Link href="/deals/new" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+                + New Deal
+              </Link>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+
+          {/* ── View controls ────────────────────────────────────────────────── */}
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Segmented view tabs */}
+            <div className="flex bg-slate-100 rounded-lg p-0.5 gap-0.5">
+              {(['All', 'Leads', 'Escrows', 'Funded'] as ViewType[]).map(v => (
+                <button
+                  key={v}
+                  onClick={() => setView(v)}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    view === v
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {v}
+                  {v !== 'All' && (
+                    <span className="ml-1.5 text-xs text-slate-400">
+                      {stageMap[v === 'Escrows' ? 'Registered' : v === 'Leads' ? 'Leads' : 'Funded']
+                        ? Object.entries(stageMap).filter(([s]) => VIEW_STAGES[v].includes(s)).reduce((acc, [,d]) => acc + d.length, 0)
+                        : 0}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Hide funded toggle */}
+            {(view === 'All' || view === 'Escrows') && (
+              <button
+                onClick={() => setHideFunded(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
+                  hideFunded
+                    ? 'bg-slate-800 text-white border-slate-800'
+                    : 'text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'
+                }`}
+              >
+                <EyeOff className="w-3.5 h-3.5" />
+                Hide Funded
+              </button>
+            )}
+
+            <div className="h-5 w-px bg-slate-200" />
+
+            {/* LO filter */}
             <select
               value={loFilter}
               onChange={e => setLoFilter(e.target.value)}
@@ -393,31 +602,25 @@ export default function PipelinePage() {
               <option value="Matt">Matt</option>
               <option value="Moe">Moe</option>
             </select>
-            <button onClick={fetchDeals} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
-              <RefreshCw className="w-4 h-4" />
-            </button>
-            <Link href="/deals/new" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
-              + New Deal
-            </Link>
           </div>
         </div>
 
-        {/* Board */}
+        {/* ── Board / List ────────────────────────────────────────────────────── */}
         {loading ? (
           <div className="flex items-center justify-center flex-1">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
           </div>
+        ) : layoutView === 'list' ? (
+          <ListView deals={filteredDeals} onStatusChange={handleStatusChange} />
         ) : (
           <div className="flex gap-4 p-4 overflow-x-auto flex-1 items-start">
-            {STAGE_ORDER.map(stage => {
+            {visibleStages.map(stage => {
               const stageDeals = stageMap[stage] || []
-              const stageRevenue = stageDeals.reduce((s, d) => s + (d.revenue || 0), 0)
               const c = STAGE_COLORS[stage]
               const isOver = overId === stage
 
               return (
                 <div key={stage} className="flex flex-col shrink-0 w-72">
-                  {/* Column header */}
                   <div className={`flex items-center justify-between px-3 py-2.5 rounded-t-xl border-b-2 ${c.header}`}>
                     <div className="flex items-center gap-2">
                       <div className={`w-2 h-2 rounded-full ${c.dot}`} />
@@ -426,7 +629,7 @@ export default function PipelinePage() {
                         {stageDeals.length}
                       </span>
                     </div>
-                    <span className="text-xs font-medium text-slate-500">{formatCurrency(stageRevenue)}</span>
+                    <span className="text-xs font-medium text-slate-500">{stageDeals.length > 0 ? formatCurrency(stageDeals.reduce((s, d) => s + (d.loan_amount || 0), 0)) : ''}</span>
                   </div>
 
                   <DroppableColumn stage={stage} isOver={isOver}>
@@ -434,17 +637,11 @@ export default function PipelinePage() {
                       <div className={`rounded-xl border-2 border-dashed p-4 text-center transition-colors ${
                         isOver ? 'border-blue-400 bg-blue-50' : 'border-slate-200'
                       }`}>
-                        <p className="text-slate-400 text-xs">
-                          {isOver ? 'Drop here' : 'No deals'}
-                        </p>
+                        <p className="text-slate-400 text-xs">{isOver ? 'Drop here' : 'No deals'}</p>
                       </div>
                     ) : (
                       stageDeals.map(deal => (
-                        <DraggableCard
-                          key={deal.id}
-                          deal={deal}
-                          onStatusChange={handleStatusChange}
-                        />
+                        <DraggableCard key={deal.id} deal={deal} onStatusChange={handleStatusChange} />
                       ))
                     )}
                   </DroppableColumn>
@@ -455,7 +652,6 @@ export default function PipelinePage() {
         )}
       </div>
 
-      {/* Drag overlay — ghost card that follows cursor */}
       <DragOverlay>
         {activeDeal ? (
           <div className="w-72 rotate-2 scale-105 opacity-95">

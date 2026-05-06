@@ -8,14 +8,18 @@ import {
   Table2,
   PlusCircle,
   Building2,
+  Brain,
+  ClipboardList,
 } from 'lucide-react'
 import GlobalSearch from './GlobalSearch'
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/pipeline', label: 'Pipeline', icon: Kanban },
-  { href: '/deals', label: 'All Deals', icon: Table2 },
+  { href: '/deals', label: 'Active Files', icon: Table2 },
   { href: '/deals/new', label: 'Add Deal', icon: PlusCircle },
+  { href: '/underwriting', label: 'AI Underwriter', icon: Brain },
+  { href: '/tasks', label: 'Tasks', icon: ClipboardList },
 ]
 
 export default function Sidebar() {

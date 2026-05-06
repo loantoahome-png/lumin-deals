@@ -13,14 +13,14 @@ import { Suspense } from 'react'
 function exportToCSV(deals: Deal[]) {
   const headers = [
     'Name', 'Status', 'Pipeline Group', 'Loan Type', 'Loan Amount', 'Estimated Value',
-    'Revenue', 'Rate (%)', 'Investor', 'Loan Officer', 'Processor', 'Property Address',
+    'Rate (%)', 'Investor', 'Loan Officer', 'Processor', 'Property Address',
     'Email', 'Phone', 'Credit Score', 'Occupancy', 'Locked', 'Lock Expiration',
     'Appraisal Status', 'Source', 'Signing Date', 'Funded Date', 'Paid Date',
     'Last Contacted', 'Arive File #', 'Investor File #', 'Created At',
   ]
   const rows = deals.map(d => [
     d.name, d.status, d.pipeline_group, d.loan_type || '', d.loan_amount || '', d.estimated_value || '',
-    d.revenue || '', d.rate || '', d.investor || '', d.loan_officer || '', d.processor_status || '',
+    d.rate || '', d.investor || '', d.loan_officer || '', d.processor_status || '',
     d.property_address || '', d.email || '', d.phone || '', d.credit_score || '', d.occupancy || '',
     d.locked || '', d.lock_expiration || '', d.appraisal_status || '', d.source || '',
     d.signing_date || '', d.funded_date || '', d.paid_date || '', d.last_contacted || '',
@@ -61,6 +61,8 @@ function DealsPageInner() {
     const { data } = await supabase
       .from('deals')
       .select('*')
+      // Active Files = everything that is NOT a raw lead or lost/inactive
+      .not('pipeline_group', 'in', '("LEADS","Lost","Last files at WCL","Lost/Inactive/Does not qualify")')
       .order('created_at', { ascending: false })
     setDeals(data || [])
     setLoading(false)
@@ -80,7 +82,6 @@ function DealsPageInner() {
     return matchSearch && matchLO && matchStatus && matchGroup
   })
 
-  const totalRevenue = filtered.reduce((s, d) => s + (d.revenue || 0), 0)
   const totalLoanAmt = filtered.reduce((s, d) => s + (d.loan_amount || 0), 0)
   const groups = [...new Set(deals.map(d => d.pipeline_group))].filter(Boolean)
 
@@ -143,9 +144,9 @@ function DealsPageInner() {
       <div className="px-6 py-4 bg-white border-b border-slate-200 shrink-0">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-xl font-bold text-slate-900">All Deals</h1>
+            <h1 className="text-xl font-bold text-slate-900">Active Files</h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              {filtered.length} deals · {formatCurrency(totalRevenue)} revenue · {formatCurrency(totalLoanAmt)} loan volume
+              {filtered.length} files · {formatCurrency(totalLoanAmt)} loan volume
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -240,7 +241,6 @@ function DealsPageInner() {
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Status</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Loan Type</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Loan Amount</th>
-                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Revenue</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">LO</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Investor</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Rate</th>
@@ -288,7 +288,6 @@ function DealsPageInner() {
                         </td>
                         <td className="px-4 py-3 text-slate-600">{deal.loan_type || '—'}</td>
                         <td className="px-4 py-3 font-medium text-slate-800">{formatCurrency(deal.loan_amount)}</td>
-                        <td className="px-4 py-3 font-medium text-emerald-700">{formatCurrency(deal.revenue)}</td>
                         <td className="px-4 py-3 text-slate-600">{deal.loan_officer || '—'}</td>
                         <td className="px-4 py-3 text-slate-600">{deal.investor || '—'}</td>
                         <td className="px-4 py-3 text-slate-600">{deal.rate ? `${deal.rate}%` : '—'}</td>

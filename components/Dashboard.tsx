@@ -40,18 +40,27 @@ function TreasuryWidget() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [rateWatchCount, setRateWatchCount] = useState(0)
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
+
+  function fetchYield() {
+    return fetch('/api/treasury')
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); setLastRefreshed(new Date()) })
+      .catch(() => { setError(true); setLoading(false) })
+  }
 
   useEffect(() => {
-    fetch('/api/treasury')
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false) })
-      .catch(() => { setError(true); setLoading(false) })
+    fetchYield()
 
     supabase
       .from('deals')
       .select('id', { count: 'exact' })
       .eq('rate_watch_active', true)
       .then(({ count }) => setRateWatchCount(count || 0))
+
+    // Auto-refresh every 60 minutes so the widget stays live without a page reload
+    const interval = setInterval(fetchYield, 60 * 60 * 1000)
+    return () => clearInterval(interval)
   }, [])
 
   if (loading) {
@@ -93,7 +102,14 @@ function TreasuryWidget() {
               </span>
             </div>
           </div>
-          <p className="text-slate-500 text-xs mt-1">As of {data.date} · Source: FRED / St. Louis Fed</p>
+          <p className="text-slate-500 text-xs mt-1">
+            As of {data.date} · Source: FRED / St. Louis Fed
+            {lastRefreshed && (
+              <span className="ml-1 opacity-60">
+                · refreshed {lastRefreshed.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+              </span>
+            )}
+          </p>
         </div>
         {rateWatchCount > 0 && (
           <div className="flex items-center gap-1.5 bg-amber-500 text-white px-3 py-1.5 rounded-lg text-sm font-semibold">
@@ -159,20 +175,20 @@ export default function Dashboard() {
 
   const activeDeals = deals.filter(d => !['PAID', 'Lost'].includes(d.status) && d.pipeline_group !== 'Lost')
   const paidDeals = deals.filter(d => d.status === 'PAID')
-  const totalPipelineRevenue = activeDeals.reduce((s, d) => s + (d.revenue || 0), 0)
-  const totalPaidRevenue = paidDeals.reduce((s, d) => s + (d.revenue || 0), 0)
+  const totalPipelineLoanVol = activeDeals.reduce((s, d) => s + (d.loan_amount || 0), 0)
+  const totalFundedLoanVol   = paidDeals.reduce((s, d) => s + (d.loan_amount || 0), 0)
   const avgDealSize = activeDeals.filter(d => d.loan_amount).length > 0
     ? activeDeals.reduce((s, d) => s + (d.loan_amount || 0), 0) / activeDeals.filter(d => d.loan_amount).length
     : 0
 
   const stageData = Object.entries(PIPELINE_STAGE_MAP).map(([stage, statuses]) => {
     const stageDeals = deals.filter(d => statuses.includes(d.status))
-    return { stage, count: stageDeals.length, revenue: stageDeals.reduce((s, d) => s + (d.revenue || 0), 0) }
+    return { stage, count: stageDeals.length, loanVolume: stageDeals.reduce((s, d) => s + (d.loan_amount || 0), 0) }
   })
 
   const loData = ['Matt', 'Moe Sefati'].map(lo => {
     const loDeals = deals.filter(d => d.loan_officer?.includes(lo))
-    return { name: lo, revenue: loDeals.reduce((s, d) => s + (d.revenue || 0), 0), deals: loDeals.length }
+    return { name: lo, loanVolume: loDeals.reduce((s, d) => s + (d.loan_amount || 0), 0), deals: loDeals.length }
   })
 
   const loanTypeMap: Record<string, number> = {}
@@ -204,8 +220,8 @@ export default function Dashboard() {
           <TreasuryWidget />
         </div>
         <div className="lg:col-span-3 grid grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-4">
-          <KPICard label="Active Pipeline" value={formatCurrency(totalPipelineRevenue)} sub={`${activeDeals.length} active deals`} icon={<TrendingUp className="w-5 h-5" />} color="blue" />
-          <KPICard label="Total Revenue Earned" value={formatCurrency(totalPaidRevenue)} sub={`${paidDeals.length} closed deals`} icon={<DollarSign className="w-5 h-5" />} color="green" />
+          <KPICard label="Active Loan Volume" value={formatCurrency(totalPipelineLoanVol)} sub={`${activeDeals.length} active deals`} icon={<TrendingUp className="w-5 h-5" />} color="blue" />
+          <KPICard label="Funded Loan Volume" value={formatCurrency(totalFundedLoanVol)} sub={`${paidDeals.length} closed deals`} icon={<DollarSign className="w-5 h-5" />} color="green" />
           <KPICard label="Total Deals" value={deals.length.toString()} sub={`${activeDeals.length} active`} icon={<Users className="w-5 h-5" />} color="purple" />
           <KPICard label="Avg Loan Size" value={formatCurrency(avgDealSize)} sub="active deals" icon={<CheckCircle className="w-5 h-5" />} color="amber" />
         </div>
@@ -267,11 +283,11 @@ export default function Dashboard() {
               <div key={lo.name}>
                 <div className="flex justify-between text-sm mb-1">
                   <span className="font-medium text-slate-700">{lo.name}</span>
-                  <span className="text-slate-500">{formatCurrency(lo.revenue)}</span>
+                  <span className="text-slate-500">{formatCurrency(lo.loanVolume)}</span>
                 </div>
                 <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                   <div className="h-full rounded-full transition-all" style={{
-                    width: `${loData.reduce((m, l) => Math.max(m, l.revenue), 0) > 0 ? (lo.revenue / loData.reduce((m, l) => Math.max(m, l.revenue), 0)) * 100 : 0}%`,
+                    width: `${loData.reduce((m, l) => Math.max(m, l.loanVolume), 0) > 0 ? (lo.loanVolume / loData.reduce((m, l) => Math.max(m, l.loanVolume), 0)) * 100 : 0}%`,
                     backgroundColor: LO_COLORS[lo.name] || '#3b82f6',
                   }} />
                 </div>
@@ -316,7 +332,7 @@ export default function Dashboard() {
                   <p className="text-xs text-slate-400">{deal.loan_type || 'No loan type'}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs font-medium text-slate-700">{formatCurrency(deal.revenue)}</p>
+                  <p className="text-xs font-medium text-slate-700">{formatCurrency(deal.loan_amount)}</p>
                   <p className="text-xs text-slate-400">{deal.loan_officer || '—'}</p>
                 </div>
               </Link>

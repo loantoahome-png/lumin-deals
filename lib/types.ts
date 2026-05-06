@@ -13,7 +13,6 @@ export type Deal = {
   loan_type: string | null
   loan_amount: number | null
   estimated_value: number | null
-  revenue: number | null
   rate: number | null
   investor: string | null
   property_address: string | null
@@ -47,7 +46,7 @@ export type Deal = {
   loan_timeframe: string | null
   has_accepted_offer: string | null
   rate_watch_active: boolean
-  rate_watch_target: number | null
+  rate_at_close_10yr: number | null
   rate_watch_notes: string | null
   rate_watch_alerted_at: string | null
   lo_notes: string | null
@@ -83,8 +82,6 @@ export const LOAN_STATUSES = [
   'F - Rescission',
   'Signing Scheduled',
   'Signing Done - Waiting for Funding',
-  'Request Comp',
-  'Comp Requested',
   'Clear to Close',
   'PAID',
 ] as const
@@ -150,8 +147,6 @@ export const STATUS_COLORS: Record<string, string> = {
   'F - Rescission': 'bg-lime-100 text-lime-700',
   'Signing Scheduled': 'bg-teal-100 text-teal-700',
   'Signing Done - Waiting for Funding': 'bg-orange-100 text-orange-700',
-  'Request Comp': 'bg-sky-100 text-sky-700',
-  'Comp Requested': 'bg-blue-100 text-blue-700',
   'Clear to Close': 'bg-green-100 text-green-700',
   'PAID': 'bg-emerald-100 text-emerald-700',
 }
@@ -161,5 +156,5 @@ export const PIPELINE_STAGE_MAP: Record<string, string[]> = {
   'Registered': ['REGISTER', 'Loan Registered', 'F - In Process', 'Submitted to UW'],
   'Underwriting': ['Underwriting', 'Conditional approval', 'Conditions', 'Waiting on Docs from Client for final approval', 'Waiting on VOE'],
   'Closing': ['Submitted docs for CTC', 'Clear to Close', 'F - Notary Preparation', 'F - Note Signing', 'F - Rescission', 'Signing Scheduled', 'Signing Done - Waiting for Funding'],
-  'Funded': ['Request Comp', 'Comp Requested', 'PAID'],
+  'Funded': ['PAID'],
 }

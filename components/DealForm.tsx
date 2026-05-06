@@ -24,11 +24,35 @@ const emptyDeal: DealFormData = {
   loan_type: null,
   loan_amount: null,
   estimated_value: null,
-  revenue: null,
   rate: null,
   investor: null,
   property_address: null,
   occupancy: null,
+  city: null,
+  state: null,
+  zip: null,
+  credit_score: null,
+  credit_rating: null,
+  loan_purpose: null,
+  property_type: null,
+  current_balance: null,
+  ltv: null,
+  cash_out: null,
+  down_payment: null,
+  is_military: null,
+  current_va_loan: null,
+  property_found: null,
+  loan_timeframe: null,
+  has_accepted_offer: null,
+  ghl_tags: null,
+  ghl_assigned_user: null,
+  ghl_contact_id: null,
+  date_added_ghl: null,
+  raw_ghl_data: null,
+  rate_watch_active: false,
+  rate_at_close_10yr: null,
+  rate_watch_notes: null,
+  rate_watch_alerted_at: null,
   locked: 'No',
   lock_expiration: null,
   appraisal_status: 'Need to order',
@@ -44,50 +68,19 @@ const emptyDeal: DealFormData = {
   paid_date: null,
   funded_date: null,
   last_contacted: null,
-  ghl_contact_id: null,
   document_upload_link: null,
 }
 
 export default function DealForm({ deal }: { deal?: Deal }) {
   const router = useRouter()
   const isEdit = !!deal
+  // Spread the full deal object (minus DB-only fields) so all fields are always present
   const [form, setForm] = useState<DealFormData>(deal ? {
-    name: deal.name,
-    first_name: deal.first_name,
-    last_name: deal.last_name,
-    email: deal.email,
-    phone: deal.phone,
-    status: deal.status,
-    pipeline_group: deal.pipeline_group,
-    loan_officer: deal.loan_officer,
-    processor: deal.processor,
-    processor_status: deal.processor_status,
-    loan_type: deal.loan_type,
-    loan_amount: deal.loan_amount,
-    estimated_value: deal.estimated_value,
-    revenue: deal.revenue,
-    rate: deal.rate,
-    investor: deal.investor,
-    property_address: deal.property_address,
-    occupancy: deal.occupancy,
-    locked: deal.locked,
-    lock_expiration: deal.lock_expiration,
-    appraisal_status: deal.appraisal_status,
-    source: deal.source,
-    broker_corr: deal.broker_corr,
-    lead_source_agg: deal.lead_source_agg,
-    arive_file_no: deal.arive_file_no,
-    investor_file_no: deal.investor_file_no,
-    lo_notes: deal.lo_notes,
-    client_notes: deal.client_notes,
-    subbed: deal.subbed,
-    signing_date: deal.signing_date,
-    paid_date: deal.paid_date,
-    funded_date: deal.funded_date,
-    last_contacted: deal.last_contacted,
-    ghl_contact_id: deal.ghl_contact_id,
-    document_upload_link: deal.document_upload_link,
-  } : emptyDeal)
+    ...emptyDeal,
+    ...Object.fromEntries(
+      Object.entries(deal).filter(([k]) => !['id', 'created_at', 'updated_at'].includes(k))
+    ),
+  } as DealFormData : emptyDeal)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
@@ -200,11 +193,24 @@ export default function DealForm({ deal }: { deal?: Deal }) {
           <Field label="Phone">
             <input value={form.phone || ''} onChange={e => set('phone', e.target.value)} className={inputClass} placeholder="(555) 555-5555" />
           </Field>
-          <Field label="Source">
+          <Field label="Lead Source">
             <select value={form.source || ''} onChange={e => set('source', e.target.value)} className={selectClass}>
               <option value="">— Select —</option>
-              <option value="GHL">GHL</option>
-              <option value="Self Source">Self Source</option>
+              <optgroup label="Self Sourced">
+                <option value="Self Source">Self Source</option>
+                <option value="Referral">Referral</option>
+                <option value="Past Client">Past Client</option>
+                <option value="Open House">Open House</option>
+                <option value="Agent Partner">Agent Partner</option>
+                <option value="Financial Advisor">Financial Advisor</option>
+                <option value="Builder">Builder</option>
+                <option value="Online / Social">Online / Social</option>
+              </optgroup>
+              <optgroup label="GHL / Lead Vendors">
+                <option value="Lendgo">Lendgo</option>
+                <option value="FRU">FRU</option>
+                <option value="GHL">GHL (other)</option>
+              </optgroup>
             </select>
           </Field>
         </div>
@@ -224,9 +230,6 @@ export default function DealForm({ deal }: { deal?: Deal }) {
           </Field>
           <Field label="Estimated Value ($)">
             <input type="number" value={form.estimated_value ?? ''} onChange={e => set('estimated_value', e.target.value ? Number(e.target.value) : null)} className={inputClass} placeholder="0.00" />
-          </Field>
-          <Field label="Revenue ($)">
-            <input type="number" value={form.revenue ?? ''} onChange={e => set('revenue', e.target.value ? Number(e.target.value) : null)} className={inputClass} placeholder="0.00" />
           </Field>
           <Field label="Rate (%)">
             <input type="number" step="0.001" value={form.rate ?? ''} onChange={e => set('rate', e.target.value ? Number(e.target.value) : null)} className={inputClass} placeholder="6.500" />

@@ -5,7 +5,7 @@ async function fetchYieldData() {
   // FRED DGS10 = Daily 10-Year Treasury Constant Maturity Rate
   const res = await fetch(
     'https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10',
-    { next: { revalidate: 3600 } } // cache 1 hour
+    { next: { revalidate: 86400, tags: ['treasury-data'] } } // cache 24 hrs, bust via tag
   )
   if (!res.ok) throw new Error('FRED fetch failed')
   const text = await res.text()
