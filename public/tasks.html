@@ -210,13 +210,31 @@
   /* Assignee / By badges */
   .badge {
     font-size: .7rem; padding: 2px 8px; border-radius: 999px; font-weight: 700; white-space: nowrap;
+    font-family: inherit; border: 1px solid transparent;
   }
   .badge-to   { background: #f1f5f9; color: #475569; }
   .badge-matt { background: #e0f2fe; color: #0369a1; }
   .badge-moe  { background: #ede9fe; color: #6d28d9; }
   .badge-efrain { background: #fef3c7; color: #92400e; }
   .badge-bri  { background: #fce7f3; color: #be185d; }
-  .badge-by { background: #f0fdf4; color: #166534; font-weight: 500; }
+  .badge-by   { background: #f0fdf4; color: #166534; font-weight: 500; }
+  .badge-empty { background: #f8fafc; color: #94a3b8; border: 1px dashed #cbd5e1; font-weight: 500; }
+  .badge-editable { cursor: pointer; transition: filter .12s, border-color .12s; }
+  .badge-editable:hover { filter: brightness(.9); border-color: rgba(0,0,0,.15); }
+
+  /* Assign dropdown */
+  .assign-dropdown {
+    display: none; position: fixed; z-index: 220;
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.18); padding: .3rem; min-width: 130px;
+  }
+  .assign-opt {
+    display: block; width: 100%; background: none; border: none;
+    padding: .42rem .8rem; text-align: left; font-size: .82rem;
+    border-radius: 7px; cursor: pointer; font-family: inherit; font-weight: 600; color: #334155;
+  }
+  .assign-opt:hover { background: #f1f5f9; }
+  .assign-opt-clear { color: #94a3b8 !important; font-weight: 500 !important; font-size: .76rem !important; }
 
   .task-actions {
     display: flex; align-items: flex-start; gap: 2px; flex-shrink: 0;
@@ -465,6 +483,9 @@
   </div>
 </div>
 
+<!-- Assign edit dropdown (singleton) -->
+<div class="assign-dropdown" id="assign-dropdown"></div>
+
 <!-- Settings modal -->
 <div class="modal-overlay" id="settings-modal">
   <div class="modal">
@@ -669,9 +690,8 @@
             style="display:none" onblur="saveEdit('${t.id}')" onkeydown="editKeydown(event,'${t.id}')">
           <div class="task-meta">
             ${dueStr ? `<button type="button" class="task-due${isOverdue?' overdue-text':''}" onclick="openDateEdit('${t.id}')">📅 ${esc(dueStr)}</button>` : `<button type="button" class="task-due" onclick="openDateEdit('${t.id}')">📅 Add date</button>`}
-            ${to ? `<span class="badge ${assigneeClass(to)}">${esc(to)}</span>` : ''}
-            ${by ? `<span class="badge badge-by">by ${esc(by)}</span>` : ''}
-            ${t.createdBy ? `<span style="font-size:.68rem;color:#94a3b8">${esc(t.createdBy)}</span>` : ''}
+            <button type="button" class="badge badge-editable ${to ? assigneeClass(to) : 'badge-empty'}" onclick="openAssignEdit(event,'${t.id}','to')" title="Edit assigned to">${to ? esc(to) : '+ Assign to'}</button>
+            <button type="button" class="badge badge-by badge-editable" onclick="openAssignEdit(event,'${t.id}','by')" title="Edit assigned by">${by ? 'by '+esc(by) : '+ Assign by'}</button>
             <button type="button" class="task-comment-toggle${hasComments?' has-comments':''}" onclick="toggleComments('${t.id}')">
               💬 ${hasComments ? comments.length : 'Add note'}
             </button>
@@ -807,6 +827,40 @@
       if (t) document.getElementById('edit-' + id).value = t.title;
       document.getElementById('edit-' + id).blur();
     }
+  };
+
+  // ── Inline assign edit ──
+  const ASSIGN_NAMES = ['Matt','Moe','Efrain','Bri'];
+  function assignColor(name) {
+    if (name==='Matt')   return '#0369a1';
+    if (name==='Moe')    return '#6d28d9';
+    if (name==='Efrain') return '#92400e';
+    if (name==='Bri')    return '#be185d';
+    return '#334155';
+  }
+
+  window.openAssignEdit = (evt, id, field) => {
+    evt.stopPropagation();
+    const dd   = document.getElementById('assign-dropdown');
+    const rect = evt.currentTarget.getBoundingClientRect();
+    dd.innerHTML = `
+      <button class="assign-opt assign-opt-clear" onclick="selectAssign('${id}','${field}',null)">— Remove —</button>
+      ${ASSIGN_NAMES.map(n => `
+        <button class="assign-opt" style="color:${assignColor(n)}" onclick="selectAssign('${id}','${field}','${n}')">${n}</button>
+      `).join('')}
+    `;
+    // Position below badge, nudge left if near right edge
+    let left = rect.left;
+    if (left + 140 > window.innerWidth) left = window.innerWidth - 148;
+    dd.style.top  = (rect.bottom + 6) + 'px';
+    dd.style.left = left + 'px';
+    dd.style.display = 'block';
+  };
+
+  window.selectAssign = (id, field, value) => {
+    const key = field === 'to' ? 'assignedTo' : 'assignedBy';
+    update(ref(db, 'tasks/' + id), { [key]: value || null });
+    document.getElementById('assign-dropdown').style.display = 'none';
   };
 
   // ── Comments ──
@@ -1050,6 +1104,7 @@
   // Close dropdowns on outside click
   document.addEventListener('click', () => {
     document.querySelectorAll('.dropdown-menu').forEach(m => { m.hidden = true; });
+    document.getElementById('assign-dropdown').style.display = 'none';
   });
 </script>
 </body>
