@@ -152,9 +152,17 @@ export const STATUS_COLORS: Record<string, string> = {
 }
 
 export const PIPELINE_STAGE_MAP: Record<string, string[]> = {
-  'Leads': ['Client', 'Working on application/docs', 'Need to register', 'Figure - income verification or less'],
-  'Registered': ['REGISTER', 'Loan Registered', 'F - In Process', 'Submitted to UW'],
-  'Underwriting': ['Underwriting', 'Conditional approval', 'Conditions', 'Waiting on Docs from Client for final approval', 'Waiting on VOE'],
-  'Closing': ['Submitted docs for CTC', 'Clear to Close', 'F - Notary Preparation', 'F - Note Signing', 'F - Rescission', 'Signing Scheduled', 'Signing Done - Waiting for Funding'],
+  'Leads': [
+    'Client', 'Working on application/docs', 'Need to register',
+    'Figure - income verification or less',
+  ],
+  'Escrows': [
+    'REGISTER', 'Loan Registered', 'F - In Process', 'Submitted to UW',
+    'Underwriting', 'Conditional approval', 'Conditions',
+    'Waiting on Docs from Client for final approval', 'Waiting on VOE',
+    'Submitted docs for CTC', 'Clear to Close',
+    'F - Notary Preparation', 'F - Note Signing', 'F - Rescission',
+    'Signing Scheduled', 'Signing Done - Waiting for Funding',
+  ],
   'Funded': ['PAID'],
 }

@@ -14,32 +14,36 @@ import { RefreshCw, Lock, Clock, AlertTriangle, ChevronDown, X, EyeOff, LayoutGr
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const STAGE_ORDER = ['Leads', 'Registered', 'Underwriting', 'Closing', 'Funded']
+const STAGE_ORDER = ['Leads', 'Escrows', 'Funded']
 
 const STAGE_COLORS = {
-  Leads:        { header: 'bg-slate-50 border-slate-300',     dot: 'bg-slate-400',   col: 'bg-slate-50/50' },
-  Registered:   { header: 'bg-blue-50 border-blue-300',       dot: 'bg-blue-500',    col: 'bg-blue-50/30' },
-  Underwriting: { header: 'bg-amber-50 border-amber-300',     dot: 'bg-amber-500',   col: 'bg-amber-50/30' },
-  Closing:      { header: 'bg-orange-50 border-orange-300',   dot: 'bg-orange-500',  col: 'bg-orange-50/30' },
-  Funded:       { header: 'bg-emerald-50 border-emerald-300', dot: 'bg-emerald-500', col: 'bg-emerald-50/30' },
+  Leads:   { header: 'bg-slate-50 border-slate-300',     dot: 'bg-slate-400',   col: 'bg-slate-50/50' },
+  Escrows: { header: 'bg-amber-50 border-amber-300',     dot: 'bg-amber-500',   col: 'bg-amber-50/30' },
+  Funded:  { header: 'bg-emerald-50 border-emerald-300', dot: 'bg-emerald-500', col: 'bg-emerald-50/30' },
 } as Record<string, { header: string; dot: string; col: string }>
 
 const STAGE_DEFAULT_STATUS: Record<string, string> = {
-  Leads: 'Client', Registered: 'Loan Registered', Underwriting: 'Underwriting',
-  Closing: 'Signing Scheduled', Funded: 'PAID',
+  Leads:   'Client',
+  Escrows: 'Loan Registered',
+  Funded:  'PAID',
 }
 const STAGE_DEFAULT_GROUP: Record<string, string> = {
-  Leads: 'LEADS', Registered: 'Active Escrows', Underwriting: 'Active Escrows',
-  Closing: 'Signing Scheduled', Funded: 'Closed',
+  Leads:   'LEADS',
+  Escrows: 'Active Escrows',
+  Funded:  'Closed',
 }
 
-// ── View presets ──────────────────────────────────────────────────────────────
-type ViewType = 'All' | 'Leads' | 'Escrows' | 'Funded'
-const VIEW_STAGES: Record<ViewType, string[]> = {
-  All:     ['Leads', 'Registered', 'Underwriting', 'Closing', 'Funded'],
-  Leads:   ['Leads'],
-  Escrows: ['Registered', 'Underwriting', 'Closing'],
-  Funded:  ['Funded'],
+// ── Escrow sub-sections (for ordering + labels within the Escrows column) ─────
+const ESCROW_SUBGROUPS: { label: string; dot: string; statuses: Set<string> }[] = [
+  { label: 'Processing',   dot: 'bg-blue-400',   statuses: new Set(['REGISTER', 'Loan Registered', 'F - In Process', 'Submitted to UW']) },
+  { label: 'Underwriting', dot: 'bg-amber-500',  statuses: new Set(['Underwriting', 'Conditional approval', 'Conditions', 'Waiting on Docs from Client for final approval', 'Waiting on VOE']) },
+  { label: 'Closing',      dot: 'bg-orange-500', statuses: new Set(['Submitted docs for CTC', 'Clear to Close', 'F - Notary Preparation', 'F - Note Signing', 'F - Rescission', 'Signing Scheduled', 'Signing Done - Waiting for Funding']) },
+]
+function escrowSubIndex(status: string): number {
+  for (let i = 0; i < ESCROW_SUBGROUPS.length; i++) {
+    if (ESCROW_SUBGROUPS[i].statuses.has(status)) return i
+  }
+  return 99
 }
 
 // ── Source badge ──────────────────────────────────────────────────────────────
@@ -231,8 +235,7 @@ function DealCard({ deal, onStatusChange, ghost = false }: {
 // ── List View ─────────────────────────────────────────────────────────────────
 
 const STAGE_DOT: Record<string, string> = {
-  Leads: 'bg-slate-400', Registered: 'bg-blue-500',
-  Underwriting: 'bg-amber-500', Closing: 'bg-orange-500', Funded: 'bg-emerald-500',
+  Leads: 'bg-slate-400', Escrows: 'bg-amber-500', Funded: 'bg-emerald-500',
 }
 
 function ListView({ deals, onStatusChange }: {
@@ -427,7 +430,6 @@ export default function PipelinePage() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
   const [loFilter, setLoFilter] = useState('All')
-  const [view, setView] = useState<ViewType>('All')
   const [hideFunded, setHideFunded] = useState(false)
   const [layoutView, setLayoutView] = useState<'board' | 'list'>('board')
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -449,7 +451,7 @@ export default function PipelinePage() {
   useEffect(() => { fetchDeals() }, [fetchDeals])
 
   // Determine which stages to show
-  const visibleStages = VIEW_STAGES[view].filter(s => !(hideFunded && s === 'Funded'))
+  const visibleStages = STAGE_ORDER.filter(s => !(hideFunded && s === 'Funded'))
 
   // Filter deals to visible stages + LO
   const filteredDeals = deals.filter(d => {
@@ -459,13 +461,16 @@ export default function PipelinePage() {
     return true
   })
 
-  // Group by stage
+  // Group by stage, Escrows sorted by sub-section order
   const stageMap: Record<string, Deal[]> = {}
   visibleStages.forEach(s => { stageMap[s] = [] })
   filteredDeals.forEach(d => {
     const stage = getStageForStatus(d.status)
     if (stageMap[stage]) stageMap[stage].push(d)
   })
+  if (stageMap['Escrows']) {
+    stageMap['Escrows'].sort((a, b) => escrowSubIndex(a.status) - escrowSubIndex(b.status))
+  }
 
   const activeDeal = activeId ? deals.find(d => d.id === activeId) : null
   const lockAlerts = filteredDeals.filter(d => { const n = getLockDaysLeft(d); return n !== null && n <= 7 }).length
@@ -551,44 +556,35 @@ export default function PipelinePage() {
 
           {/* ── View controls ────────────────────────────────────────────────── */}
           <div className="flex items-center gap-3 flex-wrap">
-            {/* Segmented view tabs */}
-            <div className="flex bg-slate-100 rounded-lg p-0.5 gap-0.5">
-              {(['All', 'Leads', 'Escrows', 'Funded'] as ViewType[]).map(v => (
-                <button
-                  key={v}
-                  onClick={() => setView(v)}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                    view === v
-                      ? 'bg-white text-slate-900 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  {v}
-                  {v !== 'All' && (
-                    <span className="ml-1.5 text-xs text-slate-400">
-                      {stageMap[v === 'Escrows' ? 'Registered' : v === 'Leads' ? 'Leads' : 'Funded']
-                        ? Object.entries(stageMap).filter(([s]) => VIEW_STAGES[v].includes(s)).reduce((acc, [,d]) => acc + d.length, 0)
-                        : 0}
+            {/* Stage summary pills */}
+            <div className="flex items-center gap-2">
+              {STAGE_ORDER.map(s => {
+                const c = STAGE_COLORS[s]
+                const count = stageMap[s]?.length ?? 0
+                return (
+                  <div key={s} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium ${c.header}`}>
+                    <span className={`w-2 h-2 rounded-full ${c.dot}`} />
+                    {s}
+                    <span className="bg-white/70 text-slate-500 text-xs font-semibold px-1.5 py-0.5 rounded-full border border-slate-200/80">
+                      {count}
                     </span>
-                  )}
-                </button>
-              ))}
+                  </div>
+                )
+              })}
             </div>
 
             {/* Hide funded toggle */}
-            {(view === 'All' || view === 'Escrows') && (
-              <button
-                onClick={() => setHideFunded(v => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
-                  hideFunded
-                    ? 'bg-slate-800 text-white border-slate-800'
-                    : 'text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'
-                }`}
-              >
-                <EyeOff className="w-3.5 h-3.5" />
-                Hide Funded
-              </button>
-            )}
+            <button
+              onClick={() => setHideFunded(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
+                hideFunded
+                  ? 'bg-slate-800 text-white border-slate-800'
+                  : 'text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'
+              }`}
+            >
+              <EyeOff className="w-3.5 h-3.5" />
+              Hide Funded
+            </button>
 
             <div className="h-5 w-px bg-slate-200" />
 
@@ -639,6 +635,30 @@ export default function PipelinePage() {
                       }`}>
                         <p className="text-slate-400 text-xs">{isOver ? 'Drop here' : 'No deals'}</p>
                       </div>
+                    ) : stage === 'Escrows' ? (
+                      // Escrows: render with sub-section dividers
+                      (() => {
+                        const nodes: React.ReactNode[] = []
+                        let lastSub = -1
+                        stageDeals.forEach(deal => {
+                          const sub = escrowSubIndex(deal.status)
+                          if (sub !== lastSub && sub < ESCROW_SUBGROUPS.length) {
+                            const sg = ESCROW_SUBGROUPS[sub]
+                            nodes.push(
+                              <div key={`sg-${sub}`} className="flex items-center gap-1.5 px-1 pt-1 pb-0.5">
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${sg.dot}`} />
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{sg.label}</span>
+                                <div className="flex-1 h-px bg-slate-200" />
+                              </div>
+                            )
+                            lastSub = sub
+                          }
+                          nodes.push(
+                            <DraggableCard key={deal.id} deal={deal} onStatusChange={handleStatusChange} />
+                          )
+                        })
+                        return nodes
+                      })()
                     ) : (
                       stageDeals.map(deal => (
                         <DraggableCard key={deal.id} deal={deal} onStatusChange={handleStatusChange} />
