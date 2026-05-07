@@ -10,7 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { Deal, PIPELINE_STAGE_MAP, LOAN_STATUSES, STATUS_COLORS } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import Link from 'next/link'
-import { RefreshCw, Lock, Clock, AlertTriangle, ChevronDown, X, EyeOff, LayoutGrid, List } from 'lucide-react'
+import { RefreshCw, Lock, Clock, AlertTriangle, ChevronDown, X, EyeOff, LayoutGrid, List, Bookmark, Trash2 } from 'lucide-react'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -432,16 +432,35 @@ function ListView({ deals, onStatusChange }: {
   )
 }
 
+// ── Saved view type ───────────────────────────────────────────────────────────
+type SavedView = {
+  id: string
+  name: string
+  loFilter: string
+  sourceFilter: string
+  statusFilter: string
+  hideFunded: boolean
+  layoutView: 'board' | 'list'
+}
+
+const VIEWS_KEY = 'lumin_pipeline_views'
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function PipelinePage() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
   const [loFilter, setLoFilter] = useState('All')
+  const [sourceFilter, setSourceFilter] = useState('All')
+  const [statusFilter, setStatusFilter] = useState('All')
   const [hideFunded, setHideFunded] = useState(false)
   const [layoutView, setLayoutView] = useState<'board' | 'list'>('board')
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
+  const [savedViews, setSavedViews] = useState<SavedView[]>([])
+  const [activeViewId, setActiveViewId] = useState<string | null>(null)
+  const [showSaveModal, setShowSaveModal] = useState(false)
+  const [newViewName, setNewViewName] = useState('')
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
@@ -458,14 +477,67 @@ export default function PipelinePage() {
 
   useEffect(() => { fetchDeals() }, [fetchDeals])
 
+  // Load saved views from localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(VIEWS_KEY)
+      if (stored) setSavedViews(JSON.parse(stored))
+    } catch { /* ignore */ }
+  }, [])
+
+  // Derived: unique sources + statuses from loaded deals
+  const availableSources = ['All', ...Array.from(new Set(deals.map(d => d.source).filter(Boolean) as string[])).sort()]
+  const availableStatuses = ['All', ...Array.from(new Set(deals.map(d => d.status).filter(Boolean))).sort()]
+
+  // ── Saved view helpers ────────────────────────────────────────────────────
+  function saveView() {
+    if (!newViewName.trim()) return
+    const view: SavedView = {
+      id: Date.now().toString(),
+      name: newViewName.trim(),
+      loFilter, sourceFilter, statusFilter, hideFunded, layoutView,
+    }
+    const updated = [...savedViews, view]
+    setSavedViews(updated)
+    localStorage.setItem(VIEWS_KEY, JSON.stringify(updated))
+    setNewViewName('')
+    setShowSaveModal(false)
+    setActiveViewId(view.id)
+  }
+
+  function loadView(view: SavedView) {
+    setLoFilter(view.loFilter)
+    setSourceFilter(view.sourceFilter)
+    setStatusFilter(view.statusFilter)
+    setHideFunded(view.hideFunded)
+    setLayoutView(view.layoutView)
+    setActiveViewId(view.id)
+  }
+
+  function deleteView(id: string) {
+    const updated = savedViews.filter(v => v.id !== id)
+    setSavedViews(updated)
+    localStorage.setItem(VIEWS_KEY, JSON.stringify(updated))
+    if (activeViewId === id) setActiveViewId(null)
+  }
+
+  function clearFilters() {
+    setLoFilter('All'); setSourceFilter('All'); setStatusFilter('All')
+    setHideFunded(false); setActiveViewId(null)
+  }
+
+  const filtersActive = loFilter !== 'All' || sourceFilter !== 'All' || statusFilter !== 'All' || hideFunded
+
   // Determine which stages to show
   const visibleStages = STAGE_ORDER.filter(s => !(hideFunded && s === 'Funded'))
 
-  // Filter deals to visible columns + LO
+  // Filter deals to visible columns + active filters
   const filteredDeals = deals.filter(d => {
     const col = getColumnForDeal(d)
     if (!col || !visibleStages.includes(col)) return false
     if (loFilter !== 'All' && !d.loan_officer?.includes(loFilter)) return false
+    if (sourceFilter !== 'All' && d.source !== sourceFilter) return false
+    if (statusFilter !== 'All' && d.status !== statusFilter) return false
     return true
   })
 
@@ -571,51 +643,122 @@ export default function PipelinePage() {
             </div>
           </div>
 
-          {/* ── View controls ────────────────────────────────────────────────── */}
-          <div className="flex items-center gap-3 flex-wrap">
+          {/* ── Filter bar ───────────────────────────────────────────────────── */}
+          <div className="flex items-center gap-2 flex-wrap">
             {/* Stage summary pills */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               {STAGE_ORDER.map(s => {
                 const c = STAGE_COLORS[s]
                 const count = stageMap[s]?.length ?? 0
                 return (
-                  <div key={s} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium ${c.header}`}>
+                  <div key={s} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-sm font-medium ${c.header}`}>
                     <span className={`w-2 h-2 rounded-full ${c.dot}`} />
                     {s}
-                    <span className="bg-white/70 text-slate-500 text-xs font-semibold px-1.5 py-0.5 rounded-full border border-slate-200/80">
-                      {count}
-                    </span>
+                    <span className="bg-white/70 text-slate-500 text-xs font-semibold px-1.5 py-0.5 rounded-full border border-slate-200/80">{count}</span>
                   </div>
                 )
               })}
             </div>
 
-            {/* Hide funded toggle */}
-            <button
-              onClick={() => setHideFunded(v => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
-                hideFunded
-                  ? 'bg-slate-800 text-white border-slate-800'
-                  : 'text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'
-              }`}
-            >
-              <EyeOff className="w-3.5 h-3.5" />
-              Hide Funded
-            </button>
-
             <div className="h-5 w-px bg-slate-200" />
 
             {/* LO filter */}
-            <select
-              value={loFilter}
-              onChange={e => setLoFilter(e.target.value)}
-              className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
+            <select value={loFilter} onChange={e => { setLoFilter(e.target.value); setActiveViewId(null) }}
+              className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="All">All LOs</option>
               <option value="Matt">Matt</option>
               <option value="Moe">Moe</option>
             </select>
+
+            {/* Source filter */}
+            <select value={sourceFilter} onChange={e => { setSourceFilter(e.target.value); setActiveViewId(null) }}
+              className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="All">All Sources</option>
+              {availableSources.filter(s => s !== 'All').map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+
+            {/* Status filter */}
+            <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setActiveViewId(null) }}
+              className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="All">All Stages</option>
+              {availableStatuses.filter(s => s !== 'All').map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+
+            {/* Hide funded */}
+            <button onClick={() => { setHideFunded(v => !v); setActiveViewId(null) }}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
+                hideFunded ? 'bg-slate-800 text-white border-slate-800' : 'text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'
+              }`}>
+              <EyeOff className="w-3.5 h-3.5" /> Hide Funded
+            </button>
+
+            {/* Clear filters */}
+            {filtersActive && (
+              <button onClick={clearFilters}
+                className="flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-red-500 transition-colors px-2 py-1.5 rounded-lg hover:bg-red-50">
+                <X className="w-3.5 h-3.5" /> Clear
+              </button>
+            )}
+
+            <div className="ml-auto flex items-center gap-2">
+              {/* Save view button */}
+              <button onClick={() => { setNewViewName(''); setShowSaveModal(true) }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                <Bookmark className="w-3.5 h-3.5" /> Save View
+              </button>
+            </div>
           </div>
+
+          {/* ── Saved views strip ─────────────────────────────────────────────── */}
+          {savedViews.length > 0 && (
+            <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 flex-wrap">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Saved:</span>
+              {savedViews.map(v => (
+                <div key={v.id}
+                  className={`flex items-center gap-1 rounded-full border text-xs font-semibold px-3 py-1 transition-colors ${
+                    activeViewId === v.id
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:text-blue-600'
+                  }`}>
+                  <button onClick={() => loadView(v)} className="pr-1">{v.name}</button>
+                  <button onClick={() => deleteView(v.id)}
+                    className={`rounded-full p-0.5 transition-colors ${activeViewId === v.id ? 'hover:bg-blue-500' : 'hover:bg-red-100 hover:text-red-500'}`}>
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Save view modal ───────────────────────────────────────────────── */}
+          {showSaveModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => setShowSaveModal(false)}>
+              <div className="bg-white rounded-xl shadow-xl p-6 w-80" onClick={e => e.stopPropagation()}>
+                <h3 className="font-bold text-slate-900 mb-1">Save Current View</h3>
+                <p className="text-xs text-slate-500 mb-4">Saves your current filters so you can restore them anytime.</p>
+                <input
+                  autoFocus
+                  type="text"
+                  placeholder='e.g. "Matt's Active Escrows"'
+                  value={newViewName}
+                  onChange={e => setNewViewName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveView(); if (e.key === 'Escape') setShowSaveModal(false) }}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
+                />
+                <div className="text-xs text-slate-400 mb-4 space-y-0.5">
+                  {loFilter !== 'All' && <div>LO: <strong>{loFilter}</strong></div>}
+                  {sourceFilter !== 'All' && <div>Source: <strong>{sourceFilter}</strong></div>}
+                  {statusFilter !== 'All' && <div>Stage: <strong>{statusFilter}</strong></div>}
+                  {hideFunded && <div>Funded hidden</div>}
+                  {!filtersActive && <div className="italic">No filters active — saves layout only</div>}
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <button onClick={() => setShowSaveModal(false)} className="px-3 py-1.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+                  <button onClick={saveView} disabled={!newViewName.trim()} className="px-4 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40">Save</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Board / List ────────────────────────────────────────────────────── */}
