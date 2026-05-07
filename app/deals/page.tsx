@@ -50,7 +50,6 @@ function DealsPageInner() {
   const [search, setSearch] = useState(searchParams.get('search') || '')
   const [loFilter, setLoFilter] = useState('All')
   const [statusFilter, setStatusFilter] = useState('All')
-  const [groupFilter, setGroupFilter] = useState('All')
 
   // Bulk actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -61,8 +60,8 @@ function DealsPageInner() {
     const { data } = await supabase
       .from('deals')
       .select('*')
-      // Active Files = everything that is NOT a raw lead or lost/inactive
-      .not('pipeline_group', 'in', '("LEADS","Lost","Last files at WCL","Lost/Inactive/Does not qualify")')
+      // Active Escrows = strictly Loans in Process only
+      .eq('pipeline_group', 'Loans in Process')
       .order('created_at', { ascending: false })
     setDeals(data || [])
     setLoading(false)
@@ -78,12 +77,10 @@ function DealsPageInner() {
       d.email?.toLowerCase().includes(search.toLowerCase())
     const matchLO = loFilter === 'All' || d.loan_officer?.includes(loFilter)
     const matchStatus = statusFilter === 'All' || d.status === statusFilter
-    const matchGroup = groupFilter === 'All' || d.pipeline_group === groupFilter
-    return matchSearch && matchLO && matchStatus && matchGroup
+    return matchSearch && matchLO && matchStatus
   })
 
   const totalLoanAmt = filtered.reduce((s, d) => s + (d.loan_amount || 0), 0)
-  const groups = [...new Set(deals.map(d => d.pipeline_group))].filter(Boolean)
 
   // ── Selection helpers ──────────────────────────────────────────────────────
   const allFilteredSelected = filtered.length > 0 && filtered.every(d => selectedIds.has(d.id))
@@ -144,9 +141,9 @@ function DealsPageInner() {
       <div className="px-6 py-4 bg-white border-b border-slate-200 shrink-0">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-xl font-bold text-slate-900">Active Files</h1>
+            <h1 className="text-xl font-bold text-slate-900">Active Escrows</h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              {filtered.length} files · {formatCurrency(totalLoanAmt)} loan volume
+              {filtered.length} escrows · {formatCurrency(totalLoanAmt)} loan volume
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -198,17 +195,9 @@ function DealsPageInner() {
             <option value="All">All Statuses</option>
             {LOAN_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          <select
-            value={groupFilter}
-            onChange={e => setGroupFilter(e.target.value)}
-            className="text-sm border border-slate-200 rounded-lg px-3 py-2 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="All">All Groups</option>
-            {groups.map(g => <option key={g} value={g}>{g}</option>)}
-          </select>
-          {(search || loFilter !== 'All' || statusFilter !== 'All' || groupFilter !== 'All') && (
+          {(search || loFilter !== 'All' || statusFilter !== 'All') && (
             <button
-              onClick={() => { setSearch(''); setLoFilter('All'); setStatusFilter('All'); setGroupFilter('All') }}
+              onClick={() => { setSearch(''); setLoFilter('All'); setStatusFilter('All') }}
               className="text-sm text-blue-600 hover:underline"
             >
               Clear filters
@@ -244,7 +233,6 @@ function DealsPageInner() {
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">LO</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Investor</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Rate</th>
-                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Group</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Added</th>
                   <th className="px-4 py-3"></th>
                 </tr>
@@ -291,11 +279,6 @@ function DealsPageInner() {
                         <td className="px-4 py-3 text-slate-600">{deal.loan_officer || '—'}</td>
                         <td className="px-4 py-3 text-slate-600">{deal.investor || '—'}</td>
                         <td className="px-4 py-3 text-slate-600">{deal.rate ? `${deal.rate}%` : '—'}</td>
-                        <td className="px-4 py-3">
-                          <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                            {deal.pipeline_group}
-                          </span>
-                        </td>
                         <td className="px-4 py-3 text-slate-400 text-xs">{formatDate(deal.created_at)}</td>
                         <td className="px-4 py-3">
                           <Link href={`/deals/${deal.id}`} className="text-slate-400 hover:text-blue-600 transition-colors">

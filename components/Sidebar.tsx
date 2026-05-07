@@ -16,7 +16,7 @@ import GlobalSearch from './GlobalSearch'
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/pipeline', label: 'Pipeline', icon: Kanban },
-  { href: '/deals', label: 'Active Files', icon: Table2 },
+  { href: '/deals', label: 'Active Escrows', icon: Table2 },
   { href: '/deals/new', label: 'Add Deal', icon: PlusCircle },
   { href: '/underwriting', label: 'AI Underwriter', icon: Brain },
   { href: '/tasks', label: 'Tasks', icon: ClipboardList },
