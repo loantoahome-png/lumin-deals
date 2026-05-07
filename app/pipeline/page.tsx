@@ -739,7 +739,7 @@ export default function PipelinePage() {
                 <input
                   autoFocus
                   type="text"
-                  placeholder='e.g. "Matt's Active Escrows"'
+                  placeholder={`e.g. "Matt's Active Escrows"`}
                   value={newViewName}
                   onChange={e => setNewViewName(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') saveView(); if (e.key === 'Escape') setShowSaveModal(false) }}
