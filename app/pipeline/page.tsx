@@ -14,23 +14,26 @@ import { RefreshCw, Lock, Clock, AlertTriangle, ChevronDown, X, EyeOff, LayoutGr
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const STAGE_ORDER = ['Leads', 'Escrows', 'Funded']
+const STAGE_ORDER = ['Leads', 'Escrows', 'Not Ready', 'Funded']
 
 const STAGE_COLORS = {
-  Leads:   { header: 'bg-slate-50 border-slate-300',     dot: 'bg-slate-400',   col: 'bg-slate-50/50' },
-  Escrows: { header: 'bg-amber-50 border-amber-300',     dot: 'bg-amber-500',   col: 'bg-amber-50/30' },
-  Funded:  { header: 'bg-emerald-50 border-emerald-300', dot: 'bg-emerald-500', col: 'bg-emerald-50/30' },
+  Leads:      { header: 'bg-slate-50 border-slate-300',     dot: 'bg-slate-400',   col: 'bg-slate-50/50' },
+  Escrows:    { header: 'bg-amber-50 border-amber-300',     dot: 'bg-amber-500',   col: 'bg-amber-50/30' },
+  'Not Ready':{ header: 'bg-rose-50 border-rose-200',       dot: 'bg-rose-400',    col: 'bg-rose-50/20' },
+  Funded:     { header: 'bg-emerald-50 border-emerald-300', dot: 'bg-emerald-500', col: 'bg-emerald-50/30' },
 } as Record<string, { header: string; dot: string; col: string }>
 
 const STAGE_DEFAULT_STATUS: Record<string, string> = {
-  Leads:   'New Lead',
-  Escrows: 'Loan Setup',
-  Funded:  'Loan Funded',
+  Leads:       'New Lead',
+  Escrows:     'Loan Setup',
+  'Not Ready': 'Non-Responsive',
+  Funded:      'Loan Funded',
 }
 const STAGE_DEFAULT_GROUP: Record<string, string> = {
-  Leads:   'Leads',
-  Escrows: 'Loans in Process',
-  Funded:  'Funded',
+  Leads:       'Leads',
+  Escrows:     'Loans in Process',
+  'Not Ready': 'Not Ready',
+  Funded:      'Funded',
 }
 
 // ── Escrow sub-sections (ordering + labels within the Escrows column) ─────────
@@ -47,18 +50,28 @@ function escrowSubIndex(status: string): number {
   return 99
 }
 
-// ── Column ← pipeline_group mapping (with legacy fallback) ───────────────────
+// ── Not Ready sub-sections ────────────────────────────────────────────────────
+const NOT_READY_SUBGROUPS: { label: string; dot: string; statuses: Set<string> }[] = [
+  { label: 'Not Qualified', dot: 'bg-red-400',    statuses: new Set(['Not Qualified - Credit', 'Not Qualified - Income']) },
+  { label: 'Not Ready',     dot: 'bg-orange-400', statuses: new Set(['Not Ready - Timeframe', 'Not Ready - Rate']) },
+  { label: 'Lost / Inactive', dot: 'bg-gray-400', statuses: new Set(['DND - SMS', 'Lost to Competitor', 'Non-Responsive', 'Remove from All Automations', 'STOP']) },
+]
+function notReadySubIndex(status: string): number {
+  for (let i = 0; i < NOT_READY_SUBGROUPS.length; i++) {
+    if (NOT_READY_SUBGROUPS[i].statuses.has(status)) return i
+  }
+  return 99
+}
+
+// ── Column ← pipeline_group mapping (strict GHL pipeline names only) ─────────
+// Escrows is ONLY 'Loans in Process' — no legacy fallbacks allowed
 function getColumnForDeal(deal: Deal): string | null {
   const g = deal.pipeline_group
-  // New values
-  if (g === 'Leads') return 'Leads'
-  if (g === 'Loans in Process') return 'Escrows'
-  if (g === 'Funded') return 'Funded'
-  // Legacy values (backwards compatibility with old DB records)
-  if (g === 'LEADS') return 'Leads'
-  if (g === 'Active Escrows' || g === 'Signing Scheduled') return 'Escrows'
-  if (g === 'Closed') return 'Funded'
-  return null // Not Ready, Lost, Nurture, etc. → hidden
+  if (g === 'Leads')            return 'Leads'
+  if (g === 'Loans in Process') return 'Escrows'   // strict — only this maps to Escrows
+  if (g === 'Not Ready')        return 'Not Ready'
+  if (g === 'Funded')           return 'Funded'
+  return null  // legacy / unknown pipeline_group → hidden from board
 }
 
 // ── Source badge ──────────────────────────────────────────────────────────────
@@ -268,7 +281,7 @@ function DealCard({ deal, onStatusChange, ghost = false, isSelected = false, onT
 // ── List View ─────────────────────────────────────────────────────────────────
 
 const STAGE_DOT: Record<string, string> = {
-  Leads: 'bg-slate-400', Escrows: 'bg-amber-500', Funded: 'bg-emerald-500',
+  Leads: 'bg-slate-400', Escrows: 'bg-amber-500', 'Not Ready': 'bg-rose-400', Funded: 'bg-emerald-500',
 }
 
 function ListView({ deals, onStatusChange, selectedIds, onToggleSelect, onSelectAll, onClearAll }: {
@@ -529,7 +542,7 @@ export default function PipelinePage() {
     const { data } = await supabase
       .from('deals')
       .select('*')
-      .not('pipeline_group', 'in', '("Not Ready","Lost","Last files at WCL","Lost/Inactive/Does not qualify","Nurture")')
+      .not('pipeline_group', 'in', '("Lost","Last files at WCL","Lost/Inactive/Does not qualify","Nurture")')
       .order('created_at', { ascending: false })
     setDeals(data || [])
     setLoading(false)
@@ -666,6 +679,9 @@ export default function PipelinePage() {
   })
   if (stageMap['Escrows']) {
     stageMap['Escrows'].sort((a, b) => escrowSubIndex(a.status) - escrowSubIndex(b.status))
+  }
+  if (stageMap['Not Ready']) {
+    stageMap['Not Ready'].sort((a, b) => notReadySubIndex(a.status) - notReadySubIndex(b.status))
   }
 
   const activeDeal = activeId ? deals.find(d => d.id === activeId) : null
@@ -946,6 +962,30 @@ export default function PipelinePage() {
                             const sg = ESCROW_SUBGROUPS[sub]
                             nodes.push(
                               <div key={`sg-${sub}`} className="flex items-center gap-1.5 px-1 pt-1 pb-0.5">
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${sg.dot}`} />
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{sg.label}</span>
+                                <div className="flex-1 h-px bg-slate-200" />
+                              </div>
+                            )
+                            lastSub = sub
+                          }
+                          nodes.push(
+                            <DraggableCard key={deal.id} deal={deal} onStatusChange={handleStatusChange} isSelected={selectedIds.has(deal.id)} onToggleSelect={toggleSelect} />
+                          )
+                        })
+                        return nodes
+                      })()
+                    ) : stage === 'Not Ready' ? (
+                      // Not Ready: render with sub-section dividers
+                      (() => {
+                        const nodes: React.ReactNode[] = []
+                        let lastSub = -1
+                        stageDeals.forEach(deal => {
+                          const sub = notReadySubIndex(deal.status)
+                          if (sub !== lastSub && sub < NOT_READY_SUBGROUPS.length) {
+                            const sg = NOT_READY_SUBGROUPS[sub]
+                            nodes.push(
+                              <div key={`nr-${sub}`} className="flex items-center gap-1.5 px-1 pt-1 pb-0.5">
                                 <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${sg.dot}`} />
                                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{sg.label}</span>
                                 <div className="flex-1 h-px bg-slate-200" />
