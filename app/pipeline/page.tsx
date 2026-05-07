@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
   PointerSensor, useSensor, useSensors, closestCorners,
@@ -10,7 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { Deal, PIPELINE_STAGE_MAP, LOAN_STATUSES, STATUS_COLORS } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import Link from 'next/link'
-import { RefreshCw, Lock, Clock, AlertTriangle, ChevronDown, X, EyeOff, LayoutGrid, List, Bookmark, Trash2 } from 'lucide-react'
+import { RefreshCw, Lock, Clock, AlertTriangle, ChevronDown, X, EyeOff, LayoutGrid, List, Bookmark, Trash2, ArrowRight, Check } from 'lucide-react'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -119,21 +119,28 @@ function DroppableColumn({ stage, children, isOver }: {
 
 // ── Draggable Card ────────────────────────────────────────────────────────────
 
-function DraggableCard({ deal, onStatusChange }: {
-  deal: Deal; onStatusChange: (id: string, status: string) => void
+function DraggableCard({ deal, onStatusChange, isSelected, onToggleSelect }: {
+  deal: Deal
+  onStatusChange: (id: string, status: string) => void
+  isSelected?: boolean
+  onToggleSelect?: (id: string) => void
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: deal.id })
   return (
     <div ref={setNodeRef} style={{ opacity: isDragging ? 0.35 : 1 }} {...listeners} {...attributes} className="touch-none">
-      <DealCard deal={deal} onStatusChange={onStatusChange} />
+      <DealCard deal={deal} onStatusChange={onStatusChange} isSelected={isSelected} onToggleSelect={onToggleSelect} />
     </div>
   )
 }
 
 // ── Deal Card ─────────────────────────────────────────────────────────────────
 
-function DealCard({ deal, onStatusChange, ghost = false }: {
-  deal: Deal; onStatusChange: (id: string, status: string) => void; ghost?: boolean
+function DealCard({ deal, onStatusChange, ghost = false, isSelected = false, onToggleSelect }: {
+  deal: Deal
+  onStatusChange: (id: string, status: string) => void
+  ghost?: boolean
+  isSelected?: boolean
+  onToggleSelect?: (id: string) => void
 }) {
   const [showStatusMenu, setShowStatusMenu] = useState(false)
   const age = getDealAge(deal)
@@ -148,8 +155,10 @@ function DealCard({ deal, onStatusChange, ghost = false }: {
     .replace('Figure - income verification or less', 'Figure - Income')
 
   return (
-    <div className={`bg-white rounded-xl border border-slate-200 p-3.5 transition-all group relative ${
-      ghost ? 'shadow-xl rotate-1 scale-105' : 'hover:border-blue-300 hover:shadow-md cursor-grab active:cursor-grabbing'
+    <div className={`bg-white rounded-xl border p-3.5 transition-all group relative ${
+      ghost       ? 'shadow-xl rotate-1 scale-105 border-slate-200' :
+      isSelected  ? 'border-blue-400 shadow-md cursor-grab active:cursor-grabbing' :
+                    'border-slate-200 hover:border-blue-300 hover:shadow-md cursor-grab active:cursor-grabbing'
     }`}>
       {/* Lock expiry alerts */}
       {lockDays !== null && lockDays <= 7 && (
@@ -165,13 +174,27 @@ function DealCard({ deal, onStatusChange, ghost = false }: {
 
       {/* Name + status */}
       <div className="flex items-start justify-between gap-2 mb-1.5">
-        <Link
-          href={`/deals/${deal.id}`}
-          onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}
-          className="font-semibold text-slate-900 text-sm leading-tight hover:text-blue-700 transition-colors"
-        >
-          {deal.name}
-        </Link>
+        <div className="flex items-start gap-1.5 min-w-0">
+          {/* Inline checkbox (hidden until hover/selected) */}
+          {!ghost && onToggleSelect && (
+            <button
+              className={`shrink-0 mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center transition-all ${
+                isSelected ? 'bg-blue-600 border-blue-600 opacity-100' : 'border-slate-300 bg-white opacity-0 group-hover:opacity-100 hover:border-blue-400'
+              }`}
+              onMouseDown={e => e.stopPropagation()}
+              onClick={e => { e.stopPropagation(); onToggleSelect(deal.id) }}
+            >
+              {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
+            </button>
+          )}
+          <Link
+            href={`/deals/${deal.id}`}
+            onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}
+            className="font-semibold text-slate-900 text-sm leading-tight hover:text-blue-700 transition-colors"
+          >
+            {deal.name}
+          </Link>
+        </div>
         <div className="relative shrink-0">
           <button
             onMouseDown={e => e.stopPropagation()}
@@ -248,13 +271,25 @@ const STAGE_DOT: Record<string, string> = {
   Leads: 'bg-slate-400', Escrows: 'bg-amber-500', Funded: 'bg-emerald-500',
 }
 
-function ListView({ deals, onStatusChange }: {
+function ListView({ deals, onStatusChange, selectedIds, onToggleSelect, onSelectAll, onClearAll }: {
   deals: Deal[]
   onStatusChange: (id: string, status: string) => void
+  selectedIds: Set<string>
+  onToggleSelect: (id: string) => void
+  onSelectAll: (ids: string[]) => void
+  onClearAll: () => void
 }) {
   const [sortKey, setSortKey]   = useState<string>('name')
   const [sortDir, setSortDir]   = useState<'asc' | 'desc'>('asc')
   const [openMenu, setOpenMenu] = useState<string | null>(null)
+  const selectAllRef = useRef<HTMLInputElement>(null)
+
+  // Checkbox state
+  const allSelected  = deals.length > 0 && deals.every(d => selectedIds.has(d.id))
+  const someSelected = deals.some(d => selectedIds.has(d.id))
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someSelected && !allSelected
+  }, [someSelected, allSelected])
 
   function toggleSort(key: string) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -297,6 +332,15 @@ function ListView({ deals, onStatusChange }: {
         <table className="w-full border-collapse">
           <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
             <tr>
+              <th className="px-4 py-3 w-10">
+                <input
+                  ref={selectAllRef}
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={() => allSelected ? onClearAll() : onSelectAll(sorted.map(d => d.id))}
+                  className="w-4 h-4 rounded accent-blue-600 cursor-pointer"
+                />
+              </th>
               <Th label="Name" k="name" />
               <Th label="Stage" k="stage" />
               <Th label="Status" k="status" />
@@ -325,7 +369,16 @@ function ListView({ deals, onStatusChange }: {
                 .replace('Figure - income verification or less', 'Figure - Income')
 
               return (
-                <tr key={deal.id} className="hover:bg-slate-50 transition-colors group">
+                <tr key={deal.id} className={`hover:bg-slate-50 transition-colors group ${selectedIds.has(deal.id) ? 'bg-blue-50/60' : ''}`}>
+                  {/* Checkbox */}
+                  <td className="px-4 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(deal.id)}
+                      onChange={() => onToggleSelect(deal.id)}
+                      className="w-4 h-4 rounded accent-blue-600 cursor-pointer"
+                    />
+                  </td>
                   {/* Name */}
                   <td className="px-4 py-3 font-semibold text-slate-900 whitespace-nowrap">
                     <Link href={`/deals/${deal.id}`} className="hover:text-blue-700 transition-colors">
@@ -424,7 +477,7 @@ function ListView({ deals, onStatusChange }: {
             })}
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={12} className="px-4 py-12 text-center text-slate-400 text-sm">No deals match current filters</td>
+                <td colSpan={13} className="px-4 py-12 text-center text-slate-400 text-sm">No deals match current filters</td>
               </tr>
             )}
           </tbody>
@@ -463,6 +516,11 @@ export default function PipelinePage() {
   const [activeViewId, setActiveViewId] = useState<string | null>(null)
   const [showSaveModal, setShowSaveModal] = useState(false)
   const [newViewName, setNewViewName] = useState('')
+  // Stage filter + bulk selection
+  const [stageFilter, setStageFilter] = useState<string[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [showBulkMoveMenu, setShowBulkMoveMenu] = useState(false)
+  const [bulkWorking, setBulkWorking] = useState(false)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
@@ -525,13 +583,69 @@ export default function PipelinePage() {
 
   function clearFilters() {
     setLoFilter('All'); setSourceFilter('All'); setStatusFilter('All')
-    setHideFunded(false); setActiveViewId(null)
+    setHideFunded(false); setStageFilter([]); setActiveViewId(null)
   }
 
-  const filtersActive = loFilter !== 'All' || sourceFilter !== 'All' || statusFilter !== 'All' || hideFunded
+  const filtersActive = loFilter !== 'All' || sourceFilter !== 'All' || statusFilter !== 'All' || hideFunded || stageFilter.length > 0
+
+  // ── Stage filter toggle ───────────────────────────────────────────────────
+  function toggleStageFilter(stage: string) {
+    setStageFilter(prev => prev.includes(stage) ? prev.filter(s => s !== stage) : [...prev, stage])
+    setSelectedIds(new Set())
+  }
+
+  // ── Bulk selection helpers ────────────────────────────────────────────────
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  function selectAll(ids: string[]) { setSelectedIds(new Set(ids)) }
+
+  async function handleBulkDelete() {
+    if (!window.confirm(`Permanently delete ${selectedIds.size} deal${selectedIds.size > 1 ? 's' : ''}? This cannot be undone.`)) return
+    setBulkWorking(true)
+    const ids = Array.from(selectedIds)
+    await supabase.from('deals').delete().in('id', ids)
+    setDeals(prev => prev.filter(d => !selectedIds.has(d.id)))
+    setSelectedIds(new Set())
+    setBulkWorking(false)
+  }
+
+  async function handleBulkMove(targetGroup: string, targetStatus: string) {
+    setBulkWorking(true)
+    const ids = Array.from(selectedIds)
+    await supabase.from('deals').update({ pipeline_group: targetGroup, status: targetStatus }).in('id', ids)
+    setDeals(prev => prev.map(d => selectedIds.has(d.id)
+      ? { ...d, pipeline_group: targetGroup, status: targetStatus, updated_at: new Date().toISOString() }
+      : d
+    ))
+    setSelectedIds(new Set())
+    setShowBulkMoveMenu(false)
+    setBulkWorking(false)
+  }
+
+  // Stage counts for pills (ignores stageFilter so inactive pills still show their totals)
+  const stageCount: Record<string, number> = {}
+  STAGE_ORDER.forEach(s => { stageCount[s] = 0 })
+  deals.forEach(d => {
+    const col = getColumnForDeal(d)
+    if (!col || (hideFunded && col === 'Funded')) return
+    if (loFilter !== 'All' && !d.loan_officer?.includes(loFilter)) return
+    if (sourceFilter !== 'All' && d.source !== sourceFilter) return
+    if (statusFilter !== 'All' && d.status !== statusFilter) return
+    stageCount[col] = (stageCount[col] || 0) + 1
+  })
 
   // Determine which stages to show
-  const visibleStages = STAGE_ORDER.filter(s => !(hideFunded && s === 'Funded'))
+  const visibleStages = STAGE_ORDER.filter(s => {
+    if (hideFunded && s === 'Funded') return false
+    if (stageFilter.length > 0 && !stageFilter.includes(s)) return false
+    return true
+  })
 
   // Filter deals to visible columns + active filters
   const filteredDeals = deals.filter(d => {
@@ -647,17 +761,34 @@ export default function PipelinePage() {
 
           {/* ── Filter bar ───────────────────────────────────────────────────── */}
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Stage summary pills */}
+            {/* Stage filter pills (clickable to filter) */}
             <div className="flex items-center gap-1.5">
               {STAGE_ORDER.map(s => {
                 const c = STAGE_COLORS[s]
-                const count = stageMap[s]?.length ?? 0
+                const count = stageCount[s] ?? 0
+                const isActive = stageFilter.includes(s)
+                const anyFiltered = stageFilter.length > 0
                 return (
-                  <div key={s} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-sm font-medium ${c.header}`}>
-                    <span className={`w-2 h-2 rounded-full ${c.dot}`} />
+                  <button
+                    key={s}
+                    onClick={() => toggleStageFilter(s)}
+                    title={isActive ? `Remove ${s} filter` : `Show only ${s}`}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-sm font-medium transition-all ${
+                      isActive
+                        ? `${c.header} ring-2 ring-blue-400 ring-offset-1`
+                        : anyFiltered
+                          ? 'bg-white border-slate-200 text-slate-400'
+                          : c.header
+                    }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full transition-colors ${isActive || !anyFiltered ? c.dot : 'bg-slate-300'}`} />
                     {s}
-                    <span className="bg-white/70 text-slate-500 text-xs font-semibold px-1.5 py-0.5 rounded-full border border-slate-200/80">{count}</span>
-                  </div>
+                    <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full border transition-colors ${
+                      isActive || !anyFiltered
+                        ? 'bg-white/70 text-slate-500 border-slate-200/80'
+                        : 'bg-slate-100 text-slate-400 border-slate-200'
+                    }`}>{count}</span>
+                  </button>
                 )
               })}
             </div>
@@ -769,7 +900,14 @@ export default function PipelinePage() {
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
           </div>
         ) : layoutView === 'list' ? (
-          <ListView deals={filteredDeals} onStatusChange={handleStatusChange} />
+          <ListView
+            deals={filteredDeals}
+            onStatusChange={handleStatusChange}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
+            onSelectAll={selectAll}
+            onClearAll={() => setSelectedIds(new Set())}
+          />
         ) : (
           <div className="flex gap-4 p-4 overflow-x-auto flex-1 items-start">
             {visibleStages.map(stage => {
@@ -816,14 +954,14 @@ export default function PipelinePage() {
                             lastSub = sub
                           }
                           nodes.push(
-                            <DraggableCard key={deal.id} deal={deal} onStatusChange={handleStatusChange} />
+                            <DraggableCard key={deal.id} deal={deal} onStatusChange={handleStatusChange} isSelected={selectedIds.has(deal.id)} onToggleSelect={toggleSelect} />
                           )
                         })
                         return nodes
                       })()
                     ) : (
                       stageDeals.map(deal => (
-                        <DraggableCard key={deal.id} deal={deal} onStatusChange={handleStatusChange} />
+                        <DraggableCard key={deal.id} deal={deal} onStatusChange={handleStatusChange} isSelected={selectedIds.has(deal.id)} onToggleSelect={toggleSelect} />
                       ))
                     )}
                   </DroppableColumn>
@@ -841,6 +979,69 @@ export default function PipelinePage() {
           </div>
         ) : null}
       </DragOverlay>
+
+      {/* ── Bulk action bar ─────────────────────────────────────────────────── */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-2xl shadow-2xl border border-slate-700 text-sm">
+          <span className="font-semibold text-slate-200">{selectedIds.size} deal{selectedIds.size > 1 ? 's' : ''} selected</span>
+          <div className="h-4 w-px bg-slate-600 mx-1" />
+
+          {/* Move to */}
+          <div className="relative">
+            <button
+              onClick={() => setShowBulkMoveMenu(v => !v)}
+              disabled={bulkWorking}
+              className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <ArrowRight className="w-3.5 h-3.5" /> Move to
+            </button>
+            {showBulkMoveMenu && (
+              <div
+                className="absolute bottom-full mb-2 left-0 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 w-52 text-slate-700 overflow-hidden"
+                onMouseLeave={() => setShowBulkMoveMenu(false)}
+              >
+                <div className="px-3 py-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wide border-b border-slate-100 mb-1">
+                  Move {selectedIds.size} deal{selectedIds.size > 1 ? 's' : ''} to
+                </div>
+                {[
+                  { label: 'Leads',            dot: 'bg-slate-400',    group: 'Leads',            status: 'New Lead' },
+                  { label: 'Loans in Process', dot: 'bg-amber-500',    group: 'Loans in Process', status: 'Loan Setup' },
+                  { label: 'Not Ready',        dot: 'bg-red-400',      group: 'Not Ready',        status: 'Non-Responsive' },
+                  { label: 'Funded',           dot: 'bg-emerald-500',  group: 'Funded',           status: 'Loan Funded' },
+                ].map(opt => (
+                  <button key={opt.group}
+                    onClick={() => handleBulkMove(opt.group, opt.status)}
+                    disabled={bulkWorking}
+                    className="w-full text-left text-sm px-3 py-2 hover:bg-slate-50 transition-colors flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${opt.dot}`} />
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Delete */}
+          <button
+            onClick={handleBulkDelete}
+            disabled={bulkWorking}
+            className="flex items-center gap-1.5 bg-red-600 hover:bg-red-500 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            {bulkWorking ? 'Working…' : 'Delete'}
+          </button>
+
+          {/* Clear */}
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="ml-1 p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+            title="Clear selection"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
     </DndContext>
   )
 }
