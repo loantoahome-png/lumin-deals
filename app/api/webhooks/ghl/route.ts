@@ -1,5 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
+import { createHmac } from 'crypto'
+
+// ── Signature validation ──────────────────────────────────────────────────────
+async function validateGHLSignature(req: NextRequest, rawBody: string): Promise<boolean> {
+  const secret = process.env.GHL_WEBHOOK_SECRET
+  if (!secret) return true // Skip validation if secret not configured (dev mode)
+
+  const signature = req.headers.get('x-ghl-signature') ||
+                    req.headers.get('x-hub-signature-256') ||
+                    req.headers.get('x-signature')
+  if (!signature) return false
+
+  const expected = createHmac('sha256', secret).update(rawBody).digest('hex')
+  const expectedHeader = `sha256=${expected}`
+
+  // Constant-time comparison to prevent timing attacks
+  if (signature.length !== expectedHeader.length) return false
+  let mismatch = 0
+  for (let i = 0; i < signature.length; i++) {
+    mismatch |= signature.charCodeAt(i) ^ expectedHeader.charCodeAt(i)
+  }
+  return mismatch === 0
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -212,7 +235,15 @@ function extractFields(body: Record<string, unknown>) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json() as Record<string, unknown>
+    // ── Validate GHL signature before processing ────────────────────────────
+    const rawBody = await req.text()
+    const isValid = await validateGHLSignature(req, rawBody)
+    if (!isValid) {
+      console.warn('[GHL Webhook] Invalid signature — request rejected')
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+    }
+
+    const body = JSON.parse(rawBody) as Record<string, unknown>
     console.log('[GHL Webhook] Payload keys:', Object.keys(body))
 
     const supabase = createServiceClient()
