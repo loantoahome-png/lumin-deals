@@ -119,6 +119,10 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
               onChange={e => set('status', e.target.value)}
               className={`text-sm font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${statusClass}`}
             >
+              {/* Show current value even if it's a legacy status not in the new list */}
+              {form.status && !(LOAN_STATUSES as readonly string[]).includes(form.status) && (
+                <option value={form.status}>{form.status} ⚠ (legacy)</option>
+              )}
               {LOAN_STATUSES.map(s => <option key={s}>{s}</option>)}
             </select>
             <select
@@ -126,6 +130,10 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
               onChange={e => set('pipeline_group', e.target.value)}
               className="text-sm px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-100 text-slate-600 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
+              {/* Show current value even if it's a legacy pipeline_group */}
+              {form.pipeline_group && !(PIPELINE_GROUPS as readonly string[]).includes(form.pipeline_group) && (
+                <option value={form.pipeline_group}>{form.pipeline_group} ⚠ (legacy)</option>
+              )}
               {PIPELINE_GROUPS.map(g => <option key={g}>{g}</option>)}
             </select>
           </div>

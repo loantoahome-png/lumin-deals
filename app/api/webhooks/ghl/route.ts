@@ -23,6 +23,14 @@ function getCustomField(fields: GHLCustomField[], ...searchKeys: string[]): stri
   return null
 }
 
+/** Reject GHL object-serializations like {"ids":[]} or [123] that appear for dropdown fields */
+function sanitizeStr(val: string | null): string | null {
+  if (!val) return null
+  const trimmed = val.trim()
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) return null
+  return trimmed || null
+}
+
 function parseAmount(val: string | number | null | undefined): number | null {
   if (val == null || val === '') return null
   if (typeof val === 'number') return isNaN(val) ? null : val
@@ -150,8 +158,8 @@ function extractFields(body: Record<string, unknown>) {
 
   const loanAmount    = parseAmount(pick(body, 'Loan Amount', 'loan_amount', 'loanAmount') || pick(contact, 'loan_amount') || getCustomField(rawCustomFields, 'loan_amount', 'loan amount', 'loanamount', 'Loan Amount'))
   const estimatedValue= parseAmount(pick(body, 'Property Value', 'estimated_value', 'propertyValue') || getCustomField(rawCustomFields, 'estimated_value', 'property_value', 'home_value', 'Property Value'))
-  const loanType      = pick(body, 'Loan Type', 'loan_type', 'loanType') || getCustomField(rawCustomFields, 'loan_type', 'loan type', 'Loan Type') || null
-  const loanPurpose   = pick(body, 'Loan Purpose', 'loan_purpose') || getCustomField(rawCustomFields, 'loan_purpose', 'loan purpose', 'Loan Purpose') || null
+  const loanType      = sanitizeStr(pick(body, 'Loan Type', 'loan_type', 'loanType') || getCustomField(rawCustomFields, 'loan_type', 'loan type', 'Loan Type'))
+  const loanPurpose   = sanitizeStr(pick(body, 'Loan Purpose', 'loan_purpose') || getCustomField(rawCustomFields, 'loan_purpose', 'loan purpose', 'Loan Purpose'))
   const creditScore   = parseAmount(pick(body, 'Credit Score', 'credit_score', 'creditScore') || getCustomField(rawCustomFields, 'credit_score', 'credit score', 'fico'))
   const creditRating  = pick(body, 'Credit Rating', 'credit_rating') || getCustomField(rawCustomFields, 'credit_rating', 'credit rating', 'Credit Rating') || null
   const rate          = parseAmount(pick(body, 'rate', 'interest_rate') || getCustomField(rawCustomFields, 'rate', 'interest_rate', 'note_rate'))

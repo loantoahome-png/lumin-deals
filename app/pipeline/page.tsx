@@ -203,7 +203,9 @@ function DealCard({ deal, onStatusChange, ghost = false }: {
       {/* Loan details */}
       {(deal.loan_type || deal.loan_amount) && (
         <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-          {deal.loan_type && <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">{deal.loan_type}</span>}
+          {deal.loan_type && !deal.loan_type.startsWith('{') && !deal.loan_type.startsWith('[') && (
+            <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">{deal.loan_type}</span>
+          )}
           {deal.loan_amount && <span className="text-xs font-semibold text-slate-700">{formatCurrency(deal.loan_amount)}</span>}
           {deal.ltv && <span className="text-xs text-slate-400">{deal.ltv.toFixed(0)}% LTV</span>}
         </div>
