@@ -4,28 +4,9 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import {
-  Deal, PIPELINE_GROUPS, LOAN_OFFICERS,
+  Deal, PIPELINE_GROUPS, PIPELINE_STATUSES, LOAN_OFFICERS,
   LOAN_TYPES, OCCUPANCY_TYPES, APPRAISAL_STATUSES
 } from '@/lib/types'
-
-// Statuses per pipeline — status dropdown filters to match selected pipeline
-const PIPELINE_STATUSES: Record<string, string[]> = {
-  'Leads': [
-    'New Lead', 'Attempted Contact', 'Ghosted', 'Responded', 'Pitching',
-    'Appointment Booked', 'Arive Lead', 'App Intake', 'Qualification', 'Pre-Approved',
-  ],
-  'Loans in Process': [
-    'Loan Setup', 'Disclosed', 'Submitted to UW', 'Approved w/ Conditions',
-    'Re-Submittal', 'Clear to Close', 'Docs Out', 'Docs Signed',
-    'Loan Funded', 'Broker Check Received', 'Loan Finalized',
-  ],
-  'Not Ready': [
-    'Not Qualified - Credit', 'Not Qualified - Income', 'Not Ready - Timeframe',
-    'DND - SMS', 'Not Ready - Rate', 'Lost to Competitor', 'Non-Responsive',
-    'Remove from All Automations', 'STOP',
-  ],
-  'Funded': ['Loan Funded'],
-}
 
 type DealFormData = Omit<Deal, 'id' | 'created_at' | 'updated_at'>
 

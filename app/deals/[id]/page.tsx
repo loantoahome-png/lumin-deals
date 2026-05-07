@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
-  Deal, STATUS_COLORS, LOAN_STATUSES, PIPELINE_GROUPS,
+  Deal, STATUS_COLORS, PIPELINE_GROUPS, PIPELINE_STATUSES,
   LOAN_OFFICERS, LOAN_TYPES, OCCUPANCY_TYPES, APPRAISAL_STATUSES,
 } from '@/lib/types'
 import Link from 'next/link'
@@ -114,23 +114,32 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
           />
 
           <div className="flex items-center gap-2 mt-3 flex-wrap">
+            {/* Status — filtered to only valid stages for the current pipeline */}
             <select
               value={form.status || ''}
               onChange={e => set('status', e.target.value)}
               className={`text-sm font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${statusClass}`}
             >
-              {/* Show current value even if it's a legacy status not in the new list */}
-              {form.status && !(LOAN_STATUSES as readonly string[]).includes(form.status) && (
+              {/* Show legacy value at top if it doesn't belong to the current pipeline */}
+              {form.status && !(PIPELINE_STATUSES[form.pipeline_group || ''] || []).includes(form.status) && (
                 <option value={form.status}>{form.status} ⚠ (legacy)</option>
               )}
-              {LOAN_STATUSES.map(s => <option key={s}>{s}</option>)}
+              {(PIPELINE_STATUSES[form.pipeline_group || ''] || []).map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
             </select>
+            {/* Pipeline — changing it resets status to the first valid stage */}
             <select
               value={form.pipeline_group || ''}
-              onChange={e => set('pipeline_group', e.target.value)}
+              onChange={e => {
+                const pg = e.target.value
+                const firstStatus = PIPELINE_STATUSES[pg]?.[0] || ''
+                setForm(f => f ? { ...f, pipeline_group: pg, status: firstStatus } : f)
+                setSaved(false)
+              }}
               className="text-sm px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-100 text-slate-600 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              {/* Show current value even if it's a legacy pipeline_group */}
+              {/* Show legacy pipeline_group if not in valid list */}
               {form.pipeline_group && !(PIPELINE_GROUPS as readonly string[]).includes(form.pipeline_group) && (
                 <option value={form.pipeline_group}>{form.pipeline_group} ⚠ (legacy)</option>
               )}
