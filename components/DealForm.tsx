@@ -8,21 +8,24 @@ import {
   LOAN_TYPES, OCCUPANCY_TYPES, APPRAISAL_STATUSES
 } from '@/lib/types'
 
-// Statuses grouped by GHL pipeline for the form dropdown
-const STATUS_GROUPS = [
-  {
-    label: 'Leads',
-    statuses: ['New Lead', 'Attempted Contact', 'Ghosted', 'Responded', 'Pitching', 'Appointment Booked', 'Arive Lead', 'App Intake', 'Qualification', 'Pre-Approved'],
-  },
-  {
-    label: 'Loans in Process',
-    statuses: ['Loan Setup', 'Disclosed', 'Submitted to UW', 'Approved w/ Conditions', 'Re-Submittal', 'Clear to Close', 'Docs Out', 'Docs Signed', 'Loan Funded', 'Broker Check Received', 'Loan Finalized'],
-  },
-  {
-    label: 'Not Ready',
-    statuses: ['Not Qualified - Credit', 'Not Qualified - Income', 'Not Ready - Timeframe', 'DND - SMS', 'Not Ready - Rate', 'Lost to Competitor', 'Non-Responsive', 'Remove from All Automations', 'STOP'],
-  },
-]
+// Statuses per pipeline — status dropdown filters to match selected pipeline
+const PIPELINE_STATUSES: Record<string, string[]> = {
+  'Leads': [
+    'New Lead', 'Attempted Contact', 'Ghosted', 'Responded', 'Pitching',
+    'Appointment Booked', 'Arive Lead', 'App Intake', 'Qualification', 'Pre-Approved',
+  ],
+  'Loans in Process': [
+    'Loan Setup', 'Disclosed', 'Submitted to UW', 'Approved w/ Conditions',
+    'Re-Submittal', 'Clear to Close', 'Docs Out', 'Docs Signed',
+    'Loan Funded', 'Broker Check Received', 'Loan Finalized',
+  ],
+  'Not Ready': [
+    'Not Qualified - Credit', 'Not Qualified - Income', 'Not Ready - Timeframe',
+    'DND - SMS', 'Not Ready - Rate', 'Lost to Competitor', 'Non-Responsive',
+    'Remove from All Automations', 'STOP',
+  ],
+  'Funded': ['Loan Funded'],
+}
 
 type DealFormData = Omit<Deal, 'id' | 'created_at' | 'updated_at'>
 
@@ -178,17 +181,23 @@ export default function DealForm({ deal }: { deal?: Deal }) {
       {/* Section: Pipeline */}
       <Section title="Pipeline">
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Pipeline Group">
-            <select value={form.pipeline_group || ''} onChange={e => set('pipeline_group', e.target.value)} className={selectClass}>
+          <Field label="Pipeline">
+            <select
+              value={form.pipeline_group || ''}
+              onChange={e => {
+                const pg = e.target.value
+                const firstStatus = PIPELINE_STATUSES[pg]?.[0] || ''
+                setForm(f => ({ ...f, pipeline_group: pg, status: firstStatus }))
+              }}
+              className={selectClass}
+            >
               {PIPELINE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
             </select>
           </Field>
-          <Field label="Loan Status">
+          <Field label="Stage">
             <select value={form.status} onChange={e => set('status', e.target.value)} className={selectClass}>
-              {STATUS_GROUPS.map(g => (
-                <optgroup key={g.label} label={g.label}>
-                  {g.statuses.map(s => <option key={s} value={s}>{s}</option>)}
-                </optgroup>
+              {(PIPELINE_STATUSES[form.pipeline_group || ''] || []).map(s => (
+                <option key={s} value={s}>{s}</option>
               ))}
             </select>
           </Field>
