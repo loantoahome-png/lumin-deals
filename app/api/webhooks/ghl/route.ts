@@ -84,17 +84,23 @@ function buildNameFromObj(obj: Record<string, unknown> | null | undefined): stri
 }
 
 const LO_MAP: Record<string, string> = {
+  // Moe variants
   'moe sefati': 'Moe Sefati', 'sefati': 'Moe Sefati', 'moe': 'Moe Sefati',
-  'matthew': 'Matt', 'matt': 'Matt', 'park': 'Matt',
+  // Matt variants
+  'matthew park': 'Matt Park', 'matthew': 'Matt Park', 'matt park': 'Matt Park',
+  'matt': 'Matt Park', 'park': 'Matt Park',
 }
 
-function resolveLO(ownerName: string | null): string | null {
+function resolveLO(ownerName: string | null | undefined): string | null {
   if (!ownerName) return null
-  const lower = ownerName.toLowerCase().trim()
+  const trimmed = ownerName.trim()
+  if (!trimmed) return null
+  const lower = trimmed.toLowerCase()
   for (const [key, value] of Object.entries(LO_MAP)) {
     if (lower.includes(key)) return value
   }
-  return ownerName
+  // No match — return the raw name so we don't lose the assignment
+  return trimmed
 }
 
 // GHL stage name → { status, pipeline_group }  (exact match = GHL stage names)
@@ -119,9 +125,9 @@ const GHL_STAGE_MAP: Record<string, { status: string; pipeline_group: string }> 
   'clear to close':           { status: 'Clear to Close',           pipeline_group: 'Loans in Process' },
   'docs out':                 { status: 'Docs Out',                 pipeline_group: 'Loans in Process' },
   'docs signed':              { status: 'Docs Signed',              pipeline_group: 'Loans in Process' },
-  'loan funded':              { status: 'Loan Funded',              pipeline_group: 'Loans in Process' },
-  'broker check received':    { status: 'Broker Check Received',    pipeline_group: 'Loans in Process' },
-  'loan finalized':           { status: 'Loan Finalized',           pipeline_group: 'Loans in Process' },
+  'loan funded':              { status: 'Loan Funded',              pipeline_group: 'Funded' },
+  'broker check received':    { status: 'Broker Check Received',    pipeline_group: 'Funded' },
+  'loan finalized':           { status: 'Loan Finalized',           pipeline_group: 'Funded' },
   // ── Not Ready pipeline ────────────────────────────────────────────────────────
   'not qualified - credit':        { status: 'Not Qualified - Credit',       pipeline_group: 'Not Ready' },
   'not qualified - income':        { status: 'Not Qualified - Income',       pipeline_group: 'Not Ready' },
@@ -134,6 +140,12 @@ const GHL_STAGE_MAP: Record<string, { status: string; pipeline_group: string }> 
   'stop':                          { status: 'STOP',                         pipeline_group: 'Not Ready' },
 }
 
+// ── Funded override — these statuses always belong in Funded regardless of GHL pipeline ──
+const FUNDED_STATUSES = new Set(['Loan Funded', 'Broker Check Received', 'Loan Finalized'])
+function applyFundedRule(result: { status: string; pipeline_group: string }): { status: string; pipeline_group: string } {
+  return FUNDED_STATUSES.has(result.status) ? { ...result, pipeline_group: 'Funded' } : result
+}
+
 function resolveGHLStage(
   stageName: string | null,
   pipelineName?: string | null
@@ -141,10 +153,10 @@ function resolveGHLStage(
   if (!stageName) return null
   const lower = stageName.toLowerCase().trim()
   // 1. Exact match
-  if (GHL_STAGE_MAP[lower]) return GHL_STAGE_MAP[lower]
+  if (GHL_STAGE_MAP[lower]) return applyFundedRule(GHL_STAGE_MAP[lower])
   // 2. Partial match
   for (const [key, val] of Object.entries(GHL_STAGE_MAP)) {
-    if (lower.includes(key) || key.includes(lower)) return val
+    if (lower.includes(key) || key.includes(lower)) return applyFundedRule(val)
   }
   // 3. Fallback by pipeline name
   if (pipelineName) {
@@ -207,10 +219,18 @@ function extractFields(body: Record<string, unknown>) {
   const tagsRaw = (contact.tags || body.tags) as string[] | string | undefined
   const ghlTags = Array.isArray(tagsRaw) ? tagsRaw.join(', ') : (typeof tagsRaw === 'string' ? tagsRaw : null)
 
-  const ghlAssignedUser = pick(contact, 'assignedTo', 'assigned_to') || pick(body, 'assignedTo', 'assigned_to') || null
+  const ghlAssignedUser =
+    pick(contact, 'assignedTo', 'assigned_to', 'assignedToId', 'userId') ||
+    pick(body, 'assignedTo', 'assigned_to', 'assignedToId', 'userId') || null
 
-  const userObj = (body.user ?? body.owner ?? body.assignedUser ?? body.ownedBy) as Record<string, unknown> | null | undefined
-  const ownerName = buildNameFromObj(userObj) || pick(body, 'owner_name', 'ownerName') || ghlAssignedUser
+  // Check embedded user/owner objects first, then fall back to the assigned ID as a display name
+  const userObj = (body.user ?? body.owner ?? body.assignedUser ?? body.ownedBy ??
+    contact.user ?? contact.owner ?? contact.assignedUser) as Record<string, unknown> | null | undefined
+  const ownerName =
+    buildNameFromObj(userObj) ||
+    pick(body, 'owner_name', 'ownerName', 'assignedToName', 'assigned_to_name') ||
+    pick(contact, 'owner_name', 'ownerName', 'assignedToName') ||
+    null
   const loanOfficer = resolveLO(ownerName)
 
   const contactSource = pick(body, 'contact_source', 'Lead Source', 'source') || null

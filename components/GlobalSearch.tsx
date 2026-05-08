@@ -91,7 +91,7 @@ export default function GlobalSearch() {
               ))}
               <div className="px-4 py-2 bg-slate-50 border-t border-slate-100">
                 <button
-                  onMouseDown={() => { router.push(`/deals?search=${encodeURIComponent(query)}`); setOpen(false); setQuery('') }}
+                  onMouseDown={() => { router.push(`/pipeline?search=${encodeURIComponent(query)}`); setOpen(false); setQuery('') }}
                   className="text-xs text-blue-600 hover:underline"
                 >
                   View all results for &quot;{query}&quot; →

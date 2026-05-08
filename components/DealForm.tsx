@@ -50,6 +50,7 @@ const emptyDeal: DealFormData = {
   date_added_ghl: null,
   raw_ghl_data: null,
   rate_watch_active: false,
+  rate_watch_target: null,
   rate_at_close_10yr: null,
   rate_watch_notes: null,
   rate_watch_alerted_at: null,

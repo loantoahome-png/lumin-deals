@@ -1,13 +1,135 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Deal, LOAN_OFFICERS, LOAN_STATUSES, PIPELINE_GROUPS, STATUS_COLORS } from '@/lib/types'
+import { Deal, LOAN_OFFICERS, LOAN_STATUSES, LOAN_TYPES, PIPELINE_GROUPS, STATUS_COLORS } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import Link from 'next/link'
-import { Search, RefreshCw, ExternalLink, Download, X, CheckSquare } from 'lucide-react'
+import { Search, RefreshCw, ExternalLink, Download, X, CheckSquare, Pencil } from 'lucide-react'
 import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
+
+// ── Inline cell editing ────────────────────────────────────────────────────────
+type DealsInlineCellProps = {
+  deal: Deal
+  field: string
+  value: unknown
+  type: 'text' | 'email' | 'tel' | 'number' | 'currency' | 'percent' | 'date' | 'select'
+  options?: readonly string[]
+  step?: string
+  isEditing: boolean
+  onStartEdit: () => void
+  onSave: (val: unknown) => void
+  onCancel: () => void
+  displayRender?: React.ReactNode
+}
+
+function DealsInlineCell({
+  field, value, type, options, step,
+  isEditing, onStartEdit, onSave, onCancel,
+  displayRender,
+}: DealsInlineCellProps) {
+  const inputRef = useRef<HTMLInputElement | HTMLSelectElement>(null)
+  const [localVal, setLocalVal] = useState('')
+
+  useEffect(() => {
+    if (isEditing) {
+      setLocalVal(value != null ? String(value) : '')
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus()
+          if (type !== 'select' && type !== 'date') {
+            (inputRef.current as HTMLInputElement).select?.()
+          }
+        }
+      }, 0)
+    }
+  }, [isEditing, value, type])
+
+  function commit() {
+    let parsed: unknown = localVal
+    if (type === 'number' || type === 'currency' || type === 'percent') {
+      parsed = localVal === '' ? null : parseFloat(localVal)
+    }
+    onSave(parsed)
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter') { e.preventDefault(); commit() }
+    if (e.key === 'Escape') { e.preventDefault(); onCancel() }
+    if (e.key === 'Tab') { e.preventDefault(); commit() }
+  }
+
+  const inputCls = 'w-full bg-transparent border-none outline-none text-sm text-slate-800 p-0 m-0'
+  const wrapCls  = 'ring-2 ring-blue-400 ring-inset bg-white rounded px-2 py-1 min-w-[80px]'
+
+  if (!isEditing) {
+    return (
+      <div
+        onClick={onStartEdit}
+        className="cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors min-h-[22px] flex items-center"
+        title={`Click to edit ${field}`}
+      >
+        {displayRender ?? (
+          <span className="text-slate-600 text-sm">
+            {value != null && value !== '' ? String(value) : <span className="text-slate-300">—</span>}
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  if (type === 'select' && options) {
+    return (
+      <div className={wrapCls}>
+        <select
+          ref={inputRef as React.RefObject<HTMLSelectElement>}
+          value={localVal}
+          onChange={e => setLocalVal(e.target.value)}
+          onBlur={commit}
+          onKeyDown={handleKeyDown}
+          className={inputCls + ' cursor-pointer'}
+        >
+          <option value="">—</option>
+          {options.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      </div>
+    )
+  }
+
+  if (type === 'date') {
+    return (
+      <div className={wrapCls}>
+        <input
+          ref={inputRef as React.RefObject<HTMLInputElement>}
+          type="date"
+          value={localVal}
+          onChange={e => setLocalVal(e.target.value)}
+          onBlur={commit}
+          onKeyDown={handleKeyDown}
+          className={inputCls}
+        />
+      </div>
+    )
+  }
+
+  const htmlType = type === 'currency' || type === 'percent' || type === 'number' ? 'number' : type
+
+  return (
+    <div className={wrapCls}>
+      <input
+        ref={inputRef as React.RefObject<HTMLInputElement>}
+        type={htmlType}
+        value={localVal}
+        step={step}
+        onChange={e => setLocalVal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={handleKeyDown}
+        className={inputCls}
+      />
+    </div>
+  )
+}
 
 // ── CSV export ─────────────────────────────────────────────────────────────────
 function exportToCSV(deals: Deal[]) {
@@ -45,11 +167,24 @@ function exportToCSV(deals: Deal[]) {
 // ── Inner page (needs useSearchParams) ────────────────────────────────────────
 function DealsPageInner() {
   const searchParams = useSearchParams()
+  const initialSearch = searchParams.get('search') || ''
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState(searchParams.get('search') || '')
+  const [search, setSearch] = useState(initialSearch)
   const [loFilter, setLoFilter] = useState('All')
   const [statusFilter, setStatusFilter] = useState('All')
+  // Default to 'All' when coming from global search, 'Loans in Process' otherwise
+  const [pipelineFilter, setPipelineFilter] = useState(initialSearch ? 'All' : 'Loans in Process')
+
+  // Inline cell editing
+  const [editCell, setEditCell] = useState<{ id: string; field: string } | null>(null)
+
+  async function handleCellUpdate(id: string, field: string, value: unknown) {
+    setDeals(prev => prev.map(d =>
+      d.id === id ? { ...d, [field]: value, updated_at: new Date().toISOString() } : d
+    ))
+    await supabase.from('deals').update({ [field]: value }).eq('id', id)
+  }
 
   // Bulk actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -60,8 +195,6 @@ function DealsPageInner() {
     const { data } = await supabase
       .from('deals')
       .select('*')
-      // Active Escrows = strictly Loans in Process only
-      .eq('pipeline_group', 'Loans in Process')
       .order('created_at', { ascending: false })
     setDeals(data || [])
     setLoading(false)
@@ -74,10 +207,12 @@ function DealsPageInner() {
       d.name.toLowerCase().includes(search.toLowerCase()) ||
       d.property_address?.toLowerCase().includes(search.toLowerCase()) ||
       d.investor?.toLowerCase().includes(search.toLowerCase()) ||
-      d.email?.toLowerCase().includes(search.toLowerCase())
+      d.email?.toLowerCase().includes(search.toLowerCase()) ||
+      d.phone?.toLowerCase().includes(search.toLowerCase())
+    const matchPipeline = pipelineFilter === 'All' || d.pipeline_group === pipelineFilter
     const matchLO = loFilter === 'All' || d.loan_officer?.includes(loFilter)
     const matchStatus = statusFilter === 'All' || d.status === statusFilter
-    return matchSearch && matchLO && matchStatus
+    return matchSearch && matchPipeline && matchLO && matchStatus
   })
 
   const totalLoanAmt = filtered.reduce((s, d) => s + (d.loan_amount || 0), 0)
@@ -141,9 +276,11 @@ function DealsPageInner() {
       <div className="px-6 py-4 bg-white border-b border-slate-200 shrink-0">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-xl font-bold text-slate-900">Active Escrows</h1>
+            <h1 className="text-xl font-bold text-slate-900">
+              {search ? `Search: "${search}"` : pipelineFilter === 'All' ? 'All Deals' : 'Active Escrows'}
+            </h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              {filtered.length} escrows · {formatCurrency(totalLoanAmt)} loan volume
+              {filtered.length} deal{filtered.length !== 1 ? 's' : ''} · {formatCurrency(totalLoanAmt)} loan volume
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -180,6 +317,14 @@ function DealsPageInner() {
             />
           </div>
           <select
+            value={pipelineFilter}
+            onChange={e => setPipelineFilter(e.target.value)}
+            className="text-sm border border-slate-200 rounded-lg px-3 py-2 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="All">All Pipelines</option>
+            {PIPELINE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
+          </select>
+          <select
             value={loFilter}
             onChange={e => setLoFilter(e.target.value)}
             className="text-sm border border-slate-200 rounded-lg px-3 py-2 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -195,9 +340,9 @@ function DealsPageInner() {
             <option value="All">All Statuses</option>
             {LOAN_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          {(search || loFilter !== 'All' || statusFilter !== 'All') && (
+          {(search || pipelineFilter !== 'Loans in Process' || loFilter !== 'All' || statusFilter !== 'All') && (
             <button
-              onClick={() => { setSearch(''); setLoFilter('All'); setStatusFilter('All') }}
+              onClick={() => { setSearch(''); setPipelineFilter('Loans in Process'); setLoFilter('All'); setStatusFilter('All') }}
               className="text-sm text-blue-600 hover:underline"
             >
               Clear filters
@@ -213,8 +358,8 @@ function DealsPageInner() {
         </div>
       ) : (
         <div className="flex-1 overflow-auto p-4">
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-            <table className="w-full text-sm">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+            <table className="min-w-max w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
                   {/* Select-all checkbox */}
@@ -247,6 +392,25 @@ function DealsPageInner() {
                 ) : (
                   filtered.map(deal => {
                     const isSelected = selectedIds.has(deal.id)
+                    const statusClass = STATUS_COLORS[deal.status] || 'bg-gray-100 text-gray-600'
+
+                    function ec(field: string) {
+                      return editCell?.id === deal.id && editCell.field === field
+                    }
+                    function ic(field: string, value: unknown, type: DealsInlineCellProps['type'], opts?: readonly string[], stepVal?: string, display?: React.ReactNode) {
+                      return (
+                        <DealsInlineCell
+                          deal={deal} field={field} value={value} type={type}
+                          options={opts} step={stepVal}
+                          isEditing={ec(field)}
+                          onStartEdit={() => setEditCell({ id: deal.id, field })}
+                          onSave={async v => { setEditCell(null); await handleCellUpdate(deal.id, field, v) }}
+                          onCancel={() => setEditCell(null)}
+                          displayRender={display}
+                        />
+                      )
+                    }
+
                     return (
                       <tr
                         key={deal.id}
@@ -261,24 +425,75 @@ function DealsPageInner() {
                             }
                           </button>
                         </td>
-                        <td className="px-4 py-3">
-                          <Link href={`/deals/${deal.id}`} className="font-semibold text-slate-900 hover:text-blue-600">
-                            {deal.name}
-                          </Link>
-                          {deal.property_address && (
-                            <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[180px]">{deal.property_address}</p>
+                        {/* Name */}
+                        <td className="px-4 py-3 min-w-[160px]">
+                          {ec('name') ? (
+                            <DealsInlineCell
+                              deal={deal} field="name" value={deal.name} type="text"
+                              isEditing
+                              onStartEdit={() => setEditCell({ id: deal.id, field: 'name' })}
+                              onSave={async v => { setEditCell(null); await handleCellUpdate(deal.id, 'name', v) }}
+                              onCancel={() => setEditCell(null)}
+                            />
+                          ) : (
+                            <div className="group/name">
+                              <div className="flex items-center gap-1">
+                                <Link href={`/deals/${deal.id}`} className="font-semibold text-slate-900 hover:text-blue-600">
+                                  {deal.name}
+                                </Link>
+                                <button
+                                  onClick={() => setEditCell({ id: deal.id, field: 'name' })}
+                                  className="opacity-0 group-hover/name:opacity-100 p-0.5 text-slate-400 hover:text-blue-500 transition-all"
+                                  title="Edit name"
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                </button>
+                              </div>
+                              {deal.property_address && (
+                                <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[180px]">{deal.property_address}</p>
+                              )}
+                            </div>
                           )}
                         </td>
-                        <td className="px-4 py-3">
-                          <span className={`text-xs px-2 py-1 rounded-md font-medium ${STATUS_COLORS[deal.status] || 'bg-gray-100 text-gray-600'}`}>
-                            {deal.status}
-                          </span>
+                        {/* Status */}
+                        <td className="px-4 py-3 min-w-[130px]">
+                          {ic('status', deal.status, 'select', LOAN_STATUSES,
+                            undefined,
+                            <span className={`text-xs px-2 py-1 rounded-md font-medium ${statusClass}`}>
+                              {deal.status}
+                            </span>
+                          )}
                         </td>
-                        <td className="px-4 py-3 text-slate-600">{deal.loan_type || '—'}</td>
-                        <td className="px-4 py-3 font-medium text-slate-800">{formatCurrency(deal.loan_amount)}</td>
-                        <td className="px-4 py-3 text-slate-600">{deal.loan_officer || '—'}</td>
-                        <td className="px-4 py-3 text-slate-600">{deal.investor || '—'}</td>
-                        <td className="px-4 py-3 text-slate-600">{deal.rate ? `${deal.rate}%` : '—'}</td>
+                        {/* Loan Type */}
+                        <td className="px-4 py-3 min-w-[130px]">
+                          {ic('loan_type', deal.loan_type, 'select', LOAN_TYPES)}
+                        </td>
+                        {/* Loan Amount */}
+                        <td className="px-4 py-3 min-w-[110px]">
+                          {ic('loan_amount', deal.loan_amount, 'currency',
+                            undefined, undefined,
+                            deal.loan_amount
+                              ? <span className="font-medium text-slate-800">{formatCurrency(deal.loan_amount)}</span>
+                              : <span className="text-slate-300">—</span>
+                          )}
+                        </td>
+                        {/* Loan Officer */}
+                        <td className="px-4 py-3 min-w-[110px]">
+                          {ic('loan_officer', deal.loan_officer, 'select', LOAN_OFFICERS)}
+                        </td>
+                        {/* Investor */}
+                        <td className="px-4 py-3 min-w-[100px]">
+                          {ic('investor', deal.investor, 'text')}
+                        </td>
+                        {/* Rate */}
+                        <td className="px-4 py-3 min-w-[80px]">
+                          {ic('rate', deal.rate, 'percent',
+                            undefined, '0.001',
+                            deal.rate != null
+                              ? <span className="text-slate-600">{deal.rate}%</span>
+                              : <span className="text-slate-300">—</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-slate-400 text-xs">{formatDate(deal.created_at)}</td>
                         <td className="px-4 py-3">
                           <Link href={`/deals/${deal.id}`} className="text-slate-400 hover:text-blue-600 transition-colors">

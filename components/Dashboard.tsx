@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Deal, PIPELINE_STAGE_MAP } from '@/lib/types'
+import { Deal } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import {
-  DollarSign, TrendingUp, Users, CheckCircle, Clock, AlertCircle, Bell, TrendingDown
+  DollarSign, TrendingUp, Users, CheckCircle, Clock, AlertCircle, Bell, TrendingDown, Calendar, X
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -13,17 +13,54 @@ import {
 } from 'recharts'
 import Link from 'next/link'
 
+// ── Date filter types & helpers ───────────────────────────────────────────────
+type DatePreset = 'all' | 'mtd' | 'qtd' | 'ytd' | 'custom'
+
+function getPresetRange(preset: DatePreset, customFrom: string, customTo: string): { start: Date | null; end: Date | null } {
+  const now = new Date()
+  if (preset === 'mtd') {
+    return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: now }
+  }
+  if (preset === 'qtd') {
+    const q = Math.floor(now.getMonth() / 3)
+    return { start: new Date(now.getFullYear(), q * 3, 1), end: now }
+  }
+  if (preset === 'ytd') {
+    return { start: new Date(now.getFullYear(), 0, 1), end: now }
+  }
+  if (preset === 'custom') {
+    return {
+      start: customFrom ? new Date(customFrom) : null,
+      end: customTo ? new Date(customTo + 'T23:59:59') : null,
+    }
+  }
+  return { start: null, end: null }
+}
+
+function dealDate(d: Deal): Date {
+  // Use funded_date for funded deals (most business-relevant); fall back to created_at
+  const raw = d.pipeline_group === 'Funded' ? (d.funded_date || d.created_at) : d.created_at
+  return new Date(raw)
+}
+
+function inRange(d: Deal, start: Date | null, end: Date | null): boolean {
+  if (!start && !end) return true
+  const dt = dealDate(d)
+  if (start && dt < start) return false
+  if (end && dt > end) return false
+  return true
+}
+
 const LO_COLORS: Record<string, string> = {
   'Matt': '#10b981',
   'Moe Sefati': '#f59e0b',
 }
 
 const STAGE_COLORS: Record<string, string> = {
-  'Leads': '#94a3b8',
-  'Registered': '#3b82f6',
-  'Underwriting': '#f59e0b',
-  'Closing': '#f97316',
-  'Funded': '#10b981',
+  'Leads':     '#94a3b8',
+  'Escrows':   '#3b82f6',
+  'Funded':    '#10b981',
+  'Not Ready': '#f97316',
 }
 
 // ── Treasury yield widget ─────────────────────────────────────────────────────
@@ -153,6 +190,13 @@ export default function Dashboard() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
 
+  // Date filter state
+  const [datePreset, setDatePreset] = useState<DatePreset>('all')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const [showCustom, setShowCustom] = useState(false)
+  const customRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
     async function fetchDeals() {
       const { data } = await supabase
@@ -165,6 +209,17 @@ export default function Dashboard() {
     fetchDeals()
   }, [])
 
+  // Close custom popover on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (customRef.current && !customRef.current.contains(e.target as Node)) {
+        setShowCustom(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -173,33 +228,73 @@ export default function Dashboard() {
     )
   }
 
-  const activeDeals = deals.filter(d => !['PAID', 'Lost'].includes(d.status) && d.pipeline_group !== 'Lost')
-  const paidDeals = deals.filter(d => d.status === 'PAID')
+  const { start: rangeStart, end: rangeEnd } = getPresetRange(datePreset, customFrom, customTo)
+
+  // Apply date filter to the full deal list
+  const filteredDeals = deals.filter(d => inRange(d, rangeStart, rangeEnd))
+
+  // Active = Leads + Loans in Process (excludes Funded and Not Ready)
+  const activeDeals = filteredDeals.filter(d => ['Leads', 'Loans in Process'].includes(d.pipeline_group || ''))
+  // Funded = pipeline_group === 'Funded' (not status-based)
+  const fundedDeals = filteredDeals.filter(d => d.pipeline_group === 'Funded')
+
   const totalPipelineLoanVol = activeDeals.reduce((s, d) => s + (d.loan_amount || 0), 0)
-  const totalFundedLoanVol   = paidDeals.reduce((s, d) => s + (d.loan_amount || 0), 0)
+  const totalFundedLoanVol   = fundedDeals.reduce((s, d) => s + (d.loan_amount || 0), 0)
   const avgDealSize = activeDeals.filter(d => d.loan_amount).length > 0
     ? activeDeals.reduce((s, d) => s + (d.loan_amount || 0), 0) / activeDeals.filter(d => d.loan_amount).length
     : 0
 
-  const stageData = Object.entries(PIPELINE_STAGE_MAP).map(([stage, statuses]) => {
-    const stageDeals = deals.filter(d => statuses.includes(d.status))
-    return { stage, count: stageDeals.length, loanVolume: stageDeals.reduce((s, d) => s + (d.loan_amount || 0), 0) }
-  })
+  // Stage chart groups by pipeline_group; 'Escrows' is the display name for 'Loans in Process'
+  const escrows  = filteredDeals.filter(d => d.pipeline_group === 'Loans in Process')
+  const notReady = filteredDeals.filter(d => d.pipeline_group === 'Not Ready')
+  const leads    = filteredDeals.filter(d => d.pipeline_group === 'Leads')
+  const stageData = [
+    { stage: 'Leads',     count: leads.length,       loanVolume: leads.reduce((s, d) => s + (d.loan_amount || 0), 0) },
+    { stage: 'Escrows',   count: escrows.length,     loanVolume: escrows.reduce((s, d) => s + (d.loan_amount || 0), 0) },
+    { stage: 'Funded',    count: fundedDeals.length, loanVolume: totalFundedLoanVol },
+    { stage: 'Not Ready', count: notReady.length,    loanVolume: notReady.reduce((s, d) => s + (d.loan_amount || 0), 0) },
+  ]
 
   const loData = ['Matt', 'Moe Sefati'].map(lo => {
-    const loDeals = deals.filter(d => d.loan_officer?.includes(lo))
+    const loDeals = filteredDeals.filter(d => d.loan_officer?.includes(lo))
     return { name: lo, loanVolume: loDeals.reduce((s, d) => s + (d.loan_amount || 0), 0), deals: loDeals.length }
   })
 
   const loanTypeMap: Record<string, number> = {}
-  deals.forEach(d => { if (d.loan_type) loanTypeMap[d.loan_type] = (loanTypeMap[d.loan_type] || 0) + 1 })
+  filteredDeals.forEach(d => { if (d.loan_type) loanTypeMap[d.loan_type] = (loanTypeMap[d.loan_type] || 0) + 1 })
   const loanTypeData = Object.entries(loanTypeMap).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([name, value]) => ({ name, value }))
 
   const atRisk = activeDeals.filter(d => !d.loan_officer || !d.loan_type || !d.loan_amount).slice(0, 5)
-  const recentDeals = deals.slice(0, 5)
-  const rateWatchAlerted = deals.filter(d => d.rate_watch_active && d.rate_watch_alerted_at)
+  const recentDeals = filteredDeals.slice(0, 5)
+  const rateWatchAlerted = deals.filter(d => d.rate_watch_active && d.rate_watch_alerted_at) // always unfiltered
 
   const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#f97316', '#8b5cf6', '#ec4899']
+
+  // Preset button labels
+  const PRESETS: { key: DatePreset; label: string }[] = [
+    { key: 'all',    label: 'All Time' },
+    { key: 'mtd',    label: 'MTD' },
+    { key: 'qtd',    label: 'QTD' },
+    { key: 'ytd',    label: 'YTD' },
+    { key: 'custom', label: 'Custom' },
+  ]
+
+  // Human-readable range label shown in header
+  const rangeLabel = datePreset === 'all' ? null
+    : datePreset === 'mtd' ? `${new Date().toLocaleString('default', { month: 'long' })} ${new Date().getFullYear()}`
+    : datePreset === 'qtd' ? `Q${Math.floor(new Date().getMonth() / 3) + 1} ${new Date().getFullYear()}`
+    : datePreset === 'ytd' ? `YTD ${new Date().getFullYear()}`
+    : (customFrom || customTo) ? `${customFrom || '…'} → ${customTo || '…'}`
+    : null
+
+  function handlePreset(key: DatePreset) {
+    setDatePreset(key)
+    if (key === 'custom') {
+      setShowCustom(true)
+    } else {
+      setShowCustom(false)
+    }
+  }
 
   return (
     <div className="p-6 space-y-5">
@@ -207,11 +302,72 @@ export default function Dashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-          <p className="text-slate-500 text-sm mt-0.5">Lumin Lending — Mortgage Pipeline Overview</p>
+          <p className="text-slate-500 text-sm mt-0.5">
+            Lumin Lending — Mortgage Pipeline Overview
+            {rangeLabel && <span className="ml-2 text-blue-600 font-medium">· {rangeLabel}</span>}
+          </p>
         </div>
-        <Link href="/deals/new" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
-          + New Deal
-        </Link>
+        <div className="flex items-center gap-3">
+          {/* Date Filter Bar */}
+          <div className="flex items-center bg-slate-100 rounded-lg p-1 gap-0.5 relative">
+            <Calendar className="w-3.5 h-3.5 text-slate-400 ml-1.5 mr-0.5 shrink-0" />
+            {PRESETS.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => handlePreset(key)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                  datePreset === key
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+
+            {/* Custom date popover */}
+            {showCustom && (
+              <div ref={customRef} className="absolute top-full right-0 mt-2 bg-white border border-slate-200 rounded-xl shadow-lg p-4 z-50 w-72">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold text-slate-800">Custom Range</p>
+                  <button onClick={() => setShowCustom(false)} className="text-slate-400 hover:text-slate-600">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">From</label>
+                    <input
+                      type="date"
+                      value={customFrom}
+                      onChange={e => setCustomFrom(e.target.value)}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">To</label>
+                    <input
+                      type="date"
+                      value={customTo}
+                      onChange={e => setCustomTo(e.target.value)}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <button
+                    onClick={() => setShowCustom(false)}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 rounded-lg transition-colors"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <Link href="/deals/new" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+            + New Deal
+          </Link>
+        </div>
       </div>
 
       {/* Market Pulse + KPIs */}
@@ -221,7 +377,7 @@ export default function Dashboard() {
         </div>
         <div className="lg:col-span-3 grid grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-4">
           <KPICard label="Active Loan Volume" value={formatCurrency(totalPipelineLoanVol)} sub={`${activeDeals.length} active deals`} icon={<TrendingUp className="w-5 h-5" />} color="blue" />
-          <KPICard label="Funded Loan Volume" value={formatCurrency(totalFundedLoanVol)} sub={`${paidDeals.length} closed deals`} icon={<DollarSign className="w-5 h-5" />} color="green" />
+          <KPICard label="Funded Loan Volume" value={formatCurrency(totalFundedLoanVol)} sub={`${fundedDeals.length} funded deals`} icon={<DollarSign className="w-5 h-5" />} color="green" />
           <KPICard label="Total Deals" value={deals.length.toString()} sub={`${activeDeals.length} active`} icon={<Users className="w-5 h-5" />} color="purple" />
           <KPICard label="Avg Loan Size" value={formatCurrency(avgDealSize)} sub="active deals" icon={<CheckCircle className="w-5 h-5" />} color="amber" />
         </div>

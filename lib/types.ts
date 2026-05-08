@@ -46,6 +46,7 @@ export type Deal = {
   loan_timeframe: string | null
   has_accepted_offer: string | null
   rate_watch_active: boolean
+  rate_watch_target: number | null
   rate_at_close_10yr: number | null
   rate_watch_notes: string | null
   rate_watch_alerted_at: string | null

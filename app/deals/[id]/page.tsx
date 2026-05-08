@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
   Deal, STATUS_COLORS, PIPELINE_GROUPS, PIPELINE_STATUSES,
@@ -8,7 +8,7 @@ import {
 } from '@/lib/types'
 import Link from 'next/link'
 import { use } from 'react'
-import { ArrowLeft, Check, Trash2 } from 'lucide-react'
+import { ArrowLeft, Check, Trash2, X, ExternalLink } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 const inp = 'w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white hover:border-slate-300 transition-colors'
@@ -33,6 +33,129 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     </div>
   )
 }
+
+// ── Timestamped Notes ────────────────────────────────────────────────────────
+
+type DealNote = { id: string; content: string; created_at: string }
+
+function parseNotes(raw: string | null): DealNote[] {
+  if (!raw || !raw.trim()) return []
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) return parsed as DealNote[]
+  } catch { /* not JSON */ }
+  // Legacy plain text → migrate to single note entry
+  return [{ id: 'legacy', content: raw.trim(), created_at: new Date().toISOString() }]
+}
+
+function DealNotes({ dealId, initialNotes }: { dealId: string; initialNotes: string | null }) {
+  const [notes, setNotes] = useState<DealNote[]>(() => parseNotes(initialNotes))
+  const [newNote, setNewNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  async function persistNotes(updated: DealNote[]) {
+    await supabase.from('deals')
+      .update({ lo_notes: JSON.stringify(updated) })
+      .eq('id', dealId)
+  }
+
+  async function handleSaveNote() {
+    const trimmed = newNote.trim()
+    if (!trimmed) return
+    setSaving(true)
+    const note: DealNote = {
+      id: Date.now().toString() + Math.random().toString(36).slice(2),
+      content: trimmed,
+      created_at: new Date().toISOString(),
+    }
+    const updated = [note, ...notes]
+    setNotes(updated)
+    setNewNote('')
+    await persistNotes(updated)
+    setSaving(false)
+    textareaRef.current?.focus()
+  }
+
+  async function handleDeleteNote(noteId: string) {
+    setDeletingId(noteId)
+    const updated = notes.filter(n => n.id !== noteId)
+    setNotes(updated)
+    await persistNotes(updated)
+    setDeletingId(null)
+  }
+
+  function formatDate(iso: string) {
+    try {
+      return new Date(iso).toLocaleString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric',
+        hour: 'numeric', minute: '2-digit', hour12: true,
+      })
+    } catch { return iso }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* New note composer */}
+      <div>
+        <textarea
+          ref={textareaRef}
+          value={newNote}
+          onChange={e => setNewNote(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSaveNote() }}
+          rows={3}
+          placeholder="Write a note…"
+          className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white hover:border-slate-300 transition-colors resize-none placeholder:text-slate-400"
+        />
+        <div className="flex items-center justify-between mt-2">
+          <span className="text-[11px] text-slate-400">⌘+Enter to save</span>
+          <button
+            onClick={handleSaveNote}
+            disabled={!newNote.trim() || saving}
+            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+          >
+            {saving
+              ? <><div className="animate-spin rounded-full h-3 w-3 border border-white border-b-transparent mr-1" />Saving…</>
+              : 'Save Note →'
+            }
+          </button>
+        </div>
+      </div>
+
+      {/* Notes timeline */}
+      {notes.length > 0 ? (
+        <div className="space-y-4 pt-3 border-t border-slate-100">
+          {notes.map(note => (
+            <div key={note.id} className="group">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-nowrap">
+                  {formatDate(note.created_at)}
+                </span>
+                <div className="flex-1 h-px bg-slate-100" />
+                <button
+                  onClick={() => handleDeleteNote(note.id)}
+                  disabled={deletingId === note.id}
+                  title="Delete note"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 hover:text-red-400 p-0.5 rounded"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed pl-0.5">
+                {note.content}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-center py-4 text-slate-400 text-xs">No notes yet — add the first one above.</p>
+      )}
+    </div>
+  )
+}
+
+// ── Deal Detail Page ──────────────────────────────────────────────────────────
 
 export default function DealDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -60,7 +183,10 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
     if (!form) return
     setSaving(true)
     setError('')
-    const { error: err } = await supabase.from('deals').update(form).eq('id', form.id as string)
+    // Exclude lo_notes and client_notes — those are managed independently by DealNotes
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { lo_notes: _ln, client_notes: _cn, ...formData } = form
+    const { error: err } = await supabase.from('deals').update(formData).eq('id', form.id as string)
     if (err) { setError(err.message); setSaving(false); return }
     setSaving(false)
     setSaved(true)
@@ -149,6 +275,19 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {/* View in GHL — only shown when contact is synced from GHL */}
+          {form.ghl_contact_id && (
+            <a
+              href={`${process.env.NEXT_PUBLIC_GHL_BASE_URL}/v2/location/${process.env.NEXT_PUBLIC_GHL_LOCATION_ID}/contacts/detail/${form.ghl_contact_id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open in GoHighLevel"
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 hover:border-blue-300 transition-colors"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              View in GHL
+            </a>
+          )}
           <button
             onClick={handleDelete}
             disabled={deleting}
@@ -228,6 +367,17 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                   <option value="Correspondent">Correspondent</option>
                 </select>
               </Field>
+              <Field label="Source">
+                <select value={form.source || ''} onChange={e => set('source', e.target.value)} className={sel}>
+                  <option value="">— Select —</option>
+                  <option value="GHL">GHL</option>
+                  <option value="Self Source">Self Source</option>
+                  <option value="Referral">Referral</option>
+                  <option value="Past Client">Past Client</option>
+                  <option value="Open House">Open House</option>
+                  <option value="Agent Partner">Agent Partner</option>
+                </select>
+              </Field>
             </div>
           </Card>
 
@@ -304,14 +454,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
 
           {/* Notes */}
           <Card title="Notes">
-            <div className="space-y-4">
-              <Field label="LO Notes">
-                <textarea value={form.lo_notes || ''} onChange={e => set('lo_notes', e.target.value)} rows={3} className={inp + ' resize-none'} placeholder="Internal loan officer notes…" />
-              </Field>
-              <Field label="Client Notes">
-                <textarea value={form.client_notes || ''} onChange={e => set('client_notes', e.target.value)} rows={3} className={inp + ' resize-none'} placeholder="Client-facing notes…" />
-              </Field>
-            </div>
+            <DealNotes dealId={id} initialNotes={form.lo_notes ?? null} />
           </Card>
         </div>
 
@@ -440,36 +583,6 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
             </div>
           </Card>
 
-          {/* Lead Info */}
-          <Card title="Lead Info">
-            <div className="space-y-3">
-              <Field label="Loan Timeframe">
-                <input value={form.loan_timeframe || ''} onChange={e => set('loan_timeframe', e.target.value)} className={inp} placeholder="e.g. 30–60 days" />
-              </Field>
-              <Field label="Property Found?">
-                <select value={form.property_found || ''} onChange={e => set('property_found', e.target.value)} className={sel}>
-                  <option value="">— Select —</option>
-                  <option value="yes">Yes</option>
-                  <option value="no">No</option>
-                </select>
-              </Field>
-              <Field label="Has Accepted Offer?">
-                <select value={form.has_accepted_offer || ''} onChange={e => set('has_accepted_offer', e.target.value)} className={sel}>
-                  <option value="">— Select —</option>
-                  <option value="yes">Yes</option>
-                  <option value="no">No</option>
-                </select>
-              </Field>
-              <Field label="Source">
-                <select value={form.source || ''} onChange={e => set('source', e.target.value)} className={sel}>
-                  <option value="">— Select —</option>
-                  <option value="GHL">GHL</option>
-                  <option value="Self Source">Self Source</option>
-                  <option value="Referral">Referral</option>
-                </select>
-              </Field>
-            </div>
-          </Card>
 
           {/* Team */}
           <Card title="Team">
