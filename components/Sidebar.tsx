@@ -10,6 +10,7 @@ import {
   Building2,
   Brain,
   ClipboardList,
+  Activity,
   LogOut,
 } from 'lucide-react'
 import GlobalSearch from './GlobalSearch'
@@ -22,6 +23,7 @@ const navItems = [
   { href: '/deals/new', label: 'Add Deal', icon: PlusCircle },
   { href: '/underwriting', label: 'AI Underwriter', icon: Brain },
   { href: '/tasks', label: 'Tasks', icon: ClipboardList },
+  { href: '/health', label: 'Data Health', icon: Activity },
 ]
 
 export default function Sidebar() {
