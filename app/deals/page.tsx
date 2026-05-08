@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Deal, LOAN_OFFICERS, LOAN_STATUSES, LOAN_TYPES, PIPELINE_GROUPS, STATUS_COLORS } from '@/lib/types'
+import { Deal, LOAN_OFFICERS, LOAN_TYPES, PIPELINE_GROUPS, PIPELINE_STATUSES, STATUS_COLORS } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import Link from 'next/link'
 import { Search, RefreshCw, ExternalLink, Download, X, CheckSquare, Pencil } from 'lucide-react'
@@ -330,7 +330,7 @@ function DealsPageInner() {
             className="text-sm border border-slate-200 rounded-lg px-3 py-2 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="All">All Statuses</option>
-            {LOAN_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            {PIPELINE_STATUSES['Loans in Process'].map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           {(search || loFilter !== 'All' || statusFilter !== 'All') && (
             <button
@@ -449,7 +449,7 @@ function DealsPageInner() {
                         </td>
                         {/* Status */}
                         <td className="px-4 py-3 min-w-[130px]">
-                          {ic('status', deal.status, 'select', LOAN_STATUSES,
+                          {ic('status', deal.status, 'select', PIPELINE_STATUSES['Loans in Process'],
                             undefined,
                             <span className={`text-xs px-2 py-1 rounded-md font-medium ${statusClass}`}>
                               {deal.status}
@@ -516,7 +516,7 @@ function DealsPageInner() {
             className="bg-slate-800 text-white text-sm px-3 py-1.5 rounded-lg border border-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-50 cursor-pointer"
           >
             <option value="" disabled>Change Status…</option>
-            {LOAN_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            {PIPELINE_STATUSES['Loans in Process'].map(s => <option key={s} value={s}>{s}</option>)}
           </select>
 
           {/* Change Group */}
