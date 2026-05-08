@@ -244,14 +244,14 @@ function DealCard({ deal, onStatusChange, ghost = false, isSelected = false, onT
             {shortStatus}<ChevronDown className="w-2.5 h-2.5" />
           </button>
           {showStatusMenu && (
-            <div className="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-xl border border-slate-200 py-1 w-52 max-h-64 overflow-y-auto" onMouseDown={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-100">
+            <div className="absolute right-0 top-full mt-1 z-50 flex flex-col bg-white rounded-xl shadow-xl border border-slate-200 py-1 w-52 max-h-64 overflow-y-auto whitespace-normal" onMouseDown={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-100 shrink-0">
                 <span className="text-xs font-semibold text-slate-500">Change Status</span>
                 <button onClick={() => setShowStatusMenu(false)}><X className="w-3 h-3 text-slate-400" /></button>
               </div>
               {statusList.map(s => (
                 <button key={s} onClick={() => { onStatusChange(deal.id, s); setShowStatusMenu(false) }}
-                  className={`w-full text-left text-xs px-3 py-1.5 hover:bg-slate-50 transition-colors ${s === deal.status ? 'font-semibold text-blue-600' : 'text-slate-700'}`}>
+                  className={`block w-full text-left text-xs px-3 py-1.5 hover:bg-slate-50 transition-colors ${s === deal.status ? 'font-semibold text-blue-600' : 'text-slate-700'}`}>
                   {s}
                 </button>
               ))}
@@ -694,14 +694,14 @@ function ListView({ deals, onStatusChange, onUpdate, selectedIds, onToggleSelect
                           {deal.status}<ChevronDown className="w-2.5 h-2.5 ml-0.5" />
                         </button>
                         {openMenu === deal.id && (
-                          <div className="absolute left-0 top-full mt-1 z-50 bg-white rounded-xl shadow-xl border border-slate-200 py-1 w-56 max-h-64 overflow-y-auto">
-                            <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-100">
+                          <div className="absolute left-0 top-full mt-1 z-50 flex flex-col bg-white rounded-xl shadow-xl border border-slate-200 py-1 w-56 max-h-64 overflow-y-auto whitespace-normal">
+                            <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-100 shrink-0">
                               <span className="text-xs font-semibold text-slate-500">Change Status</span>
                               <button onClick={() => setOpenMenu(null)}><X className="w-3 h-3 text-slate-400" /></button>
                             </div>
                             {LOAN_STATUSES.map(s => (
                               <button key={s} onClick={() => { onStatusChange(deal.id, s); setOpenMenu(null) }}
-                                className={`w-full text-left text-xs px-3 py-1.5 hover:bg-slate-50 transition-colors ${s === deal.status ? 'font-semibold text-blue-600' : 'text-slate-700'}`}>
+                                className={`block w-full text-left text-xs px-3 py-1.5 hover:bg-slate-50 transition-colors ${s === deal.status ? 'font-semibold text-blue-600' : 'text-slate-700'}`}>
                                 {s}
                               </button>
                             ))}
