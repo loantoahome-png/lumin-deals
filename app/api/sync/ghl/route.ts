@@ -160,23 +160,88 @@ async function fetchPipelineStageMap(locationId: string): Promise<Map<string, { 
   return map
 }
 
-async function fetchUserMap(locationId: string): Promise<Map<string, string>> {
+async function fetchUserMap(
+  locationId: string,
+  supabase: ReturnType<typeof createServiceClient>,
+): Promise<Map<string, string>> {
   const map = new Map<string, string>()
+
+  // 1. Try GHL API first (works only if the PIT has the users.readonly scope)
   try {
-    // Fetch location-level users
     const res = await fetch(
       `${GHL_BASE}/users/?locationId=${locationId}`,
       { headers: ghlHeaders() }
     )
-    const data = await res.json() as { users?: Array<{ id: string; name?: string; firstName?: string; lastName?: string; email?: string }> }
-    for (const user of data.users || []) {
-      const name = user.name || `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()
-      if (user.id && name) map.set(user.id, name)
+    if (res.ok) {
+      const data = await res.json() as { users?: Array<{ id: string; name?: string; firstName?: string; lastName?: string; email?: string }> }
+      for (const user of data.users || []) {
+        const name = user.name || `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()
+        if (user.id && name) map.set(user.id, name)
+      }
+      if (map.size > 0) {
+        console.log(`[GHL Sync] User map from API: ${map.size} users`)
+      }
+    } else {
+      console.warn(`[GHL Sync] /users/ returned ${res.status} — token likely lacks users.readonly scope. Falling back to bootstrap.`)
     }
-    console.log(`[GHL Sync] User map: ${map.size} users →`, Array.from(map.entries()).map(([id, n]) => `${id.slice(-6)}:${n}`).join(', '))
   } catch (e) {
-    console.error('[GHL Sync] Failed to fetch users:', e)
+    console.error('[GHL Sync] /users/ fetch failed:', e)
   }
+
+  // 2. Override with explicit env-var map (highest priority)
+  // Format: GHL_USER_MAP='{"BPZOTW5ZpGUzpHMl6U2m":"Moe Sefati","abc123":"Matt Park"}'
+  try {
+    const raw = process.env.GHL_USER_MAP
+    if (raw) {
+      const overrides = JSON.parse(raw) as Record<string, string>
+      for (const [id, name] of Object.entries(overrides)) {
+        if (id && name) map.set(id, name)
+      }
+      console.log(`[GHL Sync] Applied ${Object.keys(overrides).length} entries from GHL_USER_MAP`)
+    }
+  } catch (e) {
+    console.error('[GHL Sync] Bad GHL_USER_MAP JSON:', e)
+  }
+
+  // 3. Bootstrap from existing dashboard data — for any user ID we don't yet know,
+  //    look at deals where that ID appears in raw_ghl_data.assignedTo AND loan_officer is already set,
+  //    take the most common LO name. This effectively learns the mapping from Monday's data.
+  try {
+    const { data: deals } = await supabase
+      .from('deals')
+      .select('loan_officer, raw_ghl_data')
+      .not('loan_officer', 'is', null)
+      .not('raw_ghl_data', 'is', null)
+      .limit(2000)
+
+    const tally: Record<string, Record<string, number>> = {}
+    for (const d of (deals as Array<{ loan_officer: string | null; raw_ghl_data: Record<string, unknown> | null }>) || []) {
+      const r = d.raw_ghl_data ?? {}
+      const aid = (r.assignedTo ?? r.assigned_to ?? r.assignedToId ?? r.userId) as string | undefined
+      const lo = d.loan_officer
+      if (!aid || !lo) continue
+      tally[aid] ??= {}
+      tally[aid][lo] = (tally[aid][lo] ?? 0) + 1
+    }
+    let bootstrapped = 0
+    for (const [aid, counts] of Object.entries(tally)) {
+      if (map.has(aid)) continue // don't override API/env map
+      const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]
+      if (top && top[1] >= 1) {
+        map.set(aid, top[0])
+        bootstrapped++
+      }
+    }
+    if (bootstrapped > 0) {
+      console.log(`[GHL Sync] Bootstrapped ${bootstrapped} user IDs from existing deals`)
+    }
+  } catch (e) {
+    console.error('[GHL Sync] Bootstrap failed:', e)
+  }
+
+  console.log(`[GHL Sync] Final user map: ${map.size} users →`,
+    Array.from(map.entries()).map(([id, n]) => `${id.slice(-6)}:${n}`).join(', '))
+
   return map
 }
 
@@ -267,7 +332,7 @@ export async function POST() {
     // ── 1. Fetch lookup maps ───────────────────────────────────────────────────
     const [pipelineMap, userMap, contactMap, opportunities] = await Promise.all([
       fetchPipelineStageMap(locationId),
-      fetchUserMap(locationId),
+      fetchUserMap(locationId, supabase),
       fetchAllContacts(locationId),
       fetchAllOpportunities(locationId),
     ])
@@ -387,16 +452,16 @@ export async function POST() {
           .maybeSingle()
 
         if (existing) {
-          // Update: always sync status/pipeline; only overwrite loan fields if GHL has a value
+          // Update: always sync status/pipeline; only overwrite other fields if GHL has a value
+          // (so we never erase data filled in from Monday or by hand).
           const patch: Record<string, unknown> = {
             status:         dealData.status,
             pipeline_group: dealData.pipeline_group,
-            loan_officer:   dealData.loan_officer,
             ghl_tags:       dealData.ghl_tags,
             raw_ghl_data:   dealData.raw_ghl_data,
           }
           const maybeSet = (k: string) => { if (dealData[k] != null) patch[k] = dealData[k] }
-          ;['loan_amount','estimated_value','credit_score','loan_type','loan_purpose',
+          ;['loan_officer','loan_amount','estimated_value','credit_score','loan_type','loan_purpose',
             'occupancy','property_type','property_address','current_balance','ltv',
             'cash_out','down_payment','rate','investor','credit_rating','is_military',
             'current_va_loan','city','state','zip','first_name','last_name','email','phone',
