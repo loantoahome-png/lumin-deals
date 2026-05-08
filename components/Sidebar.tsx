@@ -11,6 +11,7 @@ import {
   Brain,
   ClipboardList,
   Activity,
+  GitMerge,
   LogOut,
 } from 'lucide-react'
 import GlobalSearch from './GlobalSearch'
@@ -24,6 +25,7 @@ const navItems = [
   { href: '/underwriting', label: 'AI Underwriter', icon: Brain },
   { href: '/tasks', label: 'Tasks', icon: ClipboardList },
   { href: '/health', label: 'Data Health', icon: Activity },
+  { href: '/duplicates', label: 'Duplicates', icon: GitMerge },
 ]
 
 export default function Sidebar() {
