@@ -173,8 +173,8 @@ function DealsPageInner() {
   const [search, setSearch] = useState(initialSearch)
   const [loFilter, setLoFilter] = useState('All')
   const [statusFilter, setStatusFilter] = useState('All')
-  // Default to 'All' when coming from global search, 'Loans in Process' otherwise
-  const [pipelineFilter, setPipelineFilter] = useState(initialSearch ? 'All' : 'Loans in Process')
+  // This page is dedicated to active escrows — pipeline is locked to 'Loans in Process'.
+  const pipelineFilter = 'Loans in Process'
 
   // Inline cell editing
   const [editCell, setEditCell] = useState<{ id: string; field: string } | null>(null)
@@ -209,7 +209,7 @@ function DealsPageInner() {
       d.investor?.toLowerCase().includes(search.toLowerCase()) ||
       d.email?.toLowerCase().includes(search.toLowerCase()) ||
       d.phone?.toLowerCase().includes(search.toLowerCase())
-    const matchPipeline = pipelineFilter === 'All' || d.pipeline_group === pipelineFilter
+    const matchPipeline = d.pipeline_group === pipelineFilter
     const matchLO = loFilter === 'All' || d.loan_officer?.includes(loFilter)
     const matchStatus = statusFilter === 'All' || d.status === statusFilter
     return matchSearch && matchPipeline && matchLO && matchStatus
@@ -277,7 +277,7 @@ function DealsPageInner() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h1 className="text-xl font-bold text-slate-900">
-              {search ? `Search: "${search}"` : pipelineFilter === 'All' ? 'All Deals' : 'Active Escrows'}
+              {search ? `Search: "${search}"` : 'Active Escrows'}
             </h1>
             <p className="text-sm text-slate-500 mt-0.5">
               {filtered.length} deal{filtered.length !== 1 ? 's' : ''} · {formatCurrency(totalLoanAmt)} loan volume
@@ -317,14 +317,6 @@ function DealsPageInner() {
             />
           </div>
           <select
-            value={pipelineFilter}
-            onChange={e => setPipelineFilter(e.target.value)}
-            className="text-sm border border-slate-200 rounded-lg px-3 py-2 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="All">All Pipelines</option>
-            {PIPELINE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
-          </select>
-          <select
             value={loFilter}
             onChange={e => setLoFilter(e.target.value)}
             className="text-sm border border-slate-200 rounded-lg px-3 py-2 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -340,9 +332,9 @@ function DealsPageInner() {
             <option value="All">All Statuses</option>
             {LOAN_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          {(search || pipelineFilter !== 'Loans in Process' || loFilter !== 'All' || statusFilter !== 'All') && (
+          {(search || loFilter !== 'All' || statusFilter !== 'All') && (
             <button
-              onClick={() => { setSearch(''); setPipelineFilter('Loans in Process'); setLoFilter('All'); setStatusFilter('All') }}
+              onClick={() => { setSearch(''); setLoFilter('All'); setStatusFilter('All') }}
               className="text-sm text-blue-600 hover:underline"
             >
               Clear filters
