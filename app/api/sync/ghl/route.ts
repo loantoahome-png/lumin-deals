@@ -3,9 +3,30 @@ import { createServiceClient } from '@/lib/supabase'
 
 const GHL_BASE = 'https://services.leadconnectorhq.com'
 
-function ghlHeaders() {
+// ── Multi-location config ───────────────────────────────────────────────────
+// Reads up to 3 GHL accounts from env vars:
+//   - Default: GHL_API_KEY + GHL_LOCATION_ID            (primary, backwards compatible)
+//   - Matt:    GHL_API_KEY_MATT + GHL_LOCATION_ID_MATT
+//   - Extra:   GHL_API_KEY_2 + GHL_LOCATION_ID_2        (open slot for future LO)
+type GHLAccount = { label: string; apiKey: string; locationId: string }
+
+function getAccounts(): GHLAccount[] {
+  const accounts: GHLAccount[] = []
+  if (process.env.GHL_API_KEY && process.env.GHL_LOCATION_ID) {
+    accounts.push({ label: 'primary', apiKey: process.env.GHL_API_KEY, locationId: process.env.GHL_LOCATION_ID })
+  }
+  if (process.env.GHL_API_KEY_MATT && process.env.GHL_LOCATION_ID_MATT) {
+    accounts.push({ label: 'matt', apiKey: process.env.GHL_API_KEY_MATT, locationId: process.env.GHL_LOCATION_ID_MATT })
+  }
+  if (process.env.GHL_API_KEY_2 && process.env.GHL_LOCATION_ID_2) {
+    accounts.push({ label: 'extra', apiKey: process.env.GHL_API_KEY_2, locationId: process.env.GHL_LOCATION_ID_2 })
+  }
+  return accounts
+}
+
+function ghlHeaders(apiKey: string) {
   return {
-    Authorization: `Bearer ${process.env.GHL_API_KEY}`,
+    Authorization: `Bearer ${apiKey}`,
     Version: '2021-07-28',
     'Content-Type': 'application/json',
   }
@@ -140,12 +161,12 @@ function str(v: unknown): string | null {
 
 // ── GHL API Fetchers ──────────────────────────────────────────────────────────
 
-async function fetchPipelineStageMap(locationId: string): Promise<Map<string, { name: string; pipelineName: string }>> {
+async function fetchPipelineStageMap(locationId: string, apiKey: string): Promise<Map<string, { name: string; pipelineName: string }>> {
   const map = new Map<string, { name: string; pipelineName: string }>()
   try {
     const res = await fetch(
       `${GHL_BASE}/opportunities/pipelines?locationId=${locationId}`,
-      { headers: ghlHeaders() }
+      { headers: ghlHeaders(apiKey) }
     )
     const data = await res.json() as { pipelines?: Array<{ id: string; name: string; stages: Array<{ id: string; name: string }> }> }
     for (const pipeline of data.pipelines || []) {
@@ -162,6 +183,7 @@ async function fetchPipelineStageMap(locationId: string): Promise<Map<string, { 
 
 async function fetchUserMap(
   locationId: string,
+  apiKey: string,
   supabase: ReturnType<typeof createServiceClient>,
 ): Promise<Map<string, string>> {
   const map = new Map<string, string>()
@@ -170,7 +192,7 @@ async function fetchUserMap(
   try {
     const res = await fetch(
       `${GHL_BASE}/users/?locationId=${locationId}`,
-      { headers: ghlHeaders() }
+      { headers: ghlHeaders(apiKey) }
     )
     if (res.ok) {
       const data = await res.json() as { users?: Array<{ id: string; name?: string; firstName?: string; lastName?: string; email?: string }> }
@@ -246,9 +268,9 @@ async function fetchUserMap(
 }
 
 /** Look up a single GHL user by ID (fallback for agency-level users not in location map) */
-async function fetchUserById(userId: string): Promise<string | null> {
+async function fetchUserById(userId: string, apiKey: string): Promise<string | null> {
   try {
-    const res = await fetch(`${GHL_BASE}/users/${userId}`, { headers: ghlHeaders() })
+    const res = await fetch(`${GHL_BASE}/users/${userId}`, { headers: ghlHeaders(apiKey) })
     if (!res.ok) return null
     const u = await res.json() as { name?: string; firstName?: string; lastName?: string }
     return u.name || `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || null
@@ -257,7 +279,7 @@ async function fetchUserById(userId: string): Promise<string | null> {
   }
 }
 
-async function fetchAllOpportunities(locationId: string): Promise<GHLOpportunity[]> {
+async function fetchAllOpportunities(locationId: string, apiKey: string): Promise<GHLOpportunity[]> {
   const all: GHLOpportunity[] = []
   let startAfter: string | undefined
   let startAfterId: string | undefined
@@ -269,7 +291,7 @@ async function fetchAllOpportunities(locationId: string): Promise<GHLOpportunity
 
     const res = await fetch(
       `${GHL_BASE}/opportunities/search?${new URLSearchParams(params)}`,
-      { headers: ghlHeaders() }
+      { headers: ghlHeaders(apiKey) }
     )
     if (!res.ok) {
       console.error('[GHL Sync] Opportunities fetch error:', res.status, await res.text())
@@ -287,7 +309,7 @@ async function fetchAllOpportunities(locationId: string): Promise<GHLOpportunity
   return all
 }
 
-async function fetchAllContacts(locationId: string): Promise<Map<string, GHLContact>> {
+async function fetchAllContacts(locationId: string, apiKey: string): Promise<Map<string, GHLContact>> {
   const map = new Map<string, GHLContact>()
   let page = 1
 
@@ -295,7 +317,7 @@ async function fetchAllContacts(locationId: string): Promise<Map<string, GHLCont
     const params = new URLSearchParams({ locationId, limit: '100', page: String(page) })
     const res = await fetch(
       `${GHL_BASE}/contacts/?${params}`,
-      { headers: ghlHeaders() }
+      { headers: ghlHeaders(apiKey) }
     )
     if (!res.ok) {
       console.error('[GHL Sync] Contacts fetch error:', res.status, await res.text())
@@ -316,28 +338,25 @@ async function fetchAllContacts(locationId: string): Promise<Map<string, GHLCont
 
 // ── Main Sync Handler ─────────────────────────────────────────────────────────
 
-export async function POST() {
-  const apiKey     = process.env.GHL_API_KEY
-  const locationId = process.env.GHL_LOCATION_ID
-
-  if (!apiKey || !locationId) {
-    return NextResponse.json({ error: 'GHL_API_KEY or GHL_LOCATION_ID not configured' }, { status: 500 })
-  }
-
-  const supabase = createServiceClient()
+async function syncAccount(
+  account: GHLAccount,
+  supabase: ReturnType<typeof createServiceClient>,
+): Promise<{ created: number; updated: number; errors: string[] }> {
+  const { apiKey, locationId, label } = account
   let created = 0, updated = 0
   const errors: string[] = []
 
-  try {
-    // ── 1. Fetch lookup maps ───────────────────────────────────────────────────
-    const [pipelineMap, userMap, contactMap, opportunities] = await Promise.all([
-      fetchPipelineStageMap(locationId),
-      fetchUserMap(locationId, supabase),
-      fetchAllContacts(locationId),
-      fetchAllOpportunities(locationId),
-    ])
+  console.log(`[GHL Sync:${label}] Starting sync for location ${locationId}`)
 
-    console.log(`[GHL Sync] Processing ${opportunities.length} opportunities`)
+  // ── 1. Fetch lookup maps ───────────────────────────────────────────────────
+  const [pipelineMap, userMap, contactMap, opportunities] = await Promise.all([
+    fetchPipelineStageMap(locationId, apiKey),
+    fetchUserMap(locationId, apiKey, supabase),
+    fetchAllContacts(locationId, apiKey),
+    fetchAllOpportunities(locationId, apiKey),
+  ])
+
+  console.log(`[GHL Sync:${label}] Processing ${opportunities.length} opportunities`)
 
     // ── 2. Process each opportunity ───────────────────────────────────────────
     for (const opp of opportunities) {
@@ -373,16 +392,16 @@ export async function POST() {
         // Look up from map first, then fall back to a direct API fetch for agency-level users
         let assignedName: string | null = embeddedUserName ?? (assignedToId ? (userMap.get(assignedToId) ?? null) : null)
         if (!assignedName && assignedToId) {
-          assignedName = await fetchUserById(assignedToId)
+          assignedName = await fetchUserById(assignedToId, apiKey)
           if (assignedName) {
             userMap.set(assignedToId, assignedName) // cache it for subsequent iterations
-            console.log(`[GHL Sync] Fetched unknown user ${assignedToId} → ${assignedName}`)
+            console.log(`[GHL Sync:${label}] Fetched unknown user ${assignedToId} → ${assignedName}`)
           }
         }
 
         const loanOfficer = resolveLO(assignedName)
         if (!loanOfficer && assignedToId) {
-          console.log(`[GHL Sync] No LO resolved for assignedTo="${assignedToId}" name="${assignedName}" contact="${contactId}"`)
+          console.log(`[GHL Sync:${label}] No LO resolved for assignedTo="${assignedToId}" name="${assignedName}" contact="${contactId}"`)
         }
 
         // Custom fields
@@ -477,19 +496,50 @@ export async function POST() {
       } catch (err) {
         const msg = String(err)
         errors.push(msg)
-        console.error('[GHL Sync] Error processing opportunity:', opp.id, msg)
+        console.error(`[GHL Sync:${label}] Error processing opportunity:`, opp.id, msg)
       }
     }
 
-    const synced = created + updated
-    console.log(`[GHL Sync] Done — ${synced} total (${created} created, ${updated} updated, ${errors.length} errors)`)
+  console.log(`[GHL Sync:${label}] Done — ${created + updated} total (${created} created, ${updated} updated, ${errors.length} errors)`)
+  return { created, updated, errors }
+}
+
+export async function POST() {
+  const accounts = getAccounts()
+  if (accounts.length === 0) {
+    return NextResponse.json({ error: 'No GHL accounts configured. Set GHL_API_KEY + GHL_LOCATION_ID.' }, { status: 500 })
+  }
+
+  const supabase = createServiceClient()
+
+  try {
+    const perAccount: Array<{ label: string; locationId: string; created: number; updated: number; errors: number }> = []
+    let totalCreated = 0, totalUpdated = 0
+    const allErrors: string[] = []
+
+    // Run accounts sequentially so logs stay readable and we don't double-bootstrap user maps
+    for (const account of accounts) {
+      const result = await syncAccount(account, supabase)
+      perAccount.push({
+        label: account.label,
+        locationId: account.locationId,
+        created: result.created,
+        updated: result.updated,
+        errors: result.errors.length,
+      })
+      totalCreated += result.created
+      totalUpdated += result.updated
+      allErrors.push(...result.errors)
+    }
 
     return NextResponse.json({
       success: true,
-      synced,
-      created,
-      updated,
-      errors: errors.slice(0, 20),
+      accounts_synced: accounts.length,
+      synced: totalCreated + totalUpdated,
+      created: totalCreated,
+      updated: totalUpdated,
+      per_account: perAccount,
+      errors: allErrors.slice(0, 20),
     })
   } catch (err) {
     console.error('[GHL Sync] Fatal error:', err)
@@ -498,9 +548,10 @@ export async function POST() {
 }
 
 export async function GET() {
+  const accounts = getAccounts()
   return NextResponse.json({
     status: 'ok',
-    message: 'POST to this endpoint to trigger a full GHL → Supabase sync',
-    configured: !!(process.env.GHL_API_KEY && process.env.GHL_LOCATION_ID),
+    message: 'POST to trigger sync across all configured GHL accounts',
+    configured_accounts: accounts.map(a => ({ label: a.label, locationId: a.locationId })),
   })
 }
