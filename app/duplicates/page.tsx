@@ -19,6 +19,10 @@ type DuplicateGroup = {
   deals: Deal[]
 }
 
+function isBlank(v: unknown): boolean {
+  return v === null || v === undefined || v === '' || (typeof v === 'string' && v.trim() === '')
+}
+
 // ── Normalization helpers ────────────────────────────────────────────────────
 function normEmail(s: string | null | undefined): string | null {
   if (!s) return null
@@ -119,6 +123,8 @@ export default function DuplicatesPage() {
   const [merging, setMerging] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [primaryOverrides, setPrimaryOverrides] = useState<Record<string, string>>({}) // groupKey → dealId
+  // Field-level override: per group, per field, which deal's value to use as the merged value
+  const [fieldOverrides, setFieldOverrides] = useState<Record<string, Record<string, string>>>({}) // groupKey → field → dealId
   const [filterType, setFilterType] = useState<'all' | MatchType>('all')
   const [bulkMerging, setBulkMerging] = useState(false)
   const [resultMsg, setResultMsg] = useState<string | null>(null)
@@ -149,12 +155,23 @@ export default function DuplicatesPage() {
   async function mergeOne(group: DuplicateGroup) {
     const primary = getPrimaryFor(group)
     const secondaries = group.deals.filter(d => d.id !== primary.id)
+    // Convert per-field overrides (dealId references) into concrete value overrides
+    const fOverrides = fieldOverrides[group.key] ?? {}
+    const overrides: Record<string, unknown> = {}
+    for (const [field, dealId] of Object.entries(fOverrides)) {
+      const sourceDeal = group.deals.find(d => d.id === dealId)
+      if (sourceDeal) overrides[field] = (sourceDeal as unknown as Record<string, unknown>)[field] ?? null
+    }
     setMerging(group.key)
     try {
       const res = await fetch('/api/deals/merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ primaryId: primary.id, secondaryIds: secondaries.map(d => d.id) }),
+        body: JSON.stringify({
+          primaryId: primary.id,
+          secondaryIds: secondaries.map(d => d.id),
+          overrides: Object.keys(overrides).length > 0 ? overrides : undefined,
+        }),
       })
       const data = await res.json()
       if (data.success) {
@@ -342,51 +359,97 @@ export default function DuplicatesPage() {
                   </div>
                 )}
 
-                {/* Expanded comparison */}
+                {/* Expanded comparison — click any cell to pick that value as the merged result */}
                 {isExpanded && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
-                        <tr>
-                          <th className="text-left px-4 py-2 sticky left-0 bg-slate-50">Field</th>
-                          {group.deals.map(d => (
-                            <th key={d.id} className={`text-left px-4 py-2 min-w-[160px] ${d.id === primary.id ? 'bg-emerald-50' : ''}`}>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => setPrimaryOverrides(prev => ({ ...prev, [group.key]: d.id }))}
-                                  className={`shrink-0 w-3.5 h-3.5 rounded-full border-2 ${d.id === primary.id ? 'border-emerald-500 bg-emerald-500' : 'border-slate-300'}`}
-                                />
-                                <Link href={`/deals/${d.id}`} className="text-slate-900 normal-case font-semibold hover:text-blue-700 truncate">{d.name}</Link>
-                              </div>
-                              {d.id === primary.id && <span className="text-[10px] font-bold text-emerald-700">PRIMARY</span>}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {(['status','pipeline_group','loan_officer','loan_type','loan_amount','property_address','credit_score','rate','investor','email','phone','lock_expiration','signing_date','funded_date','source','arive_file_no'] as Array<keyof Deal>).map(field => {
-                          const values = group.deals.map(d => d[field])
-                          const allSame = values.every(v => String(v ?? '') === String(values[0] ?? ''))
-                          return (
-                            <tr key={String(field)} className={allSame ? '' : 'bg-amber-50/40'}>
-                              <td className="px-4 py-1.5 text-xs font-medium text-slate-500 capitalize sticky left-0 bg-inherit">{String(field).replace(/_/g, ' ')}</td>
-                              {group.deals.map(d => {
-                                const v = d[field]
-                                const display = v === null || v === undefined || v === '' ? '—' :
-                                  typeof v === 'number' && (field === 'loan_amount' || field === 'estimated_value') ? formatCurrency(v) :
-                                  String(v)
-                                return (
-                                  <td key={d.id} className={`px-4 py-1.5 text-xs ${d.id === primary.id ? 'bg-emerald-50/60 text-slate-900 font-medium' : 'text-slate-700'} ${v === null || v === undefined || v === '' ? 'text-slate-300' : ''}`}>
-                                    {display}
-                                  </td>
-                                )
-                              })}
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                  <>
+                    <div className="px-5 py-2 bg-blue-50 border-b border-blue-200 text-xs text-blue-900">
+                      <strong>Tip:</strong> Each row shows the same field across all duplicates.
+                      The cell highlighted in green will be kept after merge. Click any other cell to pick its value instead.
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
+                          <tr>
+                            <th className="text-left px-4 py-2 sticky left-0 bg-slate-50">Field</th>
+                            {group.deals.map(d => (
+                              <th key={d.id} className={`text-left px-4 py-2 min-w-[160px] ${d.id === primary.id ? 'bg-emerald-50' : ''}`}>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => setPrimaryOverrides(prev => ({ ...prev, [group.key]: d.id }))}
+                                    className={`shrink-0 w-3.5 h-3.5 rounded-full border-2 ${d.id === primary.id ? 'border-emerald-500 bg-emerald-500' : 'border-slate-300'}`}
+                                    title={d.id === primary.id ? 'Primary' : 'Make primary'}
+                                  />
+                                  <Link href={`/deals/${d.id}`} className="text-slate-900 normal-case font-semibold hover:text-blue-700 truncate">{d.name}</Link>
+                                </div>
+                                {d.id === primary.id && <span className="text-[10px] font-bold text-emerald-700">PRIMARY (default winner)</span>}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {(['status','pipeline_group','loan_officer','loan_type','loan_amount','property_address','credit_score','rate','investor','email','phone','lock_expiration','signing_date','funded_date','source','arive_file_no'] as Array<keyof Deal>).map(field => {
+                            const values = group.deals.map(d => d[field])
+                            const allSame = values.every(v => String(v ?? '') === String(values[0] ?? ''))
+
+                            // Compute the "winning" deal for this field:
+                            // 1. User override wins if set
+                            // 2. Else: primary if non-blank
+                            // 3. Else: first non-blank secondary
+                            const overrideId = fieldOverrides[group.key]?.[String(field)]
+                            let winnerId: string | null = null
+                            if (overrideId && group.deals.find(d => d.id === overrideId)) {
+                              winnerId = overrideId
+                            } else if (!isBlank(primary[field])) {
+                              winnerId = primary.id
+                            } else {
+                              const sortedSecs = group.deals.filter(d => d.id !== primary.id)
+                                .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+                              const firstNonBlank = sortedSecs.find(d => !isBlank(d[field]))
+                              if (firstNonBlank) winnerId = firstNonBlank.id
+                            }
+
+                            return (
+                              <tr key={String(field)} className={allSame ? '' : 'bg-amber-50/40'}>
+                                <td className="px-4 py-1.5 text-xs font-medium text-slate-500 capitalize sticky left-0 bg-inherit">{String(field).replace(/_/g, ' ')}</td>
+                                {group.deals.map(d => {
+                                  const v = d[field]
+                                  const blank = v === null || v === undefined || v === ''
+                                  const display = blank ? '—' :
+                                    typeof v === 'number' && (field === 'loan_amount' || field === 'estimated_value') ? formatCurrency(v) :
+                                    String(v)
+                                  const isWinner = d.id === winnerId
+                                  const clickable = !blank && !allSame
+                                  return (
+                                    <td
+                                      key={d.id}
+                                      onClick={() => {
+                                        if (!clickable) return
+                                        setFieldOverrides(prev => ({
+                                          ...prev,
+                                          [group.key]: { ...(prev[group.key] ?? {}), [String(field)]: d.id },
+                                        }))
+                                      }}
+                                      className={`px-4 py-1.5 text-xs transition ${
+                                        isWinner
+                                          ? 'bg-emerald-100 text-slate-900 font-semibold ring-1 ring-emerald-400 ring-inset'
+                                          : blank
+                                          ? 'text-slate-300'
+                                          : 'text-slate-700'
+                                      } ${clickable && !isWinner ? 'cursor-pointer hover:bg-blue-50' : ''}`}
+                                      title={clickable && !isWinner ? 'Click to use this value' : undefined}
+                                    >
+                                      {display}
+                                      {isWinner && !blank && <span className="ml-1.5 text-[9px] text-emerald-700">✓ KEEP</span>}
+                                    </td>
+                                  )
+                                })}
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 )}
               </div>
             )

@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { use } from 'react'
 import { ArrowLeft, Check, Trash2, X, ExternalLink } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import LoanHistory from '@/components/LoanHistory'
 
 const inp = 'w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white hover:border-slate-300 transition-colors'
 const sel = inp
@@ -635,6 +636,18 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
             </Field>
           </Card>
         </div>
+      </div>
+
+      {/* Loan History — other loans for the same contact (matched by email/phone/name) */}
+      <div className="mt-6">
+        <LoanHistory
+          currentDealId={form.id as string}
+          email={form.email as string | null}
+          phone={form.phone as string | null}
+          firstName={form.first_name as string | null}
+          lastName={form.last_name as string | null}
+          name={form.name as string | null}
+        />
       </div>
 
       {/* Bottom save bar */}
