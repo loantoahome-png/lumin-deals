@@ -909,8 +909,9 @@ function PipelinePageInner() {
   const [showSaveModal, setShowSaveModal] = useState(false)
   const [newViewName, setNewViewName] = useState('')
   // Pipeline visibility — all on by default
+  // Default: show only Leads + Escrows (Not Ready and Funded are hidden until toggled on)
   const [visiblePipelines, setVisiblePipelines] = useState<Set<string>>(
-    new Set(PIPELINE_CONFIG.map(p => p.key))
+    new Set(['Leads', 'Escrows'])
   )
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -1007,7 +1008,8 @@ function PipelinePageInner() {
   function clearFilters() {
     setLoFilter('All'); setSourceFilter('All'); setStatusFilter('All')
     setHideFunded(false); setActiveViewId(null)
-    setVisiblePipelines(new Set(PIPELINE_CONFIG.map(p => p.key)))
+    // Reset to default visibility: Leads + Escrows only
+    setVisiblePipelines(new Set(['Leads', 'Escrows']))
     setMasterFilter(emptyMasterFilter())
   }
 
@@ -1060,8 +1062,13 @@ function PipelinePageInner() {
     setActiveViewId(null)
   }
 
+  // Default visible set is Leads + Escrows — only consider pipelines "filtered" if it differs from that
+  const defaultVisible = ['Leads', 'Escrows']
+  const isDefaultPipelineSet =
+    visiblePipelines.size === defaultVisible.length &&
+    defaultVisible.every(k => visiblePipelines.has(k))
   const filtersActive = loFilter !== 'All' || sourceFilter !== 'All' || statusFilter !== 'All' || hideFunded
-    || visiblePipelines.size < PIPELINE_CONFIG.length
+    || !isDefaultPipelineSet
 
   // ── Pipeline counts for pills (respects LO/source/status filters) ─────────
   const pipelineCount: Record<string, number> = {}
