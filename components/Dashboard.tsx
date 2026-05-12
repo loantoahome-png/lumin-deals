@@ -5,7 +5,8 @@ import { supabase } from '@/lib/supabase'
 import { Deal } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import {
-  DollarSign, TrendingUp, Users, CheckCircle, Clock, AlertCircle, Bell, TrendingDown, Calendar, X
+  DollarSign, TrendingUp, Users, CheckCircle, Clock, AlertCircle, Bell, TrendingDown, Calendar, X,
+  AlertTriangle, ChevronRight, Flame,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -268,6 +269,20 @@ export default function Dashboard() {
   const recentDeals = filteredDeals.slice(0, 5)
   const rateWatchAlerted = deals.filter(d => d.rate_watch_active && d.rate_watch_alerted_at) // always unfiltered
 
+  // ── Today widget: escrows with follow-ups due today or overdue ──────────────
+  const now = new Date()
+  const endOfToday = new Date(); endOfToday.setHours(23, 59, 59, 999)
+  const escrowsInProcess = deals.filter(d => d.pipeline_group === 'Loans in Process')
+  const todayItems = escrowsInProcess.filter(d => {
+    if (!d.next_action_due) return false
+    const due = new Date(d.next_action_due)
+    return due <= endOfToday
+  }).sort((a, b) =>
+    new Date(a.next_action_due as string).getTime() - new Date(b.next_action_due as string).getTime()
+  )
+  const overdueItems = todayItems.filter(d => new Date(d.next_action_due as string) < now)
+  const dueTodayItems = todayItems.filter(d => new Date(d.next_action_due as string) >= now && new Date(d.next_action_due as string) <= endOfToday)
+
   const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#f97316', '#8b5cf6', '#ec4899']
 
   // Preset button labels
@@ -396,6 +411,71 @@ export default function Dashboard() {
                 {d.name} → {d.rate_watch_target}% target
               </Link>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Today widget — escrow follow-ups due today + overdue */}
+      {(todayItems.length > 0) && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Flame className="w-4 h-4 text-orange-500" />
+              <h3 className="font-semibold text-slate-800 text-sm">Today&apos;s Escrow Follow-ups</h3>
+              <span className="text-xs text-slate-500">
+                {overdueItems.length > 0 && (
+                  <span className="font-semibold text-red-600">{overdueItems.length} overdue</span>
+                )}
+                {overdueItems.length > 0 && dueTodayItems.length > 0 && ' · '}
+                {dueTodayItems.length > 0 && (
+                  <span className="font-semibold text-amber-600">{dueTodayItems.length} due today</span>
+                )}
+              </span>
+            </div>
+            <Link href="/deals" className="text-xs font-medium text-blue-600 hover:text-blue-700 flex items-center gap-0.5">
+              Open Tracker <ChevronRight className="w-3 h-3" />
+            </Link>
+          </div>
+          <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
+            {todayItems.slice(0, 12).map(d => {
+              const due = new Date(d.next_action_due as string)
+              const isOverdueRow = due < now
+              const time = due.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+              return (
+                <Link
+                  key={d.id}
+                  href={`/deals/${d.id}`}
+                  className="flex items-center gap-3 px-5 py-2.5 hover:bg-slate-50 transition group"
+                >
+                  <div className={`shrink-0 w-1 h-10 rounded-full ${isOverdueRow ? 'bg-red-500' : 'bg-amber-400'}`} />
+                  <div className="shrink-0 w-20 text-right">
+                    <div className={`text-xs font-semibold ${isOverdueRow ? 'text-red-700' : 'text-amber-700'}`}>
+                      {isOverdueRow ? 'Overdue' : time}
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      {isOverdueRow ? `was ${time}` : 'today'}
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-slate-900 group-hover:text-blue-700 truncate">
+                      {d.name}
+                    </div>
+                    <div className="text-xs text-slate-500 truncate">
+                      {d.next_action || <span className="italic text-slate-400">No next step set</span>}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="text-xs text-slate-700 font-medium">{d.next_action_assignee || d.loan_officer || '—'}</div>
+                    <div className="text-[10px] text-slate-400">{d.status}</div>
+                  </div>
+                </Link>
+              )
+            })}
+            {todayItems.length > 12 && (
+              <Link href="/deals" className="block text-center py-2 text-xs text-blue-600 hover:bg-slate-50 font-medium">
+                + {todayItems.length - 12} more in tracker →
+              </Link>
+            )}
           </div>
         </div>
       )}

@@ -11,12 +11,14 @@ import { use } from 'react'
 import {
   ArrowLeft, Check, Trash2, X, ExternalLink,
   DollarSign, Home, Lock, Hash, User, Users,
-  Calendar, Bell, MessageSquare, Building2,
+  Calendar, Bell, MessageSquare, Building2, Phone, AlertOctagon,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import LoanHistory from '@/components/LoanHistory'
 import RealEstateOwned from '@/components/RealEstateOwned'
-import type { REOProperty } from '@/lib/types'
+import CommunicationsLog from '@/components/CommunicationsLog'
+import { WAITING_ON_OPTIONS } from '@/lib/types'
+import type { REOProperty, Communication } from '@/lib/types'
 
 // ── Format helpers ──────────────────────────────────────────────────────────
 function fmtMoneyShort(n: number | null | undefined): string {
@@ -576,6 +578,14 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
               />
             </Section>
 
+            {/* Communications log */}
+            <Section title="Communications Log" icon={<Phone className="w-4 h-4" />}>
+              <CommunicationsLog
+                value={(form.communications as Communication[] | null) || []}
+                onChange={v => set('communications', v)}
+              />
+            </Section>
+
             {/* Notes */}
             <Section title="Notes" icon={<MessageSquare className="w-4 h-4" />}>
               <DealNotes dealId={id} initialNotes={form.lo_notes ?? null} />
@@ -716,6 +726,12 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                     <option value="Hanh - 3rd party">Hanh - 3rd party</option>
                     <option value="Susan - In house">Susan - In house</option>
                     <option value="Self Processing">Self Processing</option>
+                  </select>
+                </Field>
+                <Field label="Waiting On">
+                  <select value={form.waiting_on || ''} onChange={e => set('waiting_on', e.target.value || null)} className={`${sel} ${form.waiting_on && form.waiting_on !== 'No one' ? 'bg-amber-50 border-amber-200 text-amber-800 font-semibold' : ''}`}>
+                    <option value="">— Not blocked —</option>
+                    {WAITING_ON_OPTIONS.map(w => <option key={w} value={w}>{w}</option>)}
                   </select>
                 </Field>
               </div>

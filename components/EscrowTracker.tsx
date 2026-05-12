@@ -2,11 +2,12 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Deal, STATUS_COLORS, LOAN_OFFICERS } from '@/lib/types'
+import { Deal, STATUS_COLORS, LOAN_OFFICERS, WAITING_ON_OPTIONS, STAGE_SLA_DAYS, Communication } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import {
   AlertTriangle, Clock, ChevronRight, User, CalendarClock,
   Flame, ExternalLink, CheckCircle2, Snowflake, Lock, Search,
+  Hourglass, Phone, AlertOctagon,
 } from 'lucide-react'
 
 // ── Assignee options: LOs + common processors + Efrain ──────────────────────
@@ -87,7 +88,7 @@ function localInputToISO(local: string): string | null {
 }
 
 // ── Filter types ────────────────────────────────────────────────────────────
-type FollowUpFilter = 'all' | 'mine' | 'overdue' | 'today' | 'week' | 'unassigned' | 'no_action'
+type FollowUpFilter = 'all' | 'mine' | 'overdue' | 'today' | 'week' | 'unassigned' | 'no_action' | 'blocked' | 'above_sla'
 
 type Props = {
   deals: Deal[]
@@ -131,6 +132,13 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
           return !d.next_action_assignee
         case 'no_action':
           return !d.next_action || d.next_action.trim() === ''
+        case 'blocked':
+          return !!d.waiting_on && d.waiting_on !== 'No one'
+        case 'above_sla': {
+          const sla = STAGE_SLA_DAYS[d.status]
+          const inStage = daysSince(d.stage_changed_at) ?? daysSince(d.created_at)
+          return sla != null && inStage != null && inStage > sla
+        }
         default:
           return true
       }
@@ -172,6 +180,12 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
       }).length,
       unassigned: deals.filter(d => !d.next_action_assignee).length,
       no_action: deals.filter(d => !d.next_action || d.next_action.trim() === '').length,
+      blocked: deals.filter(d => !!d.waiting_on && d.waiting_on !== 'No one').length,
+      above_sla: deals.filter(d => {
+        const sla = STAGE_SLA_DAYS[d.status]
+        const inStage = daysSince(d.stage_changed_at) ?? daysSince(d.created_at)
+        return sla != null && inStage != null && inStage > sla
+      }).length,
     }
   }, [deals, currentUser])
 
@@ -194,6 +208,8 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
           <FilterChip active={filter==='overdue'}    onClick={() => setFilter('overdue')}    label="Overdue"       count={counts.overdue} tone="red" />
           <FilterChip active={filter==='today'}      onClick={() => setFilter('today')}      label="Today"         count={counts.today} tone="amber" />
           <FilterChip active={filter==='week'}       onClick={() => setFilter('week')}       label="This week"     count={counts.week} />
+          <FilterChip active={filter==='blocked'}    onClick={() => setFilter('blocked')}    label="Blocked"       count={counts.blocked} tone="amber" />
+          <FilterChip active={filter==='above_sla'}  onClick={() => setFilter('above_sla')}  label="Above SLA"     count={counts.above_sla} />
           <FilterChip active={filter==='unassigned'} onClick={() => setFilter('unassigned')} label="Unassigned"    count={counts.unassigned} />
           <FilterChip active={filter==='no_action'}  onClick={() => setFilter('no_action')}  label="No next step"  count={counts.no_action} />
         </div>
@@ -255,10 +271,18 @@ function EscrowCard({ deal, onUpdate }: { deal: Deal; onUpdate: (id: string, pat
   const today = !overdue && isToday(deal.next_action_due)
   const daysInStage = daysSince(deal.stage_changed_at) ?? daysSince(deal.created_at)
   const stuck = daysInStage != null && daysInStage > 14
+  const slaDays = STAGE_SLA_DAYS[deal.status]
+  const aboveSla = slaDays != null && daysInStage != null && daysInStage > slaDays
   const lockDaysLeft = daysUntil(deal.lock_expiration)
   const lockExpiringSoon = lockDaysLeft != null && lockDaysLeft >= 0 && lockDaysLeft <= 7
   const statusClass = STATUS_COLORS[deal.status] || 'bg-gray-100 text-gray-600'
   const priorityOpt = PRIORITY_OPTIONS.find(p => p.value === deal.escrow_priority)
+  // Last communication summary (if any)
+  const comms = (deal.communications as Communication[] | null) || []
+  const lastComm = comms.length > 0 ? [...comms].sort((a, b) =>
+    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  )[0] : null
+  const lastCommDays = lastComm ? daysSince(lastComm.timestamp) : null
 
   const borderClass = overdue
     ? 'border-red-300 ring-2 ring-red-100'
@@ -280,7 +304,7 @@ function EscrowCard({ deal, onUpdate }: { deal: Deal; onUpdate: (id: string, pat
       </div>
 
       {/* Alerts row */}
-      {(overdue || today || stuck || lockExpiringSoon) && (
+      {(overdue || today || stuck || aboveSla || lockExpiringSoon) && (
         <div className="px-4 py-1.5 flex items-center gap-2 flex-wrap text-[10px] font-semibold uppercase tracking-wider bg-slate-50/50 border-b border-slate-100">
           {overdue && (
             <span className="flex items-center gap-0.5 text-red-700">
@@ -290,6 +314,11 @@ function EscrowCard({ deal, onUpdate }: { deal: Deal; onUpdate: (id: string, pat
           {today && (
             <span className="flex items-center gap-0.5 text-amber-700">
               <Clock className="w-3 h-3" /> Today
+            </span>
+          )}
+          {aboveSla && !stuck && (
+            <span className="flex items-center gap-0.5 text-blue-700" title={`Target: ${slaDays}d`}>
+              <Hourglass className="w-3 h-3" /> Above SLA ({daysInStage}/{slaDays}d)
             </span>
           )}
           {stuck && (
@@ -377,6 +406,43 @@ function EscrowCard({ deal, onUpdate }: { deal: Deal; onUpdate: (id: string, pat
             </select>
           </div>
         </div>
+
+        {/* Waiting On — what's blocking */}
+        <div className="border-t border-slate-100 pt-2.5">
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1 shrink-0">
+              <AlertOctagon className="w-3 h-3" /> Waiting on
+            </label>
+            <select
+              value={deal.waiting_on || ''}
+              onChange={e => saveField('waiting_on', e.target.value || null)}
+              className={`flex-1 px-2 py-1 border rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                deal.waiting_on
+                  ? 'bg-amber-50 border-amber-200 text-amber-800 font-semibold'
+                  : 'bg-white border-slate-200 text-slate-500'
+              }`}
+            >
+              <option value="">— Not blocked —</option>
+              {WAITING_ON_OPTIONS.map(w => <option key={w} value={w}>{w}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* Last contact */}
+        {lastComm && (
+          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 bg-slate-50 rounded px-2 py-1">
+            <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+            <span className="truncate">
+              <span className="font-semibold text-slate-700">
+                Last: {lastCommDays === 0 ? 'Today' : lastCommDays === 1 ? '1d ago' : `${lastCommDays}d ago`}
+              </span>
+              {' — '}
+              {lastComm.channel}
+              {lastComm.with ? ` to ${lastComm.with}` : ''}
+              {lastComm.outcome ? `: ${lastComm.outcome}` : ''}
+            </span>
+          </div>
+        )}
 
         {/* Priority + open link */}
         <div className="flex items-center justify-between gap-2 pt-1">

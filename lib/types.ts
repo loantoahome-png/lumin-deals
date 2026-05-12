@@ -66,8 +66,43 @@ export type Deal = {
   next_action_assignee: string | null
   escrow_priority: string | null              // 'high' | 'normal' | 'low'
   stage_changed_at: string | null             // tracks days-in-stage (auto-updated)
+  waiting_on: string | null                   // who/what is blocking the deal
+  communications: Communication[] | null      // contact log per deal
   created_at: string
   updated_at: string
+}
+
+// ── Waiting-on options ──────────────────────────────────────────────────────
+export const WAITING_ON_OPTIONS = [
+  'Borrower', 'Co-borrower', 'Realtor', 'Title', 'Appraiser', 'UW',
+  'Insurance', 'Employer (VOE)', 'Lender', 'Processor', 'No one',
+] as const
+
+// ── Communications log ──────────────────────────────────────────────────────
+export type Communication = {
+  id: string
+  timestamp: string                            // ISO
+  channel: string                              // Call / SMS / Email / Meeting / Voicemail / Other
+  with: string | null                          // Borrower / Realtor / etc.
+  outcome: string | null
+  by: string | null                            // who initiated
+}
+
+export const COMM_CHANNELS = ['Call', 'SMS', 'Email', 'Meeting', 'Voicemail', 'Other'] as const
+
+// ── Stage SLAs (days) ──────────────────────────────────────────────────────
+// Industry-standard target durations for each Loans-in-Process stage.
+// If a deal exceeds the SLA for its current stage, the tracker flags it.
+export const STAGE_SLA_DAYS: Record<string, number> = {
+  'Loan Setup':            2,
+  'Disclosed':             3,
+  'Submitted to UW':       5,
+  'Approved w/ Conditions':7,
+  'Re-Submittal':          5,
+  'Clear to Close':        3,
+  'Docs Out':              2,
+  'Docs Signed':           2,
+  // Funded statuses don't get SLAs — they're terminal
 }
 
 // ── Real Estate Owned (borrower's other properties) ─────────────────────────
