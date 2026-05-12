@@ -11,7 +11,7 @@ import { use } from 'react'
 import {
   ArrowLeft, Check, Trash2, X, ExternalLink,
   DollarSign, Home, Lock, Hash, User, Users,
-  Calendar, Bell, Link as LinkIcon, MessageSquare,
+  Calendar, Bell, MessageSquare,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import LoanHistory from '@/components/LoanHistory'
@@ -35,14 +35,14 @@ const sel = inp
 const inpCurrency = 'w-full pl-7 pr-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white hover:border-slate-300 transition-colors tabular-nums'
 const inpPercent = 'w-full pl-3 pr-7 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white hover:border-slate-300 transition-colors tabular-nums'
 
-function Card({ title, icon, children, compact = false }: { title: string; icon?: React.ReactNode; children: React.ReactNode; compact?: boolean }) {
+function Section({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
+    <div className="p-5">
+      <div className="flex items-center gap-2 mb-4">
         {icon && <span className="text-slate-400 shrink-0">{icon}</span>}
-        <h2 className="text-sm font-semibold text-slate-700">{title}</h2>
+        <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{title}</h2>
       </div>
-      <div className={compact ? 'p-4' : 'p-5'}>{children}</div>
+      {children}
     </div>
   )
 }
@@ -57,10 +57,9 @@ function Field({ label, children, hint }: { label: string; children: React.React
   )
 }
 
-function CurrencyInput({ value, onChange, placeholder = '0' }: {
+function CurrencyInput({ value, onChange }: {
   value: number | null | undefined
   onChange: (n: number | null) => void
-  placeholder?: string
 }) {
   return (
     <div className="relative">
@@ -70,17 +69,15 @@ function CurrencyInput({ value, onChange, placeholder = '0' }: {
         value={value ?? ''}
         onChange={e => onChange(e.target.value ? Number(e.target.value) : null)}
         className={inpCurrency}
-        placeholder={placeholder}
       />
     </div>
   )
 }
 
-function PercentInput({ value, onChange, step = '0.01', placeholder = '' }: {
+function PercentInput({ value, onChange, step = '0.01' }: {
   value: number | null | undefined
   onChange: (n: number | null) => void
   step?: string
-  placeholder?: string
 }) {
   return (
     <div className="relative">
@@ -90,7 +87,6 @@ function PercentInput({ value, onChange, step = '0.01', placeholder = '' }: {
         value={value ?? ''}
         onChange={e => onChange(e.target.value ? Number(e.target.value) : null)}
         className={inpPercent}
-        placeholder={placeholder}
       />
       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 pointer-events-none">%</span>
     </div>
@@ -409,330 +405,317 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
         <div className="mb-4 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg">{error}</div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      {/* ── One unified card containing all sections ─────────────── */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="grid grid-cols-1 lg:grid-cols-3">
 
-        {/* ── Left column ─────────────────────────────────────────── */}
-        <div className="lg:col-span-2 space-y-4">
+          {/* ── Left column (2/3) ────────────────────────────────── */}
+          <div className="lg:col-span-2 divide-y divide-slate-200">
 
-          {/* Loan Details */}
-          <Card title="Loan Details" icon={<DollarSign className="w-4 h-4" />}>
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Loan Purpose">
-                <select value={form.loan_purpose || ''} onChange={e => set('loan_purpose', e.target.value)} className={sel}>
-                  <option value="">— Select —</option>
-                  <option value="Purchase">Purchase</option>
-                  <option value="Refinance">Refinance</option>
-                  <option value="Cash-Out Refinance">Cash-Out Refinance</option>
-                  <option value="HELOC">HELOC</option>
-                </select>
-              </Field>
-              <Field label="Loan Type">
-                <select value={form.loan_type || ''} onChange={e => set('loan_type', e.target.value)} className={sel}>
-                  <option value="">— Select —</option>
-                  {LOAN_TYPES.map(t => <option key={t}>{t}</option>)}
-                </select>
-              </Field>
-              <Field label="Loan Amount">
-                <CurrencyInput value={form.loan_amount as number | null} onChange={v => set('loan_amount', v)} />
-              </Field>
-              <Field label="Property Value">
-                <CurrencyInput value={form.estimated_value as number | null} onChange={v => set('estimated_value', v)} />
-              </Field>
-              <Field label="Current Balance">
-                <CurrencyInput value={form.current_balance as number | null} onChange={v => set('current_balance', v)} />
-              </Field>
-              <Field label="LTV">
-                <PercentInput value={form.ltv as number | null} onChange={v => set('ltv', v)} step="0.01" placeholder="e.g. 75.68" />
-              </Field>
-              <Field label="Cash Out">
-                <CurrencyInput value={form.cash_out as number | null} onChange={v => set('cash_out', v)} />
-              </Field>
-              <Field label="Down Payment">
-                <CurrencyInput value={form.down_payment as number | null} onChange={v => set('down_payment', v)} />
-              </Field>
-              <Field label="Rate">
-                <PercentInput value={form.rate as number | null} onChange={v => set('rate', v)} step="0.001" placeholder="6.500" />
-              </Field>
-              <Field label="Investor">
-                <input value={form.investor || ''} onChange={e => set('investor', e.target.value)} className={inp} placeholder="e.g. Rocket, Figure" />
-              </Field>
-              <Field label="Broker / Correspondent">
-                <select value={form.broker_corr || ''} onChange={e => set('broker_corr', e.target.value)} className={sel}>
-                  <option value="">— Select —</option>
-                  <option value="Broker">Broker</option>
-                  <option value="Correspondent">Correspondent</option>
-                </select>
-              </Field>
-              <Field label="Source">
-                <select value={form.source || ''} onChange={e => set('source', e.target.value)} className={sel}>
-                  <option value="">— Select —</option>
-                  <option value="GHL">GHL</option>
-                  <option value="Self Source">Self Source</option>
-                  <option value="Referral">Referral</option>
-                  <option value="Past Client">Past Client</option>
-                  <option value="Open House">Open House</option>
-                  <option value="Agent Partner">Agent Partner</option>
-                </select>
-              </Field>
-            </div>
-          </Card>
-
-          {/* Property Details */}
-          <Card title="Property Details" icon={<Home className="w-4 h-4" />}>
-            <div className="space-y-4">
-              {/* Address: full-width line, then City/State/Zip on a 4-3-2 grid */}
-              <Field label="Property Address">
-                <input value={form.property_address || ''} onChange={e => set('property_address', e.target.value)} className={inp} placeholder="123 Main St" />
-              </Field>
-              <div className="grid grid-cols-[1fr_120px_120px] gap-3">
-                <Field label="City">
-                  <input value={form.city || ''} onChange={e => set('city', e.target.value)} className={inp} placeholder="City" />
-                </Field>
-                <Field label="State">
-                  <input value={form.state || ''} onChange={e => set('state', e.target.value)} className={inp} placeholder="CA" maxLength={2} />
-                </Field>
-                <Field label="Zip">
-                  <input value={form.zip || ''} onChange={e => set('zip', e.target.value)} className={inp} placeholder="90210" />
-                </Field>
-              </div>
+            {/* Loan Details */}
+            <Section title="Loan Details" icon={<DollarSign className="w-4 h-4" />}>
               <div className="grid grid-cols-2 gap-4">
-                <Field label="Property Use / Occupancy">
-                  <select value={form.occupancy || ''} onChange={e => set('occupancy', e.target.value)} className={sel}>
-                    <option value="">— Select —</option>
-                    {OCCUPANCY_TYPES.map(o => <option key={o}>{o}</option>)}
-                    <option value="Primary Residence">Primary Residence</option>
+                <Field label="Loan Purpose">
+                  <select value={form.loan_purpose || ''} onChange={e => set('loan_purpose', e.target.value)} className={sel}>
+                    <option value="">—</option>
+                    <option value="Purchase">Purchase</option>
+                    <option value="Refinance">Refinance</option>
+                    <option value="Cash-Out Refinance">Cash-Out Refinance</option>
+                    <option value="HELOC">HELOC</option>
                   </select>
                 </Field>
-                <Field label="Property Type">
-                  <select value={form.property_type || ''} onChange={e => set('property_type', e.target.value)} className={sel}>
-                    <option value="">— Select —</option>
-                    <option value="Single Family">Single Family</option>
-                    <option value="Manufactured">Manufactured</option>
-                    <option value="Condo">Condo</option>
-                    <option value="Townhouse">Townhouse</option>
-                    <option value="Multi-Family (2-4)">Multi-Family (2-4)</option>
-                    <option value="Commercial">Commercial</option>
-                    <option value="Land">Land</option>
+                <Field label="Loan Type">
+                  <select value={form.loan_type || ''} onChange={e => set('loan_type', e.target.value)} className={sel}>
+                    <option value="">—</option>
+                    {LOAN_TYPES.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </Field>
+                <Field label="Loan Amount">
+                  <CurrencyInput value={form.loan_amount as number | null} onChange={v => set('loan_amount', v)} />
+                </Field>
+                <Field label="Property Value">
+                  <CurrencyInput value={form.estimated_value as number | null} onChange={v => set('estimated_value', v)} />
+                </Field>
+                <Field label="Current Balance">
+                  <CurrencyInput value={form.current_balance as number | null} onChange={v => set('current_balance', v)} />
+                </Field>
+                <Field label="LTV">
+                  <PercentInput value={form.ltv as number | null} onChange={v => set('ltv', v)} step="0.01" />
+                </Field>
+                <Field label="Cash Out">
+                  <CurrencyInput value={form.cash_out as number | null} onChange={v => set('cash_out', v)} />
+                </Field>
+                <Field label="Down Payment">
+                  <CurrencyInput value={form.down_payment as number | null} onChange={v => set('down_payment', v)} />
+                </Field>
+                <Field label="Rate">
+                  <PercentInput value={form.rate as number | null} onChange={v => set('rate', v)} step="0.001" />
+                </Field>
+                <Field label="Investor">
+                  <input value={form.investor || ''} onChange={e => set('investor', e.target.value)} className={inp} />
+                </Field>
+                <Field label="Broker / Correspondent">
+                  <select value={form.broker_corr || ''} onChange={e => set('broker_corr', e.target.value)} className={sel}>
+                    <option value="">—</option>
+                    <option value="Broker">Broker</option>
+                    <option value="Correspondent">Correspondent</option>
+                  </select>
+                </Field>
+                <Field label="Source">
+                  <select value={form.source || ''} onChange={e => set('source', e.target.value)} className={sel}>
+                    <option value="">—</option>
+                    <option value="GHL">GHL</option>
+                    <option value="Self Source">Self Source</option>
+                    <option value="Referral">Referral</option>
+                    <option value="Past Client">Past Client</option>
+                    <option value="Open House">Open House</option>
+                    <option value="Agent Partner">Agent Partner</option>
                   </select>
                 </Field>
               </div>
-            </div>
-          </Card>
+            </Section>
 
-          {/* Lock & Appraisal */}
-          <Card title="Lock & Appraisal" icon={<Lock className="w-4 h-4" />}>
-            <div className="grid grid-cols-3 gap-4">
-              <Field label="Locked?">
-                <select value={form.locked || 'No'} onChange={e => set('locked', e.target.value)} className={sel}>
-                  <option value="No">No</option>
-                  <option value="Yes">Yes</option>
-                  <option value="NA">N/A</option>
-                </select>
-              </Field>
-              <Field label="Lock Expiration">
-                <input type="date" value={form.lock_expiration || ''} onChange={e => set('lock_expiration', e.target.value)} className={inp} />
-              </Field>
-              <Field label="Appraisal Status">
-                <select value={form.appraisal_status || ''} onChange={e => set('appraisal_status', e.target.value)} className={sel}>
-                  <option value="">— Select —</option>
-                  {APPRAISAL_STATUSES.map(a => <option key={a}>{a}</option>)}
-                </select>
-              </Field>
-            </div>
-          </Card>
-
-          {/* File Numbers */}
-          <Card title="File Numbers" icon={<Hash className="w-4 h-4" />}>
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Arive File #">
-                <input value={form.arive_file_no || ''} onChange={e => set('arive_file_no', e.target.value)} className={inp} />
-              </Field>
-              <Field label="Investor File #">
-                <input value={form.investor_file_no || ''} onChange={e => set('investor_file_no', e.target.value)} className={inp} />
-              </Field>
-            </div>
-          </Card>
-
-          {/* Notes */}
-          <Card title="Notes" icon={<MessageSquare className="w-4 h-4" />}>
-            <DealNotes dealId={id} initialNotes={form.lo_notes ?? null} />
-          </Card>
-        </div>
-
-        {/* ── Right column ─────────────────────────────────────────── */}
-        <div className="space-y-4">
-
-          {/* Borrower */}
-          <Card title="Borrower" icon={<User className="w-4 h-4" />}>
-            <div className="space-y-3">
-              <Field label="Email">
-                <input type="email" value={form.email || ''} onChange={e => set('email', e.target.value)} className={inp} placeholder="borrower@email.com" />
-              </Field>
-              <Field label="Phone">
-                <input value={form.phone || ''} onChange={e => set('phone', e.target.value)} className={inp} placeholder="(555) 555-5555" />
-              </Field>
-              <Field label="Credit Score (FICO)">
-                <input type="number" value={form.credit_score ?? ''} onChange={e => set('credit_score', e.target.value ? Number(e.target.value) : null)} className={inp} placeholder="720" />
-              </Field>
-              <Field label="Credit Rating">
-                <select value={form.credit_rating || ''} onChange={e => set('credit_rating', e.target.value)} className={sel}>
-                  <option value="">— Select —</option>
-                  <option value="Excellent">Excellent (750+)</option>
-                  <option value="Good">Good (700–749)</option>
-                  <option value="Fair">Fair (650–699)</option>
-                  <option value="Poor">Poor (Below 650)</option>
-                </select>
-              </Field>
-              <Field label="Is Military / Veteran">
-                <select value={form.is_military || ''} onChange={e => set('is_military', e.target.value)} className={sel}>
-                  <option value="">— Select —</option>
-                  <option value="yes">Yes</option>
-                  <option value="no">No</option>
-                </select>
-              </Field>
-              <Field label="Current VA Loan">
-                <select value={form.current_va_loan || ''} onChange={e => set('current_va_loan', e.target.value)} className={sel}>
-                  <option value="">— Select —</option>
-                  <option value="yes">Yes</option>
-                  <option value="no">No</option>
-                </select>
-              </Field>
-            </div>
-          </Card>
-
-          {/* Rate Watch */}
-          <Card title="Rate Watch" icon={<Bell className="w-4 h-4" />}>
-            <div className="space-y-3">
-              {/* Toggle row */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-slate-700">Active</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Alert when 10yr nears the rate at close</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => set('rate_watch_active', !form.rate_watch_active)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                    form.rate_watch_active ? 'bg-blue-600' : 'bg-slate-200'
-                  }`}
-                >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                    form.rate_watch_active ? 'translate-x-6' : 'translate-x-1'
-                  }`} />
-                </button>
-              </div>
-
-              {/* Always-visible close yield input */}
-              <Field label="10-Year Treasury Yield at Close (%)">
-                <input
-                  type="number"
-                  step="0.01"
-                  value={form.rate_at_close_10yr ?? ''}
-                  onChange={e => set('rate_at_close_10yr', e.target.value ? Number(e.target.value) : null)}
-                  className={inp}
-                  placeholder="e.g. 4.25"
-                />
-              </Field>
-
-              {/* Alert threshold preview */}
-              {form.rate_at_close_10yr != null && (
-                <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2.5">
-                  <p className="text-xs font-semibold text-blue-700 mb-0.5">Alert threshold</p>
-                  <p className="text-xs text-blue-600 font-mono">
-                    10yr drops to <strong>{(Number(form.rate_at_close_10yr) - 0.10).toFixed(2)}%</strong> or below
-                  </p>
-                  <p className="text-xs text-blue-500 mt-1">
-                    That&apos;s 10 bps below the {Number(form.rate_at_close_10yr).toFixed(2)}% close rate — no alert if rates rise
-                  </p>
-                </div>
-              )}
-
-              {/* Notes */}
-              {form.rate_watch_active && (
-                <Field label="Rate Watch Notes">
-                  <textarea
-                    value={form.rate_watch_notes || ''}
-                    onChange={e => set('rate_watch_notes', e.target.value)}
-                    rows={2}
-                    className={inp + ' resize-none'}
-                    placeholder="e.g. Client wants to refi when rates drop to close range"
-                  />
+            {/* Property Details */}
+            <Section title="Property Details" icon={<Home className="w-4 h-4" />}>
+              <div className="space-y-4">
+                <Field label="Property Address">
+                  <input value={form.property_address || ''} onChange={e => set('property_address', e.target.value)} className={inp} />
                 </Field>
-              )}
+                <div className="grid grid-cols-[1fr_120px_120px] gap-3">
+                  <Field label="City">
+                    <input value={form.city || ''} onChange={e => set('city', e.target.value)} className={inp} />
+                  </Field>
+                  <Field label="State">
+                    <input value={form.state || ''} onChange={e => set('state', e.target.value)} className={inp} maxLength={2} />
+                  </Field>
+                  <Field label="Zip">
+                    <input value={form.zip || ''} onChange={e => set('zip', e.target.value)} className={inp} />
+                  </Field>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Property Use / Occupancy">
+                    <select value={form.occupancy || ''} onChange={e => set('occupancy', e.target.value)} className={sel}>
+                      <option value="">—</option>
+                      {OCCUPANCY_TYPES.map(o => <option key={o}>{o}</option>)}
+                      <option value="Primary Residence">Primary Residence</option>
+                    </select>
+                  </Field>
+                  <Field label="Property Type">
+                    <select value={form.property_type || ''} onChange={e => set('property_type', e.target.value)} className={sel}>
+                      <option value="">—</option>
+                      <option value="Single Family">Single Family</option>
+                      <option value="Manufactured">Manufactured</option>
+                      <option value="Condo">Condo</option>
+                      <option value="Townhouse">Townhouse</option>
+                      <option value="Multi-Family (2-4)">Multi-Family (2-4)</option>
+                      <option value="Commercial">Commercial</option>
+                      <option value="Land">Land</option>
+                    </select>
+                  </Field>
+                </div>
+              </div>
+            </Section>
 
-              {/* Last alert status */}
-              {form.rate_watch_alerted_at ? (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                  <p className="text-xs font-semibold text-amber-800">⚡ Alert fired!</p>
-                  <p className="text-xs text-amber-600 mt-0.5">
-                    10yr entered window on {new Date(form.rate_watch_alerted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                  </p>
+            {/* Lock & Appraisal */}
+            <Section title="Lock & Appraisal" icon={<Lock className="w-4 h-4" />}>
+              <div className="grid grid-cols-3 gap-4">
+                <Field label="Locked?">
+                  <select value={form.locked || 'No'} onChange={e => set('locked', e.target.value)} className={sel}>
+                    <option value="No">No</option>
+                    <option value="Yes">Yes</option>
+                    <option value="NA">N/A</option>
+                  </select>
+                </Field>
+                <Field label="Lock Expiration">
+                  <input type="date" value={form.lock_expiration || ''} onChange={e => set('lock_expiration', e.target.value)} className={inp} />
+                </Field>
+                <Field label="Appraisal Status">
+                  <select value={form.appraisal_status || ''} onChange={e => set('appraisal_status', e.target.value)} className={sel}>
+                    <option value="">—</option>
+                    {APPRAISAL_STATUSES.map(a => <option key={a}>{a}</option>)}
+                  </select>
+                </Field>
+              </div>
+            </Section>
+
+            {/* File Numbers */}
+            <Section title="File Numbers" icon={<Hash className="w-4 h-4" />}>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Arive File #">
+                  <input value={form.arive_file_no || ''} onChange={e => set('arive_file_no', e.target.value)} className={inp} />
+                </Field>
+                <Field label="Investor File #">
+                  <input value={form.investor_file_no || ''} onChange={e => set('investor_file_no', e.target.value)} className={inp} />
+                </Field>
+              </div>
+            </Section>
+
+            {/* Notes */}
+            <Section title="Notes" icon={<MessageSquare className="w-4 h-4" />}>
+              <DealNotes dealId={id} initialNotes={form.lo_notes ?? null} />
+            </Section>
+          </div>
+
+          {/* ── Right column (1/3) ───────────────────────────────── */}
+          <div className="lg:border-l border-slate-200 divide-y divide-slate-200">
+
+            {/* Borrower */}
+            <Section title="Borrower" icon={<User className="w-4 h-4" />}>
+              <div className="space-y-3">
+                <Field label="Email">
+                  <input type="email" value={form.email || ''} onChange={e => set('email', e.target.value)} className={inp} />
+                </Field>
+                <Field label="Phone">
+                  <input value={form.phone || ''} onChange={e => set('phone', e.target.value)} className={inp} />
+                </Field>
+                <Field label="Credit Score (FICO)">
+                  <input type="number" value={form.credit_score ?? ''} onChange={e => set('credit_score', e.target.value ? Number(e.target.value) : null)} className={inp} />
+                </Field>
+                <Field label="Credit Rating">
+                  <select value={form.credit_rating || ''} onChange={e => set('credit_rating', e.target.value)} className={sel}>
+                    <option value="">—</option>
+                    <option value="Excellent">Excellent (750+)</option>
+                    <option value="Good">Good (700–749)</option>
+                    <option value="Fair">Fair (650–699)</option>
+                    <option value="Poor">Poor (Below 650)</option>
+                  </select>
+                </Field>
+                <Field label="Is Military / Veteran">
+                  <select value={form.is_military || ''} onChange={e => set('is_military', e.target.value)} className={sel}>
+                    <option value="">—</option>
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </Field>
+                <Field label="Current VA Loan">
+                  <select value={form.current_va_loan || ''} onChange={e => set('current_va_loan', e.target.value)} className={sel}>
+                    <option value="">—</option>
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </Field>
+              </div>
+            </Section>
+
+            {/* Rate Watch */}
+            <Section title="Rate Watch" icon={<Bell className="w-4 h-4" />}>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-slate-700">Active</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Alert when 10yr nears the rate at close</p>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => set('rate_watch_alerted_at', null)}
-                    className="text-xs text-amber-700 underline mt-1"
+                    onClick={() => set('rate_watch_active', !form.rate_watch_active)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                      form.rate_watch_active ? 'bg-blue-600' : 'bg-slate-200'
+                    }`}
                   >
-                    Reset (watch for next crossing)
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                      form.rate_watch_active ? 'translate-x-6' : 'translate-x-1'
+                    }`} />
                   </button>
                 </div>
-              ) : form.rate_watch_active && form.rate_at_close_10yr != null ? (
-                <div className="flex items-center gap-1.5 text-xs text-emerald-600">
-                  <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  Watching — no alert yet
-                </div>
-              ) : null}
-            </div>
-          </Card>
 
+                <Field label="10-Year Treasury Yield at Close (%)">
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={form.rate_at_close_10yr ?? ''}
+                    onChange={e => set('rate_at_close_10yr', e.target.value ? Number(e.target.value) : null)}
+                    className={inp}
+                  />
+                </Field>
 
-          {/* Team */}
-          <Card title="Team" icon={<Users className="w-4 h-4" />}>
-            <div className="space-y-3">
-              <Field label="Loan Officer">
-                <select value={form.loan_officer || ''} onChange={e => set('loan_officer', e.target.value)} className={sel}>
-                  <option value="">— Select —</option>
-                  {LOAN_OFFICERS.map(lo => <option key={lo}>{lo}</option>)}
-                </select>
-              </Field>
-              <Field label="Processor">
-                <select value={form.processor_status || ''} onChange={e => set('processor_status', e.target.value)} className={sel}>
-                  <option value="">— Select —</option>
-                  <option value="Lexi - 3rd party">Lexi - 3rd party</option>
-                  <option value="Hanh - 3rd party">Hanh - 3rd party</option>
-                  <option value="Susan - In house">Susan - In house</option>
-                  <option value="Self Processing">Self Processing</option>
-                </select>
-              </Field>
-            </div>
-          </Card>
+                {form.rate_at_close_10yr != null && (
+                  <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2.5">
+                    <p className="text-xs font-semibold text-blue-700 mb-0.5">Alert threshold</p>
+                    <p className="text-xs text-blue-600 font-mono">
+                      10yr drops to <strong>{(Number(form.rate_at_close_10yr) - 0.10).toFixed(2)}%</strong> or below
+                    </p>
+                    <p className="text-xs text-blue-500 mt-1">
+                      That&apos;s 10 bps below the {Number(form.rate_at_close_10yr).toFixed(2)}% close rate — no alert if rates rise
+                    </p>
+                  </div>
+                )}
 
-          {/* Key Dates */}
-          <Card title="Key Dates" icon={<Calendar className="w-4 h-4" />}>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Signing">
-                <input type="date" value={form.signing_date || ''} onChange={e => set('signing_date', e.target.value)} className={inp} />
-              </Field>
-              <Field label="Funded">
-                <input type="date" value={form.funded_date || ''} onChange={e => set('funded_date', e.target.value)} className={inp} />
-              </Field>
-              <Field label="Paid">
-                <input type="date" value={form.paid_date || ''} onChange={e => set('paid_date', e.target.value)} className={inp} />
-              </Field>
-              <Field label="Last Contact">
-                <input type="date" value={form.last_contacted || ''} onChange={e => set('last_contacted', e.target.value)} className={inp} />
-              </Field>
-            </div>
-            <p className="text-[11px] text-slate-400 mt-3 pt-3 border-t border-slate-100">
-              Added {form.created_at ? new Date(form.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-            </p>
-          </Card>
+                {form.rate_watch_active && (
+                  <Field label="Rate Watch Notes">
+                    <textarea
+                      value={form.rate_watch_notes || ''}
+                      onChange={e => set('rate_watch_notes', e.target.value)}
+                      rows={2}
+                      className={inp + ' resize-none'}
+                    />
+                  </Field>
+                )}
 
-          {/* Documents */}
-          <Card title="Documents" icon={<LinkIcon className="w-4 h-4" />} compact>
-            <Field label="Document Upload Link">
-              <input value={form.document_upload_link || ''} onChange={e => set('document_upload_link', e.target.value)} className={inp} placeholder="https://…" />
-            </Field>
-          </Card>
+                {form.rate_watch_alerted_at ? (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                    <p className="text-xs font-semibold text-amber-800">⚡ Alert fired!</p>
+                    <p className="text-xs text-amber-600 mt-0.5">
+                      10yr entered window on {new Date(form.rate_watch_alerted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => set('rate_watch_alerted_at', null)}
+                      className="text-xs text-amber-700 underline mt-1"
+                    >
+                      Reset (watch for next crossing)
+                    </button>
+                  </div>
+                ) : form.rate_watch_active && form.rate_at_close_10yr != null ? (
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-600">
+                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    Watching — no alert yet
+                  </div>
+                ) : null}
+              </div>
+            </Section>
+
+            {/* Team */}
+            <Section title="Team" icon={<Users className="w-4 h-4" />}>
+              <div className="space-y-3">
+                <Field label="Loan Officer">
+                  <select value={form.loan_officer || ''} onChange={e => set('loan_officer', e.target.value)} className={sel}>
+                    <option value="">—</option>
+                    {LOAN_OFFICERS.map(lo => <option key={lo}>{lo}</option>)}
+                  </select>
+                </Field>
+                <Field label="Processor">
+                  <select value={form.processor_status || ''} onChange={e => set('processor_status', e.target.value)} className={sel}>
+                    <option value="">—</option>
+                    <option value="Lexi - 3rd party">Lexi - 3rd party</option>
+                    <option value="Hanh - 3rd party">Hanh - 3rd party</option>
+                    <option value="Susan - In house">Susan - In house</option>
+                    <option value="Self Processing">Self Processing</option>
+                  </select>
+                </Field>
+              </div>
+            </Section>
+
+            {/* Key Dates */}
+            <Section title="Key Dates" icon={<Calendar className="w-4 h-4" />}>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Signing">
+                  <input type="date" value={form.signing_date || ''} onChange={e => set('signing_date', e.target.value)} className={inp} />
+                </Field>
+                <Field label="Funded">
+                  <input type="date" value={form.funded_date || ''} onChange={e => set('funded_date', e.target.value)} className={inp} />
+                </Field>
+                <Field label="Paid">
+                  <input type="date" value={form.paid_date || ''} onChange={e => set('paid_date', e.target.value)} className={inp} />
+                </Field>
+                <Field label="Last Contact">
+                  <input type="date" value={form.last_contacted || ''} onChange={e => set('last_contacted', e.target.value)} className={inp} />
+                </Field>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-3 pt-3 border-t border-slate-100">
+                Added {form.created_at ? new Date(form.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+              </p>
+            </Section>
+          </div>
         </div>
       </div>
 
