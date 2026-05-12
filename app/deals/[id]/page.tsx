@@ -11,10 +11,12 @@ import { use } from 'react'
 import {
   ArrowLeft, Check, Trash2, X, ExternalLink,
   DollarSign, Home, Lock, Hash, User, Users,
-  Calendar, Bell, MessageSquare,
+  Calendar, Bell, MessageSquare, Building2,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import LoanHistory from '@/components/LoanHistory'
+import RealEstateOwned from '@/components/RealEstateOwned'
+import type { REOProperty } from '@/lib/types'
 
 // ── Format helpers ──────────────────────────────────────────────────────────
 function fmtMoneyShort(n: number | null | undefined): string {
@@ -564,6 +566,14 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                   <input value={form.investor_file_no || ''} onChange={e => set('investor_file_no', e.target.value)} className={inp} />
                 </Field>
               </div>
+            </Section>
+
+            {/* Real Estate Owned */}
+            <Section title="Real Estate Owned (REO)" icon={<Building2 className="w-4 h-4" />}>
+              <RealEstateOwned
+                value={(form.reo_properties as REOProperty[] | null) || []}
+                onChange={v => set('reo_properties', v)}
+              />
             </Section>
 
             {/* Notes */}

@@ -59,8 +59,26 @@ export type Deal = {
   last_contacted: string | null
   ghl_contact_id: string | null
   document_upload_link: string | null
+  reo_properties: REOProperty[] | null
   created_at: string
   updated_at: string
+}
+
+// ── Real Estate Owned (borrower's other properties) ─────────────────────────
+export type REOLien = {
+  id: string
+  holder: string | null    // e.g. "Wells Fargo", "Chase"
+  type: string | null      // e.g. "1st Mortgage", "2nd Mortgage", "HELOC"
+  balance: number | null
+}
+
+export type REOProperty = {
+  id: string
+  address: string | null
+  estimated_value: number | null
+  property_type: string | null
+  occupancy: string | null
+  liens: REOLien[]
 }
 
 export const LOAN_STATUSES = [
