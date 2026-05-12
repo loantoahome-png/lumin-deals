@@ -434,6 +434,7 @@ async function syncAccount(
           pipeline_group:   stage?.pipeline_group ?? 'Leads',
           loan_officer:     loanOfficer,
           ghl_contact_id:   contactId,
+          ghl_location_id:  locationId,        // so the dashboard can link to the right GHL sub-account
           ghl_tags:         ghlTags,
           ghl_assigned_user:assignedToId,
           source:           str(fullContact.source) ?? 'GHL',
@@ -474,10 +475,11 @@ async function syncAccount(
           // Update: always sync status/pipeline; only overwrite other fields if GHL has a value
           // (so we never erase data filled in from Monday or by hand).
           const patch: Record<string, unknown> = {
-            status:         dealData.status,
-            pipeline_group: dealData.pipeline_group,
-            ghl_tags:       dealData.ghl_tags,
-            raw_ghl_data:   dealData.raw_ghl_data,
+            status:           dealData.status,
+            pipeline_group:   dealData.pipeline_group,
+            ghl_tags:         dealData.ghl_tags,
+            raw_ghl_data:     dealData.raw_ghl_data,
+            ghl_location_id:  dealData.ghl_location_id, // backfill on existing deals
           }
           const maybeSet = (k: string) => { if (dealData[k] != null) patch[k] = dealData[k] }
           ;['loan_officer','loan_amount','estimated_value','credit_score','loan_type','loan_purpose',

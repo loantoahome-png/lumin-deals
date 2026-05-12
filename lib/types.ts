@@ -25,6 +25,7 @@ export type Deal = {
   ghl_assigned_user: string | null
   date_added_ghl: string | null
   raw_ghl_data: Record<string, unknown> | null
+  ghl_location_id: string | null              // which GHL sub-account this deal lives in
   locked: string | null
   lock_expiration: string | null
   appraisal_status: string | null

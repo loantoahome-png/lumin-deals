@@ -403,17 +403,22 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {form.ghl_contact_id && (
-              <a
-                href={`${process.env.NEXT_PUBLIC_GHL_BASE_URL}/v2/location/${process.env.NEXT_PUBLIC_GHL_LOCATION_ID}/contacts/detail/${form.ghl_contact_id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="Open in GoHighLevel"
-                className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-blue-200 bg-blue-500/10 border border-blue-400/30 rounded-lg hover:bg-blue-500/20 transition"
-              >
-                <ExternalLink className="w-3.5 h-3.5" /> View in GHL
-              </a>
-            )}
+            {form.ghl_contact_id && (() => {
+              // Prefer the deal's stored location; fall back to env var (Moe's) for legacy deals
+              // that haven't been re-synced since we started tracking the location per deal.
+              const locId = (form.ghl_location_id as string | null) || process.env.NEXT_PUBLIC_GHL_LOCATION_ID
+              return (
+                <a
+                  href={`${process.env.NEXT_PUBLIC_GHL_BASE_URL}/v2/location/${locId}/contacts/detail/${form.ghl_contact_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`Open in GoHighLevel (${form.ghl_location_id ? locId : 'fallback location'})`}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-blue-200 bg-blue-500/10 border border-blue-400/30 rounded-lg hover:bg-blue-500/20 transition"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" /> View in GHL
+                </a>
+              )
+            })()}
             <button
               onClick={handleDelete}
               disabled={deleting}
