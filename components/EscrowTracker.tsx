@@ -584,27 +584,27 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
           />
         </div>
 
-        {/* Follow-up date+time + assignee + priority */}
-        <div className="grid grid-cols-2 gap-2">
-          <FollowUpPicker
-            value={deal.next_action_due}
-            onChange={v => saveField('next_action_due', v)}
-            overdue={overdue}
-            today={today}
-          />
-          <div>
-            <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1">
-              <User className="w-3 h-3" /> Assigned to
-            </label>
-            <select
-              value={deal.next_action_assignee || ''}
-              onChange={e => saveField('next_action_assignee', e.target.value || null)}
-              className="w-full px-2 py-1.5 border border-slate-200 rounded-md text-xs text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">— Unassigned —</option>
-              {ASSIGNEE_OPTIONS.map(a => <option key={a} value={a}>{a}</option>)}
-            </select>
-          </div>
+        {/* Follow-up — full-width so the date + time inputs have room to breathe */}
+        <FollowUpPicker
+          value={deal.next_action_due}
+          onChange={v => saveField('next_action_due', v)}
+          overdue={overdue}
+          today={today}
+        />
+
+        {/* Assigned to — own row */}
+        <div>
+          <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1">
+            <User className="w-3 h-3" /> Assigned to
+          </label>
+          <select
+            value={deal.next_action_assignee || ''}
+            onChange={e => saveField('next_action_assignee', e.target.value || null)}
+            className="w-full px-2 py-1.5 border border-slate-200 rounded-md text-xs text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">— Unassigned —</option>
+            {ASSIGNEE_OPTIONS.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
         </div>
 
         {/* Waiting On — what's blocking */}
@@ -716,20 +716,20 @@ function FollowUpPicker({ value, onChange, overdue, today }: {
         <PresetButton label="Tomorrow"  onClick={() => applyPreset(tomorrowLocalDate(), '09:00')} />
         {value && <PresetButton label="Clear" onClick={() => onChange(null)} variant="danger" />}
       </div>
-      {/* Date + time inputs */}
-      <div className="flex gap-1">
+      {/* Date + time inputs — date takes ~60% of width, time dropdown ~40% */}
+      <div className="grid grid-cols-[1fr_auto] gap-1.5">
         <input
           type="date"
           value={date}
           onChange={e => setDate(e.target.value)}
-          className={`flex-1 min-w-0 px-2 py-1.5 border border-slate-200 rounded-md text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${date === '' ? 'date-empty' : ''}`}
+          className={`w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 tabular-nums ${date === '' ? 'date-empty' : ''}`}
         />
         <select
           value={time}
           onChange={e => setTime(e.target.value)}
-          className="w-24 px-1.5 py-1.5 border border-slate-200 rounded-md text-xs text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-32 px-2 py-1.5 border border-slate-200 rounded-md text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
-          <option value="">—</option>
+          <option value="">— Time —</option>
           {TIME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </div>
