@@ -2,12 +2,16 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
+import {
+  DndContext, useSensors, useSensor, PointerSensor,
+  useDraggable, useDroppable, type DragEndEvent,
+} from '@dnd-kit/core'
 import { Deal, STATUS_COLORS, LOAN_OFFICERS, WAITING_ON_OPTIONS, STAGE_SLA_DAYS, Communication } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import {
   AlertTriangle, Clock, ChevronRight, User, CalendarClock,
   Flame, ExternalLink, CheckCircle2, Snowflake, Lock, Search,
-  Hourglass, Phone, AlertOctagon,
+  Hourglass, Phone, AlertOctagon, GripVertical,
 } from 'lucide-react'
 
 // ── Assignee options: LOs + common processors + Efrain ──────────────────────
@@ -263,6 +267,10 @@ function KanbanColumns({ deals, onUpdate }: {
   deals: Deal[]
   onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>
 }) {
+  // 8px activation distance so clicks inside cards (textareas, dropdowns, buttons)
+  // never accidentally trigger a drag.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+
   // Group already-sorted deals by status. Any unknown status goes to "Other".
   const byStage: Record<string, Deal[]> = {}
   for (const stage of ESCROW_STAGES) byStage[stage] = []
@@ -272,60 +280,115 @@ function KanbanColumns({ deals, onUpdate }: {
     else otherDeals.push(d)
   }
 
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over) return
+    const dealId = String(active.id)
+    const newStatus = String(over.id)
+    const deal = deals.find(d => d.id === dealId)
+    if (!deal || deal.status === newStatus) return
+    if (!ESCROW_STAGES.includes(newStatus as typeof ESCROW_STAGES[number])) return // safety
+    // Persist; stage_changed_at is auto-updated by the Postgres trigger
+    onUpdate(dealId, { status: newStatus })
+  }
+
   return (
-    <div className="overflow-x-auto pb-2 -mx-4 px-4">
-      <div className="flex gap-3 min-w-max">
-        {ESCROW_STAGES.map(stage => {
-          const stageDeals = byStage[stage]
-          const totalVolume = stageDeals.reduce((s, d) => s + (d.loan_amount || 0), 0)
-          return (
-            <div key={stage} className="w-[360px] shrink-0 flex flex-col">
-              {/* Column header */}
-              <div className="bg-white rounded-t-xl border border-slate-200 border-b-0 overflow-hidden">
-                <div className={`h-1 ${STAGE_ACCENT[stage] || 'bg-slate-300'}`} />
-                <div className="px-4 py-2.5 flex items-center justify-between">
-                  <div className="min-w-0">
-                    <h3 className="text-sm font-semibold text-slate-800 truncate">{stage}</h3>
-                    {totalVolume > 0 && (
-                      <p className="text-[11px] text-slate-500 mt-0.5 tabular-nums">{fmtMoneyShort(totalVolume)} volume</p>
-                    )}
-                  </div>
-                  <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 rounded-full px-2 py-0.5 tabular-nums shrink-0">
-                    {stageDeals.length}
-                  </span>
-                </div>
-              </div>
+    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      <div className="overflow-x-auto pb-2 -mx-4 px-4">
+        <div className="flex gap-3 min-w-max">
+          {ESCROW_STAGES.map(stage => {
+            const stageDeals = byStage[stage]
+            const totalVolume = stageDeals.reduce((s, d) => s + (d.loan_amount || 0), 0)
+            return (
+              <KanbanColumn
+                key={stage}
+                stage={stage}
+                deals={stageDeals}
+                totalVolume={totalVolume}
+                accentClass={STAGE_ACCENT[stage] || 'bg-slate-300'}
+                onUpdate={onUpdate}
+              />
+            )
+          })}
 
-              {/* Column body */}
-              <div className="bg-slate-50/60 border border-slate-200 border-t-0 rounded-b-xl p-2 space-y-2 flex-1 min-h-[160px]">
-                {stageDeals.length === 0 ? (
-                  <div className="text-center text-[11px] text-slate-400 italic py-6">No deals</div>
-                ) : (
-                  stageDeals.map(d => <EscrowCard key={d.id} deal={d} onUpdate={onUpdate} />)
-                )}
-              </div>
-            </div>
-          )
-        })}
+          {otherDeals.length > 0 && (
+            <KanbanColumn
+              key="other"
+              stage="Other"
+              deals={otherDeals}
+              totalVolume={otherDeals.reduce((s, d) => s + (d.loan_amount || 0), 0)}
+              accentClass="bg-slate-400"
+              onUpdate={onUpdate}
+              isOtherColumn
+            />
+          )}
+        </div>
+      </div>
+    </DndContext>
+  )
+}
 
-        {/* "Other" column for any unknown statuses */}
-        {otherDeals.length > 0 && (
-          <div key="other" className="w-[360px] shrink-0 flex flex-col">
-            <div className="bg-white rounded-t-xl border border-slate-200 border-b-0 overflow-hidden">
-              <div className="h-1 bg-slate-400" />
-              <div className="px-4 py-2.5 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-slate-800">Other</h3>
-                <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 rounded-full px-2 py-0.5">
-                  {otherDeals.length}
-                </span>
-              </div>
-            </div>
-            <div className="bg-slate-50/60 border border-slate-200 border-t-0 rounded-b-xl p-2 space-y-2 flex-1 min-h-[160px]">
-              {otherDeals.map(d => <EscrowCard key={d.id} deal={d} onUpdate={onUpdate} />)}
-            </div>
+function KanbanColumn({ stage, deals, totalVolume, accentClass, onUpdate, isOtherColumn }: {
+  stage: string
+  deals: Deal[]
+  totalVolume: number
+  accentClass: string
+  onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>
+  isOtherColumn?: boolean
+}) {
+  // "Other" column isn't a valid drop target — only the 8 real stages accept drops
+  const { setNodeRef, isOver } = useDroppable({ id: stage, disabled: isOtherColumn })
+
+  return (
+    <div className="w-[360px] shrink-0 flex flex-col">
+      {/* Column header */}
+      <div className="bg-white rounded-t-xl border border-slate-200 border-b-0 overflow-hidden">
+        <div className={`h-1 ${accentClass}`} />
+        <div className="px-4 py-2.5 flex items-center justify-between">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-slate-800 truncate">{stage}</h3>
+            {totalVolume > 0 && (
+              <p className="text-[11px] text-slate-500 mt-0.5 tabular-nums">{fmtMoneyShort(totalVolume)} volume</p>
+            )}
           </div>
+          <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 rounded-full px-2 py-0.5 tabular-nums shrink-0">
+            {deals.length}
+          </span>
+        </div>
+      </div>
+
+      {/* Column body — drop target */}
+      <div
+        ref={setNodeRef}
+        className={`border border-t-0 rounded-b-xl p-2 space-y-2 flex-1 min-h-[160px] transition-colors ${
+          isOver
+            ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-200'
+            : 'bg-slate-50/60 border-slate-200'
+        }`}
+      >
+        {deals.length === 0 ? (
+          <div className={`text-center text-[11px] italic py-6 ${isOver ? 'text-blue-600 font-medium' : 'text-slate-400'}`}>
+            {isOver ? `Drop to move to ${stage}` : 'No deals'}
+          </div>
+        ) : (
+          deals.map(d => <DraggableEscrowCard key={d.id} deal={d} onUpdate={onUpdate} />)
         )}
       </div>
+    </div>
+  )
+}
+
+function DraggableEscrowCard({ deal, onUpdate }: {
+  deal: Deal
+  onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: deal.id })
+  const style = transform
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 50 as const }
+    : undefined
+  return (
+    <div ref={setNodeRef} style={style} className={isDragging ? 'opacity-40' : ''}>
+      <EscrowCard deal={deal} onUpdate={onUpdate} dragHandleProps={{ ...attributes, ...listeners }} />
     </div>
   )
 }
@@ -353,7 +416,11 @@ function FilterChip({ active, onClick, label, count, tone, disabled }: {
 }
 
 // ── Per-deal card ───────────────────────────────────────────────────────────
-function EscrowCard({ deal, onUpdate }: { deal: Deal; onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void> }) {
+function EscrowCard({ deal, onUpdate, dragHandleProps }: {
+  deal: Deal
+  onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>
+  dragHandleProps?: React.HTMLAttributes<HTMLDivElement> & Record<string, unknown>
+}) {
   const [nextAction, setNextAction] = useState(deal.next_action || '')
   const [savingFlash, setSavingFlash] = useState(false)
 
@@ -389,12 +456,23 @@ function EscrowCard({ deal, onUpdate }: { deal: Deal; onUpdate: (id: string, pat
 
   return (
     <div className={`bg-white rounded-xl border ${borderClass} shadow-sm overflow-hidden transition-shadow hover:shadow-md flex flex-col`}>
-      {/* Header strip */}
-      <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-2">
-        <Link href={`/deals/${deal.id}`} className="font-semibold text-sm text-slate-900 hover:text-blue-700 truncate flex items-center gap-1 group">
-          {deal.name}
-          <ExternalLink className="w-3 h-3 text-slate-300 group-hover:text-blue-500 opacity-0 group-hover:opacity-100 transition" />
-        </Link>
+      {/* Header strip — drag handle (entire bar except the name link) */}
+      <div
+        {...dragHandleProps}
+        className={`px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-2 ${dragHandleProps ? 'cursor-grab active:cursor-grabbing select-none' : ''}`}
+        title={dragHandleProps ? 'Drag to move to another stage' : undefined}
+      >
+        <div className="flex items-center gap-1.5 min-w-0">
+          {dragHandleProps && <GripVertical className="w-3.5 h-3.5 text-slate-300 shrink-0" />}
+          <Link
+            href={`/deals/${deal.id}`}
+            onPointerDown={e => e.stopPropagation()}
+            className="font-semibold text-sm text-slate-900 hover:text-blue-700 truncate flex items-center gap-1 group"
+          >
+            {deal.name}
+            <ExternalLink className="w-3 h-3 text-slate-300 group-hover:text-blue-500 opacity-0 group-hover:opacity-100 transition" />
+          </Link>
+        </div>
         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded shrink-0 ${statusClass}`}>
           {deal.status}
         </span>
