@@ -215,7 +215,7 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
         </div>
       </div>
 
-      {/* Cards grid */}
+      {/* Kanban: columns per escrow stage, cards stacked within each */}
       {filteredAndSorted.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-xl p-12 text-center">
           <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
@@ -223,12 +223,109 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
           <p className="text-xs text-slate-500 mt-1">Try a different filter or search term.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-          {filteredAndSorted.map(deal => (
-            <EscrowCard key={deal.id} deal={deal} onUpdate={onUpdate} />
-          ))}
-        </div>
+        <KanbanColumns deals={filteredAndSorted} onUpdate={onUpdate} />
       )}
+    </div>
+  )
+}
+
+// ── Kanban layout: one column per active escrow stage ───────────────────────
+const ESCROW_STAGES = [
+  'Loan Setup',
+  'Disclosed',
+  'Submitted to UW',
+  'Approved w/ Conditions',
+  'Re-Submittal',
+  'Clear to Close',
+  'Docs Out',
+  'Docs Signed',
+] as const
+
+// Subtle accent strip color per stage so columns are visually scannable
+const STAGE_ACCENT: Record<string, string> = {
+  'Loan Setup':              'bg-yellow-400',
+  'Disclosed':               'bg-amber-500',
+  'Submitted to UW':         'bg-orange-500',
+  'Approved w/ Conditions':  'bg-lime-500',
+  'Re-Submittal':            'bg-red-500',
+  'Clear to Close':          'bg-emerald-500',
+  'Docs Out':                'bg-teal-500',
+  'Docs Signed':             'bg-green-600',
+}
+
+function fmtMoneyShort(n: number): string {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `$${Math.round(n / 1_000)}K`
+  return `$${n}`
+}
+
+function KanbanColumns({ deals, onUpdate }: {
+  deals: Deal[]
+  onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>
+}) {
+  // Group already-sorted deals by status. Any unknown status goes to "Other".
+  const byStage: Record<string, Deal[]> = {}
+  for (const stage of ESCROW_STAGES) byStage[stage] = []
+  const otherDeals: Deal[] = []
+  for (const d of deals) {
+    if (byStage[d.status]) byStage[d.status].push(d)
+    else otherDeals.push(d)
+  }
+
+  return (
+    <div className="overflow-x-auto pb-2 -mx-4 px-4">
+      <div className="flex gap-3 min-w-max">
+        {ESCROW_STAGES.map(stage => {
+          const stageDeals = byStage[stage]
+          const totalVolume = stageDeals.reduce((s, d) => s + (d.loan_amount || 0), 0)
+          return (
+            <div key={stage} className="w-[360px] shrink-0 flex flex-col">
+              {/* Column header */}
+              <div className="bg-white rounded-t-xl border border-slate-200 border-b-0 overflow-hidden">
+                <div className={`h-1 ${STAGE_ACCENT[stage] || 'bg-slate-300'}`} />
+                <div className="px-4 py-2.5 flex items-center justify-between">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-semibold text-slate-800 truncate">{stage}</h3>
+                    {totalVolume > 0 && (
+                      <p className="text-[11px] text-slate-500 mt-0.5 tabular-nums">{fmtMoneyShort(totalVolume)} volume</p>
+                    )}
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 rounded-full px-2 py-0.5 tabular-nums shrink-0">
+                    {stageDeals.length}
+                  </span>
+                </div>
+              </div>
+
+              {/* Column body */}
+              <div className="bg-slate-50/60 border border-slate-200 border-t-0 rounded-b-xl p-2 space-y-2 flex-1 min-h-[160px]">
+                {stageDeals.length === 0 ? (
+                  <div className="text-center text-[11px] text-slate-400 italic py-6">No deals</div>
+                ) : (
+                  stageDeals.map(d => <EscrowCard key={d.id} deal={d} onUpdate={onUpdate} />)
+                )}
+              </div>
+            </div>
+          )
+        })}
+
+        {/* "Other" column for any unknown statuses */}
+        {otherDeals.length > 0 && (
+          <div key="other" className="w-[360px] shrink-0 flex flex-col">
+            <div className="bg-white rounded-t-xl border border-slate-200 border-b-0 overflow-hidden">
+              <div className="h-1 bg-slate-400" />
+              <div className="px-4 py-2.5 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-800">Other</h3>
+                <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 rounded-full px-2 py-0.5">
+                  {otherDeals.length}
+                </span>
+              </div>
+            </div>
+            <div className="bg-slate-50/60 border border-slate-200 border-t-0 rounded-b-xl p-2 space-y-2 flex-1 min-h-[160px]">
+              {otherDeals.map(d => <EscrowCard key={d.id} deal={d} onUpdate={onUpdate} />)}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
