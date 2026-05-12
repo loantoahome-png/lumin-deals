@@ -12,6 +12,7 @@ import {
   ClipboardList,
   Activity,
   GitMerge,
+  DollarSign,
   LogOut,
 } from 'lucide-react'
 import GlobalSearch from './GlobalSearch'
@@ -21,6 +22,7 @@ const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/pipeline', label: 'Pipeline', icon: Kanban },
   { href: '/deals', label: 'Active Escrows', icon: Table2 },
+  { href: '/funded', label: 'Funded', icon: DollarSign },
   { href: '/deals/new', label: 'Add Deal', icon: PlusCircle },
   { href: '/tools', label: 'Tools', icon: Wrench },
   { href: '/tasks', label: 'Tasks', icon: ClipboardList },
