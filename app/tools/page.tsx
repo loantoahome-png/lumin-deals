@@ -18,13 +18,13 @@ const DEFAULT_TOOLS: Tool[] = [
   { id: 'monday',     name: 'Monday — DEALS',         url: 'https://luminlending2.monday.com/boards/9921654433', category: 'LOS / CRM', description: 'Old Monday deals board (reference)' },
   // Pricing & Locks
   { id: 'optimal',    name: 'Optimal Blue',           url: 'https://secure.optimalblue.com',              category: 'Pricing',     description: 'Pricing engine and lock desk' },
-  // Income Calculators
-  { id: 'mgic-seb',    name: 'MGIC SEB Worksheets',   url: 'https://www.mgic.com/tools/seb-cash-flow-worksheets',                     category: 'Calculators', description: 'Self-employed borrower cash flow worksheets — industry gold standard' },
-  { id: 'radian-seb',  name: 'Radian SEB Calculator', url: 'https://www.radian.com/what-we-do/mortgage-insurance/self-employed-borrowers', category: 'Calculators', description: 'Self-employed income analysis' },
-  { id: 'enact-seb',   name: 'Enact SEB Calculator',  url: 'https://enactmi.com/training/self-employed-borrowers',                    category: 'Calculators', description: 'Self-employed borrower calculator (formerly Genworth)' },
-  { id: 'fannie-1084', name: 'Fannie Form 1084',      url: 'https://singlefamily.fanniemae.com/media/22216/display',                  category: 'Calculators', description: 'Cash Flow Analysis — official Fannie Mae form' },
-  { id: 'freddie-91',  name: 'Freddie Form 91',       url: 'https://sf.freddiemac.com/docs/pdf/form/form91.pdf',                       category: 'Calculators', description: 'Income Calculations — official Freddie Mac form' },
-  { id: 'loanbeam',    name: 'LoanBeam',              url: 'https://loanbeam.com',                                                    category: 'Calculators', description: 'Automated tax-return income analysis (paid)' },
+  // Income Calculators (all free)
+  { id: 'mgic-seb',    name: 'MGIC SEB Worksheets',       url: 'https://www.mgic.com/underwriting/seb',                                                          category: 'Calculators', description: 'Self-employed cash flow worksheets — industry gold standard' },
+  { id: 'mgic-wage',   name: 'MGIC Income Analysis',      url: 'https://www.mgic.com/training/income-analysis-tools-techniques',                                  category: 'Calculators', description: 'W-2 / wage earner + variable income (bonus, OT, commission, RSU)' },
+  { id: 'radian-seb',  name: 'Radian Calculators',        url: 'https://www.radian.com/calculators',                                                             category: 'Calculators', description: 'Self-employed + wage earner income worksheets (free hub)' },
+  { id: 'enact-seb',   name: 'Enact Training Portal',     url: 'https://training.enactmi.com',                                                                   category: 'Calculators', description: 'Self-employed + wage earner tutorials and calculators (free)' },
+  { id: 'fannie-1084', name: 'Fannie Form 1084',          url: 'https://singlefamily.fanniemae.com/media/22216/display',                                          category: 'Calculators', description: 'Cash Flow Analysis — official Fannie Mae form (self-employed)' },
+  { id: 'freddie-91',  name: 'Freddie Income Calculator', url: 'https://sf.freddiemac.com/tools-learning/technology-tools/our-solutions/income-calculator',       category: 'Calculators', description: 'Freddie Mac\'s free income calc — wage earner, self-employed, rental' },
   // Compliance / Insurance
   { id: 'fha',        name: 'FHA Connection',         url: 'https://entp.hud.gov/clas/',                  category: 'Compliance',  description: 'HUD FHA case binders' },
   { id: 'mgic',       name: 'MGIC',                   url: 'https://www.mgic.com',                        category: 'Compliance',  description: 'Mortgage insurance quotes' },
@@ -48,24 +48,44 @@ function loadTools(): Tool[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
-      const stored = JSON.parse(raw) as Tool[]
+      let stored = JSON.parse(raw) as Tool[]
       if (Array.isArray(stored) && stored.length > 0) {
-        // One-time migrations: append new default tools the user hasn't seen yet
         const migrations: string[] = (() => {
           try { return JSON.parse(localStorage.getItem(MIGRATION_KEY) || '[]') } catch { return [] }
         })()
+
+        // ── Migration 1: append Calculators category if missing ──
         if (!migrations.includes('add_calculators_v1')) {
           const calculatorDefaults = DEFAULT_TOOLS.filter(t => t.category === 'Calculators')
           const storedIds = new Set(stored.map(t => t.id))
           const toAppend = calculatorDefaults.filter(d => !storedIds.has(d.id))
-          if (toAppend.length > 0) {
-            const merged = [...stored, ...toAppend]
-            saveTools(merged)
-            localStorage.setItem(MIGRATION_KEY, JSON.stringify([...migrations, 'add_calculators_v1']))
-            return merged
-          }
-          localStorage.setItem(MIGRATION_KEY, JSON.stringify([...migrations, 'add_calculators_v1']))
+          if (toAppend.length > 0) stored = [...stored, ...toAppend]
+          migrations.push('add_calculators_v1')
+          saveTools(stored)
+          localStorage.setItem(MIGRATION_KEY, JSON.stringify(migrations))
         }
+
+        // ── Migration 2: remove paid tools + fix broken URLs + add new calcs ──
+        if (!migrations.includes('fix_calculators_v2')) {
+          const fixes: Record<string, Partial<Tool>> = {
+            'mgic-seb':    { url: 'https://www.mgic.com/underwriting/seb' },
+            'radian-seb':  { url: 'https://www.radian.com/calculators',                                                                           name: 'Radian Calculators',        description: 'Self-employed + wage earner income worksheets (free hub)' },
+            'enact-seb':   { url: 'https://training.enactmi.com',                                                                                  name: 'Enact Training Portal',     description: 'Self-employed + wage earner tutorials and calculators (free)' },
+            'freddie-91':  { url: 'https://sf.freddiemac.com/tools-learning/technology-tools/our-solutions/income-calculator',                     name: 'Freddie Income Calculator', description: 'Freddie Mac\'s free income calc — wage earner, self-employed, rental' },
+          }
+          const removeIds = new Set(['loanbeam']) // paid, removed per user request
+          const newDefaults = DEFAULT_TOOLS.filter(t =>
+            t.category === 'Calculators' && !stored.some(s => s.id === t.id)
+          )
+          stored = stored
+            .filter(t => !removeIds.has(t.id))
+            .map(t => fixes[t.id] ? { ...t, ...fixes[t.id] } : t)
+            .concat(newDefaults)
+          migrations.push('fix_calculators_v2')
+          saveTools(stored)
+          localStorage.setItem(MIGRATION_KEY, JSON.stringify(migrations))
+        }
+
         return stored
       }
     }
