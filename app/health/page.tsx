@@ -6,7 +6,7 @@ import { Deal } from '@/lib/types'
 import Link from 'next/link'
 import {
   AlertCircle, CheckCircle2, RefreshCw, Database, ExternalLink,
-  ArrowRight, Loader2,
+  ArrowRight, Loader2, Trash2, ChevronDown, ChevronUp,
 } from 'lucide-react'
 
 // Fields we care about for completeness scoring (in priority order)
@@ -41,6 +41,13 @@ export default function HealthPage() {
   const [expandedField, setExpandedField] = useState<string | null>(null)
   const [activeOnly, setActiveOnly] = useState(true)
 
+  // Monday cleanup state
+  type MondayCandidate = { id: string; name: string; status: string; pipeline_group: string; loan_officer: string | null; loan_amount: number | null; source: string | null; created_at: string }
+  const [mondayCandidates, setMondayCandidates] = useState<MondayCandidate[]>([])
+  const [mondayListLoading, setMondayListLoading] = useState(false)
+  const [mondayListOpen, setMondayListOpen] = useState(false)
+  const [mondayDeleting, setMondayDeleting] = useState(false)
+
   async function fetchDeals() {
     setLoading(true)
     const { data } = await supabase.from('deals').select('*').order('created_at', { ascending: false })
@@ -48,6 +55,45 @@ export default function HealthPage() {
     setLoading(false)
   }
   useEffect(() => { fetchDeals() }, [])
+
+  async function loadMondayCandidates() {
+    setMondayListLoading(true)
+    try {
+      const res = await fetch('/api/deals/cleanup-monday')
+      const data = await res.json()
+      setMondayCandidates(data.deals || [])
+    } catch (e) {
+      setSyncResult(`Error loading Monday imports: ${String(e)}`)
+    } finally {
+      setMondayListLoading(false)
+    }
+  }
+  useEffect(() => { loadMondayCandidates() }, [])
+
+  async function deleteMondayImports() {
+    if (!confirm(`Delete all ${mondayCandidates.length} Monday-imported deals? Any deals you've manually edited will be lost. After this you can click "Sync from Monday" to re-import fresh.`)) return
+    setMondayDeleting(true)
+    setSyncResult(null)
+    try {
+      const res = await fetch('/api/deals/cleanup-monday', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setSyncResult(`Deleted ${data.deleted} Monday import${data.deleted !== 1 ? 's' : ''}. Click "Sync from Monday" to re-import.`)
+        await fetchDeals()
+        await loadMondayCandidates()
+      } else {
+        setSyncResult(`Error: ${data.error || 'delete failed'}`)
+      }
+    } catch (e) {
+      setSyncResult(`Error: ${String(e)}`)
+    } finally {
+      setMondayDeleting(false)
+    }
+  }
 
   async function runSync(source: 'monday' | 'ghl') {
     setSyncing(source)
@@ -144,6 +190,81 @@ export default function HealthPage() {
       {syncResult && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5 text-sm text-blue-900">
           {syncResult}
+        </div>
+      )}
+
+      {/* Monday Import Cleanup */}
+      {(mondayListLoading || mondayCandidates.length > 0) && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
+          <div className="px-5 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+              <Database className="w-4 h-4 text-amber-600 shrink-0" />
+              <div className="min-w-0">
+                <h3 className="font-semibold text-amber-900 text-sm">Monday Imports</h3>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  {mondayListLoading
+                    ? 'Scanning…'
+                    : `${mondayCandidates.length} deal${mondayCandidates.length !== 1 ? 's' : ''} were imported from Monday and aren't linked to GHL. Delete to start fresh, then click "Sync from Monday" to re-import.`}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setMondayListOpen(!mondayListOpen)}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-amber-900 bg-white border border-amber-300 rounded-md hover:bg-amber-100"
+              >
+                {mondayListOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                {mondayListOpen ? 'Hide list' : `Preview ${mondayCandidates.length}`}
+              </button>
+              <button
+                onClick={deleteMondayImports}
+                disabled={mondayDeleting || mondayCandidates.length === 0}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50"
+              >
+                {mondayDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                Delete all {mondayCandidates.length}
+              </button>
+            </div>
+          </div>
+
+          {mondayListOpen && mondayCandidates.length > 0 && (
+            <div className="bg-white border-t border-amber-200 max-h-96 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] sticky top-0">
+                  <tr>
+                    <th className="px-4 py-2 text-left">Name</th>
+                    <th className="px-4 py-2 text-left">Status</th>
+                    <th className="px-4 py-2 text-left">Pipeline</th>
+                    <th className="px-4 py-2 text-left">LO</th>
+                    <th className="px-4 py-2 text-right">Amount</th>
+                    <th className="px-4 py-2 text-left">Source</th>
+                    <th className="px-4 py-2 text-left">Created</th>
+                    <th className="px-4 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {mondayCandidates.map(d => (
+                    <tr key={d.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-1.5 font-medium text-slate-900">{d.name}</td>
+                      <td className="px-4 py-1.5 text-slate-600">{d.status}</td>
+                      <td className="px-4 py-1.5 text-slate-600">{d.pipeline_group}</td>
+                      <td className="px-4 py-1.5 text-slate-600">{d.loan_officer || '—'}</td>
+                      <td className="px-4 py-1.5 text-slate-700 text-right tabular-nums">
+                        {d.loan_amount ? `$${d.loan_amount.toLocaleString()}` : '—'}
+                      </td>
+                      <td className="px-4 py-1.5 text-slate-500">{d.source || '—'}</td>
+                      <td className="px-4 py-1.5 text-slate-400">
+                        {new Date(d.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </td>
+                      <td className="px-4 py-1.5 text-right">
+                        <Link href={`/deals/${d.id}`} className="text-blue-600 hover:underline">View</Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
