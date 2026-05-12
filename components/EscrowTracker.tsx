@@ -76,20 +76,55 @@ function isToday(iso: string | null): boolean {
   return d >= t && d <= e
 }
 
-/** Convert ISO timestamp to value for <input type="datetime-local"> */
-function isoToLocalInput(iso: string | null): string {
-  if (!iso) return ''
+/** Split an ISO timestamp into local date (YYYY-MM-DD) and time (HH:mm). */
+function splitDateTime(iso: string | null): { date: string; time: string } {
+  if (!iso) return { date: '', time: '' }
   const d = new Date(iso)
-  if (isNaN(d.getTime())) return ''
-  // datetime-local needs YYYY-MM-DDTHH:mm in *local* time without timezone
+  if (isNaN(d.getTime())) return { date: '', time: '' }
   const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  return {
+    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+  }
 }
-function localInputToISO(local: string): string | null {
-  if (!local) return null
-  const d = new Date(local) // treats as local time
+
+/** Combine a local date + time string into an ISO timestamp. */
+function combineDateTime(date: string, time: string): string | null {
+  if (!date) return null
+  const t = time || '09:00' // default to 9 AM if user didn't pick a time
+  const d = new Date(`${date}T${t}`)
   return isNaN(d.getTime()) ? null : d.toISOString()
 }
+
+/** Today's date in local YYYY-MM-DD format. */
+function todayLocalDate(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/** Tomorrow's date in local YYYY-MM-DD format. */
+function tomorrowLocalDate(): string {
+  const d = new Date(); d.setDate(d.getDate() + 1)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+// Pre-computed 30-min time slots from 7:00 AM through 8:00 PM
+const TIME_OPTIONS: { value: string; label: string }[] = (() => {
+  const opts: { value: string; label: string }[] = []
+  for (let h = 7; h <= 20; h++) {
+    for (const m of [0, 30]) {
+      const hh = String(h).padStart(2, '0')
+      const mm = String(m).padStart(2, '0')
+      const value = `${hh}:${mm}`
+      const period = h < 12 ? 'AM' : 'PM'
+      const h12 = h === 12 ? 12 : h % 12 === 0 ? 12 : h % 12
+      opts.push({ value, label: `${h12}:${mm} ${period}` })
+    }
+  }
+  return opts
+})()
 
 // ── Filter types ────────────────────────────────────────────────────────────
 type FollowUpFilter = 'all' | 'mine' | 'overdue' | 'today' | 'week' | 'unassigned' | 'no_action' | 'blocked' | 'above_sla'
@@ -551,22 +586,12 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
 
         {/* Follow-up date+time + assignee + priority */}
         <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1">
-              <CalendarClock className="w-3 h-3" /> Follow-up
-            </label>
-            <input
-              type="datetime-local"
-              value={isoToLocalInput(deal.next_action_due)}
-              onChange={e => saveField('next_action_due', localInputToISO(e.target.value))}
-              className="w-full px-2 py-1.5 border border-slate-200 rounded-md text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            {deal.next_action_due && (
-              <p className={`text-[10px] mt-1 font-medium ${overdue ? 'text-red-700' : today ? 'text-amber-700' : 'text-slate-500'}`}>
-                {formatDueLabel(deal.next_action_due)}
-              </p>
-            )}
-          </div>
+          <FollowUpPicker
+            value={deal.next_action_due}
+            onChange={v => saveField('next_action_due', v)}
+            overdue={overdue}
+            today={today}
+          />
           <div>
             <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1">
               <User className="w-3 h-3" /> Assigned to
@@ -656,5 +681,81 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
         )}
       </div>
     </div>
+  )
+}
+
+/** Friendly follow-up picker — separate date + time dropdown with quick presets. */
+function FollowUpPicker({ value, onChange, overdue, today }: {
+  value: string | null
+  onChange: (iso: string | null) => void
+  overdue: boolean
+  today: boolean
+}) {
+  const { date, time } = splitDateTime(value)
+
+  function setDate(newDate: string) {
+    if (!newDate) { onChange(null); return }
+    onChange(combineDateTime(newDate, time || '09:00'))
+  }
+  function setTime(newTime: string) {
+    onChange(combineDateTime(date || todayLocalDate(), newTime))
+  }
+  function applyPreset(d: string, t: string) {
+    onChange(combineDateTime(d, t))
+  }
+
+  return (
+    <div>
+      <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1">
+        <CalendarClock className="w-3 h-3" /> Follow-up
+      </label>
+      {/* Quick presets */}
+      <div className="flex gap-1 mb-1.5 flex-wrap">
+        <PresetButton label="Today 9a"  onClick={() => applyPreset(todayLocalDate(),    '09:00')} />
+        <PresetButton label="Today 2p"  onClick={() => applyPreset(todayLocalDate(),    '14:00')} />
+        <PresetButton label="Tomorrow"  onClick={() => applyPreset(tomorrowLocalDate(), '09:00')} />
+        {value && <PresetButton label="Clear" onClick={() => onChange(null)} variant="danger" />}
+      </div>
+      {/* Date + time inputs */}
+      <div className="flex gap-1">
+        <input
+          type="date"
+          value={date}
+          onChange={e => setDate(e.target.value)}
+          className={`flex-1 min-w-0 px-2 py-1.5 border border-slate-200 rounded-md text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${date === '' ? 'date-empty' : ''}`}
+        />
+        <select
+          value={time}
+          onChange={e => setTime(e.target.value)}
+          className="w-24 px-1.5 py-1.5 border border-slate-200 rounded-md text-xs text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">—</option>
+          {TIME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </div>
+      {value && (
+        <p className={`text-[10px] mt-1 font-medium ${overdue ? 'text-red-700' : today ? 'text-amber-700' : 'text-slate-500'}`}>
+          {formatDueLabel(value)}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function PresetButton({ label, onClick, variant }: {
+  label: string; onClick: () => void; variant?: 'danger'
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`text-[10px] px-1.5 py-0.5 rounded border transition ${
+        variant === 'danger'
+          ? 'border-red-200 text-red-600 hover:bg-red-50'
+          : 'border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-700 hover:bg-blue-50'
+      }`}
+    >
+      {label}
+    </button>
   )
 }
