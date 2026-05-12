@@ -11,6 +11,7 @@ import { use } from 'react'
 import { ArrowLeft, Check, Trash2, X, ExternalLink } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import LoanHistory from '@/components/LoanHistory'
+import DealDocuments from '@/components/DealDocuments'
 
 const inp = 'w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white hover:border-slate-300 transition-colors'
 const sel = inp
@@ -636,6 +637,11 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
             </Field>
           </Card>
         </div>
+      </div>
+
+      {/* Documents — OneDrive attachments for this deal */}
+      <div className="mt-6">
+        <DealDocuments dealId={form.id as string} />
       </div>
 
       {/* Loan History — other loans for the same contact (matched by email/phone/name) */}
