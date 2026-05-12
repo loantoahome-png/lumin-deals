@@ -93,6 +93,22 @@ function PercentInput({ value, onChange, step = '0.01' }: {
   )
 }
 
+/** Date input that hides the "mm/dd/yyyy" placeholder when empty (via globals.css). */
+function DateInput({ value, onChange }: {
+  value: string | null | undefined
+  onChange: (v: string) => void
+}) {
+  const v = value ?? ''
+  return (
+    <input
+      type="date"
+      value={v}
+      onChange={e => onChange(e.target.value)}
+      className={`${inp} ${v === '' ? 'date-empty' : ''}`}
+    />
+  )
+}
+
 // ── Timestamped Notes ────────────────────────────────────────────────────────
 
 type DealNote = { id: string; content: string; created_at: string }
@@ -527,7 +543,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                   </select>
                 </Field>
                 <Field label="Lock Expiration">
-                  <input type="date" value={form.lock_expiration || ''} onChange={e => set('lock_expiration', e.target.value)} className={inp} />
+                  <DateInput value={form.lock_expiration as string | null} onChange={v => set('lock_expiration', v || null)} />
                 </Field>
                 <Field label="Appraisal Status">
                   <select value={form.appraisal_status || ''} onChange={e => set('appraisal_status', e.target.value)} className={sel}>
@@ -699,16 +715,16 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
             <Section title="Key Dates" icon={<Calendar className="w-4 h-4" />}>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Signing">
-                  <input type="date" value={form.signing_date || ''} onChange={e => set('signing_date', e.target.value)} className={inp} />
+                  <DateInput value={form.signing_date as string | null} onChange={v => set('signing_date', v || null)} />
                 </Field>
                 <Field label="Funded">
-                  <input type="date" value={form.funded_date || ''} onChange={e => set('funded_date', e.target.value)} className={inp} />
+                  <DateInput value={form.funded_date as string | null} onChange={v => set('funded_date', v || null)} />
                 </Field>
                 <Field label="Paid">
-                  <input type="date" value={form.paid_date || ''} onChange={e => set('paid_date', e.target.value)} className={inp} />
+                  <DateInput value={form.paid_date as string | null} onChange={v => set('paid_date', v || null)} />
                 </Field>
                 <Field label="Last Contact">
-                  <input type="date" value={form.last_contacted || ''} onChange={e => set('last_contacted', e.target.value)} className={inp} />
+                  <DateInput value={form.last_contacted as string | null} onChange={v => set('last_contacted', v || null)} />
                 </Field>
               </div>
               <p className="text-[11px] text-slate-400 mt-3 pt-3 border-t border-slate-100">

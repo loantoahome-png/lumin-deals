@@ -16,3 +16,17 @@ body {
 ::-webkit-scrollbar-track { background: #f1f5f9; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* Hide the "mm/dd/yyyy" placeholder text on empty date inputs.
+   Applied via the .date-empty class set in React when value === ''.
+   Reveal it on focus so the user can still see what they're typing. */
+input[type="date"].date-empty::-webkit-datetime-edit {
+  color: transparent;
+}
+input[type="date"].date-empty:focus::-webkit-datetime-edit {
+  color: inherit;
+}
+/* Hide the calendar icon's outline when empty for a cleaner look */
+input[type="date"].date-empty::-webkit-calendar-picker-indicator {
+  opacity: 0.5;
+}
