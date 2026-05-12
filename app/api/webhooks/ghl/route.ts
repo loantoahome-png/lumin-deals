@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { createHmac } from 'crypto'
 import { findExistingDeal } from '@/lib/dealMatcher'
+import { titleCase } from '@/lib/utils'
 
 // ── Signature validation ──────────────────────────────────────────────────────
 async function validateGHLSignature(req: NextRequest, rawBody: string): Promise<boolean> {
@@ -182,12 +183,16 @@ function extractFields(body: Record<string, unknown>) {
     pick(contact, 'id', 'contact_id', 'contactId') ||
     pick(body, 'id', 'contact_id', 'contactId')
 
-  const firstName = pick(contact, 'firstName', 'first_name') || pick(body, 'firstName', 'first_name') || ''
-  const lastName  = pick(contact, 'lastName',  'last_name')  || pick(body, 'lastName',  'last_name')  || ''
-  const fullName  =
+  const firstNameRaw = pick(contact, 'firstName', 'first_name') || pick(body, 'firstName', 'first_name') || ''
+  const lastNameRaw  = pick(contact, 'lastName',  'last_name')  || pick(body, 'lastName',  'last_name')  || ''
+  const fullNameRaw  =
     pick(contact, 'fullName', 'full_name', 'name', 'contactName') ||
     pick(body, 'fullName', 'full_name', 'name', 'contact_name') ||
-    `${firstName} ${lastName}`.trim() || 'New Lead'
+    `${firstNameRaw} ${lastNameRaw}`.trim() || 'New Lead'
+  // Title-case so names display consistently regardless of how GHL stored them
+  const firstName = titleCase(firstNameRaw) ?? ''
+  const lastName  = titleCase(lastNameRaw) ?? ''
+  const fullName  = titleCase(fullNameRaw) ?? fullNameRaw
 
   const email = pick(contact, 'email') || pick(body, 'email')
   const phone = pick(contact, 'phone', 'phoneNumber') || pick(body, 'phone', 'phoneNumber')

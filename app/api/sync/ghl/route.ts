@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { normPhone, normEmail } from '@/lib/dealMatcher'
+import { titleCase } from '@/lib/utils'
 
 const GHL_BASE = 'https://services.leadconnectorhq.com'
 
@@ -435,8 +436,12 @@ async function syncAccount(
         // Names
         const firstName = str(fullContact.firstName) ?? ''
         const lastName  = str(fullContact.lastName)  ?? ''
-        const name = (str(fullContact.name ?? fullContact.fullName) ||
+        const rawName = (str(fullContact.name ?? fullContact.fullName) ||
                      `${firstName} ${lastName}`.trim()) || 'Unknown'
+        // Title-case so display is consistent regardless of how GHL stored it
+        const name = titleCase(rawName) || rawName
+        const firstNameCased = titleCase(firstName)
+        const lastNameCased  = titleCase(lastName)
 
         // Tags
         const tagsRaw = fullContact.tags || opp.tags
@@ -447,8 +452,8 @@ async function syncAccount(
         // Build deal record
         const dealData: Record<string, unknown> = {
           name,
-          first_name:       firstName || null,
-          last_name:        lastName  || null,
+          first_name:       firstNameCased,
+          last_name:        lastNameCased,
           email:            str(fullContact.email),
           phone:            str(fullContact.phone ?? fullContact.phoneNumber),
           status:           stage?.status        ?? 'New Lead',

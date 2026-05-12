@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
+import { titleCase } from '@/lib/utils'
 
 // ── Monday.com config ─────────────────────────────────────────────────────────
 const MONDAY_API = 'https://api.monday.com/v2'
@@ -182,9 +183,14 @@ function resolveStage(item: MondayItem): { status: string; pipeline_group: strin
 // ── Build patch object — only set fields that have a value ───────────────────
 function buildPatch(item: MondayItem) {
   const stage = resolveStage(item)
-  const firstName = colText(item, 'text_mm1km5r4')
-  const lastName  = colText(item, 'text_mm1kacfe')
-  const fullName  = item.name?.trim() || `${firstName ?? ''} ${lastName ?? ''}`.trim() || 'Unknown'
+  const firstNameRaw = colText(item, 'text_mm1km5r4')
+  const lastNameRaw  = colText(item, 'text_mm1kacfe')
+  const fullNameRaw  = item.name?.trim() || `${firstNameRaw ?? ''} ${lastNameRaw ?? ''}`.trim() || 'Unknown'
+
+  // Title-case names so display is consistent
+  const firstName = titleCase(firstNameRaw)
+  const lastName  = titleCase(lastNameRaw)
+  const fullName  = titleCase(fullNameRaw) || fullNameRaw
 
   const loRaw = colPeople(item, 'multiple_person_mkv9gpqz')
   const processorRaw = colPeople(item, 'multiple_person_mkv9vagy')
