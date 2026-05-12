@@ -57,11 +57,17 @@ const LO_COLORS: Record<string, string> = {
   'Moe Sefati': '#f59e0b',
 }
 
+// Colors for the 8 sub-stages within Loans in Process — match the kanban
+// accent stripes on the Active Escrows page so the dashboard feels coherent.
 const STAGE_COLORS: Record<string, string> = {
-  'Leads':     '#94a3b8',
-  'Escrows':   '#3b82f6',
-  'Funded':    '#10b981',
-  'Not Ready': '#f97316',
+  'Setup':    '#facc15', // yellow-400
+  'Disclosed':'#f59e0b', // amber-500
+  'UW':       '#f97316', // orange-500
+  'Cond.':    '#84cc16', // lime-500
+  'Re-Sub':   '#ef4444', // red-500
+  'CTC':      '#10b981', // emerald-500
+  'Docs Out': '#14b8a6', // teal-500
+  'Signed':   '#16a34a', // green-600
 }
 
 // ── Treasury yield widget ─────────────────────────────────────────────────────
@@ -231,42 +237,53 @@ export default function Dashboard() {
 
   const { start: rangeStart, end: rangeEnd } = getPresetRange(datePreset, customFrom, customTo)
 
-  // Apply date filter to the full deal list
+  // Apply date filter to the full deal list, then narrow to Active Escrows only.
+  // The dashboard is dedicated to the Loans-in-Process pipeline — Leads, Funded,
+  // and Not Ready deals are excluded from every KPI, chart, and list below.
   const filteredDeals = deals.filter(d => inRange(d, rangeStart, rangeEnd))
+  const escrowDeals = filteredDeals.filter(d => d.pipeline_group === 'Loans in Process')
 
-  // Active = Leads + Loans in Process (excludes Funded and Not Ready)
-  const activeDeals = filteredDeals.filter(d => ['Leads', 'Loans in Process'].includes(d.pipeline_group || ''))
-  // Funded = pipeline_group === 'Funded' (not status-based)
-  const fundedDeals = filteredDeals.filter(d => d.pipeline_group === 'Funded')
-
-  const totalPipelineLoanVol = activeDeals.reduce((s, d) => s + (d.loan_amount || 0), 0)
-  const totalFundedLoanVol   = fundedDeals.reduce((s, d) => s + (d.loan_amount || 0), 0)
-  const avgDealSize = activeDeals.filter(d => d.loan_amount).length > 0
-    ? activeDeals.reduce((s, d) => s + (d.loan_amount || 0), 0) / activeDeals.filter(d => d.loan_amount).length
+  const totalPipelineLoanVol = escrowDeals.reduce((s, d) => s + (d.loan_amount || 0), 0)
+  const sizedDeals = escrowDeals.filter(d => d.loan_amount)
+  const avgDealSize = sizedDeals.length > 0
+    ? sizedDeals.reduce((s, d) => s + (d.loan_amount || 0), 0) / sizedDeals.length
     : 0
 
-  // Stage chart groups by pipeline_group; 'Escrows' is the display name for 'Loans in Process'
-  const escrows  = filteredDeals.filter(d => d.pipeline_group === 'Loans in Process')
-  const notReady = filteredDeals.filter(d => d.pipeline_group === 'Not Ready')
-  const leads    = filteredDeals.filter(d => d.pipeline_group === 'Leads')
-  const stageData = [
-    { stage: 'Leads',     count: leads.length,       loanVolume: leads.reduce((s, d) => s + (d.loan_amount || 0), 0) },
-    { stage: 'Escrows',   count: escrows.length,     loanVolume: escrows.reduce((s, d) => s + (d.loan_amount || 0), 0) },
-    { stage: 'Funded',    count: fundedDeals.length, loanVolume: totalFundedLoanVol },
-    { stage: 'Not Ready', count: notReady.length,    loanVolume: notReady.reduce((s, d) => s + (d.loan_amount || 0), 0) },
-  ]
+  // "Funding soon" = escrows that are right next to the finish line
+  const fundingSoon = escrowDeals.filter(d => ['Clear to Close', 'Docs Out', 'Docs Signed'].includes(d.status || ''))
+  const fundingSoonVolume = fundingSoon.reduce((s, d) => s + (d.loan_amount || 0), 0)
 
+  // Stage chart: the 8 sub-stages within Loans in Process (the actual escrow flow)
+  const ESCROW_STAGES = [
+    'Loan Setup', 'Disclosed', 'Submitted to UW', 'Approved w/ Conditions',
+    'Re-Submittal', 'Clear to Close', 'Docs Out', 'Docs Signed',
+  ] as const
+  const STAGE_SHORT: Record<string, string> = {
+    'Loan Setup': 'Setup', 'Disclosed': 'Disclosed', 'Submitted to UW': 'UW',
+    'Approved w/ Conditions': 'Cond.', 'Re-Submittal': 'Re-Sub',
+    'Clear to Close': 'CTC', 'Docs Out': 'Docs Out', 'Docs Signed': 'Signed',
+  }
+  const stageData = ESCROW_STAGES.map(stage => {
+    const d = escrowDeals.filter(x => x.status === stage)
+    return { stage: STAGE_SHORT[stage] || stage, count: d.length, loanVolume: d.reduce((s, x) => s + (x.loan_amount || 0), 0) }
+  })
+
+  // LO Performance: scoped to escrow deals only
   const loData = ['Matt', 'Moe Sefati'].map(lo => {
-    const loDeals = filteredDeals.filter(d => d.loan_officer?.includes(lo))
+    const loDeals = escrowDeals.filter(d => d.loan_officer?.includes(lo))
     return { name: lo, loanVolume: loDeals.reduce((s, d) => s + (d.loan_amount || 0), 0), deals: loDeals.length }
   })
 
+  // Loan Types: from escrows only
   const loanTypeMap: Record<string, number> = {}
-  filteredDeals.forEach(d => { if (d.loan_type) loanTypeMap[d.loan_type] = (loanTypeMap[d.loan_type] || 0) + 1 })
+  escrowDeals.forEach(d => { if (d.loan_type) loanTypeMap[d.loan_type] = (loanTypeMap[d.loan_type] || 0) + 1 })
   const loanTypeData = Object.entries(loanTypeMap).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([name, value]) => ({ name, value }))
 
-  const atRisk = activeDeals.filter(d => !d.loan_officer || !d.loan_type || !d.loan_amount).slice(0, 5)
-  const recentDeals = filteredDeals.slice(0, 5)
+  // Needs attention + Recent deals: from escrows only
+  const atRisk = escrowDeals.filter(d => !d.loan_officer || !d.loan_type || !d.loan_amount).slice(0, 5)
+  const recentDeals = [...escrowDeals]
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 5)
   const rateWatchAlerted = deals.filter(d => d.rate_watch_active && d.rate_watch_alerted_at) // always unfiltered
 
   // ── Today widget: escrows with follow-ups due today or overdue ──────────────
@@ -318,7 +335,7 @@ export default function Dashboard() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
           <p className="text-slate-500 text-sm mt-0.5">
-            Lumin Lending — Mortgage Pipeline Overview
+            Lumin Lending — Active Escrow Overview
             {rangeLabel && <span className="ml-2 text-blue-600 font-medium">· {rangeLabel}</span>}
           </p>
         </div>
@@ -391,10 +408,10 @@ export default function Dashboard() {
           <TreasuryWidget />
         </div>
         <div className="lg:col-span-3 grid grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-4">
-          <KPICard label="Active Loan Volume" value={formatCurrency(totalPipelineLoanVol)} sub={`${activeDeals.length} active deals`} icon={<TrendingUp className="w-5 h-5" />} color="blue" />
-          <KPICard label="Funded Loan Volume" value={formatCurrency(totalFundedLoanVol)} sub={`${fundedDeals.length} funded deals`} icon={<DollarSign className="w-5 h-5" />} color="green" />
-          <KPICard label="Total Deals" value={deals.length.toString()} sub={`${activeDeals.length} active`} icon={<Users className="w-5 h-5" />} color="purple" />
-          <KPICard label="Avg Loan Size" value={formatCurrency(avgDealSize)} sub="active deals" icon={<CheckCircle className="w-5 h-5" />} color="amber" />
+          <KPICard label="Active Escrow Volume"  value={formatCurrency(totalPipelineLoanVol)} sub={`${escrowDeals.length} escrow${escrowDeals.length !== 1 ? 's' : ''}`} icon={<TrendingUp className="w-5 h-5" />} color="blue" />
+          <KPICard label="Funding Soon"          value={formatCurrency(fundingSoonVolume)}    sub={`${fundingSoon.length} CTC / Docs Out / Signed`} icon={<DollarSign className="w-5 h-5" />} color="green" />
+          <KPICard label="Total Escrows"         value={escrowDeals.length.toString()}        sub="loans in process"                                  icon={<Users className="w-5 h-5" />} color="purple" />
+          <KPICard label="Avg Loan Size"         value={formatCurrency(avgDealSize)}          sub="active escrows"                                    icon={<CheckCircle className="w-5 h-5" />} color="amber" />
         </div>
       </div>
 
@@ -483,7 +500,7 @@ export default function Dashboard() {
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-          <h2 className="font-semibold text-slate-800 mb-4">Pipeline by Stage</h2>
+          <h2 className="font-semibold text-slate-800 mb-4">Escrows by Stage</h2>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={stageData} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
               <XAxis dataKey="stage" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
