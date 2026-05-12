@@ -18,6 +18,13 @@ const DEFAULT_TOOLS: Tool[] = [
   { id: 'monday',     name: 'Monday — DEALS',         url: 'https://luminlending2.monday.com/boards/9921654433', category: 'LOS / CRM', description: 'Old Monday deals board (reference)' },
   // Pricing & Locks
   { id: 'optimal',    name: 'Optimal Blue',           url: 'https://secure.optimalblue.com',              category: 'Pricing',     description: 'Pricing engine and lock desk' },
+  // Income Calculators
+  { id: 'mgic-seb',    name: 'MGIC SEB Worksheets',   url: 'https://www.mgic.com/tools/seb-cash-flow-worksheets',                     category: 'Calculators', description: 'Self-employed borrower cash flow worksheets — industry gold standard' },
+  { id: 'radian-seb',  name: 'Radian SEB Calculator', url: 'https://www.radian.com/what-we-do/mortgage-insurance/self-employed-borrowers', category: 'Calculators', description: 'Self-employed income analysis' },
+  { id: 'enact-seb',   name: 'Enact SEB Calculator',  url: 'https://enactmi.com/training/self-employed-borrowers',                    category: 'Calculators', description: 'Self-employed borrower calculator (formerly Genworth)' },
+  { id: 'fannie-1084', name: 'Fannie Form 1084',      url: 'https://singlefamily.fanniemae.com/media/22216/display',                  category: 'Calculators', description: 'Cash Flow Analysis — official Fannie Mae form' },
+  { id: 'freddie-91',  name: 'Freddie Form 91',       url: 'https://sf.freddiemac.com/docs/pdf/form/form91.pdf',                       category: 'Calculators', description: 'Income Calculations — official Freddie Mac form' },
+  { id: 'loanbeam',    name: 'LoanBeam',              url: 'https://loanbeam.com',                                                    category: 'Calculators', description: 'Automated tax-return income analysis (paid)' },
   // Compliance / Insurance
   { id: 'fha',        name: 'FHA Connection',         url: 'https://entp.hud.gov/clas/',                  category: 'Compliance',  description: 'HUD FHA case binders' },
   { id: 'mgic',       name: 'MGIC',                   url: 'https://www.mgic.com',                        category: 'Compliance',  description: 'Mortgage insurance quotes' },
@@ -25,7 +32,8 @@ const DEFAULT_TOOLS: Tool[] = [
 ]
 
 const STORAGE_KEY = 'lumin_tools_v1'
-const CATEGORIES = ['Lenders', 'LOS / CRM', 'Pricing', 'Compliance', 'Lead Sources', 'Other'] as const
+const MIGRATION_KEY = 'lumin_tools_migrations'
+const CATEGORIES = ['Lenders', 'LOS / CRM', 'Pricing', 'Calculators', 'Compliance', 'Lead Sources', 'Other'] as const
 type Category = typeof CATEGORIES[number]
 
 type Tool = {
@@ -40,8 +48,26 @@ function loadTools(): Tool[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
-      const parsed = JSON.parse(raw) as Tool[]
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed
+      const stored = JSON.parse(raw) as Tool[]
+      if (Array.isArray(stored) && stored.length > 0) {
+        // One-time migrations: append new default tools the user hasn't seen yet
+        const migrations: string[] = (() => {
+          try { return JSON.parse(localStorage.getItem(MIGRATION_KEY) || '[]') } catch { return [] }
+        })()
+        if (!migrations.includes('add_calculators_v1')) {
+          const calculatorDefaults = DEFAULT_TOOLS.filter(t => t.category === 'Calculators')
+          const storedIds = new Set(stored.map(t => t.id))
+          const toAppend = calculatorDefaults.filter(d => !storedIds.has(d.id))
+          if (toAppend.length > 0) {
+            const merged = [...stored, ...toAppend]
+            saveTools(merged)
+            localStorage.setItem(MIGRATION_KEY, JSON.stringify([...migrations, 'add_calculators_v1']))
+            return merged
+          }
+          localStorage.setItem(MIGRATION_KEY, JSON.stringify([...migrations, 'add_calculators_v1']))
+        }
+        return stored
+      }
     }
   } catch {}
   return DEFAULT_TOOLS
