@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { Deal, LOAN_STATUSES, STATUS_COLORS, LOAN_TYPES, OCCUPANCY_TYPES } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import Link from 'next/link'
-import { RefreshCw, Lock, Clock, AlertTriangle, ChevronDown, X, EyeOff, LayoutGrid, List, Bookmark, Trash2, ArrowRight, Check, Pencil, Calendar, User, Building2, ChevronLeft, Search, SlidersHorizontal, Filter } from 'lucide-react'
+import { RefreshCw, Lock, Clock, AlertTriangle, ChevronDown, X, LayoutGrid, List, Bookmark, Trash2, ArrowRight, Check, Pencil, Calendar, User, Building2, ChevronLeft, Search, SlidersHorizontal, Filter } from 'lucide-react'
 
 // ── Pipeline config — single source of truth for stages per pipeline ──────────
 
@@ -972,8 +972,7 @@ function PipelinePageInner() {
     return () => document.removeEventListener('mousedown', handler)
   }, [showColPicker])
 
-  const availableSources  = ['All', ...Array.from(new Set(deals.map(d => d.source).filter(Boolean) as string[])).sort()]
-  const availableStatuses = ['All', ...Array.from(new Set(deals.map(d => d.status).filter(Boolean))).sort()]
+  const availableSources = ['All', ...Array.from(new Set(deals.map(d => d.source).filter(Boolean) as string[])).sort()]
 
   // ── Saved view helpers ────────────────────────────────────────────────────
   function saveView() {
@@ -1370,37 +1369,7 @@ function PipelinePageInner() {
 
             <div className="h-5 w-px bg-slate-200" />
 
-            {/* LO filter */}
-            <select value={loFilter} onChange={e => { setLoFilter(e.target.value); setActiveViewId(null) }}
-              className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="All">All LOs</option>
-              <option value="Matt">Matt</option>
-              <option value="Moe">Moe</option>
-            </select>
-
-            {/* Source filter */}
-            <select value={sourceFilter} onChange={e => { setSourceFilter(e.target.value); setActiveViewId(null) }}
-              className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="All">All Sources</option>
-              {availableSources.filter(s => s !== 'All').map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-
-            {/* Status filter */}
-            <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setActiveViewId(null) }}
-              className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="All">All Stages</option>
-              {availableStatuses.filter(s => s !== 'All').map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-
-            {/* Hide funded */}
-            <button onClick={() => { setHideFunded(v => !v); setActiveViewId(null) }}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
-                hideFunded ? 'bg-slate-800 text-white border-slate-800' : 'text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'
-              }`}>
-              <EyeOff className="w-3.5 h-3.5" /> Hide Funded
-            </button>
-
-            {/* Filters button */}
+            {/* Filters button (master filter — replaces standalone LO/Source/Stage/Hide-Funded controls) */}
             <button
               onClick={() => setShowFilterPanel(v => !v)}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors border relative ${
