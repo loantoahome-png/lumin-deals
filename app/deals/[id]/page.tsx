@@ -113,6 +113,30 @@ function DateInput({ value, onChange }: {
   )
 }
 
+/** Read-only display for computed percentage fields (LTV, CLTV). */
+function ComputedPercent({ value, hint }: { value: number | null; hint?: string }) {
+  return (
+    <div className="relative" title={hint}>
+      <div className="w-full pl-3 pr-7 py-2 border border-slate-100 rounded-lg text-sm bg-slate-50 text-slate-700 tabular-nums select-none">
+        {value != null ? value.toFixed(2) : <span className="text-slate-400">—</span>}
+      </div>
+      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 pointer-events-none">%</span>
+    </div>
+  )
+}
+
+// ── Compute helpers ─────────────────────────────────────────────────────────
+function computeLTV(loanAmount: number | null, propertyValue: number | null): number | null {
+  if (!loanAmount || !propertyValue || propertyValue <= 0) return null
+  return (loanAmount / propertyValue) * 100
+}
+function computeCLTV(loanAmount: number | null, existingLiens: number | null, propertyValue: number | null): number | null {
+  if (!propertyValue || propertyValue <= 0) return null
+  const total = (loanAmount ?? 0) + (existingLiens ?? 0)
+  if (total <= 0) return null
+  return (total / propertyValue) * 100
+}
+
 // ── Timestamped Notes ────────────────────────────────────────────────────────
 
 type DealNote = { id: string; content: string; created_at: string }
@@ -257,6 +281,23 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
     setSaved(false)
     setForm(f => f ? { ...f, [key]: value === '' ? null : value } : f)
   }
+
+  // Keep LTV in sync whenever Loan Amount or Property Value change
+  useEffect(() => {
+    if (!form) return
+    const next = computeLTV(form.loan_amount as number | null ?? null, form.estimated_value as number | null ?? null)
+    if (next !== (form.ltv as number | null)) {
+      setForm(f => f ? { ...f, ltv: next } : f)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form?.loan_amount, form?.estimated_value])
+
+  // CLTV is computed live for display (not stored)
+  const cltv = form ? computeCLTV(
+    form.loan_amount as number | null ?? null,
+    form.current_balance as number | null ?? null,
+    form.estimated_value as number | null ?? null,
+  ) : null
 
   async function handleSave() {
     if (!form) return
@@ -456,14 +497,17 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                 <Field label="Property Value">
                   <CurrencyInput value={form.estimated_value as number | null} onChange={v => set('estimated_value', v)} />
                 </Field>
-                <Field label="Current Balance">
+                <Field label="Amount on Existing Liens">
                   <CurrencyInput value={form.current_balance as number | null} onChange={v => set('current_balance', v)} />
-                </Field>
-                <Field label="LTV">
-                  <PercentInput value={form.ltv as number | null} onChange={v => set('ltv', v)} step="0.01" />
                 </Field>
                 <Field label="Cash Out">
                   <CurrencyInput value={form.cash_out as number | null} onChange={v => set('cash_out', v)} />
+                </Field>
+                <Field label="LTV (auto)">
+                  <ComputedPercent value={form.ltv as number | null} hint="Loan Amount ÷ Property Value" />
+                </Field>
+                <Field label="CLTV (auto)">
+                  <ComputedPercent value={cltv} hint="(Loan Amount + Existing Liens) ÷ Property Value" />
                 </Field>
                 <Field label="Down Payment">
                   <CurrencyInput value={form.down_payment as number | null} onChange={v => set('down_payment', v)} />
