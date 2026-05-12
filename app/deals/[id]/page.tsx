@@ -304,9 +304,8 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
     setSaving(true)
     setError('')
     // Exclude lo_notes and client_notes — those are managed independently by DealNotes
-    // Also strip columns the Deal type declares but the Postgres table may not have yet.
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { lo_notes: _ln, client_notes: _cn, rate_watch_target: _rwt, ...formData } = form
+    const { lo_notes: _ln, client_notes: _cn, ...formData } = form
     const { error: err } = await supabase.from('deals').update(formData).eq('id', form.id as string)
     if (err) { setError(err.message); setSaving(false); return }
     setSaving(false)

@@ -199,32 +199,18 @@ export default function DealForm({ deal }: { deal?: Deal }) {
   // CLTV is computed live for display (not stored)
   const cltv = computeCLTV(form.loan_amount, form.current_balance, form.estimated_value)
 
-  // Columns the Deal TypeScript type declares but the live Postgres table may
-  // not have yet. Stripped before insert/update so the request doesn't fail
-  // with "column does not exist". (If the column gets added later, no change
-  // needed here.)
-  const OPTIONAL_COLUMNS = ['rate_watch_target'] as const
-
-  function buildPayload(): Partial<DealFormData> {
-    const out: Record<string, unknown> = { ...form }
-    for (const k of OPTIONAL_COLUMNS) delete out[k]
-    return out as Partial<DealFormData>
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.name.trim()) { setError('Name is required'); return }
     setSaving(true)
     setError('')
 
-    const payload = buildPayload()
-
     if (isEdit) {
-      const { error: err } = await supabase.from('deals').update(payload).eq('id', deal.id)
+      const { error: err } = await supabase.from('deals').update(form).eq('id', deal.id)
       if (err) { setError(err.message); setSaving(false); return }
       router.push(`/deals/${deal.id}`)
     } else {
-      const { data, error: err } = await supabase.from('deals').insert(payload).select().single()
+      const { data, error: err } = await supabase.from('deals').insert(form).select().single()
       if (err) { setError(err.message); setSaving(false); return }
       router.push(`/deals/${data.id}`)
     }
