@@ -60,6 +60,12 @@ export type Deal = {
   ghl_contact_id: string | null
   document_upload_link: string | null
   reo_properties: REOProperty[] | null
+  // ── Escrow tracking (used while pipeline_group = 'Loans in Process') ──
+  next_action: string | null
+  next_action_due: string | null              // ISO timestamp with date+time
+  next_action_assignee: string | null
+  escrow_priority: string | null              // 'high' | 'normal' | 'low'
+  stage_changed_at: string | null             // tracks days-in-stage (auto-updated)
   created_at: string
   updated_at: string
 }

@@ -5,7 +5,8 @@ import { supabase } from '@/lib/supabase'
 import { Deal, LOAN_OFFICERS, LOAN_TYPES, PIPELINE_GROUPS, PIPELINE_STATUSES, STATUS_COLORS } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import Link from 'next/link'
-import { Search, RefreshCw, ExternalLink, Download, X, CheckSquare, Pencil } from 'lucide-react'
+import { Search, RefreshCw, ExternalLink, Download, X, CheckSquare, Pencil, LayoutGrid, Table2 } from 'lucide-react'
+import EscrowTracker from '@/components/EscrowTracker'
 import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 
@@ -178,6 +179,8 @@ function DealsPageInner() {
 
   // Inline cell editing
   const [editCell, setEditCell] = useState<{ id: string; field: string } | null>(null)
+  // View mode: 'tracker' is the new operational kanban-style view; 'table' is the classic table
+  const [viewMode, setViewMode] = useState<'tracker' | 'table'>('tracker')
 
   async function handleCellUpdate(id: string, field: string, value: unknown) {
     setDeals(prev => prev.map(d =>
@@ -284,6 +287,23 @@ function DealsPageInner() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {/* View mode toggle */}
+            <div className="flex bg-slate-100 rounded-lg p-1 gap-0.5">
+              <button
+                onClick={() => setViewMode('tracker')}
+                title="Tracker view — operational cards with next-step tracking"
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-md transition ${viewMode === 'tracker' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5" /> Tracker
+              </button>
+              <button
+                onClick={() => setViewMode('table')}
+                title="Table view"
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-md transition ${viewMode === 'table' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+              >
+                <Table2 className="w-3.5 h-3.5" /> Table
+              </button>
+            </div>
             <button
               onClick={() => exportToCSV(filtered)}
               title="Export to CSV"
@@ -343,12 +363,28 @@ function DealsPageInner() {
         </div>
       </div>
 
-      {/* ── Table ──────────────────────────────────────────────────────────── */}
+      {/* ── Tracker view (default) ────────────────────────────────────────── */}
+      {!loading && viewMode === 'tracker' && (
+        <div className="flex-1 overflow-y-auto">
+          <EscrowTracker
+            deals={filtered}
+            onUpdate={async (id, patch) => {
+              const { error } = await supabase.from('deals').update(patch).eq('id', id)
+              if (!error) {
+                // Optimistically update local state so UI reflects the change
+                setDeals(prev => prev.map(d => d.id === id ? { ...d, ...patch } as Deal : d))
+              }
+            }}
+          />
+        </div>
+      )}
+
+      {/* ── Table view ─────────────────────────────────────────────────────── */}
       {loading ? (
         <div className="flex items-center justify-center flex-1">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
         </div>
-      ) : (
+      ) : viewMode === 'table' && (
         <div className="flex-1 overflow-auto p-4">
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
             <table className="min-w-max w-full text-sm">
