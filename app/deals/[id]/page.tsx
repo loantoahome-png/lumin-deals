@@ -8,29 +8,91 @@ import {
 } from '@/lib/types'
 import Link from 'next/link'
 import { use } from 'react'
-import { ArrowLeft, Check, Trash2, X, ExternalLink } from 'lucide-react'
+import {
+  ArrowLeft, Check, Trash2, X, ExternalLink,
+  DollarSign, Home, Lock, Hash, User, Users,
+  Calendar, Bell, Link as LinkIcon, MessageSquare,
+} from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import LoanHistory from '@/components/LoanHistory'
 
+// ── Format helpers ──────────────────────────────────────────────────────────
+function fmtMoneyShort(n: number | null | undefined): string {
+  if (n == null || isNaN(n)) return '—'
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}k`
+  return `$${n.toLocaleString()}`
+}
+function initialsFrom(name: string | null | undefined): string {
+  if (!name) return '?'
+  const parts = name.trim().split(/\s+/)
+  if (parts.length === 1) return parts[0][0]?.toUpperCase() || '?'
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
 const inp = 'w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white hover:border-slate-300 transition-colors'
 const sel = inp
+const inpCurrency = 'w-full pl-7 pr-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white hover:border-slate-300 transition-colors tabular-nums'
+const inpPercent = 'w-full pl-3 pr-7 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white hover:border-slate-300 transition-colors tabular-nums'
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+function Card({ title, icon, children, compact = false }: { title: string; icon?: React.ReactNode; children: React.ReactNode; compact?: boolean }) {
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
+      <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
+        {icon && <span className="text-slate-400 shrink-0">{icon}</span>}
         <h2 className="text-sm font-semibold text-slate-700">{title}</h2>
       </div>
-      <div className="p-5">{children}</div>
+      <div className={compact ? 'p-4' : 'p-5'}>{children}</div>
     </div>
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
     <div>
       <label className="block text-xs font-medium text-slate-500 mb-1.5">{label}</label>
       {children}
+      {hint && <p className="text-[10px] text-slate-400 mt-1">{hint}</p>}
+    </div>
+  )
+}
+
+function CurrencyInput({ value, onChange, placeholder = '0' }: {
+  value: number | null | undefined
+  onChange: (n: number | null) => void
+  placeholder?: string
+}) {
+  return (
+    <div className="relative">
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 pointer-events-none">$</span>
+      <input
+        type="number"
+        value={value ?? ''}
+        onChange={e => onChange(e.target.value ? Number(e.target.value) : null)}
+        className={inpCurrency}
+        placeholder={placeholder}
+      />
+    </div>
+  )
+}
+
+function PercentInput({ value, onChange, step = '0.01', placeholder = '' }: {
+  value: number | null | undefined
+  onChange: (n: number | null) => void
+  step?: string
+  placeholder?: string
+}) {
+  return (
+    <div className="relative">
+      <input
+        type="number"
+        step={step}
+        value={value ?? ''}
+        onChange={e => onChange(e.target.value ? Number(e.target.value) : null)}
+        className={inpPercent}
+        placeholder={placeholder}
+      />
+      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 pointer-events-none">%</span>
     </div>
   )
 }
@@ -223,90 +285,123 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
 
   const statusClass = STATUS_COLORS[form.status || ''] || 'bg-gray-100 text-gray-600'
 
+  // Hero KPI computations
+  const ageDays = form.created_at ? Math.floor((Date.now() - new Date(form.created_at).getTime()) / 86400000) : null
+  const ageLabel = ageDays === null ? '—' : ageDays === 0 ? 'Today' : `${ageDays}d`
+
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-6 max-w-6xl mx-auto">
 
-      {/* ── Header ─────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between mb-6">
-        <div className="flex-1 mr-4">
-          <Link href="/deals" className="flex items-center gap-1 text-slate-500 hover:text-slate-700 text-sm mb-3 transition-colors w-fit">
-            <ArrowLeft className="w-3.5 h-3.5" /> All Deals
-          </Link>
+      {/* ── Back link ─────────────────────────────────────────────── */}
+      <Link href="/deals" className="flex items-center gap-1 text-slate-500 hover:text-slate-700 text-sm mb-3 transition-colors w-fit">
+        <ArrowLeft className="w-3.5 h-3.5" /> All Deals
+      </Link>
 
-          <input
-            value={form.name || ''}
-            onChange={e => set('name', e.target.value)}
-            className="text-2xl font-bold text-slate-900 focus:outline-none bg-transparent border-b-2 border-transparent focus:border-blue-400 w-full pb-0.5 transition-colors hover:border-slate-300"
-            placeholder="Borrower Name"
-          />
+      {/* ── Hero card ─────────────────────────────────────────────── */}
+      <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 rounded-2xl shadow-sm overflow-hidden text-white mb-5">
+        {/* Top row: avatar + name + actions */}
+        <div className="px-6 pt-5 pb-4 flex items-start justify-between gap-4">
+          <div className="flex items-start gap-4 flex-1 min-w-0">
+            {/* Avatar */}
+            <div className="shrink-0 w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-lg font-bold shadow-md">
+              {initialsFrom(form.name as string | null)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <input
+                value={form.name || ''}
+                onChange={e => set('name', e.target.value)}
+                className="text-2xl font-bold text-white focus:outline-none bg-transparent border-b-2 border-transparent focus:border-blue-400 w-full pb-0.5 transition-colors hover:border-slate-700 capitalize"
+                placeholder="Borrower Name"
+              />
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <select
+                  value={form.status || ''}
+                  onChange={e => set('status', e.target.value)}
+                  className={`text-xs font-semibold px-2.5 py-1 rounded-md border-0 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer ${statusClass}`}
+                >
+                  {form.status && !(PIPELINE_STATUSES[form.pipeline_group || ''] || []).includes(form.status) && (
+                    <option value={form.status}>{form.status} ⚠ (legacy)</option>
+                  )}
+                  {(PIPELINE_STATUSES[form.pipeline_group || ''] || []).map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <select
+                  value={form.pipeline_group || ''}
+                  onChange={e => {
+                    const pg = e.target.value
+                    const firstStatus = PIPELINE_STATUSES[pg]?.[0] || ''
+                    setForm(f => f ? { ...f, pipeline_group: pg, status: firstStatus } : f)
+                    setSaved(false)
+                  }}
+                  className="text-xs px-2.5 py-1 rounded-md border-0 bg-slate-700/60 text-slate-200 font-medium focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer"
+                >
+                  {form.pipeline_group && !(PIPELINE_GROUPS as readonly string[]).includes(form.pipeline_group) && (
+                    <option value={form.pipeline_group}>{form.pipeline_group} ⚠ (legacy)</option>
+                  )}
+                  {PIPELINE_GROUPS.map(g => <option key={g}>{g}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
 
-          <div className="flex items-center gap-2 mt-3 flex-wrap">
-            {/* Status — filtered to only valid stages for the current pipeline */}
-            <select
-              value={form.status || ''}
-              onChange={e => set('status', e.target.value)}
-              className={`text-sm font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${statusClass}`}
+          <div className="flex items-center gap-2 shrink-0">
+            {form.ghl_contact_id && (
+              <a
+                href={`${process.env.NEXT_PUBLIC_GHL_BASE_URL}/v2/location/${process.env.NEXT_PUBLIC_GHL_LOCATION_ID}/contacts/detail/${form.ghl_contact_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open in GoHighLevel"
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-blue-200 bg-blue-500/10 border border-blue-400/30 rounded-lg hover:bg-blue-500/20 transition"
+              >
+                <ExternalLink className="w-3.5 h-3.5" /> View in GHL
+              </a>
+            )}
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              title="Delete deal"
+              className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition"
             >
-              {/* Show legacy value at top if it doesn't belong to the current pipeline */}
-              {form.status && !(PIPELINE_STATUSES[form.pipeline_group || ''] || []).includes(form.status) && (
-                <option value={form.status}>{form.status} ⚠ (legacy)</option>
-              )}
-              {(PIPELINE_STATUSES[form.pipeline_group || ''] || []).map(s => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-            {/* Pipeline — changing it resets status to the first valid stage */}
-            <select
-              value={form.pipeline_group || ''}
-              onChange={e => {
-                const pg = e.target.value
-                const firstStatus = PIPELINE_STATUSES[pg]?.[0] || ''
-                setForm(f => f ? { ...f, pipeline_group: pg, status: firstStatus } : f)
-                setSaved(false)
-              }}
-              className="text-sm px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-100 text-slate-600 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+              <Trash2 className="w-4 h-4" />
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-lg transition-all shadow-sm ${
+                saved ? 'bg-emerald-500 text-white' : 'bg-blue-600 text-white hover:bg-blue-500'
+              } disabled:opacity-60`}
             >
-              {/* Show legacy pipeline_group if not in valid list */}
-              {form.pipeline_group && !(PIPELINE_GROUPS as readonly string[]).includes(form.pipeline_group) && (
-                <option value={form.pipeline_group}>{form.pipeline_group} ⚠ (legacy)</option>
-              )}
-              {PIPELINE_GROUPS.map(g => <option key={g}>{g}</option>)}
-            </select>
+              <Check className="w-4 h-4" />
+              {saving ? 'Saving…' : saved ? 'Saved!' : 'Save Changes'}
+            </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          {/* View in GHL — only shown when contact is synced from GHL */}
-          {form.ghl_contact_id && (
-            <a
-              href={`${process.env.NEXT_PUBLIC_GHL_BASE_URL}/v2/location/${process.env.NEXT_PUBLIC_GHL_LOCATION_ID}/contacts/detail/${form.ghl_contact_id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Open in GoHighLevel"
-              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 hover:border-blue-300 transition-colors"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              View in GHL
-            </a>
-          )}
-          <button
-            onClick={handleDelete}
-            disabled={deleting}
-            title="Delete deal"
-            className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className={`flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-lg transition-all ${
-              saved ? 'bg-emerald-500 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'
-            } disabled:opacity-60`}
-          >
-            <Check className="w-4 h-4" />
-            {saving ? 'Saving…' : saved ? 'Saved!' : 'Save Changes'}
-          </button>
+        {/* KPI strip */}
+        <div className="border-t border-slate-700/70 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 divide-x divide-slate-700/70">
+          <div className="px-5 py-3">
+            <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Loan Amount</p>
+            <p className="text-lg font-bold mt-0.5">{fmtMoneyShort(form.loan_amount as number | null)}</p>
+          </div>
+          <div className="px-5 py-3">
+            <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Property Value</p>
+            <p className="text-lg font-bold mt-0.5">{fmtMoneyShort(form.estimated_value as number | null)}</p>
+          </div>
+          <div className="px-5 py-3">
+            <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">LTV</p>
+            <p className="text-lg font-bold mt-0.5">{form.ltv != null ? `${Number(form.ltv).toFixed(2)}%` : '—'}</p>
+          </div>
+          <div className="px-5 py-3">
+            <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">FICO</p>
+            <p className="text-lg font-bold mt-0.5">{form.credit_score ?? '—'}</p>
+          </div>
+          <div className="px-5 py-3 col-span-2 sm:col-span-1">
+            <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">LO · Age</p>
+            <p className="text-sm font-semibold mt-0.5 truncate">
+              {(form.loan_officer as string | null) ?? <span className="text-slate-500">No LO</span>} · <span className="text-slate-300 font-normal">{ageLabel}</span>
+            </p>
+          </div>
         </div>
       </div>
 
@@ -320,7 +415,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
         <div className="lg:col-span-2 space-y-4">
 
           {/* Loan Details */}
-          <Card title="Loan Details">
+          <Card title="Loan Details" icon={<DollarSign className="w-4 h-4" />}>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Loan Purpose">
                 <select value={form.loan_purpose || ''} onChange={e => set('loan_purpose', e.target.value)} className={sel}>
@@ -337,26 +432,26 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                   {LOAN_TYPES.map(t => <option key={t}>{t}</option>)}
                 </select>
               </Field>
-              <Field label="Loan Amount ($)">
-                <input type="number" value={form.loan_amount ?? ''} onChange={e => set('loan_amount', e.target.value ? Number(e.target.value) : null)} className={inp} placeholder="0" />
+              <Field label="Loan Amount">
+                <CurrencyInput value={form.loan_amount as number | null} onChange={v => set('loan_amount', v)} />
               </Field>
-              <Field label="Estimated / Property Value ($)">
-                <input type="number" value={form.estimated_value ?? ''} onChange={e => set('estimated_value', e.target.value ? Number(e.target.value) : null)} className={inp} placeholder="0" />
+              <Field label="Property Value">
+                <CurrencyInput value={form.estimated_value as number | null} onChange={v => set('estimated_value', v)} />
               </Field>
-              <Field label="Current Balance ($)">
-                <input type="number" value={form.current_balance ?? ''} onChange={e => set('current_balance', e.target.value ? Number(e.target.value) : null)} className={inp} placeholder="0" />
+              <Field label="Current Balance">
+                <CurrencyInput value={form.current_balance as number | null} onChange={v => set('current_balance', v)} />
               </Field>
-              <Field label="LTV (%)">
-                <input type="number" step="0.01" value={form.ltv ?? ''} onChange={e => set('ltv', e.target.value ? Number(e.target.value) : null)} className={inp} placeholder="e.g. 54.23" />
+              <Field label="LTV">
+                <PercentInput value={form.ltv as number | null} onChange={v => set('ltv', v)} step="0.01" placeholder="e.g. 75.68" />
               </Field>
-              <Field label="Cash Out ($)">
-                <input type="number" value={form.cash_out ?? ''} onChange={e => set('cash_out', e.target.value ? Number(e.target.value) : null)} className={inp} placeholder="0" />
+              <Field label="Cash Out">
+                <CurrencyInput value={form.cash_out as number | null} onChange={v => set('cash_out', v)} />
               </Field>
-              <Field label="Down Payment ($)">
-                <input type="number" value={form.down_payment ?? ''} onChange={e => set('down_payment', e.target.value ? Number(e.target.value) : null)} className={inp} placeholder="0" />
+              <Field label="Down Payment">
+                <CurrencyInput value={form.down_payment as number | null} onChange={v => set('down_payment', v)} />
               </Field>
-              <Field label="Rate (%)">
-                <input type="number" step="0.001" value={form.rate ?? ''} onChange={e => set('rate', e.target.value ? Number(e.target.value) : null)} className={inp} placeholder="6.500" />
+              <Field label="Rate">
+                <PercentInput value={form.rate as number | null} onChange={v => set('rate', v)} step="0.001" placeholder="6.500" />
               </Field>
               <Field label="Investor">
                 <input value={form.investor || ''} onChange={e => set('investor', e.target.value)} className={inp} placeholder="e.g. Rocket, Figure" />
@@ -383,45 +478,50 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
           </Card>
 
           {/* Property Details */}
-          <Card title="Property Details">
-            <div className="grid grid-cols-2 gap-4">
+          <Card title="Property Details" icon={<Home className="w-4 h-4" />}>
+            <div className="space-y-4">
+              {/* Address: full-width line, then City/State/Zip on a 4-3-2 grid */}
               <Field label="Property Address">
                 <input value={form.property_address || ''} onChange={e => set('property_address', e.target.value)} className={inp} placeholder="123 Main St" />
               </Field>
-              <Field label="City">
-                <input value={form.city || ''} onChange={e => set('city', e.target.value)} className={inp} placeholder="City" />
-              </Field>
-              <Field label="State">
-                <input value={form.state || ''} onChange={e => set('state', e.target.value)} className={inp} placeholder="CA" />
-              </Field>
-              <Field label="Zip">
-                <input value={form.zip || ''} onChange={e => set('zip', e.target.value)} className={inp} placeholder="90210" />
-              </Field>
-              <Field label="Property Use / Occupancy">
-                <select value={form.occupancy || ''} onChange={e => set('occupancy', e.target.value)} className={sel}>
-                  <option value="">— Select —</option>
-                  {OCCUPANCY_TYPES.map(o => <option key={o}>{o}</option>)}
-                  <option value="Primary Residence">Primary Residence</option>
-                </select>
-              </Field>
-              <Field label="Property Type">
-                <select value={form.property_type || ''} onChange={e => set('property_type', e.target.value)} className={sel}>
-                  <option value="">— Select —</option>
-                  <option value="Single Family">Single Family</option>
-                  <option value="Manufactured">Manufactured</option>
-                  <option value="Condo">Condo</option>
-                  <option value="Townhouse">Townhouse</option>
-                  <option value="Multi-Family (2-4)">Multi-Family (2-4)</option>
-                  <option value="Commercial">Commercial</option>
-                  <option value="Land">Land</option>
-                </select>
-              </Field>
+              <div className="grid grid-cols-[1fr_120px_120px] gap-3">
+                <Field label="City">
+                  <input value={form.city || ''} onChange={e => set('city', e.target.value)} className={inp} placeholder="City" />
+                </Field>
+                <Field label="State">
+                  <input value={form.state || ''} onChange={e => set('state', e.target.value)} className={inp} placeholder="CA" maxLength={2} />
+                </Field>
+                <Field label="Zip">
+                  <input value={form.zip || ''} onChange={e => set('zip', e.target.value)} className={inp} placeholder="90210" />
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Property Use / Occupancy">
+                  <select value={form.occupancy || ''} onChange={e => set('occupancy', e.target.value)} className={sel}>
+                    <option value="">— Select —</option>
+                    {OCCUPANCY_TYPES.map(o => <option key={o}>{o}</option>)}
+                    <option value="Primary Residence">Primary Residence</option>
+                  </select>
+                </Field>
+                <Field label="Property Type">
+                  <select value={form.property_type || ''} onChange={e => set('property_type', e.target.value)} className={sel}>
+                    <option value="">— Select —</option>
+                    <option value="Single Family">Single Family</option>
+                    <option value="Manufactured">Manufactured</option>
+                    <option value="Condo">Condo</option>
+                    <option value="Townhouse">Townhouse</option>
+                    <option value="Multi-Family (2-4)">Multi-Family (2-4)</option>
+                    <option value="Commercial">Commercial</option>
+                    <option value="Land">Land</option>
+                  </select>
+                </Field>
+              </div>
             </div>
           </Card>
 
           {/* Lock & Appraisal */}
-          <Card title="Lock & Appraisal">
-            <div className="grid grid-cols-2 gap-4">
+          <Card title="Lock & Appraisal" icon={<Lock className="w-4 h-4" />}>
+            <div className="grid grid-cols-3 gap-4">
               <Field label="Locked?">
                 <select value={form.locked || 'No'} onChange={e => set('locked', e.target.value)} className={sel}>
                   <option value="No">No</option>
@@ -442,7 +542,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
           </Card>
 
           {/* File Numbers */}
-          <Card title="File Numbers">
+          <Card title="File Numbers" icon={<Hash className="w-4 h-4" />}>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Arive File #">
                 <input value={form.arive_file_no || ''} onChange={e => set('arive_file_no', e.target.value)} className={inp} />
@@ -454,7 +554,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
           </Card>
 
           {/* Notes */}
-          <Card title="Notes">
+          <Card title="Notes" icon={<MessageSquare className="w-4 h-4" />}>
             <DealNotes dealId={id} initialNotes={form.lo_notes ?? null} />
           </Card>
         </div>
@@ -463,7 +563,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
         <div className="space-y-4">
 
           {/* Borrower */}
-          <Card title="Borrower">
+          <Card title="Borrower" icon={<User className="w-4 h-4" />}>
             <div className="space-y-3">
               <Field label="Email">
                 <input type="email" value={form.email || ''} onChange={e => set('email', e.target.value)} className={inp} placeholder="borrower@email.com" />
@@ -501,7 +601,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
           </Card>
 
           {/* Rate Watch */}
-          <Card title="🔔 Rate Watch">
+          <Card title="Rate Watch" icon={<Bell className="w-4 h-4" />}>
             <div className="space-y-3">
               {/* Toggle row */}
               <div className="flex items-center justify-between">
@@ -586,7 +686,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
 
 
           {/* Team */}
-          <Card title="Team">
+          <Card title="Team" icon={<Users className="w-4 h-4" />}>
             <div className="space-y-3">
               <Field label="Loan Officer">
                 <select value={form.loan_officer || ''} onChange={e => set('loan_officer', e.target.value)} className={sel}>
@@ -607,30 +707,28 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
           </Card>
 
           {/* Key Dates */}
-          <Card title="Key Dates">
-            <div className="space-y-3">
-              <Field label="Signing Date">
+          <Card title="Key Dates" icon={<Calendar className="w-4 h-4" />}>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Signing">
                 <input type="date" value={form.signing_date || ''} onChange={e => set('signing_date', e.target.value)} className={inp} />
               </Field>
-              <Field label="Funded Date">
+              <Field label="Funded">
                 <input type="date" value={form.funded_date || ''} onChange={e => set('funded_date', e.target.value)} className={inp} />
               </Field>
-              <Field label="Paid Date">
+              <Field label="Paid">
                 <input type="date" value={form.paid_date || ''} onChange={e => set('paid_date', e.target.value)} className={inp} />
               </Field>
-              <Field label="Last Contacted">
+              <Field label="Last Contact">
                 <input type="date" value={form.last_contacted || ''} onChange={e => set('last_contacted', e.target.value)} className={inp} />
               </Field>
-              <div className="pt-1 border-t border-slate-100">
-                <p className="text-xs text-slate-400 mt-2">
-                  Added: {form.created_at ? new Date(form.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                </p>
-              </div>
             </div>
+            <p className="text-[11px] text-slate-400 mt-3 pt-3 border-t border-slate-100">
+              Added {form.created_at ? new Date(form.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+            </p>
           </Card>
 
           {/* Documents */}
-          <Card title="Documents">
+          <Card title="Documents" icon={<LinkIcon className="w-4 h-4" />} compact>
             <Field label="Document Upload Link">
               <input value={form.document_upload_link || ''} onChange={e => set('document_upload_link', e.target.value)} className={inp} placeholder="https://…" />
             </Field>
