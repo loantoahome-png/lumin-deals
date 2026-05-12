@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { createHmac } from 'crypto'
+import { findExistingDeal } from '@/lib/dealMatcher'
 
 // ── Signature validation ──────────────────────────────────────────────────────
 async function validateGHLSignature(req: NextRequest, rawBody: string): Promise<boolean> {
@@ -363,50 +364,52 @@ export async function POST(req: NextRequest) {
     const { ghlContactId, fullName, firstName, lastName, email, phone } = fields
 
     // ── Duplicate check ───────────────────────────────────────────────────────
-    if (ghlContactId) {
-      const { data: existing } = await supabase
-        .from('deals').select('id, name').eq('ghl_contact_id', ghlContactId).single()
-
-      if (existing) {
-        // ContactUpdate — refresh all non-null fields
-        const patch: Record<string, unknown> = {
-          last_contacted: new Date().toISOString().split('T')[0],
-          raw_ghl_data: body,
-        }
-        const maybeSet = (key: string, val: unknown) => { if (val !== null && val !== undefined) patch[key] = val }
-
-        maybeSet('loan_amount',       fields.loanAmount)
-        maybeSet('estimated_value',   fields.estimatedValue)
-        maybeSet('loan_type',         fields.loanType)
-        maybeSet('loan_purpose',      fields.loanPurpose)
-        maybeSet('property_address',  fields.propertyAddress)
-        maybeSet('credit_score',      fields.creditScore)
-        maybeSet('credit_rating',     fields.creditRating)
-        maybeSet('rate',              fields.rate)
-        maybeSet('investor',          fields.investor)
-        maybeSet('occupancy',         fields.occupancy)
-        maybeSet('property_type',     fields.propertyType)
-        maybeSet('current_balance',   fields.currentBalance)
-        maybeSet('ltv',               fields.ltv)
-        maybeSet('cash_out',          fields.cashOut)
-        maybeSet('down_payment',      fields.downPayment)
-        maybeSet('is_military',       fields.isMilitary)
-        maybeSet('current_va_loan',   fields.currentVaLoan)
-        maybeSet('property_found',    fields.propertyFound)
-        maybeSet('loan_timeframe',    fields.loanTimeframe)
-        maybeSet('has_accepted_offer',fields.hasAcceptedOffer)
-        maybeSet('loan_officer',      fields.loanOfficer)
-        maybeSet('ghl_tags',          fields.ghlTags)
-        maybeSet('city',              fields.city)
-        maybeSet('state',             fields.state)
-        maybeSet('zip',               fields.zip)
-        maybeSet('lead_source_agg',   fields.leadSourceAgg)
-        maybeSet('source',            fields.contactSource)
-
-        await supabase.from('deals').update(patch).eq('id', existing.id)
-        console.log('[GHL Webhook] Updated deal:', existing.id)
-        return NextResponse.json({ success: true, action: 'updated', dealId: existing.id })
+    // Try contact_id → email → phone so that if GHL assigns this person a NEW
+    // contact ID (delete+re-add, merges, etc.), we still find the existing
+    // dashboard record and update it instead of creating a duplicate.
+    const match = await findExistingDeal(supabase, { ghlContactId, email, phone })
+    if (match) {
+      const patch: Record<string, unknown> = {
+        last_contacted: new Date().toISOString().split('T')[0],
+        raw_ghl_data: body,
+        // CRITICAL: when we matched by email/phone, force-update the contact_id
+        // so the next webhook event finds this record by contact_id directly
+        // (without falling back through email/phone again).
+        ghl_contact_id: ghlContactId || undefined,
       }
+      const maybeSet = (key: string, val: unknown) => { if (val !== null && val !== undefined) patch[key] = val }
+
+      maybeSet('loan_amount',       fields.loanAmount)
+      maybeSet('estimated_value',   fields.estimatedValue)
+      maybeSet('loan_type',         fields.loanType)
+      maybeSet('loan_purpose',      fields.loanPurpose)
+      maybeSet('property_address',  fields.propertyAddress)
+      maybeSet('credit_score',      fields.creditScore)
+      maybeSet('credit_rating',     fields.creditRating)
+      maybeSet('rate',              fields.rate)
+      maybeSet('investor',          fields.investor)
+      maybeSet('occupancy',         fields.occupancy)
+      maybeSet('property_type',     fields.propertyType)
+      maybeSet('current_balance',   fields.currentBalance)
+      maybeSet('ltv',               fields.ltv)
+      maybeSet('cash_out',          fields.cashOut)
+      maybeSet('down_payment',      fields.downPayment)
+      maybeSet('is_military',       fields.isMilitary)
+      maybeSet('current_va_loan',   fields.currentVaLoan)
+      maybeSet('property_found',    fields.propertyFound)
+      maybeSet('loan_timeframe',    fields.loanTimeframe)
+      maybeSet('has_accepted_offer',fields.hasAcceptedOffer)
+      maybeSet('loan_officer',      fields.loanOfficer)
+      maybeSet('ghl_tags',          fields.ghlTags)
+      maybeSet('city',              fields.city)
+      maybeSet('state',             fields.state)
+      maybeSet('zip',               fields.zip)
+      maybeSet('lead_source_agg',   fields.leadSourceAgg)
+      maybeSet('source',            fields.contactSource)
+
+      await supabase.from('deals').update(patch).eq('id', match.id)
+      console.log(`[GHL Webhook] Updated deal ${match.id} (matched by ${match.matchedBy})`)
+      return NextResponse.json({ success: true, action: 'updated', dealId: match.id, matchedBy: match.matchedBy })
     }
 
     // ── Create new deal ───────────────────────────────────────────────────────

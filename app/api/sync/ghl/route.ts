@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
+import { normPhone, normEmail } from '@/lib/dealMatcher'
 
 const GHL_BASE = 'https://services.leadconnectorhq.com'
 
@@ -356,6 +357,26 @@ async function syncAccount(
     fetchAllOpportunities(locationId, apiKey),
   ])
 
+  // ── 1b. Build in-memory dedup index of existing dashboard deals ───────────
+  //   Allows matching by contact_id → email → phone in O(1).
+  //   This handles GHL contact-ID churn: if the same person was assigned a new
+  //   contact ID, we still find their dashboard record by email/phone.
+  const { data: existingDeals } = await supabase
+    .from('deals')
+    .select('id, ghl_contact_id, email, phone')
+  type DealKey = { id: string }
+  const byContactId = new Map<string, DealKey>()
+  const byEmail = new Map<string, DealKey>()
+  const byPhone = new Map<string, DealKey>()
+  for (const d of (existingDeals as Array<{ id: string; ghl_contact_id: string | null; email: string | null; phone: string | null }>) || []) {
+    if (d.ghl_contact_id) byContactId.set(d.ghl_contact_id, { id: d.id })
+    const e = normEmail(d.email)
+    if (e && !byEmail.has(e)) byEmail.set(e, { id: d.id })
+    const p = normPhone(d.phone)
+    if (p && !byPhone.has(p)) byPhone.set(p, { id: d.id })
+  }
+  console.log(`[GHL Sync:${label}] Indexed ${byContactId.size} deals by contact_id, ${byEmail.size} by email, ${byPhone.size} by phone`)
+
   console.log(`[GHL Sync:${label}] Processing ${opportunities.length} opportunities`)
 
     // ── 2. Process each opportunity ───────────────────────────────────────────
@@ -465,21 +486,32 @@ async function syncAccount(
         }
 
         // ── Upsert ────────────────────────────────────────────────────────────
-        const { data: existing } = await supabase
-          .from('deals')
-          .select('id, status, pipeline_group')
-          .eq('ghl_contact_id', contactId)
-          .maybeSingle()
+        // ── Find existing deal via contact ID → email → phone ───────────────
+        const incomingEmail = normEmail(dealData.email as string | null)
+        const incomingPhone = normPhone(dealData.phone as string | null)
+        let existing: DealKey | null = byContactId.get(contactId) ?? null
+        let matchedBy: 'contact_id' | 'email' | 'phone' | null = existing ? 'contact_id' : null
+        if (!existing && incomingEmail && byEmail.has(incomingEmail)) {
+          existing = byEmail.get(incomingEmail)!
+          matchedBy = 'email'
+        }
+        if (!existing && incomingPhone && byPhone.has(incomingPhone)) {
+          existing = byPhone.get(incomingPhone)!
+          matchedBy = 'phone'
+        }
 
         if (existing) {
           // Update: always sync status/pipeline; only overwrite other fields if GHL has a value
           // (so we never erase data filled in from Monday or by hand).
+          // Also force-set ghl_contact_id to the incoming value so future syncs can
+          // match this person without falling back through email/phone.
           const patch: Record<string, unknown> = {
             status:           dealData.status,
             pipeline_group:   dealData.pipeline_group,
             ghl_tags:         dealData.ghl_tags,
             raw_ghl_data:     dealData.raw_ghl_data,
-            ghl_location_id:  dealData.ghl_location_id, // backfill on existing deals
+            ghl_location_id:  dealData.ghl_location_id,
+            ghl_contact_id:   contactId,   // ← overwrite stale ID (the real fix)
           }
           const maybeSet = (k: string) => { if (dealData[k] != null) patch[k] = dealData[k] }
           ;['loan_officer','loan_amount','estimated_value','credit_score','loan_type','loan_purpose',
@@ -490,9 +522,20 @@ async function syncAccount(
 
           await supabase.from('deals').update(patch).eq('id', existing.id)
           updated++
+          if (matchedBy !== 'contact_id') {
+            console.log(`[GHL Sync:${label}] Reconciled "${dealData.name}" by ${matchedBy} → updated ghl_contact_id to ${contactId}`)
+          }
+          // Keep the map fresh so we don't double-update / re-insert on later opps
+          byContactId.set(contactId, existing)
         } else {
           // Create new deal
-          await supabase.from('deals').insert(dealData)
+          const { data: inserted } = await supabase.from('deals').insert(dealData).select('id').single()
+          if (inserted) {
+            const key: DealKey = { id: inserted.id as string }
+            byContactId.set(contactId, key)
+            if (incomingEmail) byEmail.set(incomingEmail, key)
+            if (incomingPhone) byPhone.set(incomingPhone, key)
+          }
           created++
         }
       } catch (err) {
