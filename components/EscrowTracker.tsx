@@ -292,6 +292,19 @@ const STAGE_ACCENT: Record<string, string> = {
   'Docs Signed':             'bg-green-600',
 }
 
+// Header tint per stage — light tone of the stage color + a tinted border
+// so the card title strip echoes the column it lives in.
+const STAGE_HEADER_TINT: Record<string, string> = {
+  'Loan Setup':              'bg-yellow-100 border-yellow-300',
+  'Disclosed':               'bg-amber-100 border-amber-300',
+  'Submitted to UW':         'bg-orange-100 border-orange-300',
+  'Approved w/ Conditions':  'bg-lime-100 border-lime-300',
+  'Re-Submittal':            'bg-red-100 border-red-300',
+  'Clear to Close':          'bg-emerald-100 border-emerald-300',
+  'Docs Out':                'bg-teal-100 border-teal-300',
+  'Docs Signed':             'bg-green-100 border-green-300',
+}
+
 function fmtMoneyShort(n: number): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `$${Math.round(n / 1_000)}K`
@@ -494,7 +507,9 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
       {/* Header strip — drag handle (entire bar except the name link) */}
       <div
         {...dragHandleProps}
-        className={`px-4 py-2.5 bg-slate-200 border-b border-slate-300 flex items-center justify-between gap-2 ${dragHandleProps ? 'cursor-grab active:cursor-grabbing select-none' : ''}`}
+        className={`px-4 py-2.5 border-b flex items-center justify-between gap-2 ${
+          STAGE_HEADER_TINT[deal.status] || 'bg-slate-200 border-slate-300'
+        } ${dragHandleProps ? 'cursor-grab active:cursor-grabbing select-none' : ''}`}
         title={dragHandleProps ? 'Drag to move to another stage' : undefined}
       >
         <div className="flex items-center gap-1.5 min-w-0">

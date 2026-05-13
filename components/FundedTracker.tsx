@@ -27,6 +27,13 @@ const STAGE_ACCENT: Record<string, string> = {
   'Loan Finalized':         'bg-teal-700',
 }
 
+// Tinted card-header background per stage so cards echo their column.
+const STAGE_HEADER_TINT: Record<string, string> = {
+  'Loan Funded':            'bg-emerald-100 border-emerald-300',
+  'Broker Check Received':  'bg-green-100 border-green-300',
+  'Loan Finalized':         'bg-teal-100 border-teal-300',
+}
+
 function fmtMoneyShort(n: number): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `$${Math.round(n / 1_000)}K`
@@ -224,7 +231,9 @@ function FundedCard({ deal, dragHandleProps }: {
       {/* Drag handle / header */}
       <div
         {...dragHandleProps}
-        className={`px-4 py-2.5 bg-slate-200 border-b border-slate-300 flex items-center justify-between gap-2 ${dragHandleProps ? 'cursor-grab active:cursor-grabbing select-none' : ''}`}
+        className={`px-4 py-2.5 border-b flex items-center justify-between gap-2 ${
+          STAGE_HEADER_TINT[deal.status] || 'bg-slate-200 border-slate-300'
+        } ${dragHandleProps ? 'cursor-grab active:cursor-grabbing select-none' : ''}`}
         title={dragHandleProps ? 'Drag to move to another stage' : undefined}
       >
         <div className="flex items-center gap-1.5 min-w-0">
