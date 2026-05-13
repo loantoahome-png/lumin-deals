@@ -88,7 +88,8 @@ export type DealTask = {
   title: string
   description: string | null
   due_at: string | null             // ISO timestamp
-  assignee: string | null
+  assignee: string | null           // who is doing the task
+  assigned_by: string | null        // who delegated it
   priority: string | null           // 'high' | 'normal' | 'low'
   completed_at: string | null       // ISO timestamp when marked done
   created_at: string

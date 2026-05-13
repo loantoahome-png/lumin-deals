@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { DealTask, Deal, TASK_ASSIGNEES } from '@/lib/types'
 import {
   ClipboardList, Plus, X, Search, CheckCircle2, Circle,
-  Calendar, User, Flame, ExternalLink, Trash2, Pencil,
+  Calendar, User, Flame, ExternalLink, Trash2,
 } from 'lucide-react'
 
 type FilterMode = 'open' | 'today' | 'overdue' | 'week' | 'completed' | 'all'
@@ -320,7 +320,14 @@ function TaskRow({ task, dealName, onToggle, onDelete, onEdit }: {
       <button onClick={onToggle} className="shrink-0 mt-0.5" title={done ? 'Mark incomplete' : 'Mark complete'}>
         {done ? <CheckCircle2 className="w-5 h-5 text-emerald-500" /> : <Circle className="w-5 h-5 text-slate-300 hover:text-slate-500 transition" />}
       </button>
-      <div className="flex-1 min-w-0">
+      {/* Whole info area is click-to-edit */}
+      <button
+        type="button"
+        onClick={onEdit}
+        disabled={!onEdit}
+        className="flex-1 min-w-0 text-left cursor-pointer disabled:cursor-default"
+        title={onEdit ? 'Click to edit' : undefined}
+      >
         <div className={`text-sm ${done ? 'line-through text-slate-400' : 'text-slate-900 font-medium'}`}>
           {task.title}
         </div>
@@ -342,24 +349,31 @@ function TaskRow({ task, dealName, onToggle, onDelete, onEdit }: {
               <User className="w-3 h-3" /> {task.assignee}
             </span>
           )}
+          {task.assigned_by && (
+            <span className="text-slate-400">
+              by <span className="font-medium text-slate-500">{task.assigned_by}</span>
+            </span>
+          )}
           {task.priority === 'high' && (
             <span className="flex items-center gap-1 text-red-700 font-medium">
               <Flame className="w-3 h-3" /> High
             </span>
           )}
-          {task.deal_id && (
-            <Link href={`/deals/${task.deal_id}`} className="flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium">
-              <ExternalLink className="w-3 h-3" /> {dealName || 'Deal'}
-            </Link>
-          )}
         </div>
-      </div>
+      </button>
+
+      {/* Deal link kept outside the edit button so it can still navigate */}
+      {task.deal_id && (
+        <Link
+          href={`/deals/${task.deal_id}`}
+          onClick={e => e.stopPropagation()}
+          className="shrink-0 self-center flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700 font-medium"
+        >
+          <ExternalLink className="w-3 h-3" /> {dealName || 'Deal'}
+        </Link>
+      )}
+
       <div className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
-        {onEdit && (
-          <button onClick={onEdit} className="p-1 text-slate-300 hover:text-blue-600" title="Edit task">
-            <Pencil className="w-3.5 h-3.5" />
-          </button>
-        )}
         <button onClick={onDelete} className="p-1 text-slate-300 hover:text-red-500" title="Delete">
           <Trash2 className="w-3.5 h-3.5" />
         </button>
@@ -386,6 +400,7 @@ function NewTaskForm({ deals, initialTask, onSubmit, onCancel }: {
   const [date, setDate] = useState(initialDT.date)
   const [time, setTime] = useState(initialDT.time || '09:00')
   const [assignee, setAssignee] = useState(initialTask?.assignee || '')
+  const [assignedBy, setAssignedBy] = useState(initialTask?.assigned_by || '')
   const [priority, setPriority] = useState(initialTask?.priority || 'normal')
   const [dealId, setDealId] = useState<string>(initialTask?.deal_id || '')
   const [dealSearch, setDealSearch] = useState('')
@@ -405,6 +420,7 @@ function NewTaskForm({ deals, initialTask, onSubmit, onCancel }: {
       description: description.trim() || null,
       due_at: combineDateTime(date, time),
       assignee: assignee || null,
+      assigned_by: assignedBy || null,
       priority,
       completed_at: initialTask?.completed_at ?? null, // preserve complete state when editing
     })
@@ -443,13 +459,20 @@ function NewTaskForm({ deals, initialTask, onSubmit, onCancel }: {
           <input type="time" value={time} onChange={e => setTime(e.target.value)} className="w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm" />
         </div>
         <div>
-          <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Assignee</label>
+          <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Assigned to</label>
           <select value={assignee} onChange={e => setAssignee(e.target.value)} className="w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm bg-white">
             <option value="">— Unassigned —</option>
             {TASK_ASSIGNEES.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
         </div>
         <div>
+          <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Assigned by</label>
+          <select value={assignedBy} onChange={e => setAssignedBy(e.target.value)} className="w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm bg-white">
+            <option value="">—</option>
+            {TASK_ASSIGNEES.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
+        <div className="col-span-2">
           <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Priority</label>
           <div className="flex gap-1">
             {(['high','normal','low'] as const).map(p => (

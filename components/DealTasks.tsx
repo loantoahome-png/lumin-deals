@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { DealTask, TASK_ASSIGNEES } from '@/lib/types'
 import {
   CheckCircle2, Circle, Trash2, Plus, X, Calendar, User,
-  ExternalLink, Flame, Pencil,
+  ExternalLink, Flame,
 } from 'lucide-react'
 
 // ── Date helpers (same shape as EscrowTracker's, kept local for portability) ─
@@ -193,7 +193,7 @@ function TaskRow({ task, onToggle, onDelete, onEdit, dealName, showDealLink }: {
   const done = !!task.completed_at
 
   return (
-    <div className={`flex items-start gap-2.5 px-3 py-2 rounded-lg border transition group ${done ? 'bg-slate-50 border-slate-100 opacity-70' : 'bg-white border-slate-200 hover:border-slate-300'}`}>
+    <div className={`flex items-start gap-2.5 px-3 py-2 rounded-lg border transition group ${done ? 'bg-slate-50 border-slate-100 opacity-70' : 'bg-white border-slate-200 hover:border-blue-300 hover:shadow-sm'}`}>
       <button
         type="button"
         onClick={onToggle}
@@ -203,7 +203,14 @@ function TaskRow({ task, onToggle, onDelete, onEdit, dealName, showDealLink }: {
         {done ? <CheckCircle2 className="w-5 h-5 text-emerald-500" /> : <Circle className="w-5 h-5 text-slate-300 hover:text-slate-500 transition" />}
       </button>
 
-      <div className="flex-1 min-w-0">
+      {/* The whole info area is click-to-edit */}
+      <button
+        type="button"
+        onClick={onEdit}
+        disabled={!onEdit}
+        className="flex-1 min-w-0 text-left cursor-pointer disabled:cursor-default"
+        title={onEdit ? 'Click to edit' : undefined}
+      >
         <div className={`text-sm ${done ? 'line-through text-slate-400' : 'text-slate-900'}`}>
           {task.title}
         </div>
@@ -225,42 +232,38 @@ function TaskRow({ task, onToggle, onDelete, onEdit, dealName, showDealLink }: {
               <User className="w-3 h-3" /> {task.assignee}
             </span>
           )}
+          {task.assigned_by && (
+            <span className="text-slate-400">
+              by <span className="font-medium text-slate-500">{task.assigned_by}</span>
+            </span>
+          )}
           {task.priority === 'high' && (
             <span className="flex items-center gap-0.5 text-red-700 font-medium">
               <Flame className="w-3 h-3" /> High
             </span>
           )}
-          {showDealLink && task.deal_id && (
-            <Link
-              href={`/deals/${task.deal_id}`}
-              className="flex items-center gap-0.5 text-blue-600 hover:text-blue-700 font-medium"
-            >
-              <ExternalLink className="w-3 h-3" /> {dealName || 'Deal'}
-            </Link>
-          )}
         </div>
-      </div>
+      </button>
 
-      <div className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
-        {onEdit && (
-          <button
-            type="button"
-            onClick={onEdit}
-            className="p-1 text-slate-300 hover:text-blue-600"
-            title="Edit task"
-          >
-            <Pencil className="w-3.5 h-3.5" />
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={onDelete}
-          className="p-1 text-slate-300 hover:text-red-500"
-          title="Delete task"
+      {/* Deal link kept outside the edit button so clicking it navigates */}
+      {showDealLink && task.deal_id && (
+        <Link
+          href={`/deals/${task.deal_id}`}
+          onClick={e => e.stopPropagation()}
+          className="shrink-0 self-center flex items-center gap-0.5 text-[11px] text-blue-600 hover:text-blue-700 font-medium"
         >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-      </div>
+          <ExternalLink className="w-3 h-3" /> {dealName || 'Deal'}
+        </Link>
+      )}
+
+      <button
+        type="button"
+        onClick={onDelete}
+        className="shrink-0 self-start p-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
+        title="Delete task"
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
     </div>
   )
 }
@@ -287,6 +290,7 @@ function TaskForm({ initialTask, onSubmit, onCancel, forcedDealId }: {
   const [date, setDate] = useState(initialDT.date)
   const [time, setTime] = useState(initialDT.time || '09:00')
   const [assignee, setAssignee] = useState<string>(initialTask?.assignee || '')
+  const [assignedBy, setAssignedBy] = useState<string>(initialTask?.assigned_by || '')
   const [priority, setPriority] = useState<string>(initialTask?.priority || 'normal')
 
   function handleSubmit(e: React.FormEvent) {
@@ -298,6 +302,7 @@ function TaskForm({ initialTask, onSubmit, onCancel, forcedDealId }: {
       description: description.trim() || null,
       due_at: combineDateTime(date, time),
       assignee: assignee || null,
+      assigned_by: assignedBy || null,
       priority,
       completed_at: initialTask?.completed_at ?? null, // preserve completed state when editing
     })
@@ -346,7 +351,7 @@ function TaskForm({ initialTask, onSubmit, onCancel, forcedDealId }: {
           />
         </div>
         <div>
-          <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Assignee</label>
+          <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Assigned to</label>
           <select
             value={assignee}
             onChange={e => setAssignee(e.target.value)}
@@ -357,6 +362,17 @@ function TaskForm({ initialTask, onSubmit, onCancel, forcedDealId }: {
           </select>
         </div>
         <div>
+          <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Assigned by</label>
+          <select
+            value={assignedBy}
+            onChange={e => setAssignedBy(e.target.value)}
+            className="w-full px-2 py-1.5 border border-slate-200 rounded-md text-sm bg-white"
+          >
+            <option value="">—</option>
+            {TASK_ASSIGNEES.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
+        <div className="col-span-2">
           <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Priority</label>
           <div className="flex gap-1">
             {(['high','normal','low'] as const).map(p => (
