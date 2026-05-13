@@ -154,6 +154,15 @@ export default function TasksPage() {
     setShowForm(false)
   }
 
+  async function clearCompleted() {
+    const doneIds = tasks.filter(t => t.completed_at).map(t => t.id)
+    if (doneIds.length === 0) return
+    if (!confirm(`Delete ${doneIds.length} completed task${doneIds.length !== 1 ? 's' : ''}? This cannot be undone.`)) return
+    const { error } = await supabase.from('deal_tasks').delete().in('id', doneIds)
+    if (error) { alert('Clear failed: ' + error.message); return }
+    setTasks(prev => prev.filter(t => !t.completed_at))
+  }
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       {/* Header */}
@@ -166,12 +175,23 @@ export default function TasksPage() {
             All tasks across your pipeline. Create one here or directly on any deal page.
           </p>
         </div>
-        <button
-          onClick={() => setShowForm(v => !v)}
-          className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700"
-        >
-          <Plus className="w-4 h-4" /> New Task
-        </button>
+        <div className="flex items-center gap-2">
+          {counts.completed > 0 && (
+            <button
+              onClick={clearCompleted}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-red-50 hover:text-red-700 hover:border-red-200 transition"
+              title="Delete all completed tasks"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Clear completed ({counts.completed})
+            </button>
+          )}
+          <button
+            onClick={() => setShowForm(v => !v)}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+          >
+            <Plus className="w-4 h-4" /> New Task
+          </button>
+        </div>
       </div>
 
       {/* Filter chips + search */}
