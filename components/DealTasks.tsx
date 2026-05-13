@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { DealTask, TASK_ASSIGNEES } from '@/lib/types'
 import {
   CheckCircle2, Circle, Trash2, Plus, X, Calendar, User,
-  ExternalLink, Flame,
+  ExternalLink, Flame, Pencil,
 } from 'lucide-react'
 
 // ── Date helpers (same shape as EscrowTracker's, kept local for portability) ─
@@ -99,6 +99,14 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
     setShowForm(false)
   }
 
+  const [editingId, setEditingId] = useState<string | null>(null)
+  async function updateTask(id: string, patch: Omit<DealTask, 'id' | 'created_at'>) {
+    const { error } = await supabase.from('deal_tasks').update(patch).eq('id', id)
+    if (error) { alert('Update failed: ' + error.message); return }
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))
+    setEditingId(null)
+  }
+
   // Sort: incomplete first (by due asc), then completed (most recent first)
   const sorted = [...tasks].sort((a, b) => {
     if (!a.completed_at && b.completed_at) return -1
@@ -146,12 +154,21 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
         <p className="text-sm text-slate-400 italic">No tasks yet — click <strong>Add task</strong> above to create one.</p>
       ) : (
         <div className="space-y-1.5">
-          {sorted.map(task => (
+          {sorted.map(task => editingId === task.id ? (
+            <TaskForm
+              key={task.id}
+              initialTask={task}
+              onSubmit={t => updateTask(task.id, { ...t, deal_id: dealId ?? t.deal_id ?? null })}
+              onCancel={() => setEditingId(null)}
+              forcedDealId={dealId}
+            />
+          ) : (
             <TaskRow
               key={task.id}
               task={task}
               onToggle={() => toggleComplete(task)}
               onDelete={() => deleteTask(task.id)}
+              onEdit={() => setEditingId(task.id)}
               dealName={showDealLink && task.deal_id ? dealNames?.get(task.deal_id) : undefined}
               showDealLink={!!showDealLink && !!task.deal_id}
             />
@@ -164,10 +181,11 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
 }
 
 // ── Task row (used in both deal page + tasks tab) ───────────────────────────
-function TaskRow({ task, onToggle, onDelete, dealName, showDealLink }: {
+function TaskRow({ task, onToggle, onDelete, onEdit, dealName, showDealLink }: {
   task: DealTask
   onToggle: () => void
   onDelete: () => void
+  onEdit?: () => void
   dealName?: string
   showDealLink?: boolean
 }) {
@@ -223,54 +241,72 @@ function TaskRow({ task, onToggle, onDelete, dealName, showDealLink }: {
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={onDelete}
-        className="shrink-0 p-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
-        title="Delete task"
-      >
-        <Trash2 className="w-3.5 h-3.5" />
-      </button>
+      <div className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
+        {onEdit && (
+          <button
+            type="button"
+            onClick={onEdit}
+            className="p-1 text-slate-300 hover:text-blue-600"
+            title="Edit task"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onDelete}
+          className="p-1 text-slate-300 hover:text-red-500"
+          title="Delete task"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
     </div>
   )
 }
 
-// ── New-task form ───────────────────────────────────────────────────────────
-function TaskForm({ onSubmit, onCancel, forcedDealId }: {
+// ── Task form (create or edit) ──────────────────────────────────────────────
+function TaskForm({ initialTask, onSubmit, onCancel, forcedDealId }: {
+  initialTask?: DealTask
   onSubmit: (t: Omit<DealTask, 'id' | 'created_at'>) => void
   onCancel: () => void
   forcedDealId?: string
 }) {
-  const now = new Date()
-  const defaultDate = (() => {
+  const isEdit = !!initialTask
+  // Defaults for create mode: tomorrow at 09:00
+  const defaultDateCreate = (() => {
+    const now = new Date()
     const pad = (n: number) => String(n).padStart(2, '0')
-    return `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate()+1)}` // tomorrow
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate() + 1)}`
   })()
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-  const [date, setDate] = useState(defaultDate)
-  const [time, setTime] = useState('09:00')
-  const [assignee, setAssignee] = useState<string>('')
-  const [priority, setPriority] = useState<string>('normal')
+  // Edit mode: pull date/time from initialTask.due_at
+  const initialDT = initialTask?.due_at ? splitDateTime(initialTask.due_at) : { date: defaultDateCreate, time: '09:00' }
+
+  const [title, setTitle] = useState(initialTask?.title || '')
+  const [description, setDescription] = useState(initialTask?.description || '')
+  const [date, setDate] = useState(initialDT.date)
+  const [time, setTime] = useState(initialDT.time || '09:00')
+  const [assignee, setAssignee] = useState<string>(initialTask?.assignee || '')
+  const [priority, setPriority] = useState<string>(initialTask?.priority || 'normal')
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!title.trim()) return
     onSubmit({
-      deal_id: forcedDealId ?? null,
+      deal_id: forcedDealId ?? initialTask?.deal_id ?? null,
       title: title.trim(),
       description: description.trim() || null,
       due_at: combineDateTime(date, time),
       assignee: assignee || null,
       priority,
-      completed_at: null,
+      completed_at: initialTask?.completed_at ?? null, // preserve completed state when editing
     })
   }
 
   return (
     <form onSubmit={handleSubmit} className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-3 space-y-2">
       <div className="flex items-center justify-between">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">New Task</h4>
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{isEdit ? 'Edit Task' : 'New Task'}</h4>
         <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-700">
           <X className="w-4 h-4" />
         </button>
@@ -343,7 +379,7 @@ function TaskForm({ onSubmit, onCancel, forcedDealId }: {
           Cancel
         </button>
         <button type="submit" disabled={!title.trim()} className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-40">
-          Create task
+          {isEdit ? 'Save changes' : 'Create task'}
         </button>
       </div>
     </form>

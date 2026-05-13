@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { DealTask, Deal, TASK_ASSIGNEES } from '@/lib/types'
 import {
   ClipboardList, Plus, X, Search, CheckCircle2, Circle,
-  Calendar, User, Flame, ExternalLink, Trash2,
+  Calendar, User, Flame, ExternalLink, Trash2, Pencil,
 } from 'lucide-react'
 
 type FilterMode = 'open' | 'today' | 'overdue' | 'week' | 'completed' | 'all'
@@ -15,6 +15,16 @@ function combineDateTime(date: string, time: string): string | null {
   if (!date) return null
   const d = new Date(`${date}T${time || '09:00'}`)
   return isNaN(d.getTime()) ? null : d.toISOString()
+}
+function splitDateTime(iso: string | null | undefined): { date: string; time: string } {
+  if (!iso) return { date: '', time: '' }
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return { date: '', time: '' }
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return {
+    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+  }
 }
 function startOfDay(d = new Date()) { const x = new Date(d); x.setHours(0,0,0,0); return x }
 function endOfDay(d = new Date()) { const x = new Date(d); x.setHours(23,59,59,999); return x }
@@ -163,6 +173,14 @@ export default function TasksPage() {
     setTasks(prev => prev.filter(t => !t.completed_at))
   }
 
+  const [editingId, setEditingId] = useState<string | null>(null)
+  async function updateTask(id: string, patch: Omit<DealTask, 'id' | 'created_at'>) {
+    const { error } = await supabase.from('deal_tasks').update(patch).eq('id', id)
+    if (error) { alert('Update failed: ' + error.message); return }
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))
+    setEditingId(null)
+  }
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       {/* Header */}
@@ -249,13 +267,22 @@ export default function TasksPage() {
         </div>
       ) : (
         <div className="space-y-1.5">
-          {filtered.map(t => (
+          {filtered.map(t => editingId === t.id ? (
+            <NewTaskForm
+              key={t.id}
+              deals={deals}
+              initialTask={t}
+              onSubmit={patch => updateTask(t.id, patch)}
+              onCancel={() => setEditingId(null)}
+            />
+          ) : (
             <TaskRow
               key={t.id}
               task={t}
               dealName={t.deal_id ? dealNames.get(t.deal_id) : undefined}
               onToggle={() => toggleComplete(t)}
               onDelete={() => deleteTask(t.id)}
+              onEdit={() => setEditingId(t.id)}
             />
           ))}
         </div>
@@ -283,8 +310,8 @@ function FilterChip({ active, onClick, label, count, tone }: {
   )
 }
 
-function TaskRow({ task, dealName, onToggle, onDelete }: {
-  task: DealTask; dealName?: string; onToggle: () => void; onDelete: () => void
+function TaskRow({ task, dealName, onToggle, onDelete, onEdit }: {
+  task: DealTask; dealName?: string; onToggle: () => void; onDelete: () => void; onEdit?: () => void
 }) {
   const due = relativeDue(task.due_at)
   const done = !!task.completed_at
@@ -327,30 +354,40 @@ function TaskRow({ task, dealName, onToggle, onDelete }: {
           )}
         </div>
       </div>
-      <button onClick={onDelete} className="shrink-0 p-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition" title="Delete">
-        <Trash2 className="w-3.5 h-3.5" />
-      </button>
+      <div className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
+        {onEdit && (
+          <button onClick={onEdit} className="p-1 text-slate-300 hover:text-blue-600" title="Edit task">
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+        )}
+        <button onClick={onDelete} className="p-1 text-slate-300 hover:text-red-500" title="Delete">
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
     </div>
   )
 }
 
-// ── Create-task form for the global Tasks page (includes deal picker) ──────
-function NewTaskForm({ deals, onSubmit, onCancel }: {
+// ── Task form for the global Tasks page (create + edit, includes deal picker) ─
+function NewTaskForm({ deals, initialTask, onSubmit, onCancel }: {
   deals: Deal[]
+  initialTask?: DealTask
   onSubmit: (t: Omit<DealTask, 'id' | 'created_at'>) => void
   onCancel: () => void
 }) {
+  const isEdit = !!initialTask
   const now = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
   const tomorrow = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate() + 1)}`
+  const initialDT = initialTask?.due_at ? splitDateTime(initialTask.due_at) : { date: tomorrow, time: '09:00' }
 
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-  const [date, setDate] = useState(tomorrow)
-  const [time, setTime] = useState('09:00')
-  const [assignee, setAssignee] = useState('')
-  const [priority, setPriority] = useState('normal')
-  const [dealId, setDealId] = useState<string>('')
+  const [title, setTitle] = useState(initialTask?.title || '')
+  const [description, setDescription] = useState(initialTask?.description || '')
+  const [date, setDate] = useState(initialDT.date)
+  const [time, setTime] = useState(initialDT.time || '09:00')
+  const [assignee, setAssignee] = useState(initialTask?.assignee || '')
+  const [priority, setPriority] = useState(initialTask?.priority || 'normal')
+  const [dealId, setDealId] = useState<string>(initialTask?.deal_id || '')
   const [dealSearch, setDealSearch] = useState('')
 
   const matchingDeals = useMemo(() => {
@@ -369,14 +406,14 @@ function NewTaskForm({ deals, onSubmit, onCancel }: {
       due_at: combineDateTime(date, time),
       assignee: assignee || null,
       priority,
-      completed_at: null,
+      completed_at: initialTask?.completed_at ?? null, // preserve complete state when editing
     })
   }
 
   return (
     <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-xl p-5 mb-5 shadow-sm space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-800">New Task</h3>
+        <h3 className="text-sm font-semibold text-slate-800">{isEdit ? 'Edit Task' : 'New Task'}</h3>
         <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-700">
           <X className="w-4 h-4" />
         </button>
@@ -469,7 +506,7 @@ function NewTaskForm({ deals, onSubmit, onCancel }: {
       <div className="flex justify-end gap-2 pt-1">
         <button type="button" onClick={onCancel} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
         <button type="submit" disabled={!title.trim()} className="px-4 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-40">
-          Create task
+          {isEdit ? 'Save changes' : 'Create task'}
         </button>
       </div>
     </form>
