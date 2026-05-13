@@ -11,12 +11,13 @@ import { use } from 'react'
 import {
   ArrowLeft, Check, Trash2, X, ExternalLink,
   DollarSign, Home, Lock, Hash, User, Users,
-  Calendar, Bell, MessageSquare, Building2, Phone, AlertOctagon,
+  Calendar, Bell, MessageSquare, Building2, Phone, AlertOctagon, ClipboardList,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import LoanHistory from '@/components/LoanHistory'
 import RealEstateOwned from '@/components/RealEstateOwned'
 import CommunicationsLog from '@/components/CommunicationsLog'
+import DealTasks from '@/components/DealTasks'
 import { WAITING_ON_OPTIONS } from '@/lib/types'
 import type { REOProperty, Communication } from '@/lib/types'
 
@@ -644,6 +645,11 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                 value={(form.communications as Communication[] | null) || []}
                 onChange={v => set('communications', v)}
               />
+            </Section>
+
+            {/* Tasks — tied to this deal, also visible on /tasks */}
+            <Section title="Tasks" icon={<ClipboardList className="w-4 h-4" />}>
+              <DealTasks dealId={id} />
             </Section>
 
             {/* Notes */}

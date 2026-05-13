@@ -79,6 +79,26 @@ export const WAITING_ON_OPTIONS = [
   'Insurance', 'Employer (VOE)', 'Lender', 'Processor', 'No one',
 ] as const
 
+// ── Tasks ──────────────────────────────────────────────────────────────────
+// Stored in a separate `deal_tasks` table. deal_id is nullable so standalone
+// tasks (not tied to a specific lead) can be created from the Tasks page.
+export type DealTask = {
+  id: string
+  deal_id: string | null
+  title: string
+  description: string | null
+  due_at: string | null             // ISO timestamp
+  assignee: string | null
+  priority: string | null           // 'high' | 'normal' | 'low'
+  completed_at: string | null       // ISO timestamp when marked done
+  created_at: string
+}
+
+export const TASK_ASSIGNEES = [
+  'Matt Park', 'Moe Sefati', 'Efrain Ramirez',
+  'Lexi - 3rd party', 'Hanh - 3rd party', 'Susan - In house',
+] as const
+
 // ── Communications log ──────────────────────────────────────────────────────
 export type Communication = {
   id: string
