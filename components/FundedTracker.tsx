@@ -224,11 +224,11 @@ function FundedCard({ deal, dragHandleProps }: {
       {/* Drag handle / header */}
       <div
         {...dragHandleProps}
-        className={`px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-2 ${dragHandleProps ? 'cursor-grab active:cursor-grabbing select-none' : ''}`}
+        className={`px-4 py-2.5 bg-slate-200 border-b border-slate-300 flex items-center justify-between gap-2 ${dragHandleProps ? 'cursor-grab active:cursor-grabbing select-none' : ''}`}
         title={dragHandleProps ? 'Drag to move to another stage' : undefined}
       >
         <div className="flex items-center gap-1.5 min-w-0">
-          {dragHandleProps && <GripVertical className="w-3.5 h-3.5 text-slate-300 shrink-0" />}
+          {dragHandleProps && <GripVertical className="w-3.5 h-3.5 text-slate-500 shrink-0" />}
           <Link
             href={`/deals/${deal.id}`}
             onPointerDown={e => e.stopPropagation()}
