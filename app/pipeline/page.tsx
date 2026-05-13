@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef, Suspense } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
@@ -8,10 +8,10 @@ import {
 } from '@dnd-kit/core'
 import { useDroppable, useDraggable } from '@dnd-kit/core'
 import { supabase } from '@/lib/supabase'
-import { Deal, LOAN_STATUSES, STATUS_COLORS, LOAN_TYPES, OCCUPANCY_TYPES } from '@/lib/types'
+import { Deal, LOAN_STATUSES, STATUS_COLORS, LOAN_TYPES, OCCUPANCY_TYPES, LOAN_OFFICERS, APPRAISAL_STATUSES, WAITING_ON_OPTIONS } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import Link from 'next/link'
-import { RefreshCw, Lock, Clock, AlertTriangle, ChevronDown, X, LayoutGrid, List, Bookmark, Trash2, ArrowRight, Check, Pencil, Calendar, User, Building2, ChevronLeft, Search, SlidersHorizontal, Filter } from 'lucide-react'
+import { RefreshCw, Lock, Clock, AlertTriangle, ChevronDown, X, LayoutGrid, List, Bookmark, Trash2, ArrowRight, Check, Pencil, Calendar, User, Building2, ChevronLeft, Search, SlidersHorizontal, Filter, DollarSign, Home, Hash, Tag, Briefcase, Phone, Mail, MapPin, AlertOctagon, Flame, Star, Activity } from 'lucide-react'
 
 // ── Pipeline config — single source of truth for stages per pipeline ──────────
 
@@ -1177,24 +1177,102 @@ function PipelinePageInner() {
   }
 
   async function handleBulkEditApply() {
-    if (!bulkEditField || bulkEditField === 'menu' || !bulkEditValue) return
+    if (!bulkEditField || bulkEditField === 'menu' || bulkEditValue === '') return
+    const field = BULK_EDIT_FIELDS.find(f => f.key === bulkEditField)
+    if (!field) return
+
     setBulkWorking(true)
     const ids = Array.from(selectedIds)
-    await supabase.from('deals').update({ [bulkEditField]: bulkEditValue }).in('id', ids)
+
+    // Coerce the string input to the right shape for the column type
+    let value: string | number | null = bulkEditValue
+    if (field.type === 'number' || field.type === 'currency' || field.type === 'percent') {
+      const n = Number(bulkEditValue)
+      value = Number.isNaN(n) ? null : n
+    }
+    if (field.type === 'datetime-local') {
+      // datetime-local gives us local time; convert to ISO
+      const d = new Date(bulkEditValue)
+      value = isNaN(d.getTime()) ? null : d.toISOString()
+    }
+
+    await supabase.from('deals').update({ [bulkEditField]: value }).in('id', ids)
     setDeals(prev => prev.map(d =>
-      selectedIds.has(d.id) ? { ...d, [bulkEditField]: bulkEditValue, updated_at: new Date().toISOString() } : d
+      selectedIds.has(d.id) ? { ...d, [bulkEditField]: value, updated_at: new Date().toISOString() } : d
     ))
-    setSelectedIds(new Set()); setBulkEditField(null); setBulkEditValue(''); setBulkWorking(false)
+    setSelectedIds(new Set()); setBulkEditField(null); setBulkEditValue(''); setBulkEditSearch(''); setBulkWorking(false)
   }
 
-  type BulkField = { key: string; label: string; type: 'date' | 'select' | 'text'; icon: React.ReactNode; options?: string[]; placeholder?: string }
+  type BulkField = {
+    key: string; label: string; category: string
+    type: 'date' | 'datetime-local' | 'select' | 'text' | 'number' | 'currency' | 'percent'
+    icon: React.ReactNode
+    options?: readonly string[] | string[]
+    placeholder?: string
+  }
   const BULK_EDIT_FIELDS: BulkField[] = [
-    { key: 'funded_date',  label: 'Funded Date',  type: 'date',   icon: <Calendar className="w-3.5 h-3.5 text-emerald-500" /> },
-    { key: 'signing_date', label: 'Signing Date',  type: 'date',   icon: <Calendar className="w-3.5 h-3.5 text-blue-500" /> },
-    { key: 'loan_officer', label: 'Loan Officer',  type: 'select', icon: <User className="w-3.5 h-3.5 text-violet-500" />, options: ['Matt', 'Moe Sefati'] },
-    { key: 'investor',     label: 'Investor',      type: 'text',   icon: <Building2 className="w-3.5 h-3.5 text-amber-500" />, placeholder: 'e.g. UWM, Pennymac…' },
+    // Workflow
+    { key: 'status',               label: 'Status',           category: 'Workflow', type: 'select',         icon: <Tag className="w-3.5 h-3.5 text-violet-500" />,        options: LOAN_STATUSES },
+    { key: 'loan_officer',         label: 'Loan Officer',     category: 'Workflow', type: 'select',         icon: <User className="w-3.5 h-3.5 text-violet-500" />,       options: LOAN_OFFICERS },
+    { key: 'processor_status',     label: 'Processor',        category: 'Workflow', type: 'select',         icon: <User className="w-3.5 h-3.5 text-cyan-500" />,         options: ['Lexi - 3rd party', 'Hanh - 3rd party', 'Susan - In house', 'Self Processing'] },
+    { key: 'next_action_assignee', label: 'Assigned To',      category: 'Workflow', type: 'select',         icon: <User className="w-3.5 h-3.5 text-blue-500" />,         options: [...LOAN_OFFICERS, 'Efrain Ramirez', 'Lexi - 3rd party', 'Hanh - 3rd party', 'Susan - In house'] },
+    { key: 'next_action_due',      label: 'Follow-up Date',   category: 'Workflow', type: 'datetime-local', icon: <Clock className="w-3.5 h-3.5 text-orange-500" /> },
+    { key: 'escrow_priority',      label: 'Priority',         category: 'Workflow', type: 'select',         icon: <Flame className="w-3.5 h-3.5 text-red-500" />,         options: ['high', 'normal', 'low'] },
+    { key: 'waiting_on',           label: 'Waiting On',       category: 'Workflow', type: 'select',         icon: <AlertOctagon className="w-3.5 h-3.5 text-amber-500" />, options: WAITING_ON_OPTIONS },
+    // Loan
+    { key: 'loan_type',            label: 'Loan Type',        category: 'Loan',     type: 'select',         icon: <DollarSign className="w-3.5 h-3.5 text-emerald-500" />, options: LOAN_TYPES },
+    { key: 'loan_purpose',         label: 'Loan Purpose',     category: 'Loan',     type: 'select',         icon: <DollarSign className="w-3.5 h-3.5 text-emerald-500" />, options: ['Purchase', 'Refinance', 'Cash-Out Refinance', 'HELOC'] },
+    { key: 'loan_amount',          label: 'Loan Amount',      category: 'Loan',     type: 'currency',       icon: <DollarSign className="w-3.5 h-3.5 text-emerald-500" /> },
+    { key: 'estimated_value',      label: 'Property Value',   category: 'Loan',     type: 'currency',       icon: <DollarSign className="w-3.5 h-3.5 text-emerald-500" /> },
+    { key: 'rate',                 label: 'Rate',             category: 'Loan',     type: 'percent',        icon: <Activity className="w-3.5 h-3.5 text-blue-500" /> },
+    { key: 'investor',             label: 'Investor',         category: 'Loan',     type: 'text',           icon: <Building2 className="w-3.5 h-3.5 text-amber-500" />,    placeholder: 'e.g. UWM, PennyMac, Rocket' },
+    { key: 'broker_corr',          label: 'Broker / Corr.',   category: 'Loan',     type: 'select',         icon: <Briefcase className="w-3.5 h-3.5 text-slate-500" />,    options: ['Broker', 'Correspondent'] },
+    { key: 'source',               label: 'Source',           category: 'Loan',     type: 'select',         icon: <Tag className="w-3.5 h-3.5 text-cyan-500" />,           options: ['GHL', 'Self Source', 'Referral', 'Past Client', 'Open House', 'Agent Partner', 'Financial Advisor', 'Builder', 'Online / Social', 'Lendgo', 'FRU', 'Lending Tree'] },
+    // Borrower
+    { key: 'credit_score',         label: 'Credit Score',     category: 'Borrower', type: 'number',         icon: <Star className="w-3.5 h-3.5 text-emerald-500" /> },
+    { key: 'credit_rating',        label: 'Credit Rating',    category: 'Borrower', type: 'select',         icon: <Star className="w-3.5 h-3.5 text-emerald-500" />,      options: ['Excellent', 'Good', 'Fair', 'Poor'] },
+    // Property
+    { key: 'property_type',        label: 'Property Type',    category: 'Property', type: 'select',         icon: <Home className="w-3.5 h-3.5 text-orange-500" />,        options: ['Single Family', 'Manufactured', 'Condo', 'Townhouse', 'Multi-Family (2-4)', 'Commercial', 'Land'] },
+    { key: 'occupancy',            label: 'Occupancy',        category: 'Property', type: 'select',         icon: <Home className="w-3.5 h-3.5 text-orange-500" />,        options: OCCUPANCY_TYPES },
+    { key: 'city',                 label: 'City',             category: 'Property', type: 'text',           icon: <MapPin className="w-3.5 h-3.5 text-slate-500" /> },
+    { key: 'state',                label: 'State',            category: 'Property', type: 'text',           icon: <MapPin className="w-3.5 h-3.5 text-slate-500" />,       placeholder: '2-letter (e.g. CA)' },
+    { key: 'zip',                  label: 'Zip',              category: 'Property', type: 'text',           icon: <MapPin className="w-3.5 h-3.5 text-slate-500" /> },
+    // Lock & Appraisal
+    { key: 'locked',               label: 'Locked?',          category: 'Lock & Appraisal', type: 'select', icon: <Lock className="w-3.5 h-3.5 text-emerald-500" />,       options: ['No', 'Yes', 'NA'] },
+    { key: 'lock_expiration',      label: 'Lock Expiration',  category: 'Lock & Appraisal', type: 'date',   icon: <Lock className="w-3.5 h-3.5 text-emerald-500" /> },
+    { key: 'appraisal_status',     label: 'Appraisal Status', category: 'Lock & Appraisal', type: 'select', icon: <Home className="w-3.5 h-3.5 text-slate-500" />,         options: APPRAISAL_STATUSES },
+    // File Numbers
+    { key: 'arive_file_no',        label: 'Arive File #',     category: 'Files',    type: 'text',           icon: <Hash className="w-3.5 h-3.5 text-slate-500" /> },
+    { key: 'investor_file_no',     label: 'Investor File #',  category: 'Files',    type: 'text',           icon: <Hash className="w-3.5 h-3.5 text-slate-500" /> },
+    // Contact
+    { key: 'email',                label: 'Email',            category: 'Contact',  type: 'text',           icon: <Mail className="w-3.5 h-3.5 text-blue-500" /> },
+    { key: 'phone',                label: 'Phone',            category: 'Contact',  type: 'text',           icon: <Phone className="w-3.5 h-3.5 text-emerald-500" /> },
+    // Dates
+    { key: 'signing_date',         label: 'Signing Date',     category: 'Dates',    type: 'date',           icon: <Calendar className="w-3.5 h-3.5 text-blue-500" /> },
+    { key: 'funded_date',          label: 'Funded Date',      category: 'Dates',    type: 'date',           icon: <Calendar className="w-3.5 h-3.5 text-emerald-500" /> },
+    { key: 'paid_date',            label: 'Paid Date',        category: 'Dates',    type: 'date',           icon: <Calendar className="w-3.5 h-3.5 text-emerald-500" /> },
+    { key: 'last_contacted',       label: 'Last Contacted',   category: 'Dates',    type: 'date',           icon: <Calendar className="w-3.5 h-3.5 text-slate-500" /> },
   ]
   const activeBulkField = BULK_EDIT_FIELDS.find(f => f.key === bulkEditField)
+
+  // Search the bulk-edit menu for fast access when there are 30+ fields
+  const [bulkEditSearch, setBulkEditSearch] = useState('')
+  const filteredBulkFields = useMemo(() => {
+    if (!bulkEditSearch.trim()) return BULK_EDIT_FIELDS
+    const q = bulkEditSearch.toLowerCase().trim()
+    return BULK_EDIT_FIELDS.filter(f =>
+      f.label.toLowerCase().includes(q) || f.category.toLowerCase().includes(q),
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bulkEditSearch])
+
+  // Group fields by category for rendering
+  const bulkFieldsByCategory = useMemo(() => {
+    const groups: Record<string, BulkField[]> = {}
+    for (const f of filteredBulkFields) (groups[f.category] ??= []).push(f)
+    return groups
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredBulkFields])
 
   // ── Status + pipeline change ──────────────────────────────────────────────
   async function handleStatusChange(dealId: string, newStatus: string) {
@@ -1928,20 +2006,43 @@ function PipelinePageInner() {
               <Pencil className="w-3.5 h-3.5" /> Edit Fields
             </button>
             {bulkEditField === 'menu' && (
-              <div className="absolute bottom-full mb-2 left-0 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 w-52 text-slate-700 overflow-hidden">
-                <div className="px-3 py-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wide border-b border-slate-100 mb-1">
+              <div className="absolute bottom-full mb-2 left-0 bg-white rounded-xl shadow-xl border border-slate-200 w-64 text-slate-700 overflow-hidden">
+                <div className="px-3 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wide border-b border-slate-100">
                   Edit {selectedIds.size} deal{selectedIds.size > 1 ? 's' : ''}
                 </div>
-                {BULK_EDIT_FIELDS.map(f => (
-                  <button key={f.key} onClick={() => { setBulkEditField(f.key); setBulkEditValue('') }}
-                    className="w-full text-left text-sm px-3 py-2 hover:bg-slate-50 transition-colors flex items-center gap-2.5">
-                    {f.icon}<span>{f.label}</span>
-                  </button>
-                ))}
+                <div className="px-2 pt-2">
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                    <input
+                      autoFocus
+                      value={bulkEditSearch}
+                      onChange={e => setBulkEditSearch(e.target.value)}
+                      placeholder="Search fields…"
+                      className="w-full pl-7 pr-2 py-1.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+                <div className="max-h-80 overflow-y-auto py-1">
+                  {Object.entries(bulkFieldsByCategory).length === 0 ? (
+                    <div className="px-3 py-4 text-center text-xs text-slate-400">No matching fields</div>
+                  ) : Object.entries(bulkFieldsByCategory).map(([cat, fields]) => (
+                    <div key={cat}>
+                      <div className="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                        {cat}
+                      </div>
+                      {fields.map(f => (
+                        <button key={f.key} onClick={() => { setBulkEditField(f.key); setBulkEditValue('') }}
+                          className="w-full text-left text-sm px-3 py-1.5 hover:bg-slate-50 transition-colors flex items-center gap-2.5">
+                          {f.icon}<span>{f.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             {activeBulkField && (
-              <div className="absolute bottom-full mb-2 left-0 bg-white rounded-xl shadow-xl border border-slate-200 p-4 w-64 text-slate-700">
+              <div className="absolute bottom-full mb-2 left-0 bg-white rounded-xl shadow-xl border border-slate-200 p-4 w-72 text-slate-700">
                 <div className="flex items-center gap-2 mb-1">
                   <button onClick={() => { setBulkEditField('menu'); setBulkEditValue('') }} className="text-slate-400 hover:text-slate-600" title="Back">
                     <ChevronLeft className="w-4 h-4" />
@@ -1950,8 +2051,13 @@ function PipelinePageInner() {
                   <button onClick={() => setBulkEditField(null)} className="ml-auto text-slate-400 hover:text-slate-600"><X className="w-4 h-4" /></button>
                 </div>
                 <p className="text-xs text-slate-400 mb-3 ml-6">Apply to {selectedIds.size} selected deal{selectedIds.size > 1 ? 's' : ''}</p>
+
                 {activeBulkField.type === 'date' && (
                   <input type="date" value={bulkEditValue} onChange={e => setBulkEditValue(e.target.value)}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3" />
+                )}
+                {activeBulkField.type === 'datetime-local' && (
+                  <input type="datetime-local" value={bulkEditValue} onChange={e => setBulkEditValue(e.target.value)}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3" />
                 )}
                 {activeBulkField.type === 'select' && (
@@ -1966,10 +2072,30 @@ function PipelinePageInner() {
                     placeholder={activeBulkField.placeholder}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3" />
                 )}
+                {activeBulkField.type === 'number' && (
+                  <input type="number" value={bulkEditValue} onChange={e => setBulkEditValue(e.target.value)}
+                    placeholder={activeBulkField.placeholder}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3 tabular-nums" />
+                )}
+                {activeBulkField.type === 'currency' && (
+                  <div className="relative mb-3">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">$</span>
+                    <input type="number" value={bulkEditValue} onChange={e => setBulkEditValue(e.target.value)}
+                      className="w-full pl-7 pr-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 tabular-nums" />
+                  </div>
+                )}
+                {activeBulkField.type === 'percent' && (
+                  <div className="relative mb-3">
+                    <input type="number" step="0.001" value={bulkEditValue} onChange={e => setBulkEditValue(e.target.value)}
+                      className="w-full pl-3 pr-7 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 tabular-nums" />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">%</span>
+                  </div>
+                )}
+
                 <div className="flex gap-2">
                   <button onClick={() => setBulkEditField('menu')}
                     className="flex-1 px-3 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">Back</button>
-                  <button onClick={handleBulkEditApply} disabled={!bulkEditValue || bulkWorking}
+                  <button onClick={handleBulkEditApply} disabled={bulkEditValue === '' || bulkWorking}
                     className="flex-1 px-3 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors">
                     {bulkWorking ? 'Saving…' : 'Apply'}
                   </button>
