@@ -9,6 +9,12 @@ async function validateGHLSignature(req: NextRequest, rawBody: string): Promise<
   const secret = process.env.GHL_WEBHOOK_SECRET
   if (!secret) return true // Skip validation if secret not configured (dev mode)
 
+  // Path 1 — shared secret via ?secret= or x-webhook-secret header.
+  // This is what GHL *Workflow* webhook actions use (they don't HMAC-sign).
+  const shared = new URL(req.url).searchParams.get('secret') || req.headers.get('x-webhook-secret')
+  if (shared && shared === secret) return true
+
+  // Path 2 — HMAC signature (native GHL app/marketplace webhooks).
   const signature = req.headers.get('x-ghl-signature') ||
                     req.headers.get('x-hub-signature-256') ||
                     req.headers.get('x-signature')
@@ -74,6 +80,18 @@ function pick(body: Record<string, unknown>, ...keys: string[]): string | null {
     }
   }
   return null
+}
+
+function channelLabel(type: string | null | undefined): string {
+  if (!type) return 'Text'
+  const t = String(type).toUpperCase()
+  if (t.includes('SMS') || t.includes('TEXT')) return 'Text'
+  if (t.includes('CALL') || t.includes('PHONE') || t.includes('VOICE') || t.includes('NO_SHOW')) return 'Call'
+  if (t.includes('EMAIL')) return 'Email'
+  if (t.includes('FB') || t.includes('FACEBOOK')) return 'Facebook'
+  if (t.includes('IG') || t.includes('INSTAGRAM')) return 'Instagram'
+  if (t.includes('WHATSAPP')) return 'WhatsApp'
+  return 'Text'
 }
 
 function buildNameFromObj(obj: Record<string, unknown> | null | undefined): string | null {
@@ -285,6 +303,34 @@ export async function POST(req: NextRequest) {
     console.log('[GHL Webhook] Event type:', eventType)
 
     // ══════════════════════════════════════════════════════════════════════════
+    // MESSAGE EVENTS — instant "client waiting" toggle (real-time)
+    //   inbound  → client texted/called us  → flag waiting + stamp last contact
+    //   outbound → we replied               → clear waiting + stamp last contact
+    // Works with native GHL InboundMessage/OutboundMessage events AND with a
+    // Workflow webhook that sends event=inbound_message / outbound_message.
+    // ══════════════════════════════════════════════════════════════════════════
+    {
+      const ev = eventType.toLowerCase()
+      const isInbound  = ev.includes('inbound')
+      const isOutbound = ev.includes('outbound')
+      if (isInbound || isOutbound) {
+        const msgContactId =
+          pick(body, 'contactId', 'contact_id') ||
+          pick((body.contact as Record<string, unknown>) || {}, 'id')
+        if (!msgContactId) return NextResponse.json({ success: false, reason: 'no contactId on message event' })
+        const channel = channelLabel(pick(body, 'messageType', 'message_type', 'channel'))
+        const { error } = await supabase.from('deals').update({
+          last_communication_at: new Date().toISOString(),
+          last_communication_type: channel,
+          comm_unread_count: isInbound ? 1 : 0,
+        }).eq('ghl_contact_id', msgContactId)
+        if (error) console.error('[GHL Webhook] message update error:', error.message)
+        console.log(`[GHL Webhook] ${isInbound ? 'inbound' : 'outbound'} message → contact ${msgContactId} (${channel})`)
+        return NextResponse.json({ success: true, action: isInbound ? 'inbound_message' : 'outbound_message', contactId: msgContactId })
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // NOTE CREATE — append to lo_notes
     // ══════════════════════════════════════════════════════════════════════════
     if (eventType === 'NoteCreate' || eventType === 'note.create') {
@@ -346,27 +392,20 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // If deal not found, create it from opportunity data
-      if (oppContactId && oppName) {
-        const { data } = await supabase.from('deals').insert({
-          name: oppName,
-          ghl_contact_id: oppContactId,
-          status: stage?.status || 'Client',
-          pipeline_group: stage?.pipeline_group || 'LEADS',
-          source: 'GHL',
-          raw_ghl_data: body,
-        }).select().single()
-        return NextResponse.json({ success: true, action: 'created_from_opportunity', dealId: data?.id })
-      }
-
-      return NextResponse.json({ success: false, reason: 'Could not resolve stage or contact' })
+      // Deal not found — do NOT create here. The webhook is update-only; the
+      // 3-min sync owns creation (it keys by opportunity ID and dedupes
+      // correctly). Creating here produced rows with no ghl_opportunity_id /
+      // ghl_location_id that the sync then duplicated. The sync will pick this
+      // lead up and the next stage-change webhook will match it by contact_id.
+      console.log('[GHL Webhook] Stage change for unknown deal — deferring to sync:', oppContactId)
+      return NextResponse.json({ success: false, reason: 'no matching deal; sync will create it' })
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // CONTACT CREATE / UPDATE — full field sync
     // ══════════════════════════════════════════════════════════════════════════
     const fields = extractFields(body)
-    const { ghlContactId, fullName, firstName, lastName, email, phone } = fields
+    const { ghlContactId, fullName, email, phone } = fields
 
     // ── Duplicate check ───────────────────────────────────────────────────────
     // Try contact_id → email → phone so that if GHL assigns this person a NEW
@@ -417,55 +456,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, action: 'updated', dealId: match.id, matchedBy: match.matchedBy })
     }
 
-    // ── Create new deal ───────────────────────────────────────────────────────
-    const { data, error } = await supabase.from('deals').insert({
-      name:              fullName,
-      first_name:        firstName || null,
-      last_name:         lastName  || null,
-      email,
-      phone,
-      status:            'New Lead',
-      pipeline_group:    'Leads',
-      source:            fields.source,
-      loan_officer:      fields.loanOfficer,
-      loan_amount:       fields.loanAmount,
-      estimated_value:   fields.estimatedValue,
-      loan_type:         fields.loanType,
-      loan_purpose:      fields.loanPurpose,
-      property_address:  fields.propertyAddress,
-      credit_score:      fields.creditScore,
-      credit_rating:     fields.creditRating,
-      rate:              fields.rate,
-      investor:          fields.investor,
-      occupancy:         fields.occupancy,
-      property_type:     fields.propertyType,
-      current_balance:   fields.currentBalance,
-      ltv:               fields.ltv,
-      cash_out:          fields.cashOut,
-      down_payment:      fields.downPayment,
-      is_military:       fields.isMilitary,
-      current_va_loan:   fields.currentVaLoan,
-      property_found:    fields.propertyFound,
-      loan_timeframe:    fields.loanTimeframe,
-      has_accepted_offer:fields.hasAcceptedOffer,
-      city:              fields.city,
-      state:             fields.state,
-      zip:               fields.zip,
-      lead_source_agg:   fields.leadSourceAgg,
-      ghl_contact_id:    ghlContactId || null,
-      ghl_tags:          fields.ghlTags,
-      ghl_assigned_user: fields.ghlAssignedUser,
-      date_added_ghl:    fields.dateAddedGHL || null,
-      last_contacted:    new Date().toISOString().split('T')[0],
-      raw_ghl_data:      body,
-    }).select().single()
-
-    if (error) {
-      console.error('[GHL Webhook] Insert error:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ success: true, action: 'created', dealId: data.id })
+    // ── No matching deal — do NOT create here ───────────────────────────────
+    // The webhook is UPDATE-ONLY. Creating a deal here is what caused the
+    // duplicate flood: the webhook can't set ghl_opportunity_id / ghl_location_id,
+    // so the 3-min sync (which keys by opportunity ID) couldn't recognize the
+    // row and inserted a second one. Plus the webhook sometimes double-fires.
+    //
+    // The sync is the single source of truth for CREATING deals — it fetches
+    // opportunities, keys each by its opportunity ID, and dedupes properly.
+    // A brand-new lead therefore appears within ~3 minutes (next sync) with the
+    // correct IDs, and every later webhook event (messages, stage, notes,
+    // fields) will then match it and update in real time.
+    console.log(`[GHL Webhook] New contact "${fullName}" has no matching deal — deferring creation to sync (contact ${ghlContactId ?? 'n/a'})`)
+    return NextResponse.json({ success: false, action: 'deferred_to_sync', reason: 'webhook is update-only; sync will create this lead' })
 
   } catch (err) {
     console.error('[GHL Webhook] Error:', err)
@@ -476,7 +479,7 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   return NextResponse.json({
     status: 'ok',
-    supported_events: ['ContactCreate', 'ContactUpdate', 'NoteCreate', 'OpportunityStageChange'],
+    supported_events: ['InboundMessage', 'OutboundMessage', 'ContactCreate', 'ContactUpdate', 'NoteCreate', 'OpportunityStageChange'],
     timestamp: new Date().toISOString(),
   })
 }
