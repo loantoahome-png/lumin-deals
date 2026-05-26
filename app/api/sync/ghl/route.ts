@@ -142,6 +142,37 @@ function sanitizeStr(val: string | null | undefined): string | null {
   return t || null
 }
 
+/**
+ * Normalize whatever GHL has in its "Loan Type" custom field down to the
+ * dashboard's family-only enum (HELOC / HELOAN / FHA / VA / Conv / Non-QM /
+ * DSCR / Hard Money). Drops junk values like "30-Yr Fixed", "Fixed",
+ * "Fixed_or_adjustable" — those aren't loan types, they're terms/structures.
+ */
+function normalizeGhlLoanType(val: string | null): string | null {
+  if (!val) return null
+  const t = val.trim().toLowerCase()
+  if (!t) return null
+  if (t.includes('heloc'))    return 'HELOC'
+  if (t.includes('heloan'))   return 'HELOAN'
+  if (t.includes('hard'))     return 'Hard Money'
+  if (t.includes('non-qm') || t.includes('non qm')) return 'Non-QM'
+  if (t.includes('dscr'))     return 'DSCR'
+  if (t.includes('va '))      return 'VA'
+  if (/\bva\b/.test(t))       return 'VA'
+  if (t.includes('fha'))      return 'FHA'
+  if (t.includes('conv'))     return 'Conv'
+  return null  // unknown → don't write, keep dashboard value
+}
+
+/** Same — but for the loan_purpose custom field. Dashboard accepts only Purchase/Refinance. */
+function normalizeGhlLoanPurpose(val: string | null): string | null {
+  if (!val) return null
+  const t = val.trim().toLowerCase()
+  if (t.includes('purchase')) return 'Purchase'
+  if (t.includes('refi'))     return 'Refinance'
+  return null
+}
+
 function getCustomField(fields: GHLCustomField[], ...keys: string[]): string | null {
   if (!Array.isArray(fields)) return null
   for (const field of fields) {
@@ -153,6 +184,60 @@ function getCustomField(fields: GHLCustomField[], ...keys: string[]): string | n
     }
   }
   return null
+}
+
+// ── Custom-field schema lookup ──────────────────────────────────────────────
+// GHL's /contacts/ endpoint returns custom field entries as bare {id, value}
+// pairs — no name, no fieldKey. To match them by human-readable name we must
+// first load the location's custom-field definitions and use them as a
+// translation table from id → fieldKey/name.
+type CustomFieldDef = { id: string; name: string; fieldKey: string }
+
+async function fetchCustomFieldDefs(locationId: string, apiKey: string): Promise<Map<string, CustomFieldDef>> {
+  const map = new Map<string, CustomFieldDef>()
+  try {
+    const res = await fetch(
+      `${GHL_BASE}/locations/${locationId}/customFields`,
+      { headers: ghlHeaders(apiKey) }
+    )
+    if (!res.ok) {
+      console.warn(`[GHL Sync] customFields schema returned ${res.status} — custom fields will not be enriched`)
+      return map
+    }
+    const data = await res.json() as { customFields?: Array<{ id?: string; name?: string; fieldKey?: string }> }
+    for (const f of data.customFields ?? []) {
+      if (f.id) {
+        map.set(f.id, {
+          id: f.id,
+          name: f.name ?? '',
+          fieldKey: f.fieldKey ?? '',
+        })
+      }
+    }
+    console.log(`[GHL Sync] Custom-field schema: ${map.size} definitions`)
+  } catch (e) {
+    console.error('[GHL Sync] customFields schema fetch failed:', e)
+  }
+  return map
+}
+
+/** Join an opportunity/contact's {id, value} custom-field entries with the
+ *  location-level schema so getCustomField() can match by name/fieldKey. */
+function enrichCustomFields(
+  fields: GHLCustomField[] | undefined,
+  defs: Map<string, CustomFieldDef>,
+): GHLCustomField[] {
+  if (!Array.isArray(fields)) return []
+  return fields.map(f => {
+    const def = f.id ? defs.get(f.id) : undefined
+    if (!def) return f
+    return {
+      ...f,
+      name:     f.name     ?? def.name,
+      fieldKey: f.fieldKey ?? def.fieldKey,
+      key:      f.key      ?? def.fieldKey,
+    }
+  })
 }
 
 function str(v: unknown): string | null {
@@ -269,6 +354,50 @@ async function fetchUserMap(
   return map
 }
 
+// ── Sync state (per-location last-synced timestamp) ───────────────────────
+// Backed by a tiny key/value table in Supabase. Used for incremental sync —
+// we skip any opportunity whose GHL updatedAt is older than the last run.
+const SYNC_STATE_KEY = (locationId: string) => `ghl_sync_last:${locationId}`
+
+async function getLastSyncedAt(
+  supabase: ReturnType<typeof createServiceClient>,
+  key: string,
+): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from('sync_state')
+      .select('value')
+      .eq('key', key)
+      .maybeSingle()
+    if (error) {
+      console.warn(`[GHL Sync] Could not read sync_state for ${key} (${error.message}). Falling back to full sync.`)
+      return null
+    }
+    const v = data?.value as { last_synced_at?: string } | null
+    return v?.last_synced_at ?? null
+  } catch (e) {
+    console.warn('[GHL Sync] sync_state read failed (table may not exist yet):', e)
+    return null
+  }
+}
+
+async function setLastSyncedAt(
+  supabase: ReturnType<typeof createServiceClient>,
+  key: string,
+  timestampIso: string,
+): Promise<void> {
+  try {
+    const { error } = await supabase.from('sync_state').upsert({
+      key,
+      value: { last_synced_at: timestampIso },
+      updated_at: new Date().toISOString(),
+    })
+    if (error) console.warn(`[GHL Sync] Could not write sync_state for ${key}: ${error.message}`)
+  } catch (e) {
+    console.warn('[GHL Sync] sync_state write failed (table may not exist yet):', e)
+  }
+}
+
 /** Look up a single GHL user by ID (fallback for agency-level users not in location map) */
 async function fetchUserById(userId: string, apiKey: string): Promise<string | null> {
   try {
@@ -281,10 +410,17 @@ async function fetchUserById(userId: string, apiKey: string): Promise<string | n
   }
 }
 
-async function fetchAllOpportunities(locationId: string, apiKey: string): Promise<GHLOpportunity[]> {
+// Returns the full opportunity list AND whether the fetch ran to completion.
+// `complete` is true only if we reached the natural end of pagination with no
+// HTTP error and without hitting the page cap. Orphan-pruning relies on this:
+// we must NOT treat deals as orphaned off a partial list (an API hiccup could
+// otherwise wipe live deals).
+async function fetchAllOpportunities(locationId: string, apiKey: string): Promise<{ list: GHLOpportunity[]; complete: boolean }> {
   const all: GHLOpportunity[] = []
   let startAfter: string | undefined
   let startAfterId: string | undefined
+  let errored = false
+  let reachedEnd = false
 
   for (let page = 0; page < 50; page++) { // cap at 5 000 opportunities
     const params: Record<string, string> = { location_id: locationId, limit: '100' }
@@ -297,6 +433,7 @@ async function fetchAllOpportunities(locationId: string, apiKey: string): Promis
     )
     if (!res.ok) {
       console.error('[GHL Sync] Opportunities fetch error:', res.status, await res.text())
+      errored = true
       break
     }
     const data = await res.json() as { opportunities?: GHLOpportunity[]; meta?: { startAfter?: string; startAfterId?: string } }
@@ -304,11 +441,11 @@ async function fetchAllOpportunities(locationId: string, apiKey: string): Promis
     all.push(...batch)
     console.log(`[GHL Sync] Fetched ${all.length} opportunities so far...`)
 
-    if (batch.length < 100 || !data.meta?.startAfter) break
+    if (batch.length < 100 || !data.meta?.startAfter) { reachedEnd = true; break }
     startAfter   = data.meta.startAfter
     startAfterId = data.meta.startAfterId
   }
-  return all
+  return { list: all, complete: reachedEnd && !errored }
 }
 
 async function fetchAllContacts(locationId: string, apiKey: string): Promise<Map<string, GHLContact>> {
@@ -343,50 +480,120 @@ async function fetchAllContacts(locationId: string, apiKey: string): Promise<Map
 async function syncAccount(
   account: GHLAccount,
   supabase: ReturnType<typeof createServiceClient>,
-): Promise<{ created: number; updated: number; errors: string[] }> {
+  opts: { full: boolean } = { full: false },
+): Promise<{ created: number; updated: number; skipped: number; pruned: number; flagged: string[]; errors: string[] }> {
   const { apiKey, locationId, label } = account
-  let created = 0, updated = 0
+  let created = 0, updated = 0, skipped = 0, pruned = 0
+  const flagged: string[] = []   // funded deals whose GHL opportunity vanished (kept, not deleted)
   const errors: string[] = []
 
-  console.log(`[GHL Sync:${label}] Starting sync for location ${locationId}`)
+  // Capture the run-start time BEFORE doing any work — anything updated in GHL
+  // during the run still gets picked up next time (small over-fetch is safer
+  // than the alternative of missing changes).
+  const runStartedAt = new Date().toISOString()
+
+  // Load the last successful run timestamp for this location (null if first
+  // run, table missing, or ?full=1 was passed). Anything older than this in
+  // GHL will be skipped — that's the incremental-sync trick.
+  const lastSyncedAt = opts.full ? null : await getLastSyncedAt(supabase, SYNC_STATE_KEY(locationId))
+  const lastSyncedMs = lastSyncedAt ? Date.parse(lastSyncedAt) : 0
+
+  console.log(`[GHL Sync:${label}] Starting${opts.full ? ' FULL' : ''} sync for location ${locationId}` +
+              (lastSyncedAt ? ` (incremental — last synced ${lastSyncedAt})` : ' (full — no prior sync state)'))
 
   // ── 1. Fetch lookup maps ───────────────────────────────────────────────────
-  const [pipelineMap, userMap, contactMap, opportunities] = await Promise.all([
+  const [pipelineMap, userMap, contactMap, oppResult, customFieldDefs] = await Promise.all([
     fetchPipelineStageMap(locationId, apiKey),
     fetchUserMap(locationId, apiKey, supabase),
     fetchAllContacts(locationId, apiKey),
     fetchAllOpportunities(locationId, apiKey),
+    fetchCustomFieldDefs(locationId, apiKey),
   ])
+  const opportunities = oppResult.list
+  const oppFetchComplete = oppResult.complete
 
   // ── 1b. Build in-memory dedup index of existing dashboard deals ───────────
   //   Allows matching by contact_id → email → phone in O(1).
   //   This handles GHL contact-ID churn: if the same person was assigned a new
   //   contact ID, we still find their dashboard record by email/phone.
-  const { data: existingDeals } = await supabase
-    .from('deals')
-    .select('id, ghl_contact_id, email, phone')
+  //
+  //   CRITICAL: must paginate. Supabase/PostgREST caps a single .select() at
+  //   1000 rows by default — without pagination, deals beyond row 1000 are
+  //   invisible to dedup and get re-inserted as duplicates.
+  //   The deal is keyed by GHL OPPORTUNITY id (each opportunity = one loan =
+  //   one card), because the same person can come in multiple times through
+  //   different lead sources — each must be its own deal so the lead-spend
+  //   report counts every lead purchased.
+  //
+  //   We also build contact/email/phone → borrower_id lookups so a new
+  //   opportunity for a known person is linked to that person's borrower group.
   type DealKey = { id: string }
-  const byContactId = new Map<string, DealKey>()
-  const byEmail = new Map<string, DealKey>()
-  const byPhone = new Map<string, DealKey>()
-  for (const d of (existingDeals as Array<{ id: string; ghl_contact_id: string | null; email: string | null; phone: string | null }>) || []) {
-    if (d.ghl_contact_id) byContactId.set(d.ghl_contact_id, { id: d.id })
-    const e = normEmail(d.email)
-    if (e && !byEmail.has(e)) byEmail.set(e, { id: d.id })
-    const p = normPhone(d.phone)
-    if (p && !byPhone.has(p)) byPhone.set(p, { id: d.id })
+  const byOppId = new Map<string, DealKey>()              // ghl_opportunity_id → deal (the loan)
+  const contactToBorrower = new Map<string, string>()     // contact_id → borrower_id
+  const emailToBorrower = new Map<string, string>()       // email → borrower_id
+  const phoneToBorrower = new Map<string, string>()       // phone → borrower_id
+  const DEDUP_PAGE = 1000
+  let offset = 0
+  for (;;) {
+    const { data: pageRows, error: pageErr } = await supabase
+      .from('deals')
+      .select('id, ghl_contact_id, ghl_opportunity_id, email, phone, borrower_id')
+      .order('id', { ascending: true })
+      .range(offset, offset + DEDUP_PAGE - 1)
+    if (pageErr) {
+      console.error(`[GHL Sync:${label}] Dedup index page ${offset} failed:`, pageErr.message)
+      break
+    }
+    const rows = (pageRows ?? []) as Array<{ id: string; ghl_contact_id: string | null; ghl_opportunity_id: string | null; email: string | null; phone: string | null; borrower_id: string | null }>
+    for (const d of rows) {
+      if (d.ghl_opportunity_id && !byOppId.has(d.ghl_opportunity_id)) byOppId.set(d.ghl_opportunity_id, { id: d.id })
+      if (d.borrower_id) {
+        if (d.ghl_contact_id && !contactToBorrower.has(d.ghl_contact_id)) contactToBorrower.set(d.ghl_contact_id, d.borrower_id)
+        const e = normEmail(d.email); if (e && !emailToBorrower.has(e)) emailToBorrower.set(e, d.borrower_id)
+        const p = normPhone(d.phone); if (p && !phoneToBorrower.has(p)) phoneToBorrower.set(p, d.borrower_id)
+      }
+    }
+    if (rows.length < DEDUP_PAGE) break
+    offset += DEDUP_PAGE
   }
-  console.log(`[GHL Sync:${label}] Indexed ${byContactId.size} deals by contact_id, ${byEmail.size} by email, ${byPhone.size} by phone`)
+  console.log(`[GHL Sync:${label}] Indexed ${byOppId.size} deals by opportunity_id; borrower lookups: ${contactToBorrower.size} contact / ${emailToBorrower.size} email / ${phoneToBorrower.size} phone`)
 
   console.log(`[GHL Sync:${label}] Processing ${opportunities.length} opportunities`)
+
+  // Accumulators — we collect everything, then write in batches at the end.
+  const toInsert: Record<string, unknown>[] = []
+  const toUpdate: Record<string, unknown>[] = []
+  // De-dupe within this run by opportunity id (rare but possible if GHL pages overlap).
+  const seenOppIds = new Set<string>()
+  // Track borrower ids assigned to brand-new contacts within this run, so a
+  // contact's 2nd opportunity processed in the same run lands in the same group.
+  const runContactBorrower = new Map<string, string>()
 
     // ── 2. Process each opportunity ───────────────────────────────────────────
     for (const opp of opportunities) {
       try {
-        // Resolve contact
+        // Resolve contact + opportunity id. We key the deal by OPPORTUNITY id
+        // (one loan per opportunity), so two opportunities for the same contact
+        // become two separate cards.
         const embeddedContact = opp.contact as GHLContact | undefined
         const contactId = str(embeddedContact?.id || opp.contactId)
         if (!contactId) continue
+        const oppId = str(opp.id)
+        if (!oppId) continue                       // can't key it — skip
+        if (seenOppIds.has(oppId)) continue        // dedupe within this run
+        seenOppIds.add(oppId)
+
+        // ── Incremental skip ───────────────────────────────────────────────
+        // If the opp hasn't changed since our last successful sync, skip it.
+        // We never skip on a full sync (lastSyncedMs === 0).
+        if (lastSyncedMs > 0) {
+          const oppUpdatedAt = str(opp.updatedAt ?? opp.dateUpdated ?? opp.lastStatusChangeAt)
+          const oppUpdatedMs = oppUpdatedAt ? Date.parse(oppUpdatedAt) : 0
+          if (oppUpdatedMs > 0 && oppUpdatedMs < lastSyncedMs) {
+            skipped++
+            continue
+          }
+        }
 
         // Full contact data (has custom fields)
         const fullContact: GHLContact = contactMap.get(contactId) ?? embeddedContact ?? {}
@@ -421,17 +628,24 @@ async function syncAccount(
           }
         }
 
-        const loanOfficer = resolveLO(assignedName)
+        // Resolve the LO from the assigned GHL user. If nobody is assigned in
+        // GHL, fall back to the sub-account owner (each LO has their own
+        // location): Matt's account → Matt Park, Moe's (primary) → Moe Sefati.
+        const loFromAccount = label === 'matt' ? 'Matt Park' : label === 'primary' ? 'Moe Sefati' : null
+        const loanOfficer = resolveLO(assignedName) || loFromAccount
         if (!loanOfficer && assignedToId) {
           console.log(`[GHL Sync:${label}] No LO resolved for assignedTo="${assignedToId}" name="${assignedName}" contact="${contactId}"`)
         }
 
-        // Custom fields
-        const customFields = (
+        // Custom fields — GHL's /contacts/ endpoint returns these as bare
+        // {id, value} pairs, so we enrich them with name/fieldKey from the
+        // location-level schema before lookup.
+        const rawCustomFields = (
           (fullContact.customFields as GHLCustomField[]) ||
           (fullContact.custom_fields as GHLCustomField[]) ||
           (opp.customFields as GHLCustomField[]) || []
         )
+        const customFields = enrichCustomFields(rawCustomFields, customFieldDefs)
 
         // Names
         const firstName = str(fullContact.firstName) ?? ''
@@ -460,10 +674,21 @@ async function syncAccount(
           pipeline_group:   stage?.pipeline_group ?? 'Leads',
           loan_officer:     loanOfficer,
           ghl_contact_id:   contactId,
+          ghl_opportunity_id: str(opp.id),     // the GHL opportunity (loan) ID
           ghl_location_id:  locationId,        // so the dashboard can link to the right GHL sub-account
           ghl_tags:         ghlTags,
           ghl_assigned_user:assignedToId,
-          source:           str(fullContact.source) ?? 'GHL',
+          // borrower_id links a person's multiple loans. On INSERT this fresh
+          // UUID is used; on UPDATE it's excluded from maybeSet so the existing
+          // borrower grouping is preserved.
+          borrower_id:      crypto.randomUUID(),
+          // Real lead source from GHL. PREFER the "Lead Source" custom field
+          // (contact.lead_source) — that's the field the team actually maintains
+          // (e.g. "Lendgo"). GHL's native `source` attribute is auto-attribution
+          // (e.g. "Advertisements") and often disagrees, so it's only a fallback.
+          // Do NOT default to the literal 'GHL'; leave null when GHL has nothing.
+          source:           str(getCustomField(customFields, 'lead_source', 'Lead Source', 'leadsource'))
+                            ?? str(fullContact.source) ?? str(opp.source) ?? str(embeddedContact?.source) ?? null,
           date_added_ghl:   str(fullContact.dateAdded ?? fullContact.createdAt ?? opp.createdAt),
           raw_ghl_data:     opp,
           city:             str(fullContact.city),
@@ -474,8 +699,8 @@ async function syncAccount(
                             parseAmount(getCustomField(customFields, 'loan_amount', 'loan amount', 'Loan Amount')),
           estimated_value:  parseAmount(getCustomField(customFields, 'estimated_value', 'property_value', 'home_value', 'Property Value')),
           credit_score:     parseAmount(getCustomField(customFields, 'credit_score', 'credit score', 'fico')),
-          loan_type:        sanitizeStr(getCustomField(customFields, 'loan_type', 'loan type', 'Loan Type')),
-          loan_purpose:     sanitizeStr(getCustomField(customFields, 'loan_purpose', 'loan purpose', 'Loan Purpose')),
+          loan_type:        normalizeGhlLoanType(getCustomField(customFields, 'loan_type', 'loan type', 'Loan Type')),
+          loan_purpose:     normalizeGhlLoanPurpose(getCustomField(customFields, 'loan_purpose', 'loan purpose', 'Loan Purpose')),
           occupancy:        str(getCustomField(customFields, 'occupancy', 'property use', 'Property Use')),
           property_type:    str(getCustomField(customFields, 'property_type', 'Property Type')),
           property_address: str(getCustomField(customFields, 'property_address', 'physical_address') ?? fullContact.address1),
@@ -483,6 +708,7 @@ async function syncAccount(
           ltv:              parseAmount(getCustomField(customFields, 'ltv', 'LTV')),
           cash_out:         parseAmount(getCustomField(customFields, 'cash_out', 'cashout', 'Cashout')),
           down_payment:     parseAmount(getCustomField(customFields, 'down_payment', 'Down Payment')),
+          lead_price:       parseAmount(getCustomField(customFields, 'lead_price', 'Lead Price')),
           rate:             parseAmount(getCustomField(customFields, 'rate', 'interest_rate', 'note_rate')),
           investor:         str(getCustomField(customFields, 'investor', 'lender', 'wholesale_lender')),
           credit_rating:    str(getCustomField(customFields, 'credit_rating', 'credit rating', 'Credit Rating')),
@@ -490,57 +716,51 @@ async function syncAccount(
           current_va_loan:  str(getCustomField(customFields, 'current_va_loan', 'va_loan', 'VA Loan')),
         }
 
-        // ── Upsert ────────────────────────────────────────────────────────────
-        // ── Find existing deal via contact ID → email → phone ───────────────
+        // ── Match by OPPORTUNITY id (the loan) ──────────────────────────────
         const incomingEmail = normEmail(dealData.email as string | null)
         const incomingPhone = normPhone(dealData.phone as string | null)
-        let existing: DealKey | null = byContactId.get(contactId) ?? null
-        let matchedBy: 'contact_id' | 'email' | 'phone' | null = existing ? 'contact_id' : null
-        if (!existing && incomingEmail && byEmail.has(incomingEmail)) {
-          existing = byEmail.get(incomingEmail)!
-          matchedBy = 'email'
-        }
-        if (!existing && incomingPhone && byPhone.has(incomingPhone)) {
-          existing = byPhone.get(incomingPhone)!
-          matchedBy = 'phone'
-        }
+        const existing: DealKey | null = byOppId.get(oppId) ?? null
 
         if (existing) {
-          // Update: always sync status/pipeline; only overwrite other fields if GHL has a value
-          // (so we never erase data filled in from Monday or by hand).
-          // Also force-set ghl_contact_id to the incoming value so future syncs can
-          // match this person without falling back through email/phone.
+          // Update the loan. Sync status/pipeline always; other fields only when
+          // GHL has a value (never erase manual/Monday/Arive data).
           const patch: Record<string, unknown> = {
+            id:               existing.id,
+            name:             dealData.name,   // NOT NULL — required even on update via upsert path
             status:           dealData.status,
             pipeline_group:   dealData.pipeline_group,
             ghl_tags:         dealData.ghl_tags,
             raw_ghl_data:     dealData.raw_ghl_data,
             ghl_location_id:  dealData.ghl_location_id,
-            ghl_contact_id:   contactId,   // ← overwrite stale ID (the real fix)
+            ghl_contact_id:   contactId,
           }
           const maybeSet = (k: string) => { if (dealData[k] != null) patch[k] = dealData[k] }
           ;['loan_officer','loan_amount','estimated_value','credit_score','loan_type','loan_purpose',
             'occupancy','property_type','property_address','current_balance','ltv',
             'cash_out','down_payment','rate','investor','credit_rating','is_military',
             'current_va_loan','city','state','zip','first_name','last_name','email','phone',
+            'source','lead_price','ghl_opportunity_id',
           ].forEach(maybeSet)
-
-          await supabase.from('deals').update(patch).eq('id', existing.id)
+          // borrower_id intentionally NOT synced — preserve existing grouping.
+          toUpdate.push(patch)
           updated++
-          if (matchedBy !== 'contact_id') {
-            console.log(`[GHL Sync:${label}] Reconciled "${dealData.name}" by ${matchedBy} → updated ghl_contact_id to ${contactId}`)
-          }
-          // Keep the map fresh so we don't double-update / re-insert on later opps
-          byContactId.set(contactId, existing)
         } else {
-          // Create new deal
-          const { data: inserted } = await supabase.from('deals').insert(dealData).select('id').single()
-          if (inserted) {
-            const key: DealKey = { id: inserted.id as string }
-            byContactId.set(contactId, key)
-            if (incomingEmail) byEmail.set(incomingEmail, key)
-            if (incomingPhone) byPhone.set(incomingPhone, key)
+          // New opportunity → new loan card. Link it to the person's borrower
+          // group: prefer a borrower_id we already know for this contact/email/
+          // phone (from existing deals or from another opp earlier in this run).
+          let borrowerId =
+            runContactBorrower.get(contactId) ??
+            contactToBorrower.get(contactId) ??
+            (incomingEmail ? emailToBorrower.get(incomingEmail) : undefined) ??
+            (incomingPhone ? phoneToBorrower.get(incomingPhone) : undefined) ??
+            null
+          if (!borrowerId) {
+            borrowerId = crypto.randomUUID()   // brand-new person
           }
+          // Remember it so this contact's other opps in this run share the group
+          runContactBorrower.set(contactId, borrowerId)
+          dealData.borrower_id = borrowerId
+          toInsert.push(dealData)
           created++
         }
       } catch (err) {
@@ -550,50 +770,215 @@ async function syncAccount(
       }
     }
 
-  console.log(`[GHL Sync:${label}] Done — ${created + updated} total (${created} created, ${updated} updated, ${errors.length} errors)`)
-  return { created, updated, errors }
+  // ── 3. Batch-write to Supabase ─────────────────────────────────────────────
+  // 500 rows per chunk keeps payload size well under Postgres / PostgREST limits.
+  const CHUNK = 500
+  for (let i = 0; i < toInsert.length; i += CHUNK) {
+    const slice = toInsert.slice(i, i + CHUNK)
+    const { error } = await supabase.from('deals').insert(slice)
+    if (error) {
+      console.error(`[GHL Sync:${label}] Batch insert (${slice.length}) failed:`, error.message)
+      errors.push(`insert batch: ${error.message}`)
+      // Don't credit these as created if the write failed
+      created -= slice.length
+    } else {
+      console.log(`[GHL Sync:${label}] Inserted batch of ${slice.length} (total inserted: ${Math.min(i + CHUNK, toInsert.length)}/${toInsert.length})`)
+    }
+  }
+  // ── Updates: per-row .update() (NOT bulk upsert) ──────────────────────────
+  // CRITICAL: a bulk upsert of rows with heterogeneous keys makes PostgREST
+  // null out any column that's present in *some* rows but missing in others
+  // (it unions the columns and fills the gaps with NULL). That silently wiped
+  // manually-entered fields like loan_type on deals where GHL had no value.
+  // Per-row .update() only touches the columns in that row's patch — safe.
+  // We run them with bounded concurrency so it stays fast (~5-10s for ~1000).
+  const CONCURRENCY = 20
+  for (let i = 0; i < toUpdate.length; i += CONCURRENCY) {
+    const chunk = toUpdate.slice(i, i + CONCURRENCY)
+    const results = await Promise.all(chunk.map(async patch => {
+      const { id, ...fields } = patch as { id: string } & Record<string, unknown>
+      const { error } = await supabase.from('deals').update(fields).eq('id', id)
+      return error
+    }))
+    for (const error of results) {
+      if (error) {
+        console.error(`[GHL Sync:${label}] Row update failed:`, error.message)
+        errors.push(`update row: ${error.message}`)
+        updated--
+      }
+    }
+  }
+
+  // ── 3b. Prune orphans — deals whose GHL opportunity no longer exists ──────
+  // When a duplicate/erroneous opportunity is deleted or merged in GHL, the
+  // matching dashboard row would otherwise linger forever (the sync only ever
+  // inserts/updates). That's the recurring "why do I see 2 loans?" bug.
+  //
+  // SAFETY (this can delete rows, so it's deliberately conservative):
+  //   • Only runs when the opportunity fetch ran to COMPLETION (oppFetchComplete)
+  //     and returned at least one opportunity — never prune off a partial list.
+  //   • Scoped to THIS account's location; other locations are untouched.
+  //   • Only considers deals that HAVE a ghl_opportunity_id (Arive-only or
+  //     manually-created deals are never pruned).
+  //   • FUNDED deals are NEVER auto-deleted — they're closed business. If a
+  //     funded deal's opportunity vanished, we just flag it for review.
+  //   • Aborts if the orphan set looks implausibly large (logic-error guard).
+  if (oppFetchComplete && opportunities.length > 0) {
+    const liveOppIds = new Set<string>()
+    for (const o of opportunities) { const id = str(o.id); if (id) liveOppIds.add(id) }
+
+    // Pull this location's deals that have an opportunity id (paginated).
+    type PruneRow = { id: string; name: string | null; ghl_opportunity_id: string | null; pipeline_group: string | null }
+    const locDeals: PruneRow[] = []
+    let pOffset = 0
+    const PRUNE_PAGE = 1000
+    for (;;) {
+      const { data: pr, error: pErr } = await supabase
+        .from('deals')
+        .select('id, name, ghl_opportunity_id, pipeline_group')
+        .eq('ghl_location_id', locationId)
+        .not('ghl_opportunity_id', 'is', null)
+        .order('id', { ascending: true })
+        .range(pOffset, pOffset + PRUNE_PAGE - 1)
+      if (pErr) { console.error(`[GHL Sync:${label}] Prune scan failed:`, pErr.message); break }
+      const rows = (pr ?? []) as PruneRow[]
+      locDeals.push(...rows)
+      if (rows.length < PRUNE_PAGE) break
+      pOffset += PRUNE_PAGE
+    }
+
+    const orphanIds: string[] = []
+    for (const d of locDeals) {
+      if (!d.ghl_opportunity_id || liveOppIds.has(d.ghl_opportunity_id)) continue
+      if (d.pipeline_group === 'Funded') {
+        flagged.push(`${d.name ?? d.id} (${d.ghl_opportunity_id})`)
+        console.warn(`[GHL Sync:${label}] FUNDED deal's opportunity is gone from GHL — flagged, NOT deleted: ${d.name ?? d.id}`)
+      } else {
+        orphanIds.push(d.id)
+      }
+    }
+
+    // Logic-error guard: never delete more than 30% of the location's GHL deals
+    // (or 25 rows, whichever is larger) in a single run.
+    const maxPrune = Math.max(25, Math.floor(locDeals.length * 0.3))
+    if (orphanIds.length > maxPrune) {
+      console.error(`[GHL Sync:${label}] Prune ABORTED — ${orphanIds.length} orphans exceeds safety cap ${maxPrune}. No deletions made.`)
+      errors.push(`prune aborted: ${orphanIds.length} orphans > cap ${maxPrune}`)
+    } else if (orphanIds.length > 0) {
+      const PRUNE_CHUNK = 200
+      for (let i = 0; i < orphanIds.length; i += PRUNE_CHUNK) {
+        const slice = orphanIds.slice(i, i + PRUNE_CHUNK)
+        const { error: delErr } = await supabase.from('deals').delete().in('id', slice)
+        if (delErr) { console.error(`[GHL Sync:${label}] Prune delete failed:`, delErr.message); errors.push(`prune delete: ${delErr.message}`) }
+        else pruned += slice.length
+      }
+      console.log(`[GHL Sync:${label}] Pruned ${pruned} orphaned deal(s) (opportunity deleted in GHL).`)
+    }
+  } else {
+    console.log(`[GHL Sync:${label}] Skipping orphan prune (opportunity fetch ${oppFetchComplete ? 'empty' : 'incomplete'}).`)
+  }
+
+  // ── 4. Save sync timestamp (only if no errors — otherwise next run re-tries) ──
+  if (errors.length === 0) {
+    await setLastSyncedAt(supabase, SYNC_STATE_KEY(locationId), runStartedAt)
+  } else {
+    console.warn(`[GHL Sync:${label}] Skipping sync_state write — ${errors.length} errors this run`)
+  }
+
+  console.log(
+    `[GHL Sync:${label}] Done — ${created + updated} written ` +
+    `(${created} created, ${updated} updated, ${skipped} skipped as unchanged, ${pruned} pruned, ${flagged.length} flagged, ${errors.length} errors)`
+  )
+  return { created, updated, skipped, pruned, flagged, errors }
 }
 
-export async function POST() {
+// The GHL sync issues hundreds of sequential Supabase writes — give it room.
+// Honored on Vercel Pro (up to 300s); Hobby caps function duration lower.
+export const maxDuration = 300
+
+type SyncResult = {
+  success: boolean
+  full: boolean
+  accounts_synced: number
+  synced: number
+  created: number
+  updated: number
+  skipped: number
+  pruned: number
+  flagged: string[]
+  duration_ms: number
+  per_account: Array<{ label: string; locationId: string; created: number; updated: number; skipped: number; pruned: number; errors: number }>
+  errors: string[]
+}
+
+/**
+ * Run the multi-account GHL sync. Shared by the manual POST trigger and the
+ * scheduled cron route so both paths stay identical.
+ *
+ * @param opts.full  If true, ignores the per-location last_synced_at and
+ *                   re-processes every opportunity. Use as an escape hatch.
+ */
+export async function runGhlSync(opts: { full?: boolean } = {}): Promise<SyncResult> {
   const accounts = getAccounts()
   if (accounts.length === 0) {
-    return NextResponse.json({ error: 'No GHL accounts configured. Set GHL_API_KEY + GHL_LOCATION_ID.' }, { status: 500 })
+    throw new Error('No GHL accounts configured. Set GHL_API_KEY + GHL_LOCATION_ID.')
   }
 
   const supabase = createServiceClient()
+  const full = !!opts.full
+  const startMs = Date.now()
 
-  try {
-    const perAccount: Array<{ label: string; locationId: string; created: number; updated: number; errors: number }> = []
-    let totalCreated = 0, totalUpdated = 0
-    const allErrors: string[] = []
+  // Run accounts in PARALLEL — each one is self-contained (different location,
+  // contact IDs don't overlap). Halves wall time when both LOs are configured.
+  const results = await Promise.all(accounts.map(account => syncAccount(account, supabase, { full })))
 
-    // Run accounts sequentially so logs stay readable and we don't double-bootstrap user maps
-    for (const account of accounts) {
-      const result = await syncAccount(account, supabase)
-      perAccount.push({
-        label: account.label,
-        locationId: account.locationId,
-        created: result.created,
-        updated: result.updated,
-        errors: result.errors.length,
-      })
-      totalCreated += result.created
-      totalUpdated += result.updated
-      allErrors.push(...result.errors)
-    }
-
-    return NextResponse.json({
-      success: true,
-      accounts_synced: accounts.length,
-      synced: totalCreated + totalUpdated,
-      created: totalCreated,
-      updated: totalUpdated,
-      per_account: perAccount,
-      errors: allErrors.slice(0, 20),
+  const perAccount: SyncResult['per_account'] = []
+  let totalCreated = 0, totalUpdated = 0, totalSkipped = 0, totalPruned = 0
+  const allErrors: string[] = []
+  const allFlagged: string[] = []
+  for (let i = 0; i < accounts.length; i++) {
+    const r = results[i], a = accounts[i]
+    perAccount.push({
+      label: a.label, locationId: a.locationId,
+      created: r.created, updated: r.updated, skipped: r.skipped, pruned: r.pruned, errors: r.errors.length,
     })
+    totalCreated += r.created
+    totalUpdated += r.updated
+    totalSkipped += r.skipped
+    totalPruned  += r.pruned
+    allErrors.push(...r.errors)
+    allFlagged.push(...r.flagged)
+  }
+
+  return {
+    success: true,
+    full,
+    accounts_synced: accounts.length,
+    synced: totalCreated + totalUpdated,
+    created: totalCreated,
+    updated: totalUpdated,
+    skipped: totalSkipped,
+    pruned: totalPruned,
+    flagged: allFlagged,
+    duration_ms: Date.now() - startMs,
+    per_account: perAccount,
+    errors: allErrors.slice(0, 20),
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    // Force a full sync with ?full=1 — useful if the incremental state drifts
+    const url = new URL(req.url)
+    const full = url.searchParams.get('full') === '1' || url.searchParams.get('full') === 'true'
+    const result = await runGhlSync({ full })
+    // Note: conversation/unread refresh is handled by the 3-min cron and the
+    // live /unread inbox — intentionally NOT run here to keep manual sync fast.
+    return NextResponse.json(result)
   } catch (err) {
     console.error('[GHL Sync] Fatal error:', err)
-    return NextResponse.json({ error: String(err) }, { status: 500 })
+    const msg = String(err)
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
 
