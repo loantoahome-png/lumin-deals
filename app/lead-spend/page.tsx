@@ -76,6 +76,9 @@ export default function LeadSpendPage() {
   // Source filter — null = "all sources visible". When set, only these sources show.
   const [includedSources, setIncludedSources] = useState<Set<string> | null>(null)
   const [showSourceFilter, setShowSourceFilter]   = useState(false)
+  // When on, hides organic/no-spend sources (referrals, return clients, self-sourced)
+  // so the page reflects paid-lead ROI only. Affects the table, KPIs, and donut.
+  const [paidOnly, setPaidOnly]   = useState(false)
 
   async function fetchAll() {
     setLoading(true)
@@ -230,10 +233,17 @@ export default function LeadSpendPage() {
     return Array.from(map.values()).sort((a, b) => b.total - a.total)
   }, [filtered, costs, months])
 
-  // Apply the source-filter on top of the computed sources
+  // Apply the source-filter (and optional paid-only filter) on top of the computed sources
   const visibleSources = useMemo(() => {
-    if (!includedSources) return sources
-    return sources.filter(s => includedSources.has(s.source))
+    let list = includedSources ? sources.filter(s => includedSources.has(s.source)) : sources
+    if (paidOnly) list = list.filter(s => s.leadCost > 0 || s.totalSpend > 0)
+    return list
+  }, [sources, includedSources, paidOnly])
+
+  // How many sources are being hidden by the paid-only filter (for the toggle label).
+  const noCostCount = useMemo(() => {
+    const base = includedSources ? sources.filter(s => includedSources.has(s.source)) : sources
+    return base.filter(s => !(s.leadCost > 0 || s.totalSpend > 0)).length
   }, [sources, includedSources])
 
   // Full canonical list of source names (across ALL deals, not just filtered) —
@@ -731,6 +741,25 @@ export default function LeadSpendPage() {
               </div>
             )}
           </div>
+
+          {/* Paid-sources-only toggle — hides organic/no-spend sources everywhere */}
+          <button
+            onClick={() => setPaidOnly(v => !v)}
+            title="Hide organic sources with no lead spend (referrals, return clients, self-sourced). Recalculates KPIs and the donut for paid-lead ROI only."
+            className={`flex items-center gap-1.5 text-sm border rounded-lg px-3 py-1.5 transition-colors ${
+              paidOnly
+                ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                : 'border-slate-200 bg-white text-slate-700 hover:border-slate-400'
+            }`}
+          >
+            <DollarSign className="w-3.5 h-3.5" />
+            Paid sources only
+            {noCostCount > 0 && (
+              <span className={`text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${paidOnly ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                {paidOnly ? `${noCostCount} hidden` : `${noCostCount} organic`}
+              </span>
+            )}
+          </button>
 
           <span className="text-[11px] text-slate-400 ml-auto">
             Range covers ~{months.toFixed(1)} months
