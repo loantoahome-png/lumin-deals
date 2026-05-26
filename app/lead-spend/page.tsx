@@ -13,15 +13,17 @@ import {
 } from 'lucide-react'
 
 // ── Date range presets ────────────────────────────────────────────────────────
-type RangeKey = 'this_month' | 'last_month' | '90d' | 'custom'
+type RangeKey = 'this_month' | 'last_month' | '90d' | 'all' | 'custom'
 const RANGE_OPTIONS: Array<{ key: RangeKey; label: string }> = [
   { key: 'this_month', label: 'This month' },
   { key: 'last_month', label: 'Last month' },
   { key: '90d',        label: 'Last 90 days' },
+  { key: 'all',        label: 'All time' },
   { key: 'custom',     label: 'Custom range…' },
 ]
 function rangeBounds(key: RangeKey, customFrom: string, customTo: string): { start: Date | null; end: Date | null } {
   const now = new Date()
+  if (key === 'all') return { start: null, end: null }
   if (key === 'custom') {
     return {
       start: customFrom ? new Date(customFrom + 'T00:00:00') : null,
@@ -78,7 +80,7 @@ export default function LeadSpendPage() {
   const [showSourceFilter, setShowSourceFilter]   = useState(false)
   // When on, hides organic/no-spend sources (referrals, return clients, self-sourced)
   // so the page reflects paid-lead ROI only. Affects the table, KPIs, and donut.
-  const [paidOnly, setPaidOnly]   = useState(false)
+  const [paidOnly, setPaidOnly]   = useState(true)
 
   async function fetchAll() {
     setLoading(true)
