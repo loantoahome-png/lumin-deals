@@ -35,6 +35,7 @@ type Conversation = {
   fullName?: string
   unreadCount?: number
   lastMessageType?: string
+  lastMessageDirection?: string   // 'inbound' (client) | 'outbound' (us)
   type?: string
   lastMessageDate?: number | string
   lastMessageBody?: string
@@ -82,7 +83,14 @@ export async function GET() {
       }
       const j = await res.json() as { conversations?: Conversation[] }
       for (const conv of j.conversations ?? []) {
-        if ((conv.unreadCount ?? 0) > 0) raw.push({ conv, account: acct.label, locationId: acct.locationId })
+        // GHL keeps a conversation flagged "unread" until someone opens it in
+        // the GHL inbox — even after we've replied. So skip any conversation
+        // whose LAST message was outbound (we answered last): the client isn't
+        // waiting on us, so it doesn't belong in the "needs reply" inbox.
+        const lastWasOutbound = String(conv.lastMessageDirection ?? '').toLowerCase() === 'outbound'
+        if ((conv.unreadCount ?? 0) > 0 && !lastWasOutbound) {
+          raw.push({ conv, account: acct.label, locationId: acct.locationId })
+        }
       }
     }
 
