@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import puppeteer, { type PDFOptions, type PaperFormat } from 'puppeteer-core'
-import chromium from '@sparticuz/chromium'
+import chromium from '@sparticuz/chromium-min'
 
 // Puppeteer needs the Node runtime (it spawns a real Chromium process) — never edge.
 export const runtime = 'nodejs'
 // PDF generation (browser launch + render + capture) can take a few seconds.
 export const maxDuration = 30
+
+// The full Chromium pack (binary + all shared libs, incl. libnss3.so) for the
+// version that matches @sparticuz/chromium-min. chromium-min downloads + extracts
+// this to /tmp at runtime, so nothing has to be bundled into the function —
+// which sidesteps the file-tracing gaps that left libnss3.so missing.
+const CHROMIUM_PACK_URL =
+  'https://github.com/Sparticuz/chromium/releases/download/v131.0.1/chromium-v131.0.1-pack.tar'
 
 type MarginInput = { top?: string; right?: string; bottom?: string; left?: string }
 type Body = {
@@ -29,7 +36,7 @@ async function launchBrowser() {
     return puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
+      executablePath: await chromium.executablePath(CHROMIUM_PACK_URL),
       headless: true,
     })
   }
