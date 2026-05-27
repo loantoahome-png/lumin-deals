@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
@@ -13,26 +14,100 @@ import {
   Activity,
   GitMerge,
   DollarSign,
+  BarChart3,
+  Target,
+  Inbox,
+  FileUp,
+  FileText,
   LogOut,
+  RefreshCw,
+  ChevronDown,
 } from 'lucide-react'
 import GlobalSearch from './GlobalSearch'
+import NotificationBell from './NotificationBell'
+import LastSyncBadge from './LastSyncBadge'
 import { supabase } from '@/lib/supabase'
 
-const navItems = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/pipeline', label: 'Pipeline', icon: Kanban },
-  { href: '/deals', label: 'Active Escrows', icon: Table2 },
-  { href: '/funded', label: 'Funded', icon: DollarSign },
-  { href: '/deals/new', label: 'Add Deal', icon: PlusCircle },
-  { href: '/tools', label: 'Tools', icon: Wrench },
-  { href: '/tasks', label: 'Tasks', icon: ClipboardList },
-  { href: '/health', label: 'Data Health', icon: Activity },
-  { href: '/duplicates', label: 'Duplicates', icon: GitMerge },
+const navGroups = [
+  {
+    key: 'pipeline',
+    label: 'Pipeline',
+    items: [
+      { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+      { href: '/pipeline', label: 'Pipeline', icon: Kanban },
+      { href: '/hot-leads', label: 'Hot Leads', icon: Target },
+      { href: '/unread', label: 'Unread Messages', icon: Inbox },
+      { href: '/deals', label: 'Active Escrows', icon: Table2 },
+      { href: '/funded', label: 'Funded', icon: DollarSign },
+    ],
+  },
+  {
+    key: 'insights',
+    label: 'Insights',
+    items: [
+      { href: '/reports', label: 'Reports', icon: BarChart3 },
+      { href: '/lead-spend', label: 'Lead Spend', icon: BarChart3 },
+    ],
+  },
+  {
+    key: 'actions',
+    label: 'Actions',
+    alwaysOpen: true,
+    items: [
+      { href: '/deals/new', label: 'Add Deal', icon: PlusCircle },
+      { href: '/tasks', label: 'Tasks', icon: ClipboardList },
+      { href: '/tools', label: 'Tools', icon: Wrench },
+      { href: '/pdf-converter', label: 'PDF Converter', icon: FileText },
+    ],
+  },
+  {
+    key: 'data',
+    label: 'Data',
+    items: [
+      { href: '/import/arive', label: 'Import Arive', icon: FileUp },
+      { href: '/health', label: 'Data Health', icon: Activity },
+      { href: '/duplicates', label: 'Duplicates', icon: GitMerge },
+    ],
+  },
 ]
+
+// Groups collapsed by default (rarely used day-to-day).
+const DEFAULT_COLLAPSED: Record<string, boolean> = { data: true }
 
 export default function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
+  const [syncing, setSyncing] = useState(false)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(DEFAULT_COLLAPSED)
+
+  // Restore the user's collapse preferences across sessions.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('sidebarCollapsed')
+      if (raw) setCollapsed(JSON.parse(raw))
+    } catch { /* ignore */ }
+  }, [])
+
+  function toggleGroup(key: string) {
+    setCollapsed(prev => {
+      const next = { ...prev, [key]: !prev[key] }
+      try { localStorage.setItem('sidebarCollapsed', JSON.stringify(next)) } catch { /* ignore */ }
+      return next
+    })
+  }
+
+  async function handleSync() {
+    if (syncing) return
+    setSyncing(true)
+    try {
+      await fetch('/api/sync/ghl', { method: 'POST' })
+      router.refresh()   // re-pull data + update the LastSyncBadge
+    } catch (e) {
+      console.error('Manual GHL sync failed:', e)
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   async function handleLogout() {
     await supabase.auth.signOut()
@@ -60,29 +135,73 @@ export default function Sidebar() {
         <GlobalSearch />
       </div>
 
+      {/* Notifications */}
+      <div className="pt-2">
+        <NotificationBell />
+      </div>
+
       {/* Nav */}
-      <nav className="flex-1 px-3 py-2 space-y-1">
-        {navItems.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href
+      <nav className="flex-1 px-3 py-2 space-y-2 overflow-y-auto">
+        {navGroups.map(group => {
+          const alwaysOpen = 'alwaysOpen' in group && group.alwaysOpen
+          const hasActive = group.items.some(it => pathname === it.href)
+          // Always show the group that contains the current page, even if collapsed.
+          const open = alwaysOpen || !collapsed[group.key] || hasActive
           return (
-            <Link
-              key={href}
-              href={href}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                active
-                  ? 'bg-blue-600 text-white'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-              }`}
-            >
-              <Icon className="w-4 h-4 shrink-0" />
-              {label}
-            </Link>
+            <div key={group.key}>
+              {alwaysOpen ? (
+                <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                  {group.label}
+                </div>
+              ) : (
+                <button
+                  onClick={() => toggleGroup(group.key)}
+                  className="flex items-center justify-between w-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  <span>{group.label}</span>
+                  <ChevronDown className={`w-3 h-3 transition-transform ${open ? '' : '-rotate-90'}`} />
+                </button>
+              )}
+              {open && (
+                <div className="mt-0.5 space-y-0.5">
+                  {group.items.map(({ href, label, icon: Icon }) => {
+                    const active = pathname === href
+                    return (
+                      <Link
+                        key={href}
+                        href={href}
+                        className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          active
+                            ? 'bg-blue-600 text-white'
+                            : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4 shrink-0" />
+                        {label}
+                      </Link>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           )
         })}
       </nav>
 
       {/* Footer */}
-      <div className="px-3 py-3 border-t border-slate-700 space-y-1">
+      <div className="px-3 py-3 border-t border-slate-700 space-y-2">
+        {/* GHL sync health indicator — color tells you if cron is firing */}
+        <div className="px-1">
+          <LastSyncBadge />
+        </div>
+        <button
+          onClick={handleSync}
+          disabled={syncing}
+          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+        >
+          <RefreshCw className={`w-4 h-4 shrink-0 ${syncing ? 'animate-spin' : ''}`} />
+          {syncing ? 'Syncing…' : 'Sync GHL'}
+        </button>
         <button
           onClick={handleLogout}
           className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"

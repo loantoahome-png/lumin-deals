@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Keep the headless-Chromium packages out of the bundle — they ship a binary
+  // and must load from node_modules at runtime (required for Vercel serverless).
+  serverExternalPackages: ['@sparticuz/chromium', 'puppeteer-core'],
   typescript: {
     ignoreBuildErrors: true,
   },

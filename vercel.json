@@ -1,4 +1,10 @@
 {
+  "functions": {
+    "app/api/generate-pdf/route.ts": {
+      "memory": 1024,
+      "maxDuration": 30
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/rate-watch",
@@ -7,6 +13,14 @@
     {
       "path": "/api/cron/treasury-refresh",
       "schedule": "0 16 * * 1-5"
+    },
+    {
+      "path": "/api/cron/contingency-alerts",
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/lock-alerts",
+      "schedule": "0 15 * * *"
     }
   ]
 }
