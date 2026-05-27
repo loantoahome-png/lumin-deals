@@ -495,8 +495,17 @@ async function syncAccount(
   // Load the last successful run timestamp for this location (null if first
   // run, table missing, or ?full=1 was passed). Anything older than this in
   // GHL will be skipped — that's the incremental-sync trick.
+  //
+  // OVERLAP: we subtract a buffer so each run re-checks the last ~10 minutes of
+  // changes. GHL's opportunity SEARCH index lags a few seconds behind the live
+  // opportunity, so a stage change can land just as a sync reads stale data —
+  // the run then advances the cursor PAST that change's timestamp and the
+  // opportunity (whose updatedAt never moves again) gets skipped forever.
+  // Re-checking a short window absorbs that lag. Reprocessing unchanged opps is
+  // idempotent (same values written), so the only cost is a few extra writes.
+  const INCREMENTAL_OVERLAP_MS = 10 * 60 * 1000
   const lastSyncedAt = opts.full ? null : await getLastSyncedAt(supabase, SYNC_STATE_KEY(locationId))
-  const lastSyncedMs = lastSyncedAt ? Date.parse(lastSyncedAt) : 0
+  const lastSyncedMs = lastSyncedAt ? Math.max(0, Date.parse(lastSyncedAt) - INCREMENTAL_OVERLAP_MS) : 0
 
   console.log(`[GHL Sync:${label}] Starting${opts.full ? ' FULL' : ''} sync for location ${locationId}` +
               (lastSyncedAt ? ` (incremental — last synced ${lastSyncedAt})` : ' (full — no prior sync state)'))
