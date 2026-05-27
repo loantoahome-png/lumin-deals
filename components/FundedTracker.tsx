@@ -9,6 +9,7 @@ import {
 import { Deal, STATUS_COLORS } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
+import { ariveUrl } from '@/lib/ariveLinks'
 import {
   CheckCircle2, ExternalLink, GripVertical, Calendar,
   DollarSign, Briefcase, Search,
@@ -261,6 +262,22 @@ function FundedCard({ deal, dragHandleProps }: {
                 className="shrink-0 flex items-center gap-0.5 text-[9px] font-bold text-blue-700 hover:text-blue-900 px-1.5 py-0.5 rounded bg-blue-100 hover:bg-blue-200 border border-blue-200 transition-colors"
               >
                 GHL <ExternalLink className="w-2.5 h-2.5" />
+              </a>
+            ) : null
+          })()}
+          {(() => {
+            const aUrl = ariveUrl(deal.arive_file_no)
+            return aUrl ? (
+              <a
+                href={aUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onPointerDown={e => e.stopPropagation()}
+                onClick={e => e.stopPropagation()}
+                title="Open loan file in Arive"
+                className="shrink-0 flex items-center gap-0.5 text-[9px] font-bold text-orange-700 hover:text-orange-900 px-1.5 py-0.5 rounded bg-orange-100 hover:bg-orange-200 border border-orange-200 transition-colors"
+              >
+                Arive <ExternalLink className="w-2.5 h-2.5" />
               </a>
             ) : null
           })()}

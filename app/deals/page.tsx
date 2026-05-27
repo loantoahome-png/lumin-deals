@@ -9,6 +9,7 @@ import { pushStageToGHL } from '@/lib/pushStage'
 import Link from 'next/link'
 import { Search, RefreshCw, ExternalLink, Download, X, CheckSquare, Pencil, LayoutGrid, Table2 } from 'lucide-react'
 import EscrowTracker from '@/components/EscrowTracker'
+import { ariveUrl } from '@/lib/ariveLinks'
 import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 
@@ -538,9 +539,18 @@ function DealsPageInner() {
                         </td>
                         <td className="px-4 py-3 text-slate-400 text-xs">{formatDate(deal.created_at)}</td>
                         <td className="px-4 py-3">
-                          <Link href={`/deals/${deal.id}`} className="text-slate-400 hover:text-blue-600 transition-colors">
-                            <ExternalLink className="w-4 h-4" />
-                          </Link>
+                          <div className="flex items-center gap-2">
+                            <Link href={`/deals/${deal.id}`} title="Open in dashboard" className="text-slate-400 hover:text-blue-600 transition-colors">
+                              <ExternalLink className="w-4 h-4" />
+                            </Link>
+                            {ariveUrl(deal.arive_file_no) && (
+                              <a href={ariveUrl(deal.arive_file_no)!} target="_blank" rel="noopener noreferrer"
+                                title="Open loan file in Arive"
+                                className="text-[10px] font-bold text-orange-700 hover:text-orange-900 px-1.5 py-0.5 rounded bg-orange-100 hover:bg-orange-200 border border-orange-200 transition-colors">
+                                Arive
+                              </a>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     )
