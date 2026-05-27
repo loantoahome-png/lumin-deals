@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import {
   DndContext, useSensors, useSensor, PointerSensor,
@@ -8,6 +8,7 @@ import {
 } from '@dnd-kit/core'
 import { Deal, STATUS_COLORS, LOAN_OFFICERS, WAITING_ON_OPTIONS, STAGE_SLA_DAYS, Communication } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
+import { ghlContactUrl } from '@/lib/ghlLinks'
 import {
   AlertTriangle, Clock, ChevronRight, User, CalendarClock,
   Flame, ExternalLink, CheckCircle2, Snowflake, Lock, Search,
@@ -18,9 +19,7 @@ import {
 const ASSIGNEE_OPTIONS = [
   ...LOAN_OFFICERS,
   'Efrain Ramirez',
-  'Lexi - 3rd party',
-  'Hanh - 3rd party',
-  'Susan - In house',
+  'Brianne Han',
 ] as const
 
 const PRIORITY_OPTIONS = [
@@ -518,10 +517,27 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
             href={`/deals/${deal.id}`}
             onPointerDown={e => e.stopPropagation()}
             className="font-semibold text-sm text-slate-900 hover:text-blue-700 truncate flex items-center gap-1 group"
+            title="Open in dashboard"
           >
             {deal.name}
             <ExternalLink className="w-3 h-3 text-slate-300 group-hover:text-blue-500 opacity-0 group-hover:opacity-100 transition" />
           </Link>
+          {(() => {
+            const ghlUrl = ghlContactUrl(deal)
+            return ghlUrl ? (
+              <a
+                href={ghlUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onPointerDown={e => e.stopPropagation()}
+                onClick={e => e.stopPropagation()}
+                title="Open contact in GoHighLevel"
+                className="shrink-0 flex items-center gap-0.5 text-[9px] font-bold text-blue-700 hover:text-blue-900 px-1.5 py-0.5 rounded bg-blue-100 hover:bg-blue-200 border border-blue-200 transition-colors"
+              >
+                GHL <ExternalLink className="w-2.5 h-2.5" />
+              </a>
+            ) : null
+          })()}
         </div>
         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded shrink-0 ${statusClass}`}>
           {deal.status}
@@ -706,21 +722,67 @@ function FollowUpPicker({ value, onChange, overdue, today }: {
   overdue: boolean
   today: boolean
 }) {
-  const { date, time } = splitDateTime(value)
+  // ── Local draft state ─────────────────────────────────────────────────────
+  // If we commit the date the instant the user picks it, the parent re-saves,
+  // the column re-sorts by `next_action_due`, and the card jumps away before
+  // the user can reach the time dropdown. So we hold a draft locally and only
+  // commit when:
+  //   • a preset is clicked
+  //   • the user picks a time
+  //   • focus leaves the whole picker (e.g. they tab/click out)
+  const { date: incomingDate, time: incomingTime } = splitDateTime(value)
+  const [draftDate, setDraftDate] = useState(incomingDate)
+  const [draftTime, setDraftTime] = useState(incomingTime)
+  const editingRef = useRef(false)
 
-  function setDate(newDate: string) {
-    if (!newDate) { onChange(null); return }
-    onChange(combineDateTime(newDate, time || '09:00'))
+  // Sync draft with upstream changes — but never while the user is mid-edit.
+  useEffect(() => {
+    if (!editingRef.current) {
+      setDraftDate(incomingDate)
+      setDraftTime(incomingTime)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+
+  function commit(d: string, t: string) {
+    editingRef.current = false
+    if (!d) { onChange(null); return }
+    onChange(combineDateTime(d, t || '09:00'))
   }
-  function setTime(newTime: string) {
-    onChange(combineDateTime(date || todayLocalDate(), newTime))
+  function handleDateChange(d: string) {
+    editingRef.current = true
+    setDraftDate(d)
+    // Don't commit yet — wait for the user to set a time or blur out.
+  }
+  function handleTimeChange(t: string) {
+    setDraftTime(t)
+    // Time is the second half of the choice — commit both now.
+    commit(draftDate || todayLocalDate(), t)
+  }
+  function handleBlur(e: React.FocusEvent<HTMLDivElement>) {
+    // Only fire when focus leaves the whole picker (not when moving from
+    // date → time within it). currentTarget is the wrapper div.
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+    if (editingRef.current) {
+      commit(draftDate, draftTime || '09:00')
+    }
   }
   function applyPreset(d: string, t: string) {
-    onChange(combineDateTime(d, t))
+    setDraftDate(d); setDraftTime(t)
+    commit(d, t)
+  }
+  function clear() {
+    setDraftDate('')
+    setDraftTime('')
+    onChange(null)
+    editingRef.current = false
   }
 
+  // Show "pending — pick a time" hint if user has drafted a date but no time yet
+  const hasUnsavedDate = editingRef.current && draftDate && draftDate !== incomingDate
+
   return (
-    <div>
+    <div onBlur={handleBlur}>
       <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1">
         <CalendarClock className="w-3 h-3" /> Follow-up
       </label>
@@ -729,30 +791,38 @@ function FollowUpPicker({ value, onChange, overdue, today }: {
         <PresetButton label="Today 9a"  onClick={() => applyPreset(todayLocalDate(),    '09:00')} />
         <PresetButton label="Today 2p"  onClick={() => applyPreset(todayLocalDate(),    '14:00')} />
         <PresetButton label="Tomorrow"  onClick={() => applyPreset(tomorrowLocalDate(), '09:00')} />
-        {value && <PresetButton label="Clear" onClick={() => onChange(null)} variant="danger" />}
+        {(value || draftDate) && <PresetButton label="Clear" onClick={clear} variant="danger" />}
       </div>
       {/* Date + time inputs — date takes ~60% of width, time dropdown ~40% */}
       <div className="grid grid-cols-[1fr_auto] gap-1.5">
         <input
           type="date"
-          value={date}
-          onChange={e => setDate(e.target.value)}
-          className={`w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 tabular-nums ${date === '' ? 'date-empty' : ''}`}
+          value={draftDate}
+          onChange={e => handleDateChange(e.target.value)}
+          className={`w-full px-2.5 py-1.5 border rounded-md text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 tabular-nums ${
+            hasUnsavedDate ? 'border-amber-300 bg-amber-50/60' : 'border-slate-200'
+          } ${draftDate === '' ? 'date-empty' : ''}`}
         />
         <select
-          value={time}
-          onChange={e => setTime(e.target.value)}
-          className="w-32 px-2 py-1.5 border border-slate-200 rounded-md text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          value={draftTime}
+          onChange={e => handleTimeChange(e.target.value)}
+          className={`w-32 px-2 py-1.5 border rounded-md text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+            hasUnsavedDate ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-200'
+          }`}
         >
           <option value="">— Time —</option>
           {TIME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </div>
-      {value && (
+      {hasUnsavedDate ? (
+        <p className="text-[10px] mt-1 font-medium text-amber-700">
+          Pick a time to save · defaults to 9:00 AM if you click away
+        </p>
+      ) : value ? (
         <p className={`text-[10px] mt-1 font-medium ${overdue ? 'text-red-700' : today ? 'text-amber-700' : 'text-slate-500'}`}>
           {formatDueLabel(value)}
         </p>
-      )}
+      ) : null}
     </div>
   )
 }

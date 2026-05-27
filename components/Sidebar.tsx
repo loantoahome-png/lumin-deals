@@ -18,7 +18,6 @@ import {
   Target,
   Inbox,
   FileUp,
-  FileText,
   LogOut,
   RefreshCw,
   ChevronDown,
@@ -57,7 +56,6 @@ const navGroups = [
       { href: '/deals/new', label: 'Add Deal', icon: PlusCircle },
       { href: '/tasks', label: 'Tasks', icon: ClipboardList },
       { href: '/tools', label: 'Tools', icon: Wrench },
-      { href: '/pdf-converter', label: 'PDF Converter', icon: FileText },
     ],
   },
   {

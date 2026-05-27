@@ -8,10 +8,21 @@ import {
 } from '@dnd-kit/core'
 import { useDroppable, useDraggable } from '@dnd-kit/core'
 import { supabase } from '@/lib/supabase'
+import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal, LOAN_STATUSES, STATUS_COLORS, LOAN_TYPES, OCCUPANCY_TYPES, LOAN_OFFICERS, APPRAISAL_STATUSES, WAITING_ON_OPTIONS } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { pushStageToGHL } from '@/lib/pushStage'
+import { ghlContactUrl } from '@/lib/ghlLinks'
 import Link from 'next/link'
-import { RefreshCw, Lock, Clock, AlertTriangle, ChevronDown, X, LayoutGrid, List, Bookmark, Trash2, ArrowRight, Check, Pencil, Calendar, User, Building2, ChevronLeft, Search, SlidersHorizontal, Filter, DollarSign, Home, Hash, Tag, Briefcase, Phone, Mail, MapPin, AlertOctagon, Flame, Star, Activity } from 'lucide-react'
+import { RefreshCw, Lock, Clock, AlertTriangle, ChevronDown, X, LayoutGrid, List, Bookmark, Trash2, ArrowRight, Check, Pencil, Calendar, User, Building2, ChevronLeft, Search, SlidersHorizontal, Filter, DollarSign, Home, Hash, Tag, Briefcase, Phone, Mail, MapPin, AlertOctagon, Flame, Star, Activity, Download, ExternalLink } from 'lucide-react'
+
+// ── Arive deep-linking ──────────────────────────────────────────────────────
+// Both LOs share one Arive org, so the loan URL is fully derivable from the file #.
+function ariveUrl(fileNo: string | null | undefined): string | null {
+  const id = String(fileNo ?? '').trim()
+  if (!id) return null
+  return `https://luminlending.myarive.com/app/loans/${id}/loan-center`
+}
 
 // ── Pipeline config — single source of truth for stages per pipeline ──────────
 
@@ -231,9 +242,26 @@ function DealCard({ deal, onStatusChange, ghost = false, isSelected = false, onT
             href={`/deals/${deal.id}`}
             onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}
             className="font-semibold text-slate-900 text-sm leading-tight hover:text-blue-700 transition-colors"
+            title="Open in dashboard"
           >
             {deal.name}
           </Link>
+          {(() => {
+            const ghlUrl = ghlContactUrl(deal)
+            return ghlUrl ? (
+              <a
+                href={ghlUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                onMouseDown={e => e.stopPropagation()}
+                title="Open contact in GoHighLevel"
+                className="shrink-0 flex items-center gap-0.5 text-[9px] font-bold text-blue-700 hover:text-blue-900 px-1 py-0.5 rounded bg-blue-100 hover:bg-blue-200 border border-blue-200 transition-colors"
+              >
+                GHL
+              </a>
+            ) : null
+          })()}
         </div>
         <div className="relative shrink-0">
           <button
@@ -286,11 +314,26 @@ function DealCard({ deal, onStatusChange, ghost = false, isSelected = false, onT
           {age === 0 ? 'Today' : `${age}d`}
         </div>
         {deal.investor && <span className="text-[10px] text-slate-400 truncate ml-1">{deal.investor}</span>}
-        {deal.locked === 'Yes' && lockDays !== null && lockDays > 14 && (
-          <span className={`flex items-center gap-0.5 text-[10px] ${lockColor}`}>
-            <Lock className="w-2.5 h-2.5" />{lockDays}d
-          </span>
-        )}
+        <div className="flex items-center gap-1.5 ml-auto">
+          {deal.locked === 'Yes' && lockDays !== null && lockDays > 14 && (
+            <span className={`flex items-center gap-0.5 text-[10px] ${lockColor}`}>
+              <Lock className="w-2.5 h-2.5" />{lockDays}d
+            </span>
+          )}
+          {ariveUrl(deal.arive_file_no) && (
+            <a
+              href={ariveUrl(deal.arive_file_no)!}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={e => e.stopPropagation()}
+              onMouseDown={e => e.stopPropagation()}
+              title={`Open Arive file ${deal.arive_file_no}`}
+              className="flex items-center gap-0.5 text-[10px] font-medium text-emerald-600 hover:text-emerald-700"
+            >
+              <ExternalLink className="w-2.5 h-2.5" /> Arive
+            </a>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -806,7 +849,7 @@ function ListView({ deals, onStatusChange, onUpdate, selectedIds, onToggleSelect
                   )}
                   {col('loan_purpose') && (
                     <td className="px-4 py-3 whitespace-nowrap min-w-[140px]">
-                      {ic('loan_purpose', deal.loan_purpose, 'select', LOAN_TYPES)}
+                      {ic('loan_purpose', deal.loan_purpose, 'select', ['Purchase', 'Refinance'] as const)}
                     </td>
                   )}
                   {col('credit_rating') && (
@@ -836,7 +879,23 @@ function ListView({ deals, onStatusChange, onUpdate, selectedIds, onToggleSelect
                   )}
                   {col('arive_file_no') && (
                     <td className="px-4 py-3 whitespace-nowrap min-w-[90px]">
-                      {ic('arive_file_no', deal.arive_file_no, 'text')}
+                      {ic('arive_file_no', deal.arive_file_no, 'text', undefined, undefined,
+                        deal.arive_file_no ? (
+                          <span className="flex items-center gap-1.5 text-sm text-slate-600">
+                            {deal.arive_file_no}
+                            <a
+                              href={ariveUrl(deal.arive_file_no)!}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              title="Open in Arive"
+                              className="text-emerald-600 hover:text-emerald-700 shrink-0"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                          </span>
+                        ) : undefined
+                      )}
                     </td>
                   )}
                   {col('processor') && (
@@ -908,10 +967,12 @@ function PipelinePageInner() {
   const [activeViewId, setActiveViewId] = useState<string | null>(null)
   const [showSaveModal, setShowSaveModal] = useState(false)
   const [newViewName, setNewViewName] = useState('')
-  // Pipeline visibility — all on by default
-  // Default: show only Leads + Escrows (Not Ready and Funded are hidden until toggled on)
+  // Pipeline visibility
+  // Default: show only Leads (Escrows, Not Ready, Funded are hidden until toggled on).
+  // Escrows + Funded each have their own dedicated pages, so the Pipeline view is
+  // primarily a Leads workspace by default.
   const [visiblePipelines, setVisiblePipelines] = useState<Set<string>>(
-    new Set(['Leads', 'Escrows'])
+    new Set(['Leads'])
   )
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -937,12 +998,11 @@ function PipelinePageInner() {
 
   const fetchDeals = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase
-      .from('deals')
-      .select('*')
+    const all = await fetchAllDeals(q => q
       .not('pipeline_group', 'in', '("Lost","Last files at WCL","Lost/Inactive/Does not qualify","Nurture")')
       .order('created_at', { ascending: false })
-    setDeals(data || [])
+    )
+    setDeals(all)
     setLoading(false)
   }, [])
 
@@ -1061,8 +1121,8 @@ function PipelinePageInner() {
     setActiveViewId(null)
   }
 
-  // Default visible set is Leads + Escrows — only consider pipelines "filtered" if it differs from that
-  const defaultVisible = ['Leads', 'Escrows']
+  // Default visible set is Leads only — only consider pipelines "filtered" if it differs from that
+  const defaultVisible = ['Leads']
   const isDefaultPipelineSet =
     visiblePipelines.size === defaultVisible.length &&
     defaultVisible.every(k => visiblePipelines.has(k))
@@ -1156,6 +1216,79 @@ function PipelinePageInner() {
   }
   function selectAll(ids: string[]) { setSelectedIds(new Set(ids)) }
 
+  function handleBulkExport() {
+    // Export selected deals to CSV — all the columns a loan officer or
+    // ops person typically cares about for a stage report.
+    const selected = deals.filter(d => selectedIds.has(d.id))
+    if (selected.length === 0) return
+
+    const cols: Array<{ header: string; get: (d: Deal) => string | number | null | undefined }> = [
+      { header: 'Name',             get: d => d.name },
+      { header: 'First Name',       get: d => d.first_name },
+      { header: 'Last Name',        get: d => d.last_name },
+      { header: 'Email',            get: d => d.email },
+      { header: 'Phone',            get: d => d.phone },
+      { header: 'Pipeline',         get: d => d.pipeline_group },
+      { header: 'Status',           get: d => d.status },
+      { header: 'Loan Officer',     get: d => d.loan_officer },
+      { header: 'Processor',        get: d => d.processor },
+      { header: 'Loan Type',        get: d => d.loan_type },
+      { header: 'Loan Purpose',     get: d => d.loan_purpose },
+      { header: 'Loan Amount',      get: d => d.loan_amount },
+      { header: 'Property Value',   get: d => d.estimated_value },
+      { header: 'LTV',              get: d => d.ltv },
+      { header: 'Rate',             get: d => d.rate },
+      { header: 'Investor',         get: d => d.investor },
+      { header: 'FICO',             get: d => d.credit_score },
+      { header: 'Credit Rating',    get: d => d.credit_rating },
+      { header: 'Occupancy',        get: d => d.occupancy },
+      { header: 'Property Address', get: d => d.property_address },
+      { header: 'City',             get: d => d.city },
+      { header: 'State',            get: d => d.state },
+      { header: 'Zip',              get: d => d.zip },
+      { header: 'Source',           get: d => d.source },
+      { header: 'Lead Source Agg',  get: d => d.lead_source_agg },
+      { header: 'Arive File #',     get: d => d.arive_file_no },
+      { header: 'Investor File #',  get: d => d.investor_file_no },
+      { header: 'Lock Expiration',  get: d => d.lock_expiration ? new Date(d.lock_expiration).toLocaleDateString() : null },
+      { header: 'Signing Date',     get: d => d.signing_date ? new Date(d.signing_date).toLocaleDateString() : null },
+      { header: 'Funded Date',      get: d => d.funded_date ? new Date(d.funded_date).toLocaleDateString() : null },
+      { header: 'Last Contacted',   get: d => d.last_contacted ? new Date(d.last_contacted).toLocaleDateString() : null },
+      { header: 'Next Action',      get: d => d.next_action },
+      { header: 'Next Action Due',  get: d => d.next_action_due ? new Date(d.next_action_due).toLocaleString() : null },
+      { header: 'Next Action Assignee', get: d => d.next_action_assignee },
+      { header: 'Waiting On',       get: d => d.waiting_on },
+      { header: 'Date Added',       get: d => d.created_at ? new Date(d.created_at).toLocaleDateString() : null },
+      { header: 'Date Added GHL',   get: d => d.date_added_ghl ? new Date(d.date_added_ghl).toLocaleDateString() : null },
+    ]
+
+    const escape = (v: unknown): string => {
+      if (v === null || v === undefined || v === '') return ''
+      const s = String(v)
+      // RFC 4180: wrap in quotes if contains comma, quote, or newline; double internal quotes
+      if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
+      return s
+    }
+
+    const rows = [
+      cols.map(c => escape(c.header)).join(','),
+      ...selected.map(d => cols.map(c => escape(c.get(d))).join(',')),
+    ]
+    // Prepend BOM so Excel opens UTF-8 correctly
+    const csv = '﻿' + rows.join('\r\n')
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const ts = new Date().toISOString().slice(0, 10)
+    a.href = url
+    a.download = `lumin-pipeline-${ts}-${selected.length}-deals.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
   async function handleBulkDelete() {
     if (!window.confirm(`Permanently delete ${selectedIds.size} deal${selectedIds.size > 1 ? 's' : ''}? This cannot be undone.`)) return
     setBulkWorking(true)
@@ -1173,6 +1306,14 @@ function PipelinePageInner() {
       ? { ...d, pipeline_group: targetGroup, status: targetStatus, updated_at: new Date().toISOString() }
       : d
     ))
+    // Push each affected deal's new stage to GHL, throttled to stay friendly
+    // to their rate limits.
+    ;(async () => {
+      for (const id of ids) {
+        await pushStageToGHL(id, targetStatus)
+        await new Promise(r => setTimeout(r, 150))
+      }
+    })()
     setSelectedIds(new Set()); setShowBulkMoveMenu(false); setBulkWorking(false)
   }
 
@@ -1214,14 +1355,14 @@ function PipelinePageInner() {
     // Workflow
     { key: 'status',               label: 'Status',           category: 'Workflow', type: 'select',         icon: <Tag className="w-3.5 h-3.5 text-violet-500" />,        options: LOAN_STATUSES },
     { key: 'loan_officer',         label: 'Loan Officer',     category: 'Workflow', type: 'select',         icon: <User className="w-3.5 h-3.5 text-violet-500" />,       options: LOAN_OFFICERS },
-    { key: 'processor_status',     label: 'Processor',        category: 'Workflow', type: 'select',         icon: <User className="w-3.5 h-3.5 text-cyan-500" />,         options: ['Lexi - 3rd party', 'Hanh - 3rd party', 'Susan - In house', 'Self Processing'] },
-    { key: 'next_action_assignee', label: 'Assigned To',      category: 'Workflow', type: 'select',         icon: <User className="w-3.5 h-3.5 text-blue-500" />,         options: [...LOAN_OFFICERS, 'Efrain Ramirez', 'Lexi - 3rd party', 'Hanh - 3rd party', 'Susan - In house'] },
+    { key: 'processor_status',     label: 'Processor',        category: 'Workflow', type: 'select',         icon: <User className="w-3.5 h-3.5 text-cyan-500" />,         options: ['Brianne Han', 'Self Processing'] },
+    { key: 'next_action_assignee', label: 'Assigned To',      category: 'Workflow', type: 'select',         icon: <User className="w-3.5 h-3.5 text-blue-500" />,         options: [...LOAN_OFFICERS, 'Efrain Ramirez', 'Brianne Han'] },
     { key: 'next_action_due',      label: 'Follow-up Date',   category: 'Workflow', type: 'datetime-local', icon: <Clock className="w-3.5 h-3.5 text-orange-500" /> },
     { key: 'escrow_priority',      label: 'Priority',         category: 'Workflow', type: 'select',         icon: <Flame className="w-3.5 h-3.5 text-red-500" />,         options: ['high', 'normal', 'low'] },
     { key: 'waiting_on',           label: 'Waiting On',       category: 'Workflow', type: 'select',         icon: <AlertOctagon className="w-3.5 h-3.5 text-amber-500" />, options: WAITING_ON_OPTIONS },
     // Loan
     { key: 'loan_type',            label: 'Loan Type',        category: 'Loan',     type: 'select',         icon: <DollarSign className="w-3.5 h-3.5 text-emerald-500" />, options: LOAN_TYPES },
-    { key: 'loan_purpose',         label: 'Loan Purpose',     category: 'Loan',     type: 'select',         icon: <DollarSign className="w-3.5 h-3.5 text-emerald-500" />, options: ['Purchase', 'Refinance', 'Cash-Out Refinance', 'HELOC'] },
+    { key: 'loan_purpose',         label: 'Loan Purpose',     category: 'Loan',     type: 'select',         icon: <DollarSign className="w-3.5 h-3.5 text-emerald-500" />, options: ['Purchase', 'Refinance'] },
     { key: 'loan_amount',          label: 'Loan Amount',      category: 'Loan',     type: 'currency',       icon: <DollarSign className="w-3.5 h-3.5 text-emerald-500" /> },
     { key: 'estimated_value',      label: 'Property Value',   category: 'Loan',     type: 'currency',       icon: <DollarSign className="w-3.5 h-3.5 text-emerald-500" /> },
     { key: 'rate',                 label: 'Rate',             category: 'Loan',     type: 'percent',        icon: <Activity className="w-3.5 h-3.5 text-blue-500" /> },
@@ -1289,6 +1430,7 @@ function PipelinePageInner() {
       : d
     ))
     await supabase.from('deals').update({ status: newStatus, pipeline_group: newGroup }).eq('id', dealId)
+    void pushStageToGHL(dealId, newStatus)
   }
 
   // ── Inline cell update ────────────────────────────────────────────────────
@@ -1297,6 +1439,9 @@ function PipelinePageInner() {
       d.id === id ? { ...d, [field]: value, updated_at: new Date().toISOString() } : d
     ))
     await supabase.from('deals').update({ [field]: value }).eq('id', id)
+    if (field === 'status' && typeof value === 'string') {
+      void pushStageToGHL(id, value)
+    }
   }
 
   function handleDragStart(event: DragStartEvent) { setActiveId(event.active.id as string) }
@@ -1323,6 +1468,7 @@ function PipelinePageInner() {
       : d
     ))
     await supabase.from('deals').update({ status: stageName, pipeline_group: newGroup }).eq('id', deal.id)
+    void pushStageToGHL(deal.id, stageName)
   }
 
   const activeDeal = activeId ? deals.find(d => d.id === activeId) : null
@@ -1614,11 +1760,42 @@ function PipelinePageInner() {
                       const stageVol   = stageDeals.reduce((s, d) => s + (d.loan_amount || 0), 0)
                       const isOver     = overId === droppableId
 
+                      const stageIds = stageDeals.map(d => d.id)
+                      const stageAllSelected = stageIds.length > 0 && stageIds.every(id => selectedIds.has(id))
+                      const stageSomeSelected = !stageAllSelected && stageIds.some(id => selectedIds.has(id))
+                      const toggleStageSelect = () => {
+                        setSelectedIds(prev => {
+                          const next = new Set(prev)
+                          if (stageAllSelected) {
+                            stageIds.forEach(id => next.delete(id))
+                          } else {
+                            stageIds.forEach(id => next.add(id))
+                          }
+                          return next
+                        })
+                      }
+
                       return (
-                        <div key={stage} className="flex flex-col w-[210px] flex-none">
+                        <div key={stage} className="flex flex-col w-[210px] flex-none group/col">
                           {/* Stage column header */}
                           <div className={`flex items-center justify-between px-2.5 py-2 rounded-t-lg border-b-2 ${pipeline.stageHeader} mb-1`}>
                             <div className="flex items-center gap-1.5 min-w-0">
+                              {/* Select all in this stage — appears on column hover, or always when any selected */}
+                              <button
+                                onClick={toggleStageSelect}
+                                disabled={stageIds.length === 0}
+                                title={stageAllSelected ? `Deselect all in ${stage}` : `Select all ${stageIds.length} in ${stage}`}
+                                className={`shrink-0 w-3.5 h-3.5 rounded border-2 flex items-center justify-center transition-all ${
+                                  stageAllSelected
+                                    ? 'bg-blue-600 border-blue-600 opacity-100'
+                                    : stageSomeSelected
+                                      ? 'bg-blue-200 border-blue-500 opacity-100'
+                                      : 'border-slate-400 bg-white opacity-0 group-hover/col:opacity-100 hover:border-blue-500'
+                                } disabled:opacity-0 disabled:cursor-default`}
+                              >
+                                {stageAllSelected && <Check className="w-2.5 h-2.5 text-white" />}
+                                {stageSomeSelected && <span className="w-1.5 h-0.5 bg-blue-700 rounded" />}
+                              </button>
                               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${pipeline.stageDot}`} />
                               <span className="text-xs font-semibold text-slate-700 truncate" title={stage}>{stage}</span>
                             </div>
@@ -2103,6 +2280,13 @@ function PipelinePageInner() {
               </div>
             )}
           </div>
+
+          {/* Export CSV */}
+          <button onClick={handleBulkExport} disabled={bulkWorking}
+            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+            title={`Download ${selectedIds.size} deal${selectedIds.size > 1 ? 's' : ''} as CSV`}>
+            <Download className="w-3.5 h-3.5" /> Export CSV
+          </button>
 
           {/* Delete */}
           <button onClick={handleBulkDelete} disabled={bulkWorking}

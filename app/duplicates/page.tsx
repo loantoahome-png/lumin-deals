@@ -2,15 +2,16 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal } from '@/lib/types'
 import Link from 'next/link'
 import {
   Loader2, Mail, Phone, User, GitMerge, AlertTriangle,
-  CheckCircle2, ExternalLink, ChevronDown, ChevronUp, Sparkles,
+  CheckCircle2, ExternalLink, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
-type MatchType = 'email' | 'phone' | 'name' | 'ghl_contact_id'
+type MatchType = 'email' | 'phone' | 'name'
 
 type DuplicateGroup = {
   key: string
@@ -41,12 +42,24 @@ function normName(s: string | null | undefined): string | null {
   return t.length >= 3 ? t : null
 }
 
+// A group is a LEGIT multi-loan (NOT a duplicate) when every deal is its own
+// distinct GHL opportunity — i.e. separate loans/leads for the same person.
+// We only surface a group for review when that's NOT the case (e.g. a deal
+// without an opportunity id, or two rows sharing one — a true cross-source /
+// app duplicate).
+function isLegitMultiLoan(deals: Deal[]): boolean {
+  const opps = deals.map(d => d.ghl_opportunity_id).filter(Boolean) as string[]
+  return opps.length === deals.length && new Set(opps).size === opps.length
+}
+
 // ── Detect duplicate groups ─────────────────────────────────────────────────
+// NOTE: we deliberately do NOT group by ghl_contact_id anymore — with the
+// multi-loan model, one contact legitimately has many opportunities/deals.
+// Grouping by contact would flag every repeat lead / second loan as a "dup".
 function detectDuplicates(deals: Deal[]): DuplicateGroup[] {
   const byEmail   = new Map<string, Deal[]>()
   const byPhone   = new Map<string, Deal[]>()
   const byName    = new Map<string, Deal[]>()
-  const byGhlId   = new Map<string, Deal[]>()
 
   for (const d of deals) {
     const e = normEmail(d.email)
@@ -55,7 +68,6 @@ function detectDuplicates(deals: Deal[]): DuplicateGroup[] {
     if (p) (byPhone.get(p) ?? byPhone.set(p, []).get(p)!).push(d)
     const n = normName(d.name)
     if (n) (byName.get(n) ?? byName.set(n, []).get(n)!).push(d)
-    if (d.ghl_contact_id) (byGhlId.get(d.ghl_contact_id) ?? byGhlId.set(d.ghl_contact_id, []).get(d.ghl_contact_id)!).push(d)
   }
 
   // Build groups, deduping deals across detection methods (so a group of 3 isn't reported 3x)
@@ -64,13 +76,14 @@ function detectDuplicates(deals: Deal[]): DuplicateGroup[] {
 
   function addGroup(matchType: MatchType, matchValue: string, deals: Deal[]) {
     if (deals.length < 2) return
+    // Skip legit multi-loan groups (each deal is its own distinct opportunity)
+    if (isLegitMultiLoan(deals)) return
     const ids = deals.map(d => d.id).sort().join('|')
     if (seenGroupSignatures.has(ids)) return
     seenGroupSignatures.add(ids)
     groups.push({ key: `${matchType}:${matchValue}`, matchType, matchValue, deals })
   }
 
-  for (const [v, ds] of byGhlId) addGroup('ghl_contact_id', v, ds)
   for (const [v, ds] of byEmail) addGroup('email', v, ds)
   for (const [v, ds] of byPhone) addGroup('phone', v, ds)
   for (const [v, ds] of byName)  addGroup('name', v, ds)
@@ -114,7 +127,6 @@ const MATCH_LABELS: Record<MatchType, { label: string; icon: React.ReactNode }> 
   email:           { label: 'Same email',           icon: <Mail className="w-3.5 h-3.5" /> },
   phone:           { label: 'Same phone',           icon: <Phone className="w-3.5 h-3.5" /> },
   name:            { label: 'Same name',            icon: <User className="w-3.5 h-3.5" /> },
-  ghl_contact_id:  { label: 'Same GHL contact ID',  icon: <Sparkles className="w-3.5 h-3.5" /> },
 }
 
 export default function DuplicatesPage() {
@@ -126,13 +138,12 @@ export default function DuplicatesPage() {
   // Field-level override: per group, per field, which deal's value to use as the merged value
   const [fieldOverrides, setFieldOverrides] = useState<Record<string, Record<string, string>>>({}) // groupKey → field → dealId
   const [filterType, setFilterType] = useState<'all' | MatchType>('all')
-  const [bulkMerging, setBulkMerging] = useState(false)
   const [resultMsg, setResultMsg] = useState<string | null>(null)
 
   async function fetchDeals() {
     setLoading(true)
-    const { data } = await supabase.from('deals').select('*').order('updated_at', { ascending: false })
-    setDeals((data as Deal[]) || [])
+    const all = await fetchAllDeals(q => q.order('updated_at', { ascending: false }))
+    setDeals(all)
     setLoading(false)
   }
   useEffect(() => { fetchDeals() }, [])
@@ -187,30 +198,6 @@ export default function DuplicatesPage() {
     }
   }
 
-  async function bulkAutoMerge() {
-    if (!confirm(`Auto-merge all ${groups.length} duplicate groups? This will delete ${wouldRemove} deals (the lower-scoring duplicates) and merge their data into the primary deals. This cannot be undone.`)) {
-      return
-    }
-    setBulkMerging(true)
-    let success = 0, failed = 0
-    for (const group of groups) {
-      const primary = pickBestPrimary(group.deals)
-      const secondaries = group.deals.filter(d => d.id !== primary.id)
-      try {
-        const res = await fetch('/api/deals/merge', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ primaryId: primary.id, secondaryIds: secondaries.map(d => d.id) }),
-        })
-        const data = await res.json()
-        if (data.success) success++; else failed++
-      } catch { failed++ }
-    }
-    setResultMsg(`Bulk merge complete: ${success} succeeded, ${failed} failed`)
-    setBulkMerging(false)
-    await fetchDeals()
-  }
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full p-12">
@@ -224,22 +211,12 @@ export default function DuplicatesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Duplicate Contacts</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Possible Duplicate Contacts</h1>
           <p className="text-slate-500 text-sm mt-0.5">
-            Find and merge contacts that exist multiple times across your sources.
+            Same person matched by email / phone / name. <strong>Review each before merging</strong> —
+            a borrower&apos;s separate loans are intentionally kept as separate cards and are NOT shown here.
           </p>
         </div>
-        {groups.length > 0 && (
-          <button
-            onClick={bulkAutoMerge}
-            disabled={bulkMerging}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-            title="Merges every group automatically by picking the most-complete deal as primary"
-          >
-            {bulkMerging ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            Auto-merge all ({groups.length})
-          </button>
-        )}
       </div>
 
       {resultMsg && (
@@ -260,7 +237,7 @@ export default function DuplicatesPage() {
       <div className="flex items-center gap-2">
         <span className="text-xs text-slate-500">Match type:</span>
         <div className="flex bg-slate-100 rounded-lg p-1 gap-0.5">
-          {(['all','email','phone','name','ghl_contact_id'] as const).map(t => {
+          {(['all','email','phone','name'] as const).map(t => {
             const count = t === 'all' ? groups.length : groups.filter(g => g.matchType === t).length
             return (
               <button
@@ -268,7 +245,7 @@ export default function DuplicatesPage() {
                 onClick={() => setFilterType(t)}
                 className={`px-3 py-1 text-xs font-medium rounded-md transition ${filterType === t ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}
               >
-                {t === 'all' ? 'All' : t === 'ghl_contact_id' ? 'GHL ID' : t.charAt(0).toUpperCase() + t.slice(1)} ({count})
+                {t === 'all' ? 'All' : t.charAt(0).toUpperCase() + t.slice(1)} ({count})
               </button>
             )
           })}

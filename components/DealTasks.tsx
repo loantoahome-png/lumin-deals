@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { notifyTask } from '@/lib/notifyTask'
+import { TIME_OPTIONS } from '@/lib/utils'
 import { DealTask, TASK_ASSIGNEES } from '@/lib/types'
 import {
   CheckCircle2, Circle, Trash2, Plus, X, Calendar, User,
@@ -10,36 +12,53 @@ import {
 } from 'lucide-react'
 
 // ── Date helpers (same shape as EscrowTracker's, kept local for portability) ─
+// A blank time is stored as 23:59 ("end of day") — the 15-min picker can never
+// produce it, so it doubles as an "all day / no specific time" marker.
+const ALL_DAY_TIME = '23:59'
+function isAllDay(iso: string | null | undefined): boolean {
+  if (!iso) return false
+  const d = new Date(iso)
+  return !isNaN(d.getTime()) && d.getHours() === 23 && d.getMinutes() === 59
+}
 function splitDateTime(iso: string | null | undefined): { date: string; time: string } {
   if (!iso) return { date: '', time: '' }
   const d = new Date(iso)
   if (isNaN(d.getTime())) return { date: '', time: '' }
   const pad = (n: number) => String(n).padStart(2, '0')
+  const hhmm = `${pad(d.getHours())}:${pad(d.getMinutes())}`
   return {
     date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+    time: hhmm === ALL_DAY_TIME ? '' : hhmm,
   }
 }
 function combineDateTime(date: string, time: string): string | null {
   if (!date) return null
-  const d = new Date(`${date}T${time || '09:00'}`)
+  const d = new Date(`${date}T${time || ALL_DAY_TIME}`)
   return isNaN(d.getTime()) ? null : d.toISOString()
 }
 function relativeDue(iso: string | null): { label: string; tone: 'red' | 'amber' | 'slate' } {
   if (!iso) return { label: 'No due date', tone: 'slate' }
   const due = new Date(iso)
   const now = new Date()
+  const time = due.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  const today = new Date(); today.setHours(0,0,0,0)
+  const dueDay = new Date(due); dueDay.setHours(0,0,0,0)
+  const dayDelta = Math.round((dueDay.getTime() - today.getTime()) / 86_400_000)
+
+  // All-day tasks: no time shown, not "overdue" until the day fully passes.
+  if (isAllDay(iso)) {
+    if (dayDelta < 0)  return { label: dayDelta === -1 ? 'Overdue · yesterday' : `Overdue ${-dayDelta}d`, tone: 'red' }
+    if (dayDelta === 0) return { label: 'Today', tone: 'amber' }
+    if (dayDelta === 1) return { label: 'Tomorrow', tone: 'slate' }
+    return { label: due.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }), tone: 'slate' }
+  }
+
   const ms = due.getTime() - now.getTime()
   const days = Math.floor(ms / 86_400_000)
-  const time = due.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-
   if (ms < 0) {
     const ago = Math.abs(days)
     return { label: ago === 0 ? `Overdue · was ${time}` : `Overdue ${ago}d`, tone: 'red' }
   }
-  const today = new Date(); today.setHours(0,0,0,0)
-  const dueDay = new Date(due); dueDay.setHours(0,0,0,0)
-  const dayDelta = Math.round((dueDay.getTime() - today.getTime()) / 86_400_000)
   if (dayDelta === 0) return { label: `Today · ${time}`, tone: 'amber' }
   if (dayDelta === 1) return { label: `Tomorrow · ${time}`, tone: 'slate' }
   return {
@@ -84,6 +103,8 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
     const newCompleted = task.completed_at ? null : new Date().toISOString()
     await supabase.from('deal_tasks').update({ completed_at: newCompleted }).eq('id', task.id)
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, completed_at: newCompleted } : t))
+    // Email both assignee + assigner only when marking DONE (not when un-completing)
+    if (newCompleted) notifyTask('completed', task)
   }
 
   async function deleteTask(id: string) {
@@ -95,16 +116,24 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
   async function createTask(payload: Omit<DealTask, 'id' | 'created_at'>) {
     const { data, error } = await supabase.from('deal_tasks').insert(payload).select().single()
     if (error) { alert('Save failed: ' + error.message); return }
-    if (data) setTasks(prev => [data as DealTask, ...prev])
+    if (data) {
+      setTasks(prev => [data as DealTask, ...prev])
+      notifyTask('assigned', data as DealTask)   // email the assignee
+    }
     setShowForm(false)
   }
 
   const [editingId, setEditingId] = useState<string | null>(null)
   async function updateTask(id: string, patch: Omit<DealTask, 'id' | 'created_at'>) {
+    const prevAssignee = tasks.find(t => t.id === id)?.assignee ?? null
     const { error } = await supabase.from('deal_tasks').update(patch).eq('id', id)
     if (error) { alert('Update failed: ' + error.message); return }
     setTasks(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))
     setEditingId(null)
+    // If reassigned to a new person, notify them
+    if (patch.assignee && patch.assignee !== prevAssignee) {
+      notifyTask('assigned', { ...patch, id })
+    }
   }
 
   // Sort: incomplete first (by due asc), then completed (most recent first)
@@ -276,19 +305,14 @@ function TaskForm({ initialTask, onSubmit, onCancel, forcedDealId }: {
   forcedDealId?: string
 }) {
   const isEdit = !!initialTask
-  // Defaults for create mode: tomorrow at 09:00
-  const defaultDateCreate = (() => {
-    const now = new Date()
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate() + 1)}`
-  })()
-  // Edit mode: pull date/time from initialTask.due_at
-  const initialDT = initialTask?.due_at ? splitDateTime(initialTask.due_at) : { date: defaultDateCreate, time: '09:00' }
+  // No default due date/time on create — leave blank so a task has no deadline
+  // unless the user explicitly sets one. Edit mode pulls from initialTask.due_at.
+  const initialDT = initialTask?.due_at ? splitDateTime(initialTask.due_at) : { date: '', time: '' }
 
   const [title, setTitle] = useState(initialTask?.title || '')
   const [description, setDescription] = useState(initialTask?.description || '')
   const [date, setDate] = useState(initialDT.date)
-  const [time, setTime] = useState(initialDT.time || '09:00')
+  const [time, setTime] = useState(initialDT.time)
   const [assignee, setAssignee] = useState<string>(initialTask?.assignee || '')
   const [assignedBy, setAssignedBy] = useState<string>(initialTask?.assigned_by || '')
   const [priority, setPriority] = useState<string>(initialTask?.priority || 'normal')
@@ -333,7 +357,15 @@ function TaskForm({ initialTask, onSubmit, onCancel, forcedDealId }: {
       />
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Due date</label>
+          <div className="flex items-center justify-between mb-0.5">
+            <label className="block text-[10px] font-medium text-slate-500">Due date</label>
+            {(date || time) && (
+              <button type="button" onClick={() => { setDate(''); setTime('') }}
+                className="text-[10px] font-medium text-slate-400 hover:text-red-600">
+                Clear
+              </button>
+            )}
+          </div>
           <input
             type="date"
             value={date}
@@ -343,12 +375,15 @@ function TaskForm({ initialTask, onSubmit, onCancel, forcedDealId }: {
         </div>
         <div>
           <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Due time</label>
-          <input
-            type="time"
+          <select
             value={time}
             onChange={e => setTime(e.target.value)}
-            className="w-full px-2 py-1.5 border border-slate-200 rounded-md text-sm"
-          />
+            className="w-full px-2 py-1.5 border border-slate-200 rounded-md text-sm bg-white"
+          >
+            <option value="">— Pick a time —</option>
+            {time && !TIME_OPTIONS.some(o => o.value === time) && <option value={time}>{time}</option>}
+            {TIME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
         </div>
         <div>
           <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Assigned to</label>

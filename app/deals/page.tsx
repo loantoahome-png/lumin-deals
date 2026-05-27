@@ -2,8 +2,10 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
+import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal, LOAN_OFFICERS, LOAN_TYPES, PIPELINE_GROUPS, PIPELINE_STATUSES, STATUS_COLORS } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { pushStageToGHL } from '@/lib/pushStage'
 import Link from 'next/link'
 import { Search, RefreshCw, ExternalLink, Download, X, CheckSquare, Pencil, LayoutGrid, Table2 } from 'lucide-react'
 import EscrowTracker from '@/components/EscrowTracker'
@@ -187,6 +189,10 @@ function DealsPageInner() {
       d.id === id ? { ...d, [field]: value, updated_at: new Date().toISOString() } : d
     ))
     await supabase.from('deals').update({ [field]: value }).eq('id', id)
+    // Bidirectional sync: a status change inline-edit should reach GHL too
+    if (field === 'status' && typeof value === 'string') {
+      void pushStageToGHL(id, value)
+    }
   }
 
   // Bulk actions
@@ -195,11 +201,8 @@ function DealsPageInner() {
 
   const fetchDeals = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase
-      .from('deals')
-      .select('*')
-      .order('created_at', { ascending: false })
-    setDeals(data || [])
+    const all = await fetchAllDeals(q => q.order('created_at', { ascending: false }))
+    setDeals(all)
     setLoading(false)
   }, [])
 
@@ -247,6 +250,14 @@ function DealsPageInner() {
     const ids = [...selectedIds]
     await supabase.from('deals').update({ status }).in('id', ids)
     setDeals(prev => prev.map(d => selectedIds.has(d.id) ? { ...d, status } : d))
+    // Push each affected deal's new stage to GHL. Sequential (with a brief
+    // gap) to stay friendly to GHL's rate limits on bulk operations.
+    ;(async () => {
+      for (const id of ids) {
+        await pushStageToGHL(id, status)
+        await new Promise(r => setTimeout(r, 150))
+      }
+    })()
     setSelectedIds(new Set())
     setBulkProcessing(false)
   }
@@ -373,6 +384,9 @@ function DealsPageInner() {
               if (!error) {
                 // Optimistically update local state so UI reflects the change
                 setDeals(prev => prev.map(d => d.id === id ? { ...d, ...patch } as Deal : d))
+              }
+              if (typeof patch.status === 'string') {
+                void pushStageToGHL(id, patch.status)
               }
             }}
           />

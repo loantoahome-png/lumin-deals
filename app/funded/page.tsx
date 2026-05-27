@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Deal, LOAN_OFFICERS } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
+import { pushStageToGHL } from '@/lib/pushStage'
 import Link from 'next/link'
 import { RefreshCw } from 'lucide-react'
 import FundedTracker from '@/components/FundedTracker'
@@ -38,6 +39,9 @@ export default function FundedPage() {
     const { error } = await supabase.from('deals').update(patch).eq('id', id)
     if (!error) {
       setDeals(prev => prev.map(d => d.id === id ? { ...d, ...patch } as Deal : d))
+    }
+    if (typeof patch.status === 'string') {
+      void pushStageToGHL(id, patch.status)
     }
   }
 

@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import {
   Deal, PIPELINE_GROUPS, PIPELINE_STATUSES, LOAN_OFFICERS,
-  LOAN_TYPES, OCCUPANCY_TYPES, APPRAISAL_STATUSES,
+  LOAN_TYPES, REFINANCE_TYPES, LIEN_POSITIONS, OCCUPANCY_TYPES, APPRAISAL_STATUSES,
 } from '@/lib/types'
 import {
   ArrowLeft, Check, Trash2, DollarSign, Home, User, Users,
@@ -16,6 +16,8 @@ import {
 type DealFormData = Omit<Deal, 'id' | 'created_at' | 'updated_at'>
 
 const emptyDeal: DealFormData = {
+  borrower_id: null,
+  ghl_opportunity_id: null,
   name: '',
   first_name: null,
   last_name: null,
@@ -27,6 +29,10 @@ const emptyDeal: DealFormData = {
   processor: null,
   processor_status: null,
   loan_type: null,
+  refinance_type: null,
+  lien_position: null,
+  lead_price: null,
+  compensation_amount: null,
   loan_amount: null,
   estimated_value: null,
   rate: null,
@@ -43,6 +49,10 @@ const emptyDeal: DealFormData = {
   current_balance: null,
   ltv: null,
   cash_out: null,
+  purchase_price: null,
+  housing_payment: null,
+  county: null,
+  adverse: null,
   down_payment: null,
   is_military: null,
   current_va_loan: null,
@@ -83,7 +93,17 @@ const emptyDeal: DealFormData = {
   escrow_priority: null,
   stage_changed_at: null,
   waiting_on: null,
+  last_communication_at: null,
+  last_communication_type: null,
+  comm_unread_count: null,
   communications: null,
+  documents: null,
+  // Purchase contingency dates (added with the contingency tracker)
+  escrow_start_date: null,
+  inspection_contingency_date: null,
+  appraisal_contingency_date: null,
+  loan_contingency_date: null,
+  close_of_escrow_date: null,
 }
 
 // ── Field styles ────────────────────────────────────────────────────────────
@@ -309,18 +329,38 @@ export default function DealForm({ deal }: { deal?: Deal }) {
             <Section title="Loan Details" icon={<DollarSign className="w-4 h-4" />}>
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Loan Purpose">
-                  <select value={form.loan_purpose || ''} onChange={e => set('loan_purpose', e.target.value)} className={sel}>
+                  <select
+                    value={form.loan_purpose || ''}
+                    onChange={e => {
+                      const v = e.target.value
+                      set('loan_purpose', v)
+                      if (v !== 'Refinance' && form.refinance_type) set('refinance_type', null)
+                    }}
+                    className={sel}
+                  >
                     <option value="">—</option>
                     <option value="Purchase">Purchase</option>
                     <option value="Refinance">Refinance</option>
-                    <option value="Cash-Out Refinance">Cash-Out Refinance</option>
-                    <option value="HELOC">HELOC</option>
                   </select>
                 </Field>
                 <Field label="Loan Type">
                   <select value={form.loan_type || ''} onChange={e => set('loan_type', e.target.value)} className={sel}>
                     <option value="">—</option>
                     {LOAN_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </Field>
+                {form.loan_purpose === 'Refinance' && (
+                  <Field label="Refinance Type">
+                    <select value={form.refinance_type || ''} onChange={e => set('refinance_type', e.target.value || null)} className={sel}>
+                      <option value="">—</option>
+                      {REFINANCE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </Field>
+                )}
+                <Field label="Lien Position">
+                  <select value={form.lien_position || ''} onChange={e => set('lien_position', e.target.value || null)} className={sel}>
+                    <option value="">—</option>
+                    {LIEN_POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </Field>
                 <Field label="Loan Amount">
@@ -343,6 +383,18 @@ export default function DealForm({ deal }: { deal?: Deal }) {
                 </Field>
                 <Field label="Down Payment">
                   <CurrencyInput value={form.down_payment} onChange={v => set('down_payment', v)} />
+                </Field>
+                <Field label="Purchase Price">
+                  <CurrencyInput value={form.purchase_price} onChange={v => set('purchase_price', v)} />
+                </Field>
+                <Field label="Total Housing Payment">
+                  <CurrencyInput value={form.housing_payment} onChange={v => set('housing_payment', v)} />
+                </Field>
+                <Field label="County">
+                  <input value={form.county || ''} onChange={e => set('county', e.target.value)} className={inp} />
+                </Field>
+                <Field label="Adverse">
+                  <input value={form.adverse || ''} onChange={e => set('adverse', e.target.value)} className={inp} />
                 </Field>
                 <Field label="Rate">
                   <PercentInput value={form.rate} onChange={v => set('rate', v)} step="0.001" />
@@ -446,7 +498,17 @@ export default function DealForm({ deal }: { deal?: Deal }) {
             <Section title="File Numbers" icon={<Hash className="w-4 h-4" />}>
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Arive File #">
-                  <input value={form.arive_file_no || ''} onChange={e => set('arive_file_no', e.target.value)} className={inp} />
+                  <input
+                    value={form.arive_file_no || ''}
+                    onChange={e => {
+                      // Accept a raw file number or a pasted Arive loan URL
+                      const v = e.target.value.trim()
+                      const m = v.match(/myarive\.com\/app\/loans\/(\d+)/i)
+                      set('arive_file_no', m ? m[1] : v)
+                    }}
+                    placeholder="e.g. 16776575"
+                    className={inp}
+                  />
                 </Field>
                 <Field label="Investor File #">
                   <input value={form.investor_file_no || ''} onChange={e => set('investor_file_no', e.target.value)} className={inp} />
@@ -521,9 +583,7 @@ export default function DealForm({ deal }: { deal?: Deal }) {
                 <Field label="Processor">
                   <select value={form.processor_status || ''} onChange={e => set('processor_status', e.target.value)} className={sel}>
                     <option value="">—</option>
-                    <option value="Lexi - 3rd party">Lexi - 3rd party</option>
-                    <option value="Hanh - 3rd party">Hanh - 3rd party</option>
-                    <option value="Susan - In house">Susan - In house</option>
+                    <option value="Brianne Han">Brianne Han</option>
                     <option value="Self Processing">Self Processing</option>
                   </select>
                 </Field>

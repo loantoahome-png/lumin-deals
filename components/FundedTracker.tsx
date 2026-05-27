@@ -8,6 +8,7 @@ import {
 } from '@dnd-kit/core'
 import { Deal, STATUS_COLORS } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
+import { ghlContactUrl } from '@/lib/ghlLinks'
 import {
   CheckCircle2, ExternalLink, GripVertical, Calendar,
   DollarSign, Briefcase, Search,
@@ -242,10 +243,27 @@ function FundedCard({ deal, dragHandleProps }: {
             href={`/deals/${deal.id}`}
             onPointerDown={e => e.stopPropagation()}
             className="font-semibold text-sm text-slate-900 hover:text-blue-700 truncate flex items-center gap-1 group"
+            title="Open in dashboard"
           >
             {deal.name}
             <ExternalLink className="w-3 h-3 text-slate-300 group-hover:text-blue-500 opacity-0 group-hover:opacity-100 transition" />
           </Link>
+          {(() => {
+            const ghlUrl = ghlContactUrl(deal)
+            return ghlUrl ? (
+              <a
+                href={ghlUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onPointerDown={e => e.stopPropagation()}
+                onClick={e => e.stopPropagation()}
+                title="Open contact in GoHighLevel"
+                className="shrink-0 flex items-center gap-0.5 text-[9px] font-bold text-blue-700 hover:text-blue-900 px-1.5 py-0.5 rounded bg-blue-100 hover:bg-blue-200 border border-blue-200 transition-colors"
+              >
+                GHL <ExternalLink className="w-2.5 h-2.5" />
+              </a>
+            ) : null
+          })()}
         </div>
         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded shrink-0 ${statusClass}`}>
           {deal.status}

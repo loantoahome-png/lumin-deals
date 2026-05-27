@@ -1,12 +1,15 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import {
-  ExternalLink, Plus, Pencil, Trash2, X, Check, GripVertical,
+  ExternalLink, Plus, Pencil, Trash2, X, Check, GripVertical, Shield,
 } from 'lucide-react'
 
 // ── Default tools (industry-standard mortgage tooling, pre-populated for first-time users) ───
 const DEFAULT_TOOLS: Tool[] = [
+  // Built-in (in-app, fully private)
+  { id: 'pdf-compressor', name: 'PDF Compressor', url: '/tools/pdf-compressor', category: 'Built-in', description: '100% private — shrink loan docs in your browser. No upload.' },
   // Lenders / Wholesale
   { id: 'rocket',     name: 'Rocket Pro TPO',         url: 'https://www.rocketprotpo.com',                category: 'Lenders',     description: 'Rocket Navigate, pricing, lock, submit' },
   { id: 'uwm',        name: 'UWM (Eagle Pro)',        url: 'https://eaglepro.uwm.com',                    category: 'Lenders',     description: 'United Wholesale Mortgage portal' },
@@ -33,7 +36,7 @@ const DEFAULT_TOOLS: Tool[] = [
 
 const STORAGE_KEY = 'lumin_tools_v1'
 const MIGRATION_KEY = 'lumin_tools_migrations'
-const CATEGORIES = ['Lenders', 'LOS / CRM', 'Pricing', 'Calculators', 'Compliance', 'Lead Sources', 'Other'] as const
+const CATEGORIES = ['Built-in', 'Lenders', 'LOS / CRM', 'Pricing', 'Calculators', 'Compliance', 'Lead Sources', 'Other'] as const
 type Category = typeof CATEGORIES[number]
 
 type Tool = {
@@ -61,6 +64,20 @@ function loadTools(): Tool[] {
           const toAppend = calculatorDefaults.filter(d => !storedIds.has(d.id))
           if (toAppend.length > 0) stored = [...stored, ...toAppend]
           migrations.push('add_calculators_v1')
+          saveTools(stored)
+          localStorage.setItem(MIGRATION_KEY, JSON.stringify(migrations))
+        }
+
+        // ── Migration 3: add built-in PDF compressor tile ──
+        if (!migrations.includes('add_pdf_compressor_v1')) {
+          const builtIn = DEFAULT_TOOLS.filter(t => t.category === 'Built-in')
+          const storedIds = new Set(stored.map(t => t.id))
+          const toAppend = builtIn.filter(d => !storedIds.has(d.id))
+          if (toAppend.length > 0) {
+            // Prepend so the built-in tile appears at the top of the list
+            stored = [...toAppend, ...stored]
+          }
+          migrations.push('add_pdf_compressor_v1')
           saveTools(stored)
           localStorage.setItem(MIGRATION_KEY, JSON.stringify(migrations))
         }
@@ -97,13 +114,23 @@ function saveTools(tools: Tool[]) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(tools)) } catch {}
 }
 
+function isInternal(url: string): boolean {
+  return url.startsWith('/')
+}
+
 function faviconUrl(url: string): string {
+  if (isInternal(url)) return ''
   try {
     const domain = new URL(url).hostname
     return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`
   } catch {
     return ''
   }
+}
+
+function displayHost(url: string): string {
+  if (isInternal(url)) return 'Built-in tool'
+  try { return new URL(url).hostname } catch { return url }
 }
 
 export default function ToolsPage() {
@@ -168,7 +195,7 @@ export default function ToolsPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Tools</h1>
           <p className="text-slate-500 text-sm mt-0.5">
-            Quick-launch your most-used external tools. Click any tile to open in a new tab.
+            Quick-launch your most-used tools. Built-in tools open in-app; external links open in a new tab.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -237,42 +264,53 @@ export default function ToolsPage() {
 function ToolTile({ tool, onEdit, onDelete }: { tool: Tool; onEdit: () => void; onDelete: () => void }) {
   const fav = faviconUrl(tool.url)
   const initials = tool.name.split(/\s+/).slice(0, 2).map(s => s[0]).join('').toUpperCase()
+  const internal = isInternal(tool.url)
+
+  const inner = (
+    <div className="flex items-start gap-3">
+      {/* Favicon w/ initial fallback */}
+      <div className="shrink-0 w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center overflow-hidden">
+        {internal ? (
+          <Shield className="w-5 h-5 text-emerald-600" />
+        ) : fav ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={fav}
+            alt=""
+            className="w-7 h-7 object-contain"
+            onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+          />
+        ) : (
+          <span className="text-xs font-semibold text-slate-500">{initials}</span>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-semibold text-slate-900 truncate">{tool.name}</span>
+          {!internal && <ExternalLink className="w-3 h-3 text-slate-400 shrink-0 group-hover:text-blue-500" />}
+        </div>
+        {tool.description && (
+          <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{tool.description}</p>
+        )}
+        <p className="text-[10px] text-slate-400 mt-1.5 truncate">{displayHost(tool.url)}</p>
+      </div>
+    </div>
+  )
 
   return (
     <div className="group relative bg-white border border-slate-200 rounded-xl hover:border-blue-300 hover:shadow-md transition-all overflow-hidden">
-      <a
-        href={tool.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="block p-4 pr-10"
-      >
-        <div className="flex items-start gap-3">
-          {/* Favicon w/ initial fallback */}
-          <div className="shrink-0 w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center overflow-hidden">
-            {fav ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={fav}
-                alt=""
-                className="w-7 h-7 object-contain"
-                onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
-              />
-            ) : (
-              <span className="text-xs font-semibold text-slate-500">{initials}</span>
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm font-semibold text-slate-900 truncate">{tool.name}</span>
-              <ExternalLink className="w-3 h-3 text-slate-400 shrink-0 group-hover:text-blue-500" />
-            </div>
-            {tool.description && (
-              <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{tool.description}</p>
-            )}
-            <p className="text-[10px] text-slate-400 mt-1.5 truncate">{new URL(tool.url).hostname}</p>
-          </div>
-        </div>
-      </a>
+      {internal ? (
+        <Link href={tool.url} className="block p-4 pr-10">{inner}</Link>
+      ) : (
+        <a
+          href={tool.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block p-4 pr-10"
+        >
+          {inner}
+        </a>
+      )}
       {/* Action buttons */}
       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
@@ -306,8 +344,10 @@ function ToolForm({ tool, onSubmit, onCancel }: { tool: Tool; onSubmit: (t: Tool
     if (!name.trim()) { setError('Name is required'); return }
     let normalizedUrl = url.trim()
     if (!normalizedUrl) { setError('URL is required'); return }
-    if (!/^https?:\/\//i.test(normalizedUrl)) normalizedUrl = `https://${normalizedUrl}`
-    try { new URL(normalizedUrl) } catch { setError('Invalid URL'); return }
+    if (!normalizedUrl.startsWith('/')) {
+      if (!/^https?:\/\//i.test(normalizedUrl)) normalizedUrl = `https://${normalizedUrl}`
+      try { new URL(normalizedUrl) } catch { setError('Invalid URL'); return }
+    }
     onSubmit({ ...tool, name: name.trim(), url: normalizedUrl, category, description: description.trim() || undefined })
   }
 

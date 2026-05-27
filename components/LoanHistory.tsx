@@ -9,6 +9,7 @@ import { History, ExternalLink, DollarSign, Calendar, Loader2 } from 'lucide-rea
 
 type Props = {
   currentDealId: string
+  borrowerId?: string | null
   email?: string | null
   phone?: string | null
   firstName?: string | null
@@ -23,60 +24,51 @@ function normPhone(s: string | null | undefined): string | null {
 }
 
 /**
- * Shows other deals/loans for the same person (matched by email or phone).
- * Lets you see at a glance: "this client has had 3 loans with us — 2 funded, 1 in process"
+ * Shows other loans for the same person. Primary link is borrower_id (the
+ * firm grouping from the multi-loan model); falls back to email/phone/name
+ * for any deal that doesn't have a borrower_id yet.
  */
-export default function LoanHistory({ currentDealId, email, phone, firstName, lastName, name }: Props) {
+export default function LoanHistory({ currentDealId, borrowerId, email, phone, firstName, lastName, name }: Props) {
   const [related, setRelated] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function fetchRelated() {
       setLoading(true)
+      const map = new Map<string, Deal>()
+
+      // 1. Primary: same borrower_id (the firm link)
+      if (borrowerId) {
+        const { data } = await supabase
+          .from('deals').select('*')
+          .eq('borrower_id', borrowerId)
+          .neq('id', currentDealId)
+        for (const d of (data as Deal[] || [])) map.set(d.id, d)
+      }
+
+      // 2. Fallback: email / name / phone (catches deals not yet stamped with borrower_id)
       const matchEmail = email?.trim().toLowerCase() || null
       const normalizedPhone = normPhone(phone)
-      // Build a name string we can compare (first + last, or full name)
       const composedName = [firstName, lastName].filter(Boolean).join(' ').trim().toLowerCase()
         || (name?.trim().toLowerCase() ?? '')
 
-      // No identifying info → nothing to show
-      if (!matchEmail && !normalizedPhone && !composedName) {
-        setRelated([])
-        setLoading(false)
-        return
-      }
-
-      // We over-fetch then filter client-side for accurate phone normalization
       const ors: string[] = []
       if (matchEmail) ors.push(`email.eq.${matchEmail}`)
-      if (composedName.length >= 4) {
-        // ilike pattern — Supabase escape: name pattern
-        ors.push(`name.ilike.${composedName}`)
+      if (composedName.length >= 4) ors.push(`name.ilike.${composedName}`)
+      if (ors.length > 0) {
+        const { data } = await supabase.from('deals').select('*').or(ors.join(',')).neq('id', currentDealId)
+        for (const d of (data as Deal[] || [])) map.set(d.id, d)
       }
-
-      // First pass: email + name. Phone we filter post-fetch (since digits-only normalization needs JS).
-      const { data: byEmailOrName } = ors.length > 0
-        ? await supabase.from('deals').select('*').or(ors.join(',')).neq('id', currentDealId)
-        : { data: [] }
-
-      // Second pass: phone — fetch all where phone is not null, filter to last-10-digit match
-      let byPhone: Deal[] = []
       if (normalizedPhone) {
         const { data } = await supabase
           .from('deals').select('*')
           .not('phone', 'is', null)
           .neq('id', currentDealId)
           .limit(2000)
-        byPhone = (data as Deal[] || []).filter(d => normPhone(d.phone) === normalizedPhone)
+        for (const d of (data as Deal[] || []).filter(d => normPhone(d.phone) === normalizedPhone)) map.set(d.id, d)
       }
 
-      // Combine + dedupe by id
-      const map = new Map<string, Deal>()
-      for (const d of (byEmailOrName as Deal[] || [])) map.set(d.id, d)
-      for (const d of byPhone) map.set(d.id, d)
       const all = Array.from(map.values())
-
-      // Sort: most recent first (funded_date desc, then created_at desc)
       all.sort((a, b) => {
         const av = a.funded_date || a.created_at
         const bv = b.funded_date || b.created_at
@@ -86,7 +78,7 @@ export default function LoanHistory({ currentDealId, email, phone, firstName, la
       setLoading(false)
     }
     fetchRelated()
-  }, [currentDealId, email, phone, firstName, lastName, name])
+  }, [currentDealId, borrowerId, email, phone, firstName, lastName, name])
 
   if (loading) {
     return (

@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { notifyTask } from '@/lib/notifyTask'
+import { TIME_OPTIONS } from '@/lib/utils'
+import { ghlContactUrl } from '@/lib/ghlLinks'
 import { DealTask, Deal, TASK_ASSIGNEES } from '@/lib/types'
 import {
   ClipboardList, Plus, X, Search, CheckCircle2, Circle,
@@ -11,19 +14,28 @@ import {
 
 type FilterMode = 'open' | 'today' | 'overdue' | 'week' | 'completed' | 'all'
 
+// A blank time is stored as 23:59 ("end of day"), which the 15-min picker can
+// never produce — so it doubles as an "all day / no specific time" marker.
+const ALL_DAY_TIME = '23:59'
 function combineDateTime(date: string, time: string): string | null {
   if (!date) return null
-  const d = new Date(`${date}T${time || '09:00'}`)
+  const d = new Date(`${date}T${time || ALL_DAY_TIME}`)
   return isNaN(d.getTime()) ? null : d.toISOString()
+}
+function isAllDay(iso: string | null | undefined): boolean {
+  if (!iso) return false
+  const d = new Date(iso)
+  return !isNaN(d.getTime()) && d.getHours() === 23 && d.getMinutes() === 59
 }
 function splitDateTime(iso: string | null | undefined): { date: string; time: string } {
   if (!iso) return { date: '', time: '' }
   const d = new Date(iso)
   if (isNaN(d.getTime())) return { date: '', time: '' }
   const pad = (n: number) => String(n).padStart(2, '0')
+  const hhmm = `${pad(d.getHours())}:${pad(d.getMinutes())}`
   return {
     date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+    time: hhmm === ALL_DAY_TIME ? '' : hhmm,   // all-day → leave the picker blank
   }
 }
 function startOfDay(d = new Date()) { const x = new Date(d); x.setHours(0,0,0,0); return x }
@@ -33,16 +45,25 @@ function relativeDue(iso: string | null): { label: string; tone: 'red' | 'amber'
   if (!iso) return { label: 'No due date', tone: 'slate' }
   const due = new Date(iso)
   const now = new Date()
-  const ms = due.getTime() - now.getTime()
+  const allDay = isAllDay(iso)
   const time = due.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  const today = startOfDay()
+  const dueDay = startOfDay(due)
+  const dayDelta = Math.round((dueDay.getTime() - today.getTime()) / 86_400_000)
 
+  // All-day tasks: no time shown, and not "overdue" until the day fully passes.
+  if (allDay) {
+    if (dayDelta < 0)  return { label: dayDelta === -1 ? 'Overdue · yesterday' : `Overdue ${-dayDelta}d`, tone: 'red' }
+    if (dayDelta === 0) return { label: 'Today', tone: 'amber' }
+    if (dayDelta === 1) return { label: 'Tomorrow', tone: 'slate' }
+    return { label: due.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }), tone: 'slate' }
+  }
+
+  const ms = due.getTime() - now.getTime()
   if (ms < 0) {
     const days = Math.floor((now.getTime() - due.getTime()) / 86_400_000)
     return { label: days === 0 ? `Overdue · was ${time}` : `Overdue ${days}d`, tone: 'red' }
   }
-  const today = startOfDay()
-  const dueDay = startOfDay(due)
-  const dayDelta = Math.round((dueDay.getTime() - today.getTime()) / 86_400_000)
   if (dayDelta === 0) return { label: `Today · ${time}`, tone: 'amber' }
   if (dayDelta === 1) return { label: `Tomorrow · ${time}`, tone: 'slate' }
   return {
@@ -70,7 +91,7 @@ export default function TasksPage() {
     setLoading(true)
     const [tasksRes, dealsRes] = await Promise.all([
       supabase.from('deal_tasks').select('*'),
-      supabase.from('deals').select('id, name, loan_officer'),
+      supabase.from('deals').select('id, name, loan_officer, ghl_contact_id, ghl_location_id'),
     ])
     setTasks((tasksRes.data as DealTask[]) || [])
     setDeals((dealsRes.data as Deal[]) || [])
@@ -81,6 +102,16 @@ export default function TasksPage() {
   const dealNames = useMemo(() => {
     const m = new Map<string, string>()
     for (const d of deals) m.set(d.id, d.name)
+    return m
+  }, [deals])
+
+  // deal id → GHL contact URL (for the one-click "GHL" button on task rows)
+  const dealGhlUrls = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const d of deals) {
+      const url = ghlContactUrl(d)
+      if (url) m.set(d.id, url)
+    }
     return m
   }, [deals])
 
@@ -149,6 +180,7 @@ export default function TasksPage() {
     const newCompleted = task.completed_at ? null : new Date().toISOString()
     await supabase.from('deal_tasks').update({ completed_at: newCompleted }).eq('id', task.id)
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, completed_at: newCompleted } : t))
+    if (newCompleted) notifyTask('completed', task)
   }
 
   async function deleteTask(id: string) {
@@ -160,7 +192,10 @@ export default function TasksPage() {
   async function createTask(payload: Omit<DealTask, 'id' | 'created_at'>) {
     const { data, error } = await supabase.from('deal_tasks').insert(payload).select().single()
     if (error) { alert('Save failed: ' + error.message); return }
-    if (data) setTasks(prev => [data as DealTask, ...prev])
+    if (data) {
+      setTasks(prev => [data as DealTask, ...prev])
+      notifyTask('assigned', data as DealTask)
+    }
     setShowForm(false)
   }
 
@@ -175,10 +210,14 @@ export default function TasksPage() {
 
   const [editingId, setEditingId] = useState<string | null>(null)
   async function updateTask(id: string, patch: Omit<DealTask, 'id' | 'created_at'>) {
+    const prevAssignee = tasks.find(t => t.id === id)?.assignee ?? null
     const { error } = await supabase.from('deal_tasks').update(patch).eq('id', id)
     if (error) { alert('Update failed: ' + error.message); return }
     setTasks(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))
     setEditingId(null)
+    if (patch.assignee && patch.assignee !== prevAssignee) {
+      notifyTask('assigned', { ...patch, id })
+    }
   }
 
   return (
@@ -280,6 +319,7 @@ export default function TasksPage() {
               key={t.id}
               task={t}
               dealName={t.deal_id ? dealNames.get(t.deal_id) : undefined}
+              ghlUrl={t.deal_id ? dealGhlUrls.get(t.deal_id) : undefined}
               onToggle={() => toggleComplete(t)}
               onDelete={() => deleteTask(t.id)}
               onEdit={() => setEditingId(t.id)}
@@ -310,8 +350,8 @@ function FilterChip({ active, onClick, label, count, tone }: {
   )
 }
 
-function TaskRow({ task, dealName, onToggle, onDelete, onEdit }: {
-  task: DealTask; dealName?: string; onToggle: () => void; onDelete: () => void; onEdit?: () => void
+function TaskRow({ task, dealName, ghlUrl, onToggle, onDelete, onEdit }: {
+  task: DealTask; dealName?: string; ghlUrl?: string; onToggle: () => void; onDelete: () => void; onEdit?: () => void
 }) {
   const due = relativeDue(task.due_at)
   const done = !!task.completed_at
@@ -362,16 +402,30 @@ function TaskRow({ task, dealName, onToggle, onDelete, onEdit }: {
         </div>
       </button>
 
-      {/* Deal link kept outside the edit button so it can still navigate */}
-      {task.deal_id && (
-        <Link
-          href={`/deals/${task.deal_id}`}
-          onClick={e => e.stopPropagation()}
-          className="shrink-0 self-center flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700 font-medium"
-        >
-          <ExternalLink className="w-3 h-3" /> {dealName || 'Deal'}
-        </Link>
-      )}
+      {/* Deal link + direct GHL button, kept outside the edit button so they navigate */}
+      <div className="shrink-0 self-center flex items-center gap-2">
+        {ghlUrl && (
+          <a
+            href={ghlUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={e => e.stopPropagation()}
+            title="Open contact in GoHighLevel"
+            className="flex items-center gap-0.5 text-[10px] font-bold text-blue-700 hover:text-blue-900 px-1.5 py-0.5 rounded bg-blue-100 hover:bg-blue-200 border border-blue-200 transition-colors"
+          >
+            GHL <ExternalLink className="w-2.5 h-2.5" />
+          </a>
+        )}
+        {task.deal_id && (
+          <Link
+            href={`/deals/${task.deal_id}`}
+            onClick={e => e.stopPropagation()}
+            className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700 font-medium"
+          >
+            <ExternalLink className="w-3 h-3" /> {dealName || 'Deal'}
+          </Link>
+        )}
+      </div>
 
       <div className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
         <button onClick={onDelete} className="p-1 text-slate-300 hover:text-red-500" title="Delete">
@@ -390,15 +444,13 @@ function NewTaskForm({ deals, initialTask, onSubmit, onCancel }: {
   onCancel: () => void
 }) {
   const isEdit = !!initialTask
-  const now = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const tomorrow = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate() + 1)}`
-  const initialDT = initialTask?.due_at ? splitDateTime(initialTask.due_at) : { date: tomorrow, time: '09:00' }
+  // No default due date/time on create — blank unless the user sets one.
+  const initialDT = initialTask?.due_at ? splitDateTime(initialTask.due_at) : { date: '', time: '' }
 
   const [title, setTitle] = useState(initialTask?.title || '')
   const [description, setDescription] = useState(initialTask?.description || '')
   const [date, setDate] = useState(initialDT.date)
-  const [time, setTime] = useState(initialDT.time || '09:00')
+  const [time, setTime] = useState(initialDT.time)
   const [assignee, setAssignee] = useState(initialTask?.assignee || '')
   const [assignedBy, setAssignedBy] = useState(initialTask?.assigned_by || '')
   const [priority, setPriority] = useState(initialTask?.priority || 'normal')
@@ -451,12 +503,24 @@ function NewTaskForm({ deals, initialTask, onSubmit, onCancel }: {
       />
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Due date</label>
+          <div className="flex items-center justify-between mb-0.5">
+            <label className="block text-[10px] font-medium text-slate-500">Due date</label>
+            {(date || time) && (
+              <button type="button" onClick={() => { setDate(''); setTime('') }}
+                className="text-[10px] font-medium text-slate-400 hover:text-red-600">
+                Clear
+              </button>
+            )}
+          </div>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm" />
         </div>
         <div>
           <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Due time</label>
-          <input type="time" value={time} onChange={e => setTime(e.target.value)} className="w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm" />
+          <select value={time} onChange={e => setTime(e.target.value)} className="w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm bg-white">
+            <option value="">— Pick a time —</option>
+            {time && !TIME_OPTIONS.some(o => o.value === time) && <option value={time}>{time}</option>}
+            {TIME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
         </div>
         <div>
           <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Assigned to</label>

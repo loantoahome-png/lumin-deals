@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal } from '@/lib/types'
 import Link from 'next/link'
 import {
@@ -9,28 +10,41 @@ import {
   ArrowRight, Loader2,
 } from 'lucide-react'
 
-// Fields we care about for completeness scoring (in priority order)
-const TRACKED_FIELDS: Array<{ key: keyof Deal; label: string; critical?: boolean }> = [
+// Fields we care about for completeness scoring (in priority order).
+//   critical   — counts toward the per-deal completeness score
+//   escrowOnly — only relevant once a deal is in process (Loans in Process).
+//                These are evaluated ONLY against escrow deals, so raw leads
+//                (which legitimately don't have a loan type / rate / lock yet)
+//                don't get flagged as "missing".
+const TRACKED_FIELDS: Array<{ key: keyof Deal; label: string; critical?: boolean; escrowOnly?: boolean }> = [
   { key: 'name',             label: 'Name',             critical: true },
   { key: 'loan_officer',     label: 'Loan Officer',     critical: true },
   { key: 'loan_amount',      label: 'Loan Amount',      critical: true },
-  { key: 'loan_type',        label: 'Loan Type',        critical: true },
+  { key: 'loan_type',        label: 'Loan Type',        critical: true, escrowOnly: true },
   { key: 'email',            label: 'Email' },
   { key: 'phone',            label: 'Phone' },
   { key: 'property_address', label: 'Property Address' },
-  { key: 'credit_score',     label: 'Credit Score' },
-  { key: 'estimated_value',  label: 'Property Value' },
-  { key: 'rate',             label: 'Rate' },
-  { key: 'investor',         label: 'Investor' },
+  { key: 'credit_score',     label: 'Credit Score',     escrowOnly: true },
+  { key: 'estimated_value',  label: 'Property Value',   escrowOnly: true },
+  { key: 'rate',             label: 'Rate',             escrowOnly: true },
+  { key: 'investor',         label: 'Investor',         escrowOnly: true },
   { key: 'occupancy',        label: 'Occupancy' },
   { key: 'loan_purpose',     label: 'Loan Purpose' },
-  { key: 'lock_expiration',  label: 'Lock Exp' },
+  { key: 'lock_expiration',  label: 'Lock Exp',         escrowOnly: true },
   { key: 'source',           label: 'Source' },
-  { key: 'arive_file_no',    label: 'Arive File #' },
+  { key: 'arive_file_no',    label: 'Arive File #',     escrowOnly: true },
 ]
 
 function isBlank(v: unknown): boolean {
   return v === null || v === undefined || v === '' || (typeof v === 'string' && v.trim() === '')
+}
+
+// Which critical fields apply to a given deal — escrow-only criticals don't
+// count for leads (they're not expected to have a loan type / rate yet).
+function applicableCriticalFields(deal: Deal) {
+  return TRACKED_FIELDS.filter(f =>
+    f.critical && (!f.escrowOnly || deal.pipeline_group === 'Loans in Process')
+  )
 }
 
 export default function HealthPage() {
@@ -43,8 +57,8 @@ export default function HealthPage() {
 
   async function fetchDeals() {
     setLoading(true)
-    const { data } = await supabase.from('deals').select('*').order('created_at', { ascending: false })
-    setDeals((data as Deal[]) || [])
+    const all = await fetchAllDeals(q => q.order('created_at', { ascending: false }))
+    setDeals(all)
     setLoading(false)
   }
   useEffect(() => { fetchDeals() }, [])
@@ -62,7 +76,9 @@ export default function HealthPage() {
       if (data.success) {
         const msg = source === 'monday'
           ? `Monday: updated ${data.updated} · created ${data.created} · filled ${data.fields_filled} fields`
-          : `GHL: synced ${data.synced} (${data.created} new, ${data.updated} updated)`
+          : `GHL: ${data.synced} written (${data.created} new, ${data.updated} updated)` +
+            (typeof data.skipped === 'number' ? `, ${data.skipped} unchanged` : '') +
+            (typeof data.duration_ms === 'number' ? ` · ${(data.duration_ms / 1000).toFixed(1)}s` : '')
         setSyncResult(msg)
         await fetchDeals()
       } else {
@@ -80,22 +96,29 @@ export default function HealthPage() {
     ? deals.filter(d => ['Leads', 'Loans in Process'].includes(d.pipeline_group))
     : deals
 
-  // Per-field completeness stats
-  const fieldStats = TRACKED_FIELDS.map(({ key, label, critical }) => {
-    const total = scopedDeals.length
-    const filled = scopedDeals.filter(d => !isBlank(d[key])).length
+  // In-process (escrow) deals — the pool against which escrowOnly fields are scored.
+  const escrowDeals = scopedDeals.filter(d => d.pipeline_group === 'Loans in Process')
+
+  // Per-field completeness stats. Escrow-only fields use the escrow pool as the
+  // denominator so leads (which don't have a loan type / rate / lock yet) aren't
+  // counted as gaps.
+  const fieldStats = TRACKED_FIELDS.map(({ key, label, critical, escrowOnly }) => {
+    const pool = escrowOnly ? escrowDeals : scopedDeals
+    const total = pool.length
+    const filled = pool.filter(d => !isBlank(d[key])).length
     const missing = total - filled
     const pct = total > 0 ? (filled / total) * 100 : 0
-    const missingDeals = scopedDeals.filter(d => isBlank(d[key])).slice(0, 50)
-    return { key: String(key), label, critical: !!critical, total, filled, missing, pct, missingDeals }
+    const missingDeals = pool.filter(d => isBlank(d[key])).slice(0, 50)
+    return { key: String(key), label, critical: !!critical, escrowOnly: !!escrowOnly, total, filled, missing, pct, missingDeals }
   })
 
-  // Per-deal completeness score (only critical fields count)
-  const criticalKeys = TRACKED_FIELDS.filter(f => f.critical).map(f => f.key)
+  // Per-deal completeness score. A critical field only counts against a deal if
+  // it applies to that deal's stage (escrowOnly criticals are ignored for leads).
   const dealsByCompleteness = scopedDeals.map(d => {
-    const filled = criticalKeys.filter(k => !isBlank(d[k])).length
-    const pct = (filled / criticalKeys.length) * 100
-    return { deal: d, filledCriticals: filled, pct }
+    const applicable = applicableCriticalFields(d)
+    const filled = applicable.filter(f => !isBlank(d[f.key])).length
+    const pct = applicable.length > 0 ? (filled / applicable.length) * 100 : 100
+    return { deal: d, filledCriticals: filled, totalCriticals: applicable.length, pct }
   }).sort((a, b) => a.pct - b.pct)
 
   const incompleteCount = dealsByCompleteness.filter(d => d.pct < 100).length
@@ -224,6 +247,14 @@ export default function HealthPage() {
                           REQUIRED
                         </span>
                       )}
+                      {f.escrowOnly && (
+                        <span
+                          className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded"
+                          title="Only evaluated for deals in the Loans in Process pipeline — leads aren't expected to have this yet"
+                        >
+                          ESCROWS ONLY
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 mt-1.5">
                       <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden max-w-md">
@@ -288,10 +319,10 @@ export default function HealthPage() {
           <p className="text-xs text-slate-500 mt-0.5">Sorted by completeness — fix the top of this list first.</p>
         </div>
         <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
-          {dealsByCompleteness.filter(d => d.pct < 100).slice(0, 50).map(({ deal, filledCriticals, pct }) => {
-            const missingFields = criticalKeys.filter(k => isBlank(deal[k])).map(k =>
-              TRACKED_FIELDS.find(f => f.key === k)?.label
-            ).filter(Boolean)
+          {dealsByCompleteness.filter(d => d.pct < 100).slice(0, 50).map(({ deal, filledCriticals, totalCriticals, pct }) => {
+            const missingFields = applicableCriticalFields(deal)
+              .filter(f => isBlank(deal[f.key]))
+              .map(f => f.label)
             return (
               <Link
                 key={deal.id}
@@ -302,7 +333,7 @@ export default function HealthPage() {
                   <div className={`text-sm font-bold ${pct < 50 ? 'text-red-600' : pct < 80 ? 'text-amber-600' : 'text-emerald-600'}`}>
                     {pct.toFixed(0)}%
                   </div>
-                  <div className="text-[10px] text-slate-400">{filledCriticals}/{criticalKeys.length}</div>
+                  <div className="text-[10px] text-slate-400">{filledCriticals}/{totalCriticals}</div>
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
