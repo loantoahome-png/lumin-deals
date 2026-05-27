@@ -694,6 +694,9 @@ async function syncAccount(
           city:             str(fullContact.city),
           state:            str(fullContact.state),
           zip:              str(fullContact.postalCode ?? fullContact.postal_code),
+          // Do-Not-Contact (compliance) — master flag + per-channel settings.
+          dnd:              typeof fullContact.dnd === 'boolean' ? fullContact.dnd : null,
+          dnd_settings:     (fullContact.dndSettings && typeof fullContact.dndSettings === 'object') ? fullContact.dndSettings : null,
           // Loan fields from custom fields
           loan_amount:      parseAmount(opp.monetaryValue as number | null) ??
                             parseAmount(getCustomField(customFields, 'loan_amount', 'loan amount', 'Loan Amount')),
@@ -739,7 +742,7 @@ async function syncAccount(
             'occupancy','property_type','property_address','current_balance','ltv',
             'cash_out','down_payment','rate','investor','credit_rating','is_military',
             'current_va_loan','city','state','zip','first_name','last_name','email','phone',
-            'source','lead_price','ghl_opportunity_id',
+            'source','lead_price','ghl_opportunity_id','dnd','dnd_settings',
           ].forEach(maybeSet)
           // borrower_id intentionally NOT synced — preserve existing grouping.
           toUpdate.push(patch)

@@ -20,6 +20,7 @@ import RealEstateOwned from '@/components/RealEstateOwned'
 import CommunicationsLog from '@/components/CommunicationsLog'
 import ConversationThread from '@/components/ConversationThread'
 import { ghlContactUrl } from '@/lib/ghlLinks'
+import { isChannelBlocked, dndLabel } from '@/lib/utils'
 import DealTasks from '@/components/DealTasks'
 import DocumentChecklist from '@/components/DocumentChecklist'
 import { WAITING_ON_OPTIONS } from '@/lib/types'
@@ -817,6 +818,8 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                   locationId={(form.ghl_location_id as string | null) ?? null}
                   ghlUrl={ghlContactUrl(form)}
                   loanOfficer={(form.loan_officer as string | null) ?? null}
+                  smsBlocked={isChannelBlocked(form, 'SMS')}
+                  dndNote={dndLabel(form)}
                 />
               </Section>
             )}

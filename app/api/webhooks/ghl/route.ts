@@ -263,8 +263,14 @@ function extractFields(body: Record<string, unknown>) {
 
   const dateAddedGHL = pick(contact, 'dateAdded', 'date_added', 'createdAt') || pick(body, 'dateAdded', 'date_added', 'date_created') || null
 
+  // Do-Not-Contact (compliance): master flag + per-channel settings.
+  const dndRaw = contact.dnd ?? body.dnd
+  const dnd = typeof dndRaw === 'boolean' ? dndRaw : null
+  const dndSettingsRaw = (contact.dndSettings ?? body.dndSettings) as Record<string, unknown> | undefined
+  const dndSettings = dndSettingsRaw && typeof dndSettingsRaw === 'object' ? dndSettingsRaw : null
+
   return {
-    ghlContactId, firstName, lastName, fullName, email, phone,
+    ghlContactId, firstName, lastName, fullName, email, phone, dnd, dndSettings,
     loanAmount, estimatedValue, loanType, loanPurpose, creditScore, creditRating,
     rate, investor, occupancy, propertyType, propertyAddress,
     currentBalance, ltv, cashOut, downPayment, isMilitary, currentVaLoan,
@@ -450,6 +456,8 @@ export async function POST(req: NextRequest) {
       maybeSet('zip',               fields.zip)
       maybeSet('lead_source_agg',   fields.leadSourceAgg)
       maybeSet('source',            fields.contactSource)
+      maybeSet('dnd',               fields.dnd)
+      maybeSet('dnd_settings',      fields.dndSettings)
 
       await supabase.from('deals').update(patch).eq('id', match.id)
       console.log(`[GHL Webhook] Updated deal ${match.id} (matched by ${match.matchedBy})`)

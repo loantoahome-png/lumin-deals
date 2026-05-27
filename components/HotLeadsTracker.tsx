@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Deal, LOAN_OFFICERS, PIPELINE_STATUSES } from '@/lib/types'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, dndLabel } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import {
   ExternalLink, Calendar, Clock, Flame, Search, MoreHorizontal,
@@ -495,6 +495,11 @@ function HotLeadRow({ deal, onUpdate, selected, onToggle }: {
           {waiting && (
             <span className="shrink-0 text-[9px] font-bold text-red-700 bg-red-100 border border-red-200 rounded-full px-1.5 py-0.5" title={`${deal.comm_unread_count} unread`}>
               ⏳ {deal.comm_unread_count}
+            </span>
+          )}
+          {dndLabel(deal) && (
+            <span className="shrink-0 text-[9px] font-bold text-rose-700 bg-rose-100 border border-rose-300 rounded-full px-1.5 py-0.5" title="Do Not Contact — opted out of one or more channels in GHL">
+              🚫 {dndLabel(deal)}
             </span>
           )}
         </div>

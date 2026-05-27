@@ -90,6 +90,8 @@ export type Deal = {
   comm_unread_count: number | null             // unanswered client messages — "waiting on us"
   last_inbound_at: string | null               // ISO — last message FROM the borrower (inbound)
   last_outbound_at: string | null              // ISO — last message FROM us (outbound)
+  dnd: boolean | null                           // GHL master Do-Not-Contact (blocks ALL channels)
+  dnd_settings: Record<string, unknown> | null  // GHL per-channel DND ({ SMS:{status}, Email:{status}, … })
   communications: Communication[] | null      // contact log per deal
   documents: DealDocument[] | null             // per-deal document checklist
   created_at: string
