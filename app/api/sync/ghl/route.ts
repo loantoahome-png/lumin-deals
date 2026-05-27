@@ -825,17 +825,26 @@ async function syncAccount(
   //   • Aborts if the orphan set looks implausibly large (logic-error guard).
   if (oppFetchComplete && opportunities.length > 0) {
     const liveOppIds = new Set<string>()
-    for (const o of opportunities) { const id = str(o.id); if (id) liveOppIds.add(id) }
+    // oppId → opportunity value (the loan amount). GHL is the authority for the
+    // loan amount on active (non-funded) deals, so we reconcile below.
+    const oppValue = new Map<string, number>()
+    for (const o of opportunities) {
+      const id = str(o.id)
+      if (!id) continue
+      liveOppIds.add(id)
+      const v = parseAmount(o.monetaryValue as number | null)
+      if (v != null && v > 0) oppValue.set(id, v)
+    }
 
     // Pull this location's deals that have an opportunity id (paginated).
-    type PruneRow = { id: string; name: string | null; ghl_opportunity_id: string | null; pipeline_group: string | null }
+    type PruneRow = { id: string; name: string | null; ghl_opportunity_id: string | null; pipeline_group: string | null; loan_amount: number | null }
     const locDeals: PruneRow[] = []
     let pOffset = 0
     const PRUNE_PAGE = 1000
     for (;;) {
       const { data: pr, error: pErr } = await supabase
         .from('deals')
-        .select('id, name, ghl_opportunity_id, pipeline_group')
+        .select('id, name, ghl_opportunity_id, pipeline_group, loan_amount')
         .eq('ghl_location_id', locationId)
         .not('ghl_opportunity_id', 'is', null)
         .order('id', { ascending: true })
@@ -848,14 +857,41 @@ async function syncAccount(
     }
 
     const orphanIds: string[] = []
+    // Loan-amount reconciliation: the incremental sync skips unchanged opps, so a
+    // loan amount edited in GHL can go stale. For LIVE, non-funded deals we force
+    // loan_amount to match the opportunity's value. Funded deals keep their Arive
+    // amount (authoritative for closed loans).
+    const amountFixes: Array<{ id: string; loan_amount: number }> = []
     for (const d of locDeals) {
-      if (!d.ghl_opportunity_id || liveOppIds.has(d.ghl_opportunity_id)) continue
-      if (d.pipeline_group === 'Funded') {
-        flagged.push(`${d.name ?? d.id} (${d.ghl_opportunity_id})`)
-        console.warn(`[GHL Sync:${label}] FUNDED deal's opportunity is gone from GHL — flagged, NOT deleted: ${d.name ?? d.id}`)
-      } else {
-        orphanIds.push(d.id)
+      if (!d.ghl_opportunity_id) continue
+      if (!liveOppIds.has(d.ghl_opportunity_id)) {
+        if (d.pipeline_group === 'Funded') {
+          flagged.push(`${d.name ?? d.id} (${d.ghl_opportunity_id})`)
+          console.warn(`[GHL Sync:${label}] FUNDED deal's opportunity is gone from GHL — flagged, NOT deleted: ${d.name ?? d.id}`)
+        } else {
+          orphanIds.push(d.id)
+        }
+        continue
       }
+      // Opportunity still exists → reconcile loan amount (non-funded only).
+      if (d.pipeline_group !== 'Funded') {
+        const v = oppValue.get(d.ghl_opportunity_id)
+        if (v != null && Number(v) !== Number(d.loan_amount ?? NaN)) {
+          amountFixes.push({ id: d.id, loan_amount: v })
+        }
+      }
+    }
+
+    // Apply loan-amount corrections (bounded concurrency).
+    if (amountFixes.length > 0) {
+      const AMT_CONC = 20
+      let af = 0
+      for (let i = 0; i < amountFixes.length; i += AMT_CONC) {
+        const chunk = amountFixes.slice(i, i + AMT_CONC)
+        const res = await Promise.all(chunk.map(f => supabase.from('deals').update({ loan_amount: f.loan_amount }).eq('id', f.id).then(r => r.error)))
+        for (const e of res) { if (e) { console.error(`[GHL Sync:${label}] loan_amount fix failed:`, e.message) } else af++ }
+      }
+      console.log(`[GHL Sync:${label}] Reconciled loan_amount on ${af} non-funded deal(s) from the opportunity value.`)
     }
 
     // Logic-error guard: never delete more than 30% of the location's GHL deals
