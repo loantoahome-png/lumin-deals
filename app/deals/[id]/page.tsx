@@ -1,25 +1,29 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
+import { pushStageToGHL } from '@/lib/pushStage'
 import {
   Deal, STATUS_COLORS, PIPELINE_GROUPS, PIPELINE_STATUSES,
-  LOAN_OFFICERS, LOAN_TYPES, OCCUPANCY_TYPES, APPRAISAL_STATUSES,
+  LOAN_OFFICERS, LOAN_TYPES, REFINANCE_TYPES, LIEN_POSITIONS, OCCUPANCY_TYPES, APPRAISAL_STATUSES,
 } from '@/lib/types'
 import Link from 'next/link'
 import { use } from 'react'
 import {
   ArrowLeft, Check, Trash2, X, ExternalLink,
   DollarSign, Home, Lock, Hash, User, Users,
-  Calendar, Bell, MessageSquare, Building2, Phone, AlertOctagon, ClipboardList,
+  Calendar, Bell, MessageSquare, Building2, Phone, AlertOctagon, ClipboardList, FileText,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import LoanHistory from '@/components/LoanHistory'
 import RealEstateOwned from '@/components/RealEstateOwned'
 import CommunicationsLog from '@/components/CommunicationsLog'
+import ConversationThread from '@/components/ConversationThread'
+import { ghlContactUrl } from '@/lib/ghlLinks'
 import DealTasks from '@/components/DealTasks'
+import DocumentChecklist from '@/components/DocumentChecklist'
 import { WAITING_ON_OPTIONS } from '@/lib/types'
-import type { REOProperty, Communication } from '@/lib/types'
+import type { REOProperty, Communication, DealDocument } from '@/lib/types'
 
 // ── Format helpers ──────────────────────────────────────────────────────────
 function fmtMoneyShort(n: number | null | undefined): string {
@@ -33,6 +37,23 @@ function initialsFrom(name: string | null | undefined): string {
   const parts = name.trim().split(/\s+/)
   if (parts.length === 1) return parts[0][0]?.toUpperCase() || '?'
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
+// ── Arive deep-linking ──────────────────────────────────────────────────────
+// Both LOs share one Arive org, so the URL is fully derivable from the file #:
+//   https://luminlending.myarive.com/app/loans/{fileNo}/loan-center
+const ARIVE_BASE = 'https://luminlending.myarive.com/app/loans'
+
+/** Accepts a raw file number OR a pasted full Arive loan URL — returns just the id. */
+function parseAriveFileNo(raw: string): string {
+  const trimmed = raw.trim()
+  const m = trimmed.match(/myarive\.com\/app\/loans\/(\d+)/i)
+  return m ? m[1] : trimmed
+}
+function ariveUrl(fileNo: string | null | undefined): string | null {
+  const id = String(fileNo ?? '').trim()
+  if (!id) return null
+  return `${ARIVE_BASE}/${id}/loan-center`
 }
 
 const inp = 'w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white hover:border-slate-300 transition-colors'
@@ -111,6 +132,54 @@ function DateInput({ value, onChange }: {
       onChange={e => onChange(e.target.value)}
       className={`${inp} ${v === '' ? 'date-empty' : ''}`}
     />
+  )
+}
+
+/** Quick status pills for purchase contingencies — past due vs. days remaining. */
+function ContingencyStatusBar({
+  inspection, appraisal, loan, close,
+}: {
+  inspection: string | null
+  appraisal:  string | null
+  loan:       string | null
+  close:      string | null
+}) {
+  const items: Array<{ label: string; date: string | null }> = [
+    { label: 'Inspection', date: inspection },
+    { label: 'Appraisal',  date: appraisal },
+    { label: 'Loan',       date: loan },
+    { label: 'Close',      date: close },
+  ]
+  // Only render the bar if at least one date is set
+  if (!items.some(i => i.date)) return null
+
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const MS_PER_DAY = 86_400_000
+
+  return (
+    <div className="mt-3 flex flex-wrap gap-1.5">
+      {items.map(i => {
+        if (!i.date) {
+          return (
+            <span key={i.label} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-400 border border-slate-200">
+              {i.label}: —
+            </span>
+          )
+        }
+        const due = new Date(i.date + 'T00:00:00')
+        const daysFromNow = Math.round((due.getTime() - today.getTime()) / MS_PER_DAY)
+        let cls = 'bg-emerald-50 text-emerald-700 border-emerald-200'   // future
+        let suffix = `in ${daysFromNow}d`
+        if (daysFromNow < 0)      { cls = 'bg-red-50 text-red-700 border-red-200';      suffix = `${Math.abs(daysFromNow)}d past` }
+        else if (daysFromNow === 0) { cls = 'bg-amber-50 text-amber-700 border-amber-200'; suffix = 'today' }
+        else if (daysFromNow <= 3)  { cls = 'bg-amber-50 text-amber-700 border-amber-200' }
+        return (
+          <span key={i.label} className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${cls}`} title={due.toLocaleDateString()}>
+            {i.label}: {suffix}
+          </span>
+        )
+      })}
+    </div>
   )
 }
 
@@ -270,13 +339,46 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
   const [saved, setSaved] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
+  // Tracks the status at load-time so handleSave can detect a change and
+  // mirror it to GHL only when the user actually moved the deal.
+  const initialStatusRef = useRef<string | null>(null)
 
   useEffect(() => {
     supabase.from('deals').select('*').eq('id', id).single().then(({ data }) => {
       setForm(data)
+      initialStatusRef.current = (data?.status as string | null) ?? null
       setLoading(false)
     })
   }, [id])
+
+  // Every distinct lead source currently in the data — so the Source dropdown
+  // lists the REAL sources from GHL/Arive (FRU, Lendgo, LMB, …), not just a
+  // small hardcoded set. Paginated to clear PostgREST's 1000-row cap.
+  const [knownSources, setKnownSources] = useState<string[]>([])
+  useEffect(() => {
+    (async () => {
+      const set = new Set<string>()
+      let off = 0
+      for (;;) {
+        const { data } = await supabase.from('deals').select('source').range(off, off + 999)
+        const rows = (data ?? []) as Array<{ source: string | null }>
+        for (const r of rows) { const s = (r.source ?? '').trim(); if (s) set.add(s) }
+        if (rows.length < 1000) break
+        off += 1000
+      }
+      setKnownSources(Array.from(set))
+    })()
+  }, [])
+
+  // Final option list: real sources + a few manual ones + always the deal's
+  // current value (so a synced source like "LMB" always shows as selected).
+  const sourceOptions = useMemo(() => {
+    const base = ['GHL', 'Self Source', 'Referral', 'Past Client', 'Open House', 'Agent Partner']
+    const set = new Set<string>([...base, ...knownSources])
+    const cur = (form?.source ?? '').trim()
+    if (cur) set.add(cur)
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
+  }, [knownSources, form?.source])
 
   function set<K extends keyof Deal>(key: K, value: Deal[K] | string | number | null) {
     setSaved(false)
@@ -309,6 +411,13 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
     const { lo_notes: _ln, client_notes: _cn, ...formData } = form
     const { error: err } = await supabase.from('deals').update(formData).eq('id', form.id as string)
     if (err) { setError(err.message); setSaving(false); return }
+    // If the user moved the deal to a new stage, push it to GHL so the next
+    // sync doesn't drag it back. Only fires when status actually changed.
+    const newStatus = form.status as string | null
+    if (newStatus && newStatus !== initialStatusRef.current) {
+      void pushStageToGHL(form.id as string, newStatus)
+      initialStatusRef.current = newStatus
+    }
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
@@ -431,6 +540,17 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                 </a>
               )
             })()}
+            {ariveUrl(form.arive_file_no as string | null) && (
+              <a
+                href={ariveUrl(form.arive_file_no as string | null)!}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open this loan in Arive"
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-emerald-200 bg-emerald-500/10 border border-emerald-400/30 rounded-lg hover:bg-emerald-500/20 transition"
+              >
+                <ExternalLink className="w-3.5 h-3.5" /> Open in Arive
+              </a>
+            )}
             <button
               onClick={handleDelete}
               disabled={deleting}
@@ -490,22 +610,77 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
           {/* ── Left column (2/3) ────────────────────────────────── */}
           <div className="lg:col-span-2 divide-y divide-slate-200">
 
+            {/* File Numbers — kept at the top so the Arive link is always one glance away */}
+            <Section title="File Numbers" icon={<Hash className="w-4 h-4" />}>
+              <div className="grid grid-cols-2 gap-4">
+                <Field
+                  label="Arive File #"
+                  hint="Paste the file number or a full Arive loan URL — we'll grab the ID."
+                >
+                  <div className="relative">
+                    <input
+                      value={form.arive_file_no || ''}
+                      onChange={e => set('arive_file_no', parseAriveFileNo(e.target.value))}
+                      placeholder="e.g. 16776575"
+                      className={inp + (ariveUrl(form.arive_file_no as string | null) ? ' pr-9' : '')}
+                    />
+                    {ariveUrl(form.arive_file_no as string | null) && (
+                      <a
+                        href={ariveUrl(form.arive_file_no as string | null)!}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Open this loan in Arive"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-emerald-600 hover:text-emerald-700"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                      </a>
+                    )}
+                  </div>
+                </Field>
+                <Field label="Investor File #">
+                  <input value={form.investor_file_no || ''} onChange={e => set('investor_file_no', e.target.value)} className={inp} />
+                </Field>
+              </div>
+            </Section>
+
             {/* Loan Details */}
             <Section title="Loan Details" icon={<DollarSign className="w-4 h-4" />}>
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Loan Purpose">
-                  <select value={form.loan_purpose || ''} onChange={e => set('loan_purpose', e.target.value)} className={sel}>
+                  <select
+                    value={form.loan_purpose || ''}
+                    onChange={e => {
+                      const v = e.target.value
+                      set('loan_purpose', v)
+                      // Clear refinance_type when leaving Refinance — keeps data clean
+                      if (v !== 'Refinance' && form.refinance_type) set('refinance_type', null)
+                    }}
+                    className={sel}
+                  >
                     <option value="">—</option>
                     <option value="Purchase">Purchase</option>
                     <option value="Refinance">Refinance</option>
-                    <option value="Cash-Out Refinance">Cash-Out Refinance</option>
-                    <option value="HELOC">HELOC</option>
                   </select>
                 </Field>
                 <Field label="Loan Type">
                   <select value={form.loan_type || ''} onChange={e => set('loan_type', e.target.value)} className={sel}>
                     <option value="">—</option>
                     {LOAN_TYPES.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </Field>
+                {/* Refinance Type — only relevant when purpose is Refinance */}
+                {form.loan_purpose === 'Refinance' && (
+                  <Field label="Refinance Type">
+                    <select value={form.refinance_type || ''} onChange={e => set('refinance_type', e.target.value || null)} className={sel}>
+                      <option value="">—</option>
+                      {REFINANCE_TYPES.map(t => <option key={t}>{t}</option>)}
+                    </select>
+                  </Field>
+                )}
+                <Field label="Lien Position">
+                  <select value={form.lien_position || ''} onChange={e => set('lien_position', e.target.value || null)} className={sel}>
+                    <option value="">—</option>
+                    {LIEN_POSITIONS.map(p => <option key={p}>{p}</option>)}
                   </select>
                 </Field>
                 <Field label="Loan Amount">
@@ -529,6 +704,18 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                 <Field label="Down Payment">
                   <CurrencyInput value={form.down_payment as number | null} onChange={v => set('down_payment', v)} />
                 </Field>
+                <Field label="Purchase Price">
+                  <CurrencyInput value={form.purchase_price as number | null} onChange={v => set('purchase_price', v)} />
+                </Field>
+                <Field label="Total Housing Payment">
+                  <CurrencyInput value={form.housing_payment as number | null} onChange={v => set('housing_payment', v)} />
+                </Field>
+                <Field label="County">
+                  <input value={(form.county as string | null) || ''} onChange={e => set('county', e.target.value)} className={inp} />
+                </Field>
+                <Field label="Adverse">
+                  <input value={(form.adverse as string | null) || ''} onChange={e => set('adverse', e.target.value)} className={inp} />
+                </Field>
                 <Field label="Rate">
                   <PercentInput value={form.rate as number | null} onChange={v => set('rate', v)} step="0.001" />
                 </Field>
@@ -545,12 +732,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                 <Field label="Source">
                   <select value={form.source || ''} onChange={e => set('source', e.target.value)} className={sel}>
                     <option value="">—</option>
-                    <option value="GHL">GHL</option>
-                    <option value="Self Source">Self Source</option>
-                    <option value="Referral">Referral</option>
-                    <option value="Past Client">Past Client</option>
-                    <option value="Open House">Open House</option>
-                    <option value="Agent Partner">Agent Partner</option>
+                    {sourceOptions.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </Field>
               </div>
@@ -619,18 +801,6 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
               </div>
             </Section>
 
-            {/* File Numbers */}
-            <Section title="File Numbers" icon={<Hash className="w-4 h-4" />}>
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="Arive File #">
-                  <input value={form.arive_file_no || ''} onChange={e => set('arive_file_no', e.target.value)} className={inp} />
-                </Field>
-                <Field label="Investor File #">
-                  <input value={form.investor_file_no || ''} onChange={e => set('investor_file_no', e.target.value)} className={inp} />
-                </Field>
-              </div>
-            </Section>
-
             {/* Real Estate Owned */}
             <Section title="Real Estate Owned (REO)" icon={<Building2 className="w-4 h-4" />}>
               <RealEstateOwned
@@ -639,11 +809,32 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
               />
             </Section>
 
+            {/* GHL conversation thread — live texts/calls + reply box */}
+            {form.ghl_contact_id && (
+              <Section title="Text Conversation (GHL)" icon={<MessageSquare className="w-4 h-4" />}>
+                <ConversationThread
+                  contactId={form.ghl_contact_id as string}
+                  locationId={(form.ghl_location_id as string | null) ?? null}
+                  ghlUrl={ghlContactUrl(form)}
+                  loanOfficer={(form.loan_officer as string | null) ?? null}
+                />
+              </Section>
+            )}
+
             {/* Communications log */}
             <Section title="Communications Log" icon={<Phone className="w-4 h-4" />}>
               <CommunicationsLog
                 value={(form.communications as Communication[] | null) || []}
                 onChange={v => set('communications', v)}
+              />
+            </Section>
+
+            {/* Document checklist — needs-list per loan type */}
+            <Section title="Document Checklist" icon={<FileText className="w-4 h-4" />}>
+              <DocumentChecklist
+                value={(form.documents as DealDocument[] | null) || []}
+                onChange={v => set('documents', v)}
+                loanType={form.loan_type ?? null}
               />
             </Section>
 
@@ -788,9 +979,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                 <Field label="Processor">
                   <select value={form.processor_status || ''} onChange={e => set('processor_status', e.target.value)} className={sel}>
                     <option value="">—</option>
-                    <option value="Lexi - 3rd party">Lexi - 3rd party</option>
-                    <option value="Hanh - 3rd party">Hanh - 3rd party</option>
-                    <option value="Susan - In house">Susan - In house</option>
+                    <option value="Brianne Han">Brianne Han</option>
                     <option value="Self Processing">Self Processing</option>
                   </select>
                 </Field>
@@ -823,6 +1012,39 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                 Added {form.created_at ? new Date(form.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
               </p>
             </Section>
+
+            {/* Purchase Contingencies — sits right under Key Dates, purchases only */}
+            {form.loan_purpose === 'Purchase' && (
+              <Section title="Purchase Contingencies" icon={<Calendar className="w-4 h-4" />}>
+                <p className="text-[11px] text-slate-500 mb-3 leading-snug">
+                  Dates from the purchase agreement. CA defaults: inspection / appraisal ~17 days, loan ~21 days, close ~30 days from start.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Start of Escrow">
+                    <DateInput value={form.escrow_start_date as string | null} onChange={v => set('escrow_start_date', v || null)} />
+                  </Field>
+                  <Field label="Close of Escrow">
+                    <DateInput value={form.close_of_escrow_date as string | null} onChange={v => set('close_of_escrow_date', v || null)} />
+                  </Field>
+                  <Field label="Inspection">
+                    <DateInput value={form.inspection_contingency_date as string | null} onChange={v => set('inspection_contingency_date', v || null)} />
+                  </Field>
+                  <Field label="Appraisal">
+                    <DateInput value={form.appraisal_contingency_date as string | null} onChange={v => set('appraisal_contingency_date', v || null)} />
+                  </Field>
+                  <Field label="Loan">
+                    <DateInput value={form.loan_contingency_date as string | null} onChange={v => set('loan_contingency_date', v || null)} />
+                  </Field>
+                </div>
+                {/* Quick-glance status pills (past due / soon / future) */}
+                <ContingencyStatusBar
+                  inspection={form.inspection_contingency_date as string | null}
+                  appraisal={form.appraisal_contingency_date as string | null}
+                  loan={form.loan_contingency_date as string | null}
+                  close={form.close_of_escrow_date as string | null}
+                />
+              </Section>
+            )}
           </div>
         </div>
       </div>
@@ -831,6 +1053,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
       <div className="mt-6">
         <LoanHistory
           currentDealId={form.id as string}
+          borrowerId={form.borrower_id as string | null}
           email={form.email as string | null}
           phone={form.phone as string | null}
           firstName={form.first_name as string | null}
