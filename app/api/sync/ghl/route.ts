@@ -840,14 +840,14 @@ async function syncAccount(
     }
 
     // Pull this location's deals that have an opportunity id (paginated).
-    type PruneRow = { id: string; name: string | null; ghl_opportunity_id: string | null; pipeline_group: string | null; loan_amount: number | null }
+    type PruneRow = { id: string; name: string | null; ghl_opportunity_id: string | null; pipeline_group: string | null; loan_amount: number | null; ghl_contact_id: string | null; dnd: boolean | null; dnd_settings: Record<string, unknown> | null }
     const locDeals: PruneRow[] = []
     let pOffset = 0
     const PRUNE_PAGE = 1000
     for (;;) {
       const { data: pr, error: pErr } = await supabase
         .from('deals')
-        .select('id, name, ghl_opportunity_id, pipeline_group, loan_amount')
+        .select('id, name, ghl_opportunity_id, pipeline_group, loan_amount, ghl_contact_id, dnd, dnd_settings')
         .eq('ghl_location_id', locationId)
         .not('ghl_opportunity_id', 'is', null)
         .order('id', { ascending: true })
@@ -865,6 +865,13 @@ async function syncAccount(
     // loan_amount to match the opportunity's value. Funded deals keep their Arive
     // amount (authoritative for closed loans).
     const amountFixes: Array<{ id: string; loan_amount: number }> = []
+    // DND reconciliation: Do-Not-Contact lives on the CONTACT (already fetched
+    // into contactMap), and can change without the opportunity changing — so the
+    // incremental sync would miss it. We reconcile it from the contact for every
+    // live deal (all stages — compliance applies even to funded clients). We only
+    // act when the contact payload actually carries DND info, so a sparse payload
+    // can never wrongly clear a real opt-out.
+    const dndFixes: Array<{ id: string; dnd: boolean | null; dnd_settings: Record<string, unknown> | null }> = []
     for (const d of locDeals) {
       if (!d.ghl_opportunity_id) continue
       if (!liveOppIds.has(d.ghl_opportunity_id)) {
@@ -883,6 +890,18 @@ async function syncAccount(
           amountFixes.push({ id: d.id, loan_amount: v })
         }
       }
+      // Reconcile DND from the contact (all stages).
+      if (d.ghl_contact_id) {
+        const c = contactMap.get(d.ghl_contact_id) as Record<string, unknown> | undefined
+        const hasDndInfo = c && (typeof c.dnd === 'boolean' || (c.dndSettings && typeof c.dndSettings === 'object'))
+        if (c && hasDndInfo) {
+          const newDnd = typeof c.dnd === 'boolean' ? c.dnd : null
+          const newDs = (c.dndSettings && typeof c.dndSettings === 'object') ? c.dndSettings as Record<string, unknown> : null
+          if (JSON.stringify([d.dnd ?? null, d.dnd_settings ?? null]) !== JSON.stringify([newDnd, newDs])) {
+            dndFixes.push({ id: d.id, dnd: newDnd, dnd_settings: newDs })
+          }
+        }
+      }
     }
 
     // Apply loan-amount corrections (bounded concurrency).
@@ -895,6 +914,18 @@ async function syncAccount(
         for (const e of res) { if (e) { console.error(`[GHL Sync:${label}] loan_amount fix failed:`, e.message) } else af++ }
       }
       console.log(`[GHL Sync:${label}] Reconciled loan_amount on ${af} non-funded deal(s) from the opportunity value.`)
+    }
+
+    // Apply DND corrections (bounded concurrency).
+    if (dndFixes.length > 0) {
+      const DND_CONC = 20
+      let df = 0
+      for (let i = 0; i < dndFixes.length; i += DND_CONC) {
+        const chunk = dndFixes.slice(i, i + DND_CONC)
+        const res = await Promise.all(chunk.map(f => supabase.from('deals').update({ dnd: f.dnd, dnd_settings: f.dnd_settings }).eq('id', f.id).then(r => r.error)))
+        for (const e of res) { if (e) { console.error(`[GHL Sync:${label}] dnd fix failed:`, e.message) } else df++ }
+      }
+      console.log(`[GHL Sync:${label}] Reconciled DND on ${df} deal(s) from the contact.`)
     }
 
     // Logic-error guard: never delete more than 30% of the location's GHL deals
