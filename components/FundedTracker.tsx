@@ -227,64 +227,57 @@ function FundedCard({ deal, dragHandleProps }: {
   dragHandleProps?: React.HTMLAttributes<HTMLDivElement> & Record<string, unknown>
 }) {
   const statusClass = STATUS_COLORS[deal.status] || 'bg-gray-100 text-gray-600'
+  const ghlUrl = ghlContactUrl(deal)
+  const aUrl = ariveUrl(deal.arive_file_no)
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
-      {/* Drag handle / header */}
+      {/* Header — name on its own full-width line; quick-links + stage badge below */}
       <div
         {...dragHandleProps}
-        className={`px-4 py-2.5 border-b flex items-center justify-between gap-2 ${
+        className={`px-4 pt-2.5 pb-2 border-b ${
           STAGE_HEADER_TINT[deal.status] || 'bg-slate-200 border-slate-300'
         } ${dragHandleProps ? 'cursor-grab active:cursor-grabbing select-none' : ''}`}
         title={dragHandleProps ? 'Drag to move to another stage' : undefined}
       >
+        {/* Row 1 — name */}
         <div className="flex items-center gap-1.5 min-w-0">
-          {dragHandleProps && <GripVertical className="w-3.5 h-3.5 text-slate-500 shrink-0" />}
+          {dragHandleProps && <GripVertical className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
           <Link
             href={`/deals/${deal.id}`}
             onPointerDown={e => e.stopPropagation()}
-            className="font-semibold text-sm text-slate-900 hover:text-blue-700 truncate flex items-center gap-1 group"
-            title="Open in dashboard"
+            title={deal.name}
+            className="font-bold text-[15px] leading-tight text-slate-900 hover:text-blue-700 truncate flex items-center gap-1 group min-w-0"
           >
-            {deal.name}
-            <ExternalLink className="w-3 h-3 text-slate-300 group-hover:text-blue-500 opacity-0 group-hover:opacity-100 transition" />
+            <span className="truncate">{deal.name}</span>
+            <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-blue-500 opacity-0 group-hover:opacity-100 transition shrink-0" />
           </Link>
-          {(() => {
-            const ghlUrl = ghlContactUrl(deal)
-            return ghlUrl ? (
-              <a
-                href={ghlUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onPointerDown={e => e.stopPropagation()}
-                onClick={e => e.stopPropagation()}
+        </div>
+
+        {/* Row 2 — quick links + stage badge */}
+        <div className="flex items-center justify-between gap-2 mt-2">
+          <div className="flex items-center gap-1">
+            {ghlUrl && (
+              <a href={ghlUrl} target="_blank" rel="noopener noreferrer"
+                onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}
                 title="Open contact in GoHighLevel"
-                className="shrink-0 flex items-center gap-0.5 text-[9px] font-bold text-blue-700 hover:text-blue-900 px-1.5 py-0.5 rounded bg-blue-100 hover:bg-blue-200 border border-blue-200 transition-colors"
-              >
+                className="flex items-center gap-0.5 text-[10px] font-bold text-blue-700 hover:text-white hover:bg-blue-600 px-2 py-1 rounded-md bg-white/70 border border-blue-200 transition-colors">
                 GHL <ExternalLink className="w-2.5 h-2.5" />
               </a>
-            ) : null
-          })()}
-          {(() => {
-            const aUrl = ariveUrl(deal.arive_file_no)
-            return aUrl ? (
-              <a
-                href={aUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onPointerDown={e => e.stopPropagation()}
-                onClick={e => e.stopPropagation()}
+            )}
+            {aUrl && (
+              <a href={aUrl} target="_blank" rel="noopener noreferrer"
+                onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}
                 title="Open loan file in Arive"
-                className="shrink-0 flex items-center gap-0.5 text-[9px] font-bold text-orange-700 hover:text-orange-900 px-1.5 py-0.5 rounded bg-orange-100 hover:bg-orange-200 border border-orange-200 transition-colors"
-              >
+                className="flex items-center gap-0.5 text-[10px] font-bold text-orange-700 hover:text-white hover:bg-orange-600 px-2 py-1 rounded-md bg-white/70 border border-orange-200 transition-colors">
                 Arive <ExternalLink className="w-2.5 h-2.5" />
               </a>
-            ) : null
-          })()}
+            )}
+          </div>
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded shrink-0 ${statusClass}`}>
+            {deal.status}
+          </span>
         </div>
-        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded shrink-0 ${statusClass}`}>
-          {deal.status}
-        </span>
       </div>
 
       {/* Body */}
