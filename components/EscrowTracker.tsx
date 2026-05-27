@@ -6,22 +6,16 @@ import {
   DndContext, useSensors, useSensor, PointerSensor,
   useDraggable, useDroppable, type DragEndEvent,
 } from '@dnd-kit/core'
-import { Deal, STATUS_COLORS, LOAN_OFFICERS, WAITING_ON_OPTIONS, STAGE_SLA_DAYS, Communication } from '@/lib/types'
+import { Deal, STATUS_COLORS, WAITING_ON_OPTIONS, STAGE_SLA_DAYS, Communication } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { ariveUrl } from '@/lib/ariveLinks'
 import {
-  AlertTriangle, Clock, ChevronRight, User, CalendarClock,
+  AlertTriangle, Clock, ChevronRight, CalendarClock,
   Flame, ExternalLink, CheckCircle2, Snowflake, Lock, Search,
   Hourglass, Phone, AlertOctagon, GripVertical,
 } from 'lucide-react'
 
-// ── Assignee options: LOs + common processors + Efrain ──────────────────────
-const ASSIGNEE_OPTIONS = [
-  ...LOAN_OFFICERS,
-  'Efrain Ramirez',
-  'Brianne Han',
-] as const
 
 const PRIORITY_OPTIONS = [
   { value: 'high',   label: 'High',   color: 'bg-red-100 text-red-700 border-red-200' },
@@ -634,21 +628,6 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
           overdue={overdue}
           today={today}
         />
-
-        {/* Assigned to — own row */}
-        <div>
-          <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1">
-            <User className="w-3 h-3" /> Assigned to
-          </label>
-          <select
-            value={deal.next_action_assignee || ''}
-            onChange={e => saveField('next_action_assignee', e.target.value || null)}
-            className="w-full px-2 py-1.5 border border-slate-200 rounded-md text-xs text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">— Unassigned —</option>
-            {ASSIGNEE_OPTIONS.map(a => <option key={a} value={a}>{a}</option>)}
-          </select>
-        </div>
 
         {/* Waiting On — what's blocking */}
         <div className="border-t border-slate-100 pt-2.5">
