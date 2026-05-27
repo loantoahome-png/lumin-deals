@@ -1,5 +1,7 @@
 export type Deal = {
   id: string
+  borrower_id: string | null              // groups multiple loans for the same person (Option A model)
+  ghl_opportunity_id: string | null       // the GHL opportunity (loan) ID — distinct per loan
   name: string
   first_name: string | null
   last_name: string | null
@@ -10,7 +12,11 @@ export type Deal = {
   loan_officer: string | null
   processor: string | null
   processor_status: string | null
-  loan_type: string | null
+  loan_type: string | null               // family only: HELOC / HELOAN / FHA / VA / Conv / Non-QM / DSCR / Hard Money
+  refinance_type: string | null          // 'Cash Out' | 'Rate and Term' — only meaningful when loan_purpose === 'Refinance'
+  lien_position: string | null           // '1st Lien' | '2nd Lien' | '3rd Lien' — where the new loan sits in title hierarchy
+  lead_price: number | null              // what we paid for this individual lead (GHL "Lead Price")
+  compensation_amount: number | null     // broker compensation earned on the funded loan (Arive "Compensation Amount")
   loan_amount: number | null
   estimated_value: number | null
   rate: number | null
@@ -41,6 +47,10 @@ export type Deal = {
   ltv: number | null
   cash_out: number | null
   down_payment: number | null
+  purchase_price: number | null          // Arive "Purchase Price"
+  housing_payment: number | null         // Arive "Total Housing Payment" (monthly PITI)
+  county: string | null                  // Arive "Subject County"
+  adverse: string | null                 // Arive "Adverse" flag
   is_military: string | null
   current_va_loan: string | null
   property_found: string | null
@@ -54,6 +64,12 @@ export type Deal = {
   lo_notes: string | null
   client_notes: string | null
   subbed: boolean
+  // ── Purchase contingency tracking (only shown in UI when loan_purpose === 'Purchase') ──
+  escrow_start_date: string | null            // contract acceptance / EMD opened
+  inspection_contingency_date: string | null  // last day to back out for property condition (~17d typical in CA)
+  appraisal_contingency_date: string | null   // last day to back out if appraisal comes in low
+  loan_contingency_date: string | null        // last day to back out due to loan denial
+  close_of_escrow_date: string | null         // contractual closing date per the purchase agreement
   signing_date: string | null
   paid_date: string | null
   funded_date: string | null
@@ -68,7 +84,14 @@ export type Deal = {
   escrow_priority: string | null              // 'high' | 'normal' | 'low'
   stage_changed_at: string | null             // tracks days-in-stage (auto-updated)
   waiting_on: string | null                   // who/what is blocking the deal
+  // Last communication, refreshed from GHL's Conversations API (hot stages).
+  last_communication_at: string | null        // ISO — most recent message (any channel/direction)
+  last_communication_type: string | null      // 'Text' | 'Call' | 'Email' | …
+  comm_unread_count: number | null             // unanswered client messages — "waiting on us"
+  last_inbound_at: string | null               // ISO — last message FROM the borrower (inbound)
+  last_outbound_at: string | null              // ISO — last message FROM us (outbound)
   communications: Communication[] | null      // contact log per deal
+  documents: DealDocument[] | null             // per-deal document checklist
   created_at: string
   updated_at: string
 }
@@ -96,9 +119,35 @@ export type DealTask = {
 }
 
 export const TASK_ASSIGNEES = [
-  'Matt Park', 'Moe Sefati', 'Efrain Ramirez',
-  'Lexi - 3rd party', 'Hanh - 3rd party', 'Susan - In house',
+  'Matt Park', 'Moe Sefati', 'Efrain Ramirez', 'Brianne Han',
 ] as const
+
+// ── Document checklist ──────────────────────────────────────────────────────
+// Stored as a JSONB `documents` array on the deals table (same pattern as
+// reo_properties / communications). Auto-populated from a per-loan-type
+// template, then tracked by status as the file moves through processing.
+export type DealDocument = {
+  id: string
+  name: string
+  category: string          // see DOC_CATEGORIES
+  status: string            // see DOC_STATUSES
+  note: string | null
+  updated_at: string        // ISO — last time status/note changed
+}
+
+export const DOC_CATEGORIES = [
+  'Identity', 'Income', 'Assets', 'Property', 'Credit', 'Other',
+] as const
+
+export const DOC_STATUSES = ['needed', 'requested', 'received', 'waived', 'na'] as const
+
+export const DOC_STATUS_LABELS: Record<string, string> = {
+  needed:    'Needed',
+  requested: 'Requested',
+  received:  'Received',
+  waived:    'Waived',
+  na:        'N/A',
+}
 
 // ── Communications log ──────────────────────────────────────────────────────
 export type Communication = {
@@ -189,25 +238,25 @@ export const PIPELINE_GROUPS = [
 
 export const LOAN_OFFICERS = ['Matt', 'Moe Sefati'] as const
 
+// Loan type now stores only the FAMILY. Refinance-specific sub-type (Cash Out
+// vs Rate and Term) lives in `refinance_type` — surfaced in the UI only when
+// loan_purpose === 'Refinance'.
 export const LOAN_TYPES = [
-  'FHA - Purchase',
-  'FHA - R/T Refinance',
-  'FHA - Streamline Refi',
-  'FHA - C/O Refi',
-  'Conv - Purchase',
-  'Conv - R/T refi',
-  'Conv - C/O refi',
-  'Non-QM - Purchase',
-  'Non-QM - Refi',
   'HELOC',
   'HELOAN',
-  'VA - Purchase',
-  'VA - Refi C/O',
-  'VA IRRRL',
-  'DSCR - Purchase',
-  'DSCR - Refinance',
+  'FHA',
+  'VA',
+  'Conv',
+  'Non-QM',
+  'DSCR',
   'Hard Money',
 ] as const
+
+export const REFINANCE_TYPES = ['Cash Out', 'Rate and Term'] as const
+
+// Lien position — where the new loan sits in the title hierarchy.
+// Almost always 1st (purchase, R/T refi) or 2nd (HELOC, HELOAN, subordinate financing).
+export const LIEN_POSITIONS = ['1st Lien', '2nd Lien', '3rd Lien'] as const
 
 export const OCCUPANCY_TYPES = ['Primary', 'Second Home', 'Investment'] as const
 

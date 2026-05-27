@@ -431,7 +431,8 @@ function HotLeadList({ deals, onUpdate }: {
               <th className="px-3 py-2.5">Loan type</th>
               <th className="px-3 py-2.5 text-right">Amount</th>
               <th className="px-3 py-2.5 text-right">In stage</th>
-              <th className="px-3 py-2.5 text-right">Last contact</th>
+              <th className="px-3 py-2.5 text-right" title="Last time the borrower reached out (inbound)">Borrower last</th>
+              <th className="px-3 py-2.5 text-right" title="Last time we reached out (outbound)">You last</th>
               <th className="px-3 py-2.5 text-center">Move to →</th>
             </tr>
           </thead>
@@ -454,9 +455,11 @@ function HotLeadRow({ deal, onUpdate, selected, onToggle }: {
 }) {
   const stage = (HOT_STATUSES as readonly string[]).includes(deal.status) ? (deal.status as HotStatus) : 'Pitching'
   const bucket = getBucket(deal)
-  const lastContact = lastContactIso(deal)
-  const channel = deal.last_communication_type
   const waiting = (deal.comm_unread_count ?? 0) > 0
+  const inboundMs  = deal.last_inbound_at  ? Date.parse(deal.last_inbound_at)  : 0
+  const outboundMs = deal.last_outbound_at ? Date.parse(deal.last_outbound_at) : 0
+  // Borrower reached out more recently than we did → the ball is in our court.
+  const borrowerWaiting = inboundMs > 0 && inboundMs > outboundMs
   const ghlUrl = ghlContactUrl(deal)
   const forwardButtons = FORWARD_BY_STATUS[stage]
   const loanTypeLabel = deal.loan_type || deal.loan_purpose || '—'
@@ -503,8 +506,13 @@ function HotLeadRow({ deal, onUpdate, selected, onToggle }: {
       <td className="px-3 py-2.5 text-slate-600">{loanTypeLabel}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{deal.loan_amount ? formatCurrency(deal.loan_amount) : '—'}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{compactAgo(stageSinceIso(deal))}</td>
+      {/* Borrower last (inbound) — red when they're the most recent to reach out */}
+      <td className={`px-3 py-2.5 text-right tabular-nums whitespace-nowrap ${borrowerWaiting ? 'text-red-600 font-semibold' : 'text-slate-700'}`}>
+        {deal.last_inbound_at ? `${compactAgo(deal.last_inbound_at)} ago` : '—'}
+      </td>
+      {/* You last (outbound) */}
       <td className="px-3 py-2.5 text-right tabular-nums text-slate-700 whitespace-nowrap">
-        {compactAgo(lastContact)} ago{channel ? <span className="text-[10px] text-slate-400"> · {channel}</span> : null}
+        {deal.last_outbound_at ? `${compactAgo(deal.last_outbound_at)} ago` : '—'}
       </td>
       <td className="px-3 py-2.5">
         <div className="flex items-center justify-center gap-1">
