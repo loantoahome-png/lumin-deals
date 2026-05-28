@@ -475,6 +475,38 @@ async function fetchAllContacts(locationId: string, apiKey: string): Promise<Map
   return map
 }
 
+// Incremental-sync companion to fetchAllContacts: fetch only the specific
+// contacts whose opportunities changed since the last run. Avoids paging
+// through thousands of unchanged contacts on every 5-min cron tick.
+async function fetchContactsByIds(
+  apiKey: string,
+  ids: string[],
+): Promise<Map<string, GHLContact>> {
+  const map = new Map<string, GHLContact>()
+  if (ids.length === 0) return map
+  const CONCURRENCY = 10
+  for (let i = 0; i < ids.length; i += CONCURRENCY) {
+    const chunk = ids.slice(i, i + CONCURRENCY)
+    const results = await Promise.all(
+      chunk.map(async id => {
+        try {
+          const res = await fetch(`${GHL_BASE}/contacts/${id}`, { headers: ghlHeaders(apiKey) })
+          if (!res.ok) return null
+          const data = await res.json() as { contact?: GHLContact }
+          return data.contact ?? null
+        } catch {
+          return null
+        }
+      })
+    )
+    for (let j = 0; j < chunk.length; j++) {
+      const c = results[j]
+      if (c) map.set(chunk[j], c)
+    }
+  }
+  return map
+}
+
 // ── Main Sync Handler ─────────────────────────────────────────────────────────
 
 async function syncAccount(
@@ -511,63 +543,139 @@ async function syncAccount(
               (lastSyncedAt ? ` (incremental — last synced ${lastSyncedAt})` : ' (full — no prior sync state)'))
 
   // ── 1. Fetch lookup maps ───────────────────────────────────────────────────
-  const [pipelineMap, userMap, contactMap, oppResult, customFieldDefs] = await Promise.all([
+  // Contacts are intentionally NOT in this Promise.all — on incremental syncs
+  // we only need contacts for the small set of opportunities that actually
+  // changed, so fetching all 5 000 every 5 min is pure waste.
+  const [pipelineMap, userMap, oppResult, customFieldDefs] = await Promise.all([
     fetchPipelineStageMap(locationId, apiKey),
     fetchUserMap(locationId, apiKey, supabase),
-    fetchAllContacts(locationId, apiKey),
     fetchAllOpportunities(locationId, apiKey),
     fetchCustomFieldDefs(locationId, apiKey),
   ])
   const opportunities = oppResult.list
   const oppFetchComplete = oppResult.complete
+  const isFullSync = lastSyncedMs === 0   // first-ever run OR ?full=1
 
-  // ── 1b. Build in-memory dedup index of existing dashboard deals ───────────
-  //   Allows matching by contact_id → email → phone in O(1).
-  //   This handles GHL contact-ID churn: if the same person was assigned a new
-  //   contact ID, we still find their dashboard record by email/phone.
+  // ── 1a. Pre-filter to opportunities that actually changed ────────────────
+  // Was done per-iteration below; lifting it here lets us scope the contact
+  // fetch + dedup-index query to just the changed set on incremental runs.
+  let changedOpps: GHLOpportunity[]
+  if (isFullSync) {
+    changedOpps = opportunities
+  } else {
+    changedOpps = opportunities.filter(opp => {
+      const u = str(opp.updatedAt ?? opp.dateUpdated ?? opp.lastStatusChangeAt)
+      const ms = u ? Date.parse(u) : 0
+      // No timestamp → process to be safe (rare). Otherwise apply the cursor.
+      return ms === 0 || ms >= lastSyncedMs
+    })
+    skipped += opportunities.length - changedOpps.length
+    console.log(`[GHL Sync:${label}] Incremental: ${changedOpps.length}/${opportunities.length} opps changed since cursor`)
+  }
+
+  // ── 1b. Fetch contacts (scoped on incremental, full on first/forced run) ──
+  let contactMap: Map<string, GHLContact>
+  if (isFullSync) {
+    contactMap = await fetchAllContacts(locationId, apiKey)
+  } else {
+    const wantedContactIds = Array.from(new Set(
+      changedOpps
+        .map(opp => {
+          const embedded = opp.contact as GHLContact | undefined
+          return str(embedded?.id) ?? str(opp.contactId)
+        })
+        .filter((x): x is string => !!x)
+    ))
+    contactMap = await fetchContactsByIds(apiKey, wantedContactIds)
+    console.log(`[GHL Sync:${label}] Incremental: fetched ${contactMap.size}/${wantedContactIds.length} contacts (skipped full ~5 000-row scan)`)
+  }
+
+  // ── 1c. Build in-memory dedup index of existing dashboard deals ──────────
+  //   Maps:
+  //     • byOppId            ghl_opportunity_id → deal (the loan) — used to
+  //                          decide insert-vs-update for each incoming opp.
+  //     • contactToBorrower  contact_id → borrower_id — used when a new opp
+  //     • emailToBorrower    email      → borrower_id   comes in for a known
+  //     • phoneToBorrower    phone      → borrower_id   person so the new
+  //                          loan card is linked to their existing group.
   //
-  //   CRITICAL: must paginate. Supabase/PostgREST caps a single .select() at
-  //   1000 rows by default — without pagination, deals beyond row 1000 are
-  //   invisible to dedup and get re-inserted as duplicates.
-  //   The deal is keyed by GHL OPPORTUNITY id (each opportunity = one loan =
-  //   one card), because the same person can come in multiple times through
-  //   different lead sources — each must be its own deal so the lead-spend
-  //   report counts every lead purchased.
-  //
-  //   We also build contact/email/phone → borrower_id lookups so a new
-  //   opportunity for a known person is linked to that person's borrower group.
+  //   FULL sync: page through every deal (cap 1 000/page from PostgREST).
+  //   INCREMENTAL: scoped query — only deals matching the changed opps' ids
+  //   or their contact_ids. Cuts a multi-thousand-row scan to a few dozen.
   type DealKey = { id: string }
-  const byOppId = new Map<string, DealKey>()              // ghl_opportunity_id → deal (the loan)
-  const contactToBorrower = new Map<string, string>()     // contact_id → borrower_id
-  const emailToBorrower = new Map<string, string>()       // email → borrower_id
-  const phoneToBorrower = new Map<string, string>()       // phone → borrower_id
-  const DEDUP_PAGE = 1000
-  let offset = 0
-  for (;;) {
-    const { data: pageRows, error: pageErr } = await supabase
-      .from('deals')
-      .select('id, ghl_contact_id, ghl_opportunity_id, email, phone, borrower_id')
-      .order('id', { ascending: true })
-      .range(offset, offset + DEDUP_PAGE - 1)
-    if (pageErr) {
-      console.error(`[GHL Sync:${label}] Dedup index page ${offset} failed:`, pageErr.message)
-      break
+  const byOppId = new Map<string, DealKey>()
+  const contactToBorrower = new Map<string, string>()
+  const emailToBorrower = new Map<string, string>()
+  const phoneToBorrower = new Map<string, string>()
+
+  type DedupRow = { id: string; ghl_contact_id: string | null; ghl_opportunity_id: string | null; email: string | null; phone: string | null; borrower_id: string | null }
+  const ingestDedupRow = (d: DedupRow) => {
+    if (d.ghl_opportunity_id && !byOppId.has(d.ghl_opportunity_id)) byOppId.set(d.ghl_opportunity_id, { id: d.id })
+    if (d.borrower_id) {
+      if (d.ghl_contact_id && !contactToBorrower.has(d.ghl_contact_id)) contactToBorrower.set(d.ghl_contact_id, d.borrower_id)
+      const e = normEmail(d.email); if (e && !emailToBorrower.has(e)) emailToBorrower.set(e, d.borrower_id)
+      const p = normPhone(d.phone); if (p && !phoneToBorrower.has(p)) phoneToBorrower.set(p, d.borrower_id)
     }
-    const rows = (pageRows ?? []) as Array<{ id: string; ghl_contact_id: string | null; ghl_opportunity_id: string | null; email: string | null; phone: string | null; borrower_id: string | null }>
-    for (const d of rows) {
-      if (d.ghl_opportunity_id && !byOppId.has(d.ghl_opportunity_id)) byOppId.set(d.ghl_opportunity_id, { id: d.id })
-      if (d.borrower_id) {
-        if (d.ghl_contact_id && !contactToBorrower.has(d.ghl_contact_id)) contactToBorrower.set(d.ghl_contact_id, d.borrower_id)
-        const e = normEmail(d.email); if (e && !emailToBorrower.has(e)) emailToBorrower.set(e, d.borrower_id)
-        const p = normPhone(d.phone); if (p && !phoneToBorrower.has(p)) phoneToBorrower.set(p, d.borrower_id)
+  }
+
+  if (isFullSync) {
+    const DEDUP_PAGE = 1000
+    let offset = 0
+    for (;;) {
+      const { data: pageRows, error: pageErr } = await supabase
+        .from('deals')
+        .select('id, ghl_contact_id, ghl_opportunity_id, email, phone, borrower_id')
+        .order('id', { ascending: true })
+        .range(offset, offset + DEDUP_PAGE - 1)
+      if (pageErr) {
+        console.error(`[GHL Sync:${label}] Dedup index page ${offset} failed:`, pageErr.message)
+        break
+      }
+      const rows = (pageRows ?? []) as DedupRow[]
+      for (const d of rows) ingestDedupRow(d)
+      if (rows.length < DEDUP_PAGE) break
+      offset += DEDUP_PAGE
+    }
+  } else {
+    // Scoped dedup: only rows that could possibly match a changed opp.
+    const targetOppIds = new Set<string>()
+    const targetContactIds = new Set<string>()
+    for (const opp of changedOpps) {
+      const oid = str(opp.id); if (oid) targetOppIds.add(oid)
+      const embedded = opp.contact as GHLContact | undefined
+      const cid = str(embedded?.id) ?? str(opp.contactId)
+      if (cid) targetContactIds.add(cid)
+    }
+
+    const seenIds = new Set<string>()
+    const queryBy = async (col: 'ghl_opportunity_id' | 'ghl_contact_id', values: Set<string>) => {
+      if (values.size === 0) return
+      const arr = Array.from(values)
+      const CHUNK = 100   // keeps the .in() URL well under PostgREST's limit
+      for (let i = 0; i < arr.length; i += CHUNK) {
+        const chunk = arr.slice(i, i + CHUNK)
+        const { data, error } = await supabase
+          .from('deals')
+          .select('id, ghl_contact_id, ghl_opportunity_id, email, phone, borrower_id')
+          .in(col, chunk)
+        if (error) {
+          console.error(`[GHL Sync:${label}] Scoped dedup query (${col}) failed:`, error.message)
+          continue
+        }
+        for (const d of ((data ?? []) as DedupRow[])) {
+          if (seenIds.has(d.id)) continue
+          seenIds.add(d.id)
+          ingestDedupRow(d)
+        }
       }
     }
-    if (rows.length < DEDUP_PAGE) break
-    offset += DEDUP_PAGE
+    await queryBy('ghl_opportunity_id', targetOppIds)
+    await queryBy('ghl_contact_id', targetContactIds)
   }
+
   console.log(`[GHL Sync:${label}] Indexed ${byOppId.size} deals by opportunity_id; borrower lookups: ${contactToBorrower.size} contact / ${emailToBorrower.size} email / ${phoneToBorrower.size} phone`)
 
-  console.log(`[GHL Sync:${label}] Processing ${opportunities.length} opportunities`)
+  console.log(`[GHL Sync:${label}] Processing ${changedOpps.length} opportunities (of ${opportunities.length} fetched)`)
 
   // Accumulators — we collect everything, then write in batches at the end.
   const toInsert: Record<string, unknown>[] = []
@@ -579,7 +687,9 @@ async function syncAccount(
   const runContactBorrower = new Map<string, string>()
 
     // ── 2. Process each opportunity ───────────────────────────────────────────
-    for (const opp of opportunities) {
+    // Iterate ONLY the changed set — the incremental cursor was applied at the
+    // top, so we no longer per-iter skip. On full syncs changedOpps === opportunities.
+    for (const opp of changedOpps) {
       try {
         // Resolve contact + opportunity id. We key the deal by OPPORTUNITY id
         // (one loan per opportunity), so two opportunities for the same contact
@@ -591,18 +701,6 @@ async function syncAccount(
         if (!oppId) continue                       // can't key it — skip
         if (seenOppIds.has(oppId)) continue        // dedupe within this run
         seenOppIds.add(oppId)
-
-        // ── Incremental skip ───────────────────────────────────────────────
-        // If the opp hasn't changed since our last successful sync, skip it.
-        // We never skip on a full sync (lastSyncedMs === 0).
-        if (lastSyncedMs > 0) {
-          const oppUpdatedAt = str(opp.updatedAt ?? opp.dateUpdated ?? opp.lastStatusChangeAt)
-          const oppUpdatedMs = oppUpdatedAt ? Date.parse(oppUpdatedAt) : 0
-          if (oppUpdatedMs > 0 && oppUpdatedMs < lastSyncedMs) {
-            skipped++
-            continue
-          }
-        }
 
         // Full contact data (has custom fields)
         const fullContact: GHLContact = contactMap.get(contactId) ?? embeddedContact ?? {}

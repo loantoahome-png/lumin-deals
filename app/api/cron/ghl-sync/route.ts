@@ -18,7 +18,40 @@ export const maxDuration = 300
 const LOCK_KEY = 'ghl_sync_lock'
 const LOCK_TTL_MS = 5 * 60 * 1000   // 5 min — longer than any healthy run
 
+// ── Sub-task throttling ──────────────────────────────────────────────────────
+// The cron ping fires every few minutes, but conversations-refresh and the
+// 2nd-callback check don't need to run that often. Gate them via sync_state
+// so they run on their own cadence regardless of how fast the cron pings.
+const CONV_REFRESH_KEY = 'conversations_refresh_last'
+const CONV_REFRESH_INTERVAL_MS = 15 * 60 * 1000   // 15 min
+const CALLBACK_CHECK_KEY = 'second_callback_last'
+const CALLBACK_CHECK_INTERVAL_MS = 5 * 60 * 1000  //  5 min
+
 type LockClient = ReturnType<typeof createServiceClient>
+
+/** True if `key` was last marked >= intervalMs ago (or has never run). */
+async function isDue(supabase: LockClient, key: string, intervalMs: number): Promise<boolean> {
+  try {
+    const { data } = await supabase.from('sync_state').select('value').eq('key', key).maybeSingle()
+    const lastAt = (data?.value as { last_at?: string } | null)?.last_at
+    if (!lastAt) return true
+    return Date.now() - Date.parse(lastAt) >= intervalMs
+  } catch {
+    return true   // fail OPEN — better to run an extra time than to silently stop
+  }
+}
+
+async function markRan(supabase: LockClient, key: string): Promise<void> {
+  try {
+    await supabase.from('sync_state').upsert({
+      key,
+      value: { last_at: new Date().toISOString() },
+      updated_at: new Date().toISOString(),
+    })
+  } catch (e) {
+    console.warn(`[Cron GHL Sync] markRan(${key}) failed:`, e)
+  }
+}
 
 /** Try to acquire the lock. Returns true if acquired, false if a fresh run holds it. */
 async function acquireLock(supabase: LockClient): Promise<boolean> {
@@ -83,23 +116,35 @@ export async function GET(req: NextRequest) {
       `${result.skipped} skipped, ${result.errors.length} errors, ${result.duration_ms}ms)`
     )
 
-    // Refresh "last communication" data for the hot stages. Wrapped so a
-    // conversations-API hiccup can never fail the main sync.
+    // Refresh "last communication" data for the hot stages — throttled to
+    // every 15 min (the cron may ping much more often). Forced on ?full=1.
+    // Wrapped so a conversations-API hiccup can never fail the main sync.
     let conversations: unknown = null
-    try {
-      conversations = await refreshConversations()
-      console.log(`[Cron GHL Sync] conversations refresh:`, JSON.stringify(conversations))
-    } catch (e) {
-      console.error('[Cron GHL Sync] conversations refresh failed (non-fatal):', e)
+    if (full || await isDue(supabase, CONV_REFRESH_KEY, CONV_REFRESH_INTERVAL_MS)) {
+      try {
+        conversations = await refreshConversations()
+        await markRan(supabase, CONV_REFRESH_KEY)
+        console.log(`[Cron GHL Sync] conversations refresh:`, JSON.stringify(conversations))
+      } catch (e) {
+        console.error('[Cron GHL Sync] conversations refresh failed (non-fatal):', e)
+      }
+    } else {
+      console.log('[Cron GHL Sync] conversations refresh skipped (throttled, runs every 15 min)')
     }
 
-    // 45-minute 2nd-call-back rule — create Brianne's task for stalled new leads.
+    // 45-minute 2nd-call-back rule — create Brianne's task for stalled new
+    // leads. Throttled to every 5 min (the 45-min rule has plenty of slack).
     let secondCallback: unknown = null
-    try {
-      secondCallback = await runSecondCallbackCheck()
-      console.log(`[Cron GHL Sync] 2nd-callback check:`, JSON.stringify(secondCallback))
-    } catch (e) {
-      console.error('[Cron GHL Sync] 2nd-callback check failed (non-fatal):', e)
+    if (full || await isDue(supabase, CALLBACK_CHECK_KEY, CALLBACK_CHECK_INTERVAL_MS)) {
+      try {
+        secondCallback = await runSecondCallbackCheck()
+        await markRan(supabase, CALLBACK_CHECK_KEY)
+        console.log(`[Cron GHL Sync] 2nd-callback check:`, JSON.stringify(secondCallback))
+      } catch (e) {
+        console.error('[Cron GHL Sync] 2nd-callback check failed (non-fatal):', e)
+      }
+    } else {
+      console.log('[Cron GHL Sync] 2nd-callback check skipped (throttled, runs every 5 min)')
     }
 
     return NextResponse.json({ ok: true, startedAt, finishedAt: new Date().toISOString(), ...result, conversations, secondCallback })
