@@ -156,10 +156,18 @@ type Props = {
   onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>
 }
 
+// Purchased lead vendors (we pay per lead). Everything else — Self Source,
+// Return Client, referrals, etc. — counts as self-sourced/organic.
+const PAID_SOURCES = new Set(['FRU', 'Lendgo', 'LMB', 'LeadPoint', 'OwnUp', 'Lending Tree', 'Advertisements'])
+function isPaidLead(d: Deal): boolean {
+  return PAID_SOURCES.has((d.source ?? '').trim())
+}
+
 export default function HotLeadsTracker({ deals, onUpdate }: Props) {
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState<'all' | HotStatus>('all')
   const [riskFilter, setRiskFilter] = useState<'all' | 'waiting' | 'cold'>('all')
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'paid' | 'self'>('all')
   const [sortBy, setSortBy] = useState<'stage' | 'contact'>('contact')
   const [view, setView] = useState<'board' | 'list'>('board')
 
@@ -168,6 +176,8 @@ export default function HotLeadsTracker({ deals, onUpdate }: Props) {
     if (stageFilter !== 'all') result = result.filter(d => d.status === stageFilter)
     if (riskFilter === 'waiting') result = result.filter(d => (d.comm_unread_count ?? 0) > 0)
     else if (riskFilter === 'cold') result = result.filter(d => daysSinceContact(d) >= COLD_DAYS)
+    if (sourceFilter === 'paid') result = result.filter(d => isPaidLead(d))
+    else if (sourceFilter === 'self') result = result.filter(d => !isPaidLead(d))
     if (search.trim()) {
       const q = search.toLowerCase().trim()
       result = result.filter(d => {
@@ -177,7 +187,7 @@ export default function HotLeadsTracker({ deals, onUpdate }: Props) {
       })
     }
     return result
-  }, [deals, search, stageFilter, riskFilter])
+  }, [deals, search, stageFilter, riskFilter, sourceFilter])
 
   // Group by age bucket; within each, sort by the chosen key (most urgent on top).
   const byBucket: Record<string, Deal[]> = {}
@@ -206,6 +216,8 @@ export default function HotLeadsTracker({ deals, onUpdate }: Props) {
   const appIntakeCount = deals.filter(d => d.status === 'App Intake').length
   const waitingCount = deals.filter(d => (d.comm_unread_count ?? 0) > 0).length
   const coldCount = deals.filter(d => daysSinceContact(d) >= COLD_DAYS).length
+  const paidCount = deals.filter(d => isPaidLead(d)).length
+  const selfCount = deals.length - paidCount
   // All leads currently waiting on us (ignores filters — always the true count).
   const waitingLeads = deals.filter(d => (d.comm_unread_count ?? 0) > 0)
 
@@ -277,6 +289,15 @@ export default function HotLeadsTracker({ deals, onUpdate }: Props) {
         </FilterChip>
         <FilterChip active={riskFilter === 'cold'} onClick={() => setRiskFilter(riskFilter === 'cold' ? 'all' : 'cold')} color="sky">
           ❄ Cold 14d+ {coldCount > 0 && <span className="font-bold tabular-nums">{coldCount}</span>}
+        </FilterChip>
+
+        <span className="w-px h-5 bg-slate-200 mx-0.5" />
+
+        <FilterChip active={sourceFilter === 'paid'} onClick={() => setSourceFilter(sourceFilter === 'paid' ? 'all' : 'paid')} color="emerald">
+          💲 Paid <span className="opacity-70 tabular-nums">{paidCount}</span>
+        </FilterChip>
+        <FilterChip active={sourceFilter === 'self'} onClick={() => setSourceFilter(sourceFilter === 'self' ? 'all' : 'self')} color="indigo">
+          🌱 Self-Sourced <span className="opacity-70 tabular-nums">{selfCount}</span>
         </FilterChip>
 
         <div className="ml-auto flex items-center gap-2">
@@ -540,15 +561,17 @@ function HotLeadRow({ deal, onUpdate, selected, onToggle }: {
 function FilterChip({ active, onClick, color = 'slate', children }: {
   active: boolean
   onClick: () => void
-  color?: 'slate' | 'violet' | 'cyan' | 'red' | 'sky'
+  color?: 'slate' | 'violet' | 'cyan' | 'red' | 'sky' | 'emerald' | 'indigo'
   children: React.ReactNode
 }) {
   const styles: Record<string, string> = {
-    slate:  active ? 'bg-slate-900 text-white'  : 'bg-white border border-slate-200 text-slate-700 hover:border-slate-400',
-    violet: active ? 'bg-violet-600 text-white' : 'bg-white border border-violet-200 text-violet-700 hover:border-violet-400',
-    cyan:   active ? 'bg-cyan-600 text-white'   : 'bg-white border border-cyan-200 text-cyan-700 hover:border-cyan-400',
-    red:    active ? 'bg-red-600 text-white'    : 'bg-white border border-red-200 text-red-700 hover:border-red-400',
-    sky:    active ? 'bg-sky-600 text-white'    : 'bg-white border border-sky-200 text-sky-700 hover:border-sky-400',
+    slate:   active ? 'bg-slate-900 text-white'   : 'bg-white border border-slate-200 text-slate-700 hover:border-slate-400',
+    violet:  active ? 'bg-violet-600 text-white'  : 'bg-white border border-violet-200 text-violet-700 hover:border-violet-400',
+    cyan:    active ? 'bg-cyan-600 text-white'    : 'bg-white border border-cyan-200 text-cyan-700 hover:border-cyan-400',
+    red:     active ? 'bg-red-600 text-white'     : 'bg-white border border-red-200 text-red-700 hover:border-red-400',
+    sky:     active ? 'bg-sky-600 text-white'     : 'bg-white border border-sky-200 text-sky-700 hover:border-sky-400',
+    emerald: active ? 'bg-emerald-600 text-white' : 'bg-white border border-emerald-200 text-emerald-700 hover:border-emerald-400',
+    indigo:  active ? 'bg-indigo-600 text-white'  : 'bg-white border border-indigo-200 text-indigo-700 hover:border-indigo-400',
   }
   return (
     <button
