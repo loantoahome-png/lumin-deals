@@ -772,6 +772,12 @@ async function syncAccount(
           // Remember it so this contact's other opps in this run share the group
           runContactBorrower.set(contactId, borrowerId)
           dealData.borrower_id = borrowerId
+          // No purchased vendor source on a brand-new lead → it's self-sourced
+          // (e.g. created in GHL when an Arive app is started). Label it so it
+          // categorizes instead of showing as "(no source set)". Applied ONLY on
+          // insert — the update path never overwrites an existing/real source,
+          // so manual recategorizations and vendor sources are preserved.
+          if (!dealData.source) dealData.source = 'Self Source'
           toInsert.push(dealData)
           created++
         }
