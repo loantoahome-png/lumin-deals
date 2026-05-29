@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { notifyTask } from '@/lib/notifyTask'
 import { TIME_OPTIONS } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
@@ -89,12 +90,15 @@ export default function TasksPage() {
 
   const refresh = useCallback(async () => {
     setLoading(true)
-    const [tasksRes, dealsRes] = await Promise.all([
+    const [tasksRes, dealsData] = await Promise.all([
       supabase.from('deal_tasks').select('*'),
-      supabase.from('deals').select('id, name, loan_officer, ghl_contact_id, ghl_location_id'),
+      // Paginate past PostgREST's 1000-row cap — the table has >1000 deals, so a
+      // bare select dropped the oldest, leaving their tasks unable to resolve a
+      // deal name / LO.
+      fetchAllDeals(undefined, 'id, name, loan_officer, ghl_contact_id, ghl_location_id'),
     ])
     setTasks((tasksRes.data as DealTask[]) || [])
-    setDeals((dealsRes.data as Deal[]) || [])
+    setDeals(dealsData)
     setLoading(false)
   }, [])
   useEffect(() => { refresh() }, [refresh])

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal, LOAN_OFFICERS } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import { pushStageToGHL } from '@/lib/pushStage'
@@ -16,12 +17,12 @@ export default function FundedPage() {
 
   const fetchDeals = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase
-      .from('deals')
-      .select('*')
+    // Paginate past PostgREST's 1000-row cap — funded loans accumulate forever
+    // and will eventually cross 1000.
+    const data = await fetchAllDeals(q => q
       .eq('pipeline_group', 'Funded')
-      .order('funded_date', { ascending: false, nullsFirst: false })
-    setDeals((data as Deal[]) || [])
+      .order('funded_date', { ascending: false, nullsFirst: false }))
+    setDeals(data)
     setLoading(false)
   }, [])
 

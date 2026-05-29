@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal, LOAN_OFFICERS } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import { pushStageToGHL } from '@/lib/pushStage'
@@ -20,13 +21,12 @@ export default function HotLeadsPage() {
 
   const fetchDeals = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase
-      .from('deals')
-      .select('*')
+    // Paginate past PostgREST's 1000-row cap so no hot lead is dropped as volume grows.
+    const data = await fetchAllDeals(q => q
       .in('status', HOT_STATUSES)
       // oldest-first → most-stalled surfaces at the top within each bucket
-      .order('stage_changed_at', { ascending: true, nullsFirst: false })
-    setDeals((data as Deal[]) || [])
+      .order('stage_changed_at', { ascending: true, nullsFirst: false }))
+    setDeals(data)
     setLoading(false)
   }, [])
 

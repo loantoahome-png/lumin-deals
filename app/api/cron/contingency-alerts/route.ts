@@ -213,13 +213,25 @@ export async function GET(req: NextRequest) {
     id: string
     contingency_alerts_sent: Record<string, string> | null
   }
-  const { data: deals, error } = await supabase
-    .from('deals')
-    .select('*')
-    .eq('loan_purpose', 'Purchase')
-  if (error) {
-    console.error('[Contingency Alerts] fetch failed:', error.message)
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
+  // Paginate past PostgREST's 1000-row cap so the scan never silently skips a
+  // purchase deal as the table grows (service client can't use the client helper).
+  const deals: DealRow[] = []
+  {
+    const PAGE = 1000
+    for (let offset = 0; ; offset += PAGE) {
+      const { data, error } = await supabase
+        .from('deals')
+        .select('*')
+        .eq('loan_purpose', 'Purchase')
+        .range(offset, offset + PAGE - 1)
+      if (error) {
+        console.error('[Contingency Alerts] fetch failed:', error.message)
+        return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
+      }
+      const rows = (data ?? []) as DealRow[]
+      deals.push(...rows)
+      if (rows.length < PAGE) break
+    }
   }
 
   let scanned = 0

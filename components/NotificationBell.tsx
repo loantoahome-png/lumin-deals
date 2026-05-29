@@ -16,6 +16,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal, STAGE_SLA_DAYS } from '@/lib/types'
 import {
   Bell, Lock, Hourglass, CheckSquare, X, Clock,
@@ -149,11 +150,13 @@ export default function NotificationBell() {
   const panelRef = useRef<HTMLDivElement>(null)
 
   const refresh = useCallback(async () => {
-    const [{ data: deals }, { data: tasks }] = await Promise.all([
-      supabase.from('deals').select('id, name, status, pipeline_group, locked, lock_expiration, stage_changed_at, created_at'),
+    // Paginate the deals past PostgREST's 1000-row cap — without it, lock-expiry
+    // and stale-stage notifications silently skipped the oldest deals.
+    const [deals, { data: tasks }] = await Promise.all([
+      fetchAllDeals(undefined, 'id, name, status, pipeline_group, locked, lock_expiration, stage_changed_at, created_at'),
       supabase.from('deal_tasks').select('id, title, due_at, completed_at, deal_id, assignee'),
     ])
-    const computed = computeNotifs((deals as Deal[]) || [], (tasks as TaskRow[]) || [])
+    const computed = computeNotifs(deals, (tasks as TaskRow[]) || [])
     setNotifs(computed)
 
     // Prune dismissed/seen sets so they don't grow unbounded — keep only ids
