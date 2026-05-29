@@ -275,6 +275,23 @@ async function fetchUserMap(
 ): Promise<Map<string, string>> {
   const map = new Map<string, string>()
 
+  // 0. Fast path — reuse a recently-built map from sync_state. The ID→name
+  //    mapping is effectively static (just the LOs, e.g. Moe / Matt), so
+  //    rebuilding it from the API + a 2 000-row bootstrap scan on every 5-min
+  //    cron tick is pure waste. Cache it for 6h; this turns the common case
+  //    into a single tiny key/value read.
+  const USER_MAP_CACHE_KEY = `ghl_user_map_cache:${locationId}`
+  const USER_MAP_TTL_MS = 6 * 60 * 60 * 1000
+  try {
+    const { data } = await supabase.from('sync_state').select('value').eq('key', USER_MAP_CACHE_KEY).maybeSingle()
+    const cached = data?.value as { built_at?: string; entries?: Record<string, string> } | null
+    if (cached?.built_at && cached.entries && Date.now() - Date.parse(cached.built_at) < USER_MAP_TTL_MS) {
+      for (const [id, name] of Object.entries(cached.entries)) map.set(id, name)
+      console.log(`[GHL Sync] User map from cache: ${map.size} users (skipped API + bootstrap)`)
+      return map
+    }
+  } catch { /* cache miss / table issue — fall through and rebuild */ }
+
   // 1. Try GHL API first (works only if the PIT has the users.readonly scope)
   try {
     const res = await fetch(
@@ -313,20 +330,21 @@ async function fetchUserMap(
   }
 
   // 3. Bootstrap from existing dashboard data — for any user ID we don't yet know,
-  //    look at deals where that ID appears in raw_ghl_data.assignedTo AND loan_officer is already set,
-  //    take the most common LO name. This effectively learns the mapping from Monday's data.
+  //    look at deals where that ID is the assigned GHL user AND loan_officer is
+  //    already set, take the most common LO name. Learns the mapping from data.
+  //    Reads the dedicated `ghl_assigned_user` column rather than the whole
+  //    `raw_ghl_data` JSON blob — same value, ~50× less data pulled per run.
   try {
     const { data: deals } = await supabase
       .from('deals')
-      .select('loan_officer, raw_ghl_data')
+      .select('loan_officer, ghl_assigned_user')
       .not('loan_officer', 'is', null)
-      .not('raw_ghl_data', 'is', null)
+      .not('ghl_assigned_user', 'is', null)
       .limit(2000)
 
     const tally: Record<string, Record<string, number>> = {}
-    for (const d of (deals as Array<{ loan_officer: string | null; raw_ghl_data: Record<string, unknown> | null }>) || []) {
-      const r = d.raw_ghl_data ?? {}
-      const aid = (r.assignedTo ?? r.assigned_to ?? r.assignedToId ?? r.userId) as string | undefined
+    for (const d of (deals as Array<{ loan_officer: string | null; ghl_assigned_user: string | null }>) || []) {
+      const aid = d.ghl_assigned_user ?? undefined
       const lo = d.loan_officer
       if (!aid || !lo) continue
       tally[aid] ??= {}
@@ -350,6 +368,15 @@ async function fetchUserMap(
 
   console.log(`[GHL Sync] Final user map: ${map.size} users →`,
     Array.from(map.entries()).map(([id, n]) => `${id.slice(-6)}:${n}`).join(', '))
+
+  // Persist for the next 6h of runs so they hit the fast path above.
+  try {
+    await supabase.from('sync_state').upsert({
+      key: USER_MAP_CACHE_KEY,
+      value: { built_at: new Date().toISOString(), entries: Object.fromEntries(map) },
+      updated_at: new Date().toISOString(),
+    })
+  } catch { /* non-fatal — next run just rebuilds */ }
 
   return map
 }
