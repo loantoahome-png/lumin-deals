@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
+import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import {
@@ -206,11 +207,20 @@ export default function Dashboard() {
 
   useEffect(() => {
     async function fetchDeals() {
-      const { data } = await supabase
-        .from('deals')
-        .select('*')
-        .order('created_at', { ascending: false })
-      setDeals(data || [])
+      // Paginate past PostgREST's 1 000-row default cap — the table has >1 000
+      // deals, and a bare select('*') silently dropped the oldest ones, so older
+      // escrows were missing from every dashboard metric (e.g. the "Escrows by
+      // Stage" chart undercounted Docs Signed). Select only the columns the
+      // dashboard reads (never raw_ghl_data) to keep egress minimal.
+      const DASHBOARD_COLS =
+        'id,name,status,pipeline_group,loan_amount,loan_officer,loan_type,' +
+        'created_at,funded_date,next_action,next_action_assignee,next_action_due,' +
+        'rate_watch_active,rate_watch_alerted_at,rate_watch_target'
+      const data = await fetchAllDeals(
+        q => q.order('created_at', { ascending: false }),
+        DASHBOARD_COLS,
+      )
+      setDeals(data)
       setLoading(false)
     }
     fetchDeals()
