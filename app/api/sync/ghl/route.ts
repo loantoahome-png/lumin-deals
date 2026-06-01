@@ -980,14 +980,18 @@ async function syncAccount(
     }
 
     // Pull this location's deals that have an opportunity id (paginated).
-    type PruneRow = { id: string; name: string | null; ghl_opportunity_id: string | null; pipeline_group: string | null; loan_amount: number | null; ghl_contact_id: string | null; dnd: boolean | null; dnd_settings: Record<string, unknown> | null }
+    // NOTE: we deliberately do NOT select dnd/dnd_settings here. dnd_settings is
+    // a JSON blob that was ~0.5 GB/mo of egress to read for the whole table every
+    // run, just to diff it. DND is reconciled below by writing the contact's
+    // current value directly (see the loop), so we never need the stored copy.
+    type PruneRow = { id: string; name: string | null; ghl_opportunity_id: string | null; pipeline_group: string | null; loan_amount: number | null; ghl_contact_id: string | null }
     const locDeals: PruneRow[] = []
     let pOffset = 0
     const PRUNE_PAGE = 1000
     for (;;) {
       const { data: pr, error: pErr } = await supabase
         .from('deals')
-        .select('id, name, ghl_opportunity_id, pipeline_group, loan_amount, ghl_contact_id, dnd, dnd_settings')
+        .select('id, name, ghl_opportunity_id, pipeline_group, loan_amount, ghl_contact_id')
         .eq('ghl_location_id', locationId)
         .not('ghl_opportunity_id', 'is', null)
         .order('id', { ascending: true })
@@ -1005,12 +1009,14 @@ async function syncAccount(
     // loan_amount to match the opportunity's value. Funded deals keep their Arive
     // amount (authoritative for closed loans).
     const amountFixes: Array<{ id: string; loan_amount: number }> = []
-    // DND reconciliation: Do-Not-Contact lives on the CONTACT (already fetched
-    // into contactMap), and can change without the opportunity changing — so the
-    // incremental sync would miss it. We reconcile it from the contact for every
-    // live deal (all stages — compliance applies even to funded clients). We only
-    // act when the contact payload actually carries DND info, so a sparse payload
-    // can never wrongly clear a real opt-out.
+    // DND reconciliation: Do-Not-Contact lives on the CONTACT. contactMap holds
+    // only the contacts whose opportunity changed this run, so this fires just
+    // for those people's deals (including their other loans). We write the
+    // contact's current DND straight through — no diff against a stored copy,
+    // because reading dnd_settings for the whole table every run was the costly
+    // bit. The write set is small and the write is idempotent, and we still only
+    // act when the contact actually carries DND info, so a sparse payload can
+    // never wrongly clear a real opt-out.
     const dndFixes: Array<{ id: string; dnd: boolean | null; dnd_settings: Record<string, unknown> | null }> = []
     for (const d of locDeals) {
       if (!d.ghl_opportunity_id) continue
@@ -1030,16 +1036,15 @@ async function syncAccount(
           amountFixes.push({ id: d.id, loan_amount: v })
         }
       }
-      // Reconcile DND from the contact (all stages).
+      // Reconcile DND from the contact (all stages). Only deals whose contact
+      // was fetched this run (changed opps) are in contactMap.
       if (d.ghl_contact_id) {
         const c = contactMap.get(d.ghl_contact_id) as Record<string, unknown> | undefined
         const hasDndInfo = c && (typeof c.dnd === 'boolean' || (c.dndSettings && typeof c.dndSettings === 'object'))
         if (c && hasDndInfo) {
           const newDnd = typeof c.dnd === 'boolean' ? c.dnd : null
           const newDs = (c.dndSettings && typeof c.dndSettings === 'object') ? c.dndSettings as Record<string, unknown> : null
-          if (JSON.stringify([d.dnd ?? null, d.dnd_settings ?? null]) !== JSON.stringify([newDnd, newDs])) {
-            dndFixes.push({ id: d.id, dnd: newDnd, dnd_settings: newDs })
-          }
+          dndFixes.push({ id: d.id, dnd: newDnd, dnd_settings: newDs })
         }
       }
     }
