@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 
-// Runs once a day. Walks every ACTIVE loan (pipeline_group = 'Loans in Process')
-// that has a live rate lock (locked = 'Yes') with a lock_expiration date, figures
-// out which are approaching expiration, and emails the LO (cc'd to admin).
-// A blown lock costs real money, so this is the highest-value alert.
+// Runs once a day. Walks every IN-ESCROW loan (an active, pre-funding status —
+// see ESCROW_STATUSES) that has a live rate lock (locked = 'Yes') with a
+// lock_expiration date, figures out which are approaching expiration, and emails
+// the LO (cc'd to admin). Funded loans, leads, and not-ready deals are never
+// scanned. A blown lock costs real money, so this is the highest-value alert.
 //
 // Dedup'd via the `lock_alerts_sent` JSONB column so the same alert never sends
 // twice for the same date+window. The cron still works if that column does not
@@ -17,6 +18,17 @@ const MS_PER_DAY = 86_400_000
 // Alert at these days-out from the lock expiration (heads-up + day-of). No
 // overdue spam — once expired we stop (the LO will have been told 3 times).
 const WINDOWS = [5, 3, 1, 0]
+
+// Only TRUE in-escrow (active, pre-funding) statuses get lock alerts. A rate
+// lock only matters while the loan is still being worked. We gate on STATUS,
+// not pipeline_group, because the funded statuses (Loan Funded / Broker Check
+// Received / Loan Finalized) are also nested under "Loans in Process" — so a
+// just-funded deal could slip past a group filter and wrongly get alerted.
+// Excluding funded here means no alerts for funded loans, leads, or not-ready.
+const ESCROW_STATUSES = [
+  'Loan Setup', 'Disclosed', 'Submitted to UW', 'Approved w/ Conditions',
+  'Re-Submittal', 'Clear to Close', 'Docs Out', 'Docs Signed',
+]
 
 // ── LO-name → email lookup ────────────────────────────────────────────────
 function getLoEmail(loanOfficer: string | null | undefined): string | null {
@@ -175,7 +187,8 @@ export async function GET(req: NextRequest) {
   const todayStr  = todayLocalDate()
   const supabase  = createServiceClient()
 
-  // Active loans only — a lock only matters while the loan is in process.
+  // In-escrow loans only — gate on the active escrow STATUSES (never funded /
+  // leads / not-ready). A lock only matters while the loan is still in process.
   type DealRow = Record<string, unknown> & {
     id: string
     locked: string | null
@@ -185,7 +198,7 @@ export async function GET(req: NextRequest) {
   const { data: deals, error } = await supabase
     .from('deals')
     .select('*')
-    .eq('pipeline_group', 'Loans in Process')
+    .in('status', ESCROW_STATUSES)
     .not('lock_expiration', 'is', null)
   if (error) {
     console.error('[Lock Alerts] fetch failed:', error.message)
