@@ -246,6 +246,16 @@ function str(v: unknown): string | null {
   return s || null
 }
 
+// Reject junk lead-source values that some external GHL process writes (e.g.
+// "loan-audit-reconciliation:<uuid>"). These are not real lead sources and
+// would pollute Lead Spend. Returning null here means the sync won't overwrite
+// a good source with garbage, and the deal shows "(no source set)" instead.
+function cleanSource(v: string | null): string | null {
+  if (!v) return null
+  if (/^loan-audit-reconciliation:/i.test(v.trim())) return null
+  return v
+}
+
 // ── GHL API Fetchers ──────────────────────────────────────────────────────────
 
 async function fetchPipelineStageMap(locationId: string, apiKey: string): Promise<Map<string, { name: string; pipelineName: string }>> {
@@ -821,8 +831,8 @@ async function syncAccount(
           // (e.g. "Lendgo"). GHL's native `source` attribute is auto-attribution
           // (e.g. "Advertisements") and often disagrees, so it's only a fallback.
           // Do NOT default to the literal 'GHL'; leave null when GHL has nothing.
-          source:           str(getCustomField(customFields, 'lead_source', 'Lead Source', 'leadsource'))
-                            ?? str(fullContact.source) ?? str(opp.source) ?? str(embeddedContact?.source) ?? null,
+          source:           cleanSource(str(getCustomField(customFields, 'lead_source', 'Lead Source', 'leadsource'))
+                            ?? str(fullContact.source) ?? str(opp.source) ?? str(embeddedContact?.source) ?? null),
           date_added_ghl:   str(fullContact.dateAdded ?? fullContact.createdAt ?? opp.createdAt),
           raw_ghl_data:     opp,
           city:             str(fullContact.city),
