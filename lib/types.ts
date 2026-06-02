@@ -92,6 +92,7 @@ export type Deal = {
   last_outbound_at: string | null              // ISO — last message FROM us (outbound)
   dnd: boolean | null                           // GHL master Do-Not-Contact (blocks ALL channels)
   dnd_settings: Record<string, unknown> | null  // GHL per-channel DND ({ SMS:{status}, Email:{status}, … })
+  ghl_status: string | null                     // GHL opportunity status: 'open' | 'won' | 'lost' | 'abandoned'
   communications: Communication[] | null      // contact log per deal
   documents: DealDocument[] | null             // per-deal document checklist
   created_at: string

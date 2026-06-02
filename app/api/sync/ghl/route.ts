@@ -749,6 +749,18 @@ async function syncAccount(
         const pipelineName = stageInfo?.pipelineName ?? str(opp.pipelineName)
         const stage = resolveGHLStage(stageName, pipelineName)
 
+        // GHL opportunity STATUS (open | won | lost | abandoned), separate from
+        // the pipeline stage. The team now leaves a fallen-through loan in its
+        // last stage (e.g. "Submitted to UW") and just flips status to lost/
+        // abandoned — so "active" can no longer be judged from stage alone. A
+        // dead opportunity is routed to "Not Ready" so it drops out of Active
+        // Escrows everywhere (funded deals are protected — they never get
+        // demoted by a status flip).
+        const oppStatus = (str(opp.status) ?? '').toLowerCase()
+        const isDead = oppStatus === 'lost' || oppStatus.startsWith('abandon')
+        const stageGroup = stage?.pipeline_group ?? 'Leads'
+        const effectiveGroup = (isDead && stageGroup !== 'Funded') ? 'Not Ready' : stageGroup
+
         // Resolve loan officer — check camelCase, snake_case, and embedded user objects
         const assignedToId = str(
           opp.assignedTo ?? opp.assigned_to ?? opp.assignedToId ?? opp.userId ??
@@ -815,7 +827,8 @@ async function syncAccount(
           email:            str(fullContact.email),
           phone:            str(fullContact.phone ?? fullContact.phoneNumber),
           status:           stage?.status        ?? 'New Lead',
-          pipeline_group:   stage?.pipeline_group ?? 'Leads',
+          pipeline_group:   effectiveGroup,
+          ghl_status:       oppStatus || null,
           loan_officer:     loanOfficer,
           ghl_contact_id:   contactId,
           ghl_opportunity_id: str(opp.id),     // the GHL opportunity (loan) ID
@@ -886,7 +899,7 @@ async function syncAccount(
             'occupancy','property_type','property_address','current_balance','ltv',
             'cash_out','down_payment','rate','investor','credit_rating','is_military',
             'current_va_loan','city','state','zip','first_name','last_name','email','phone',
-            'source','lead_price','ghl_opportunity_id','dnd','dnd_settings',
+            'source','lead_price','ghl_opportunity_id','dnd','dnd_settings','ghl_status',
           ].forEach(maybeSet)
           // borrower_id intentionally NOT synced — preserve existing grouping.
           toUpdate.push(patch)
