@@ -971,12 +971,19 @@ async function syncAccount(
     // oppId → opportunity value (the loan amount). GHL is the authority for the
     // loan amount on active (non-funded) deals, so we reconcile below.
     const oppValue = new Map<string, number>()
+    // oppId → the opportunity's real contactId. The incremental sync skips
+    // unchanged opps, so a deal's ghl_contact_id can go stale/wrong (e.g. an
+    // opportunity id ends up stored there, breaking the "open in GHL" link).
+    // We reconcile it from the live opportunity below.
+    const oppContact = new Map<string, string>()
     for (const o of opportunities) {
       const id = str(o.id)
       if (!id) continue
       liveOppIds.add(id)
       const v = parseAmount(o.monetaryValue as number | null)
       if (v != null && v > 0) oppValue.set(id, v)
+      const cid = str((o.contact as { id?: string } | undefined)?.id ?? o.contactId)
+      if (cid) oppContact.set(id, cid)
     }
 
     // Pull this location's deals that have an opportunity id (paginated).
@@ -1018,6 +1025,11 @@ async function syncAccount(
     // act when the contact actually carries DND info, so a sparse payload can
     // never wrongly clear a real opt-out.
     const dndFixes: Array<{ id: string; dnd: boolean | null; dnd_settings: Record<string, unknown> | null }> = []
+    // Contact-id reconciliation: keep ghl_contact_id pointing at the
+    // opportunity's REAL contact. The incremental sync skips unchanged opps, so
+    // some rows had a stale/wrong value (even an opportunity id) stored here,
+    // which broke the "open in GHL" link. We fix it for every live deal.
+    const contactFixes: Array<{ id: string; ghl_contact_id: string }> = []
     for (const d of locDeals) {
       if (!d.ghl_opportunity_id) continue
       if (!liveOppIds.has(d.ghl_opportunity_id)) {
@@ -1035,6 +1047,11 @@ async function syncAccount(
         if (v != null && Number(v) !== Number(d.loan_amount ?? NaN)) {
           amountFixes.push({ id: d.id, loan_amount: v })
         }
+      }
+      // Reconcile contact id (all stages) from the opportunity's real contact.
+      const realContact = oppContact.get(d.ghl_opportunity_id)
+      if (realContact && realContact !== d.ghl_contact_id) {
+        contactFixes.push({ id: d.id, ghl_contact_id: realContact })
       }
       // Reconcile DND from the contact (all stages). Only deals whose contact
       // was fetched this run (changed opps) are in contactMap.
@@ -1071,6 +1088,18 @@ async function syncAccount(
         for (const e of res) { if (e) { console.error(`[GHL Sync:${label}] dnd fix failed:`, e.message) } else df++ }
       }
       console.log(`[GHL Sync:${label}] Reconciled DND on ${df} deal(s) from the contact.`)
+    }
+
+    // Apply contact-id corrections (bounded concurrency).
+    if (contactFixes.length > 0) {
+      const CID_CONC = 20
+      let cf = 0
+      for (let i = 0; i < contactFixes.length; i += CID_CONC) {
+        const chunk = contactFixes.slice(i, i + CID_CONC)
+        const res = await Promise.all(chunk.map(f => supabase.from('deals').update({ ghl_contact_id: f.ghl_contact_id }).eq('id', f.id).then(r => r.error)))
+        for (const e of res) { if (e) { console.error(`[GHL Sync:${label}] contact_id fix failed:`, e.message) } else cf++ }
+      }
+      console.log(`[GHL Sync:${label}] Reconciled ghl_contact_id on ${cf} deal(s) from the opportunity.`)
     }
 
     // Logic-error guard: never delete more than 30% of the location's GHL deals
