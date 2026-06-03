@@ -93,7 +93,28 @@ export function daysSinceContact(deal: Deal): number {
   if (!iso) return 999
   return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / MS_PER_DAY))
 }
+// Staleness (ms since) for a specific direction. Null (never contacted that way)
+// → a huge sentinel so "longest since" sorts those to the very top.
+const NEVER = Number.MAX_SAFE_INTEGER
+function msSinceInbound(deal: Deal): number {
+  return deal.last_inbound_at ? Date.now() - Date.parse(deal.last_inbound_at) : NEVER
+}
+function msSinceOutbound(deal: Deal): number {
+  return deal.last_outbound_at ? Date.now() - Date.parse(deal.last_outbound_at) : NEVER
+}
 const COLD_DAYS = 14
+
+// Sort modes for the Hot Leads list/board.
+type SortMode = 'stage' | 'contact' | 'borrower' | 'us'
+function compareBySort(a: Deal, b: Deal, mode: SortMode): number {
+  switch (mode) {
+    case 'borrower': return msSinceInbound(b) - msSinceInbound(a)   // longest since borrower wrote first
+    case 'us':       return msSinceOutbound(b) - msSinceOutbound(a) // longest since we reached out first
+    case 'contact':  return daysSinceContact(b) - daysSinceContact(a)
+    case 'stage':
+    default:         return daysInStage(b) - daysInStage(a)
+  }
+}
 function getBucket(deal: Deal): Bucket {
   const d = daysInStage(deal)
   return BUCKETS.find(b => d < b.maxDaysExclusive)!
@@ -168,7 +189,7 @@ export default function HotLeadsTracker({ deals, onUpdate }: Props) {
   const [stageFilter, setStageFilter] = useState<'all' | HotStatus>('all')
   const [riskFilter, setRiskFilter] = useState<'all' | 'waiting' | 'cold'>('all')
   const [sourceFilter, setSourceFilter] = useState<'all' | 'paid' | 'self'>('all')
-  const [sortBy, setSortBy] = useState<'stage' | 'contact'>('contact')
+  const [sortBy, setSortBy] = useState<SortMode>('contact')
   const [view, setView] = useState<'board' | 'list'>('board')
 
   const filtered = useMemo(() => {
@@ -194,21 +215,13 @@ export default function HotLeadsTracker({ deals, onUpdate }: Props) {
   for (const b of BUCKETS) byBucket[b.key] = []
   for (const d of filtered) byBucket[getBucket(d).key].push(d)
   for (const k of Object.keys(byBucket)) {
-    byBucket[k].sort((a, b) =>
-      sortBy === 'contact'
-        ? daysSinceContact(b) - daysSinceContact(a)
-        : daysInStage(b) - daysInStage(a)
-    )
+    byBucket[k].sort((a, b) => compareBySort(a, b, sortBy))
   }
 
   // Flat, sorted list for the table view (uses the same filters as the board).
   const sortedFlat = useMemo(() => {
     const arr = [...filtered]
-    arr.sort((a, b) =>
-      sortBy === 'contact'
-        ? daysSinceContact(b) - daysSinceContact(a)
-        : daysInStage(b) - daysInStage(a)
-    )
+    arr.sort((a, b) => compareBySort(a, b, sortBy))
     return arr
   }, [filtered, sortBy])
 
@@ -323,12 +336,14 @@ export default function HotLeadsTracker({ deals, onUpdate }: Props) {
           <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Sort</label>
           <select
             value={sortBy}
-            onChange={e => setSortBy(e.target.value as 'stage' | 'contact')}
+            onChange={e => setSortBy(e.target.value as SortMode)}
             className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             title="Order cards within each column"
           >
             <option value="stage">Time in stage</option>
-            <option value="contact">Longest since contact</option>
+            <option value="contact">Longest since any contact</option>
+            <option value="borrower">Longest since borrower contact</option>
+            <option value="us">Longest since our contact</option>
           </select>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
