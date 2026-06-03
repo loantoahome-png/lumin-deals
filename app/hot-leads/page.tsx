@@ -32,10 +32,16 @@ export default function HotLeadsPage() {
 
   useEffect(() => { fetchDeals() }, [fetchDeals])
 
-  // LO filter applied client-side so toggling doesn't refetch
-  const filtered = deals.filter(d =>
-    loFilter === 'All' || (d.loan_officer ?? '').toLowerCase().includes(loFilter.toLowerCase())
-  )
+  // LO filter applied client-side so toggling doesn't refetch.
+  // Also exclude dead opportunities: the team now leaves a fallen-through lead
+  // in its last stage (e.g. App Intake) and just flips the GHL status to
+  // Lost/Abandoned — so Hot Leads must hide anything not Open. (null/unknown
+  // status is kept, so a lead we haven't classified never disappears.)
+  const filtered = deals.filter(d => {
+    const st = (d.ghl_status ?? '').toLowerCase()
+    if (st === 'lost' || st.startsWith('abandon')) return false
+    return loFilter === 'All' || (d.loan_officer ?? '').toLowerCase().includes(loFilter.toLowerCase())
+  })
 
   const totalVolume = filtered.reduce((s, d) => s + (d.loan_amount || 0), 0)
   // "Stalled" = 4+ days in stage with no movement (Warm threshold and beyond)
