@@ -1,41 +1,44 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 
-// Route-segment error boundary. Its most important job: recover from
-// ChunkLoadError, which happens when a new deployment invalidates the JS
-// chunks an already-open tab is still referencing. A hard reload pulls the
-// fresh build and the user is back in — no dead "couldn't load" page.
-const CHUNK_ERROR = /ChunkLoadError|Loading chunk|Importing a module script failed|Failed to fetch dynamically imported module/i
+// Route-segment error boundary.
+//
+// Strategy: a huge share of "errors" here are transient — a new deployment
+// invalidated the JS chunks an open tab was still using. A single reload pulls
+// the fresh build and fixes it. So we auto-reload ONCE for any error; if the
+// same boundary trips again within a few seconds (i.e. the reload did NOT fix
+// it), it's a real bug — we stop reloading and show the message for diagnosis.
+const RELOAD_KEY = 'lastErrReload'
+const RECENT_MS = 8000
 
 export default function Error({
   error, reset,
 }: { error: Error & { digest?: string }; reset: () => void }) {
-  const isChunk = CHUNK_ERROR.test(error?.message || '') || CHUNK_ERROR.test(error?.name || '')
+  const [persistent, setPersistent] = useState(false)
 
   useEffect(() => {
-    if (isChunk) {
-      // Avoid a reload loop: only auto-reload once per stale-chunk incident.
-      const KEY = 'lastChunkReload'
-      const last = Number(sessionStorage.getItem(KEY) || 0)
-      if (Date.now() - last > 10_000) {
-        sessionStorage.setItem(KEY, String(Date.now()))
-        window.location.reload()
-      }
+    let last = 0
+    try { last = Number(sessionStorage.getItem(RELOAD_KEY) || 0) } catch { /* ignore */ }
+    const justReloaded = Date.now() - last < RECENT_MS
+    if (justReloaded) {
+      // The reload didn't clear it → real error. Show details.
+      setPersistent(true)
+      return
     }
-  }, [isChunk])
+    try { sessionStorage.setItem(RELOAD_KEY, String(Date.now())) } catch { /* ignore */ }
+    window.location.reload()
+  }, [])
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-6">
       <AlertTriangle className="w-10 h-10 text-amber-500 mb-3" />
       <h2 className="text-lg font-bold text-slate-900">
-        {isChunk ? 'Updating to the latest version…' : 'Something went wrong'}
+        {persistent ? 'Something went wrong' : 'Updating to the latest version…'}
       </h2>
       <p className="text-sm text-slate-500 mt-1 max-w-sm">
-        {isChunk
-          ? 'A newer version of the dashboard is available. Reloading now…'
-          : 'This page hit an error. Reloading usually fixes it.'}
+        {persistent ? 'This page hit an error. Reloading usually fixes it.' : 'Reloading now…'}
       </p>
       <div className="flex items-center gap-2 mt-4">
         <button onClick={() => window.location.reload()}
@@ -47,6 +50,11 @@ export default function Error({
           Try again
         </button>
       </div>
+      {persistent && (error?.message || error?.digest) && (
+        <pre className="mt-5 max-w-lg whitespace-pre-wrap break-words text-left text-[11px] text-slate-500 bg-slate-100 border border-slate-200 rounded-lg p-3">
+          {error?.message || ''}{error?.digest ? `\n\ndigest: ${error.digest}` : ''}
+        </pre>
+      )}
     </div>
   )
 }
