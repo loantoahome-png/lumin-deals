@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, memo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { StickyNote, Plus, Trash2, Check, Loader2, Pin, Bold, Underline } from 'lucide-react'
 
@@ -117,6 +117,34 @@ const SIZES: { label: string; value: string }[] = [
   { label: 'L', value: '5' },
 ]
 
+// The contentEditable surface, isolated in a component that NEVER re-renders
+// after mount (memo with an always-equal comparator). React must not reconcile
+// the DOM that contentEditable mutates, or it throws "Failed to execute
+// 'removeChild'". Initial HTML is set once via dangerouslySetInnerHTML; the
+// handlers are stable refs from the parent, so they never go stale.
+const NoteEditor = memo(
+  function NoteEditor({ initialHtml, innerRef, onBlur, onPaste }: {
+    initialHtml: string
+    innerRef: React.RefObject<HTMLDivElement | null>
+    onBlur: () => void
+    onPaste: (e: React.ClipboardEvent) => void
+  }) {
+    return (
+      <div
+        ref={innerRef}
+        contentEditable
+        suppressContentEditableWarning
+        onBlur={onBlur}
+        onPaste={onPaste}
+        data-placeholder="Type a note…"
+        className="note-editor w-full min-h-[80px] bg-transparent text-sm text-slate-800 focus:outline-none whitespace-pre-wrap break-words"
+        dangerouslySetInnerHTML={{ __html: initialHtml }}
+      />
+    )
+  },
+  () => true,   // never re-render — DOM is owned by contentEditable, not React
+)
+
 function NoteCard({
   note, onPatch, onDelete,
 }: {
@@ -126,16 +154,11 @@ function NoteCard({
 }) {
   const [title, setTitle] = useState(note.title ?? '')
   const [savedFlash, setSavedFlash] = useState(false)
-  const editorRef = useRef<HTMLDivElement>(null)
+  const editorRef = useRef<HTMLDivElement | null>(null)
   const c = colorOf(note.color)
 
-  // Initialize the editor's HTML once (uncontrolled — React must NOT manage its
-  // children, or the caret jumps while typing). Re-init only if the note id changes.
-  useEffect(() => {
-    if (editorRef.current) editorRef.current.innerHTML = note.content ?? ''
-    setTitle(note.title ?? '')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [note.id])
+  // Capture the body HTML once — the editor is uncontrolled from here on.
+  const initialHtml = useRef(note.content ?? '').current
 
   // Apply a formatting command without losing the editor's text selection.
   function exec(cmd: string, value?: string) {
@@ -149,6 +172,17 @@ function NoteCard({
     setSavedFlash(true)
     setTimeout(() => setSavedFlash(false), 1500)
   }
+
+  // Stable handlers for the never-re-rendering editor. They call through a ref
+  // so they always run the latest save() (no stale closure on title).
+  const saveRef = useRef(save)
+  saveRef.current = save
+  const handleBlur = useRef(() => { void saveRef.current() }).current
+  const handlePaste = useRef((e: React.ClipboardEvent) => {
+    e.preventDefault()
+    const text = e.clipboardData.getData('text/plain')
+    document.execCommand('insertText', false, text)
+  }).current
 
   const updated = note.updated_at
     ? new Date(note.updated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -211,21 +245,8 @@ function NoteCard({
         ))}
       </div>
 
-      {/* Rich-text body (uncontrolled contentEditable) */}
-      <div
-        ref={editorRef}
-        contentEditable
-        suppressContentEditableWarning
-        onBlur={save}
-        onPaste={e => {
-          // Paste as plain text so external HTML/styles don't leak in.
-          e.preventDefault()
-          const text = e.clipboardData.getData('text/plain')
-          document.execCommand('insertText', false, text)
-        }}
-        data-placeholder="Type a note…"
-        className="note-editor w-full min-h-[80px] bg-transparent resize-none text-sm text-slate-800 focus:outline-none whitespace-pre-wrap break-words"
-      />
+      {/* Rich-text body (isolated, never-re-rendering contentEditable) */}
+      <NoteEditor initialHtml={initialHtml} innerRef={editorRef} onBlur={handleBlur} onPaste={handlePaste} />
 
       <div className="flex items-center justify-between mt-2 pt-2 border-t border-black/5">
         <span className="text-[10px] text-slate-500/70">
