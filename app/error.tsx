@@ -19,6 +19,18 @@ export default function Error({
   const [persistent, setPersistent] = useState(false)
 
   useEffect(() => {
+    // Report the crash to the server (survives the reload via sendBeacon) so the
+    // real message + stack show up in `vercel logs`.
+    try {
+      const payload = JSON.stringify({
+        where: 'error.tsx',
+        message: error?.message, name: error?.name, stack: error?.stack,
+        digest: error?.digest, url: location.href, ua: navigator.userAgent,
+        t: new Date().toISOString(),
+      })
+      navigator.sendBeacon?.('/api/log-error', new Blob([payload], { type: 'application/json' }))
+    } catch { /* ignore */ }
+
     let last = 0
     try { last = Number(sessionStorage.getItem(RELOAD_KEY) || 0) } catch { /* ignore */ }
     const justReloaded = Date.now() - last < RECENT_MS
@@ -29,7 +41,7 @@ export default function Error({
     }
     try { sessionStorage.setItem(RELOAD_KEY, String(Date.now())) } catch { /* ignore */ }
     window.location.reload()
-  }, [])
+  }, [error])
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-6">

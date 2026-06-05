@@ -10,6 +10,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api/webhooks') ||
     pathname.startsWith('/api/cron') ||
+    pathname.startsWith('/api/log-error') ||
     pathname === '/favicon.ico'
 
   if (isPublic) return NextResponse.next()

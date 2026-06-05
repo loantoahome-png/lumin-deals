@@ -14,12 +14,22 @@ export default function GlobalError({
   const [persistent, setPersistent] = useState(false)
 
   useEffect(() => {
+    try {
+      const payload = JSON.stringify({
+        where: 'global-error.tsx',
+        message: error?.message, name: error?.name, stack: error?.stack,
+        digest: error?.digest, url: location.href, ua: navigator.userAgent,
+        t: new Date().toISOString(),
+      })
+      navigator.sendBeacon?.('/api/log-error', new Blob([payload], { type: 'application/json' }))
+    } catch { /* ignore */ }
+
     let last = 0
     try { last = Number(sessionStorage.getItem(RELOAD_KEY) || 0) } catch { /* ignore */ }
     if (Date.now() - last < RECENT_MS) { setPersistent(true); return }
     try { sessionStorage.setItem(RELOAD_KEY, String(Date.now())) } catch { /* ignore */ }
     window.location.reload()
-  }, [])
+  }, [error])
 
   return (
     <html lang="en">
