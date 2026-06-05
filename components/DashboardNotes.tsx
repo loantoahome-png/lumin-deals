@@ -123,9 +123,10 @@ const SIZES: { label: string; value: string }[] = [
 // 'removeChild'". Initial HTML is set once via dangerouslySetInnerHTML; the
 // handlers are stable refs from the parent, so they never go stale.
 const NoteEditor = memo(
-  function NoteEditor({ initialHtml, innerRef, onBlur, onPaste }: {
+  function NoteEditor({ initialHtml, innerRef, onFocus, onBlur, onPaste }: {
     initialHtml: string
     innerRef: React.RefObject<HTMLDivElement | null>
+    onFocus: () => void
     onBlur: () => void
     onPaste: (e: React.ClipboardEvent) => void
   }) {
@@ -134,6 +135,7 @@ const NoteEditor = memo(
         ref={innerRef}
         contentEditable
         suppressContentEditableWarning
+        onFocus={onFocus}
         onBlur={onBlur}
         onPaste={onPaste}
         data-placeholder="Type a note…"
@@ -154,6 +156,7 @@ function NoteCard({
 }) {
   const [title, setTitle] = useState(note.title ?? '')
   const [savedFlash, setSavedFlash] = useState(false)
+  const [editing, setEditing] = useState(false)   // toolbar shows only while editing the body
   const editorRef = useRef<HTMLDivElement | null>(null)
   const c = colorOf(note.color)
 
@@ -177,7 +180,8 @@ function NoteCard({
   // so they always run the latest save() (no stale closure on title).
   const saveRef = useRef(save)
   saveRef.current = save
-  const handleBlur = useRef(() => { void saveRef.current() }).current
+  const handleFocus = useRef(() => setEditing(true)).current
+  const handleBlur = useRef(() => { setEditing(false); void saveRef.current() }).current
   const handlePaste = useRef((e: React.ClipboardEvent) => {
     e.preventDefault()
     const text = e.clipboardData.getData('text/plain')
@@ -225,28 +229,30 @@ function NoteCard({
         className="w-full bg-transparent text-sm font-semibold text-slate-900 placeholder:text-slate-400/60 focus:outline-none mb-1.5"
       />
 
-      {/* Formatting toolbar */}
-      <div className="flex items-center gap-1 mb-1.5">
-        <button {...tb(() => exec('bold'))} title="Bold (⌘B)"
-          className="w-6 h-6 flex items-center justify-center rounded text-slate-500 hover:bg-black/5 hover:text-slate-800">
-          <Bold className="w-3.5 h-3.5" />
-        </button>
-        <button {...tb(() => exec('underline'))} title="Underline (⌘U)"
-          className="w-6 h-6 flex items-center justify-center rounded text-slate-500 hover:bg-black/5 hover:text-slate-800">
-          <Underline className="w-3.5 h-3.5" />
-        </button>
-        <span className="w-px h-4 bg-black/10 mx-0.5" />
-        {SIZES.map(s => (
-          <button key={s.value} {...tb(() => exec('fontSize', s.value))} title={`Size ${s.label}`}
-            className="w-6 h-6 flex items-center justify-center rounded text-slate-500 hover:bg-black/5 hover:text-slate-800 font-bold"
-            style={{ fontSize: s.value === '2' ? 10 : s.value === '3' ? 12 : 15 }}>
-            A
+      {/* Formatting toolbar — only while actively editing the body */}
+      {editing && (
+        <div className="flex items-center gap-1 mb-1.5">
+          <button {...tb(() => exec('bold'))} title="Bold (⌘B)"
+            className="w-6 h-6 flex items-center justify-center rounded text-slate-500 hover:bg-black/5 hover:text-slate-800">
+            <Bold className="w-3.5 h-3.5" />
           </button>
-        ))}
-      </div>
+          <button {...tb(() => exec('underline'))} title="Underline (⌘U)"
+            className="w-6 h-6 flex items-center justify-center rounded text-slate-500 hover:bg-black/5 hover:text-slate-800">
+            <Underline className="w-3.5 h-3.5" />
+          </button>
+          <span className="w-px h-4 bg-black/10 mx-0.5" />
+          {SIZES.map(s => (
+            <button key={s.value} {...tb(() => exec('fontSize', s.value))} title={`Size ${s.label}`}
+              className="w-6 h-6 flex items-center justify-center rounded text-slate-500 hover:bg-black/5 hover:text-slate-800 font-bold"
+              style={{ fontSize: s.value === '2' ? 10 : s.value === '3' ? 12 : 15 }}>
+              A
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Rich-text body (isolated, never-re-rendering contentEditable) */}
-      <NoteEditor initialHtml={initialHtml} innerRef={editorRef} onBlur={handleBlur} onPaste={handlePaste} />
+      <NoteEditor initialHtml={initialHtml} innerRef={editorRef} onFocus={handleFocus} onBlur={handleBlur} onPaste={handlePaste} />
 
       <div className="flex items-center justify-between mt-2 pt-2 border-t border-black/5">
         <span className="text-[10px] text-slate-500/70">
