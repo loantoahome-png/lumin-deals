@@ -91,7 +91,17 @@ function TreasuryWidget() {
   function fetchYield() {
     return fetch('/api/treasury')
       .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); setLastRefreshed(new Date()) })
+      .then(d => {
+        // Validate the shape before trusting it. /api/treasury can occasionally
+        // return an error/partial payload (e.g. upstream FRED hiccup) that lacks
+        // sparkline/dayChange — rendering that crashed the whole dashboard with
+        // "Cannot read properties of undefined (reading 'length')". Treat a
+        // malformed response as "unavailable" instead of crashing.
+        if (!d || typeof d.dayChange !== 'number' || typeof d.weekChange !== 'number' || !Array.isArray(d.sparkline)) {
+          setError(true); setLoading(false); return
+        }
+        setData(d as YieldData); setLoading(false); setLastRefreshed(new Date())
+      })
       .catch(() => { setError(true); setLoading(false) })
   }
 
@@ -128,8 +138,6 @@ function TreasuryWidget() {
 
   const dayUp = data.dayChange >= 0
   const weekUp = data.weekChange >= 0
-  const alertedCount = data.sparkline.length > 0
-    ? 0 : 0 // placeholder — rate watch alerts shown via rateWatchCount
 
   return (
     <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl shadow-sm p-5 text-white">
