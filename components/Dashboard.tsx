@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
+import DashboardNotes from '@/components/DashboardNotes'
 import {
   DollarSign, TrendingUp, Users, CheckCircle, Clock, AlertCircle, Bell, TrendingDown, Calendar, X,
   AlertTriangle, ChevronRight, Flame,
@@ -604,6 +605,9 @@ export default function Dashboard() {
           <Link href="/deals" className="block text-center text-blue-600 text-xs font-medium mt-3 hover:underline">View all deals →</Link>
         </div>
       </div>
+
+      {/* Team notes board */}
+      <DashboardNotes />
     </div>
   )
 }
