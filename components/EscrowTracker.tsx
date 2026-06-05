@@ -603,10 +603,10 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
           </div>
         </div>
 
-        {/* Next action editor — the focal point of the card */}
-        <div className="flex-1 flex flex-col rounded-lg bg-blue-50/60 border border-blue-100 p-2.5">
+        {/* Next action editor — the focal point of the card (Lumin orange) */}
+        <div className="flex-1 flex flex-col rounded-lg bg-orange-50 border border-orange-200 p-2.5">
           <div className="flex items-center justify-between mb-1.5">
-            <label className="text-[11px] font-bold uppercase tracking-wider text-blue-700 flex items-center gap-1">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-[#F37021] flex items-center gap-1">
               <Flame className="w-3.5 h-3.5" /> Next Step
             </label>
             {savingFlash && (
@@ -621,7 +621,7 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
             onBlur={() => saveField('next_action', nextAction.trim() || null)}
             rows={2}
             placeholder="Describe the next action…"
-            className="w-full flex-1 px-2.5 py-1.5 border border-blue-200 rounded-md text-sm font-medium text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 resize-none placeholder:text-slate-400 placeholder:font-normal"
+            className="w-full flex-1 px-2.5 py-1.5 border border-orange-200 rounded-md text-sm font-medium text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#F37021] focus:border-orange-400 resize-none placeholder:text-slate-400 placeholder:font-normal"
           />
         </div>
 
