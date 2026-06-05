@@ -500,7 +500,7 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
   const aUrl = ariveUrl(deal.arive_file_no)
 
   return (
-    <div className={`bg-white rounded-xl border ${borderClass} shadow-sm overflow-hidden transition-shadow hover:shadow-md flex flex-col`}>
+    <div className={`bg-white rounded-xl border ${borderClass} shadow-md overflow-hidden transition-shadow hover:shadow-lg flex flex-col`}>
       {/* Header — borrower name gets its OWN full-width line so it's never
           squished; the quick-links and stage badge sit on a tidy second row. */}
       <div
@@ -583,27 +583,31 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
 
       {/* Body */}
       <div className="p-4 space-y-3 flex-1 flex flex-col">
-        {/* Quick stats */}
-        <div className="grid grid-cols-3 gap-2 text-[11px]">
+        {/* Quick stats — Amount is the hero number */}
+        <div className="grid grid-cols-3 gap-2 rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5">
           <div>
-            <p className="text-slate-400 uppercase tracking-wider font-medium text-[9px]">LO</p>
-            <p className="text-slate-800 font-medium truncate">{deal.loan_officer || '—'}</p>
+            <p className="text-slate-400 uppercase tracking-wider font-semibold text-[9px]">Amount</p>
+            <p className="text-lg font-extrabold text-slate-900 tabular-nums leading-tight">
+              {deal.loan_amount ? formatCurrency(deal.loan_amount) : '—'}
+            </p>
           </div>
-          <div>
-            <p className="text-slate-400 uppercase tracking-wider font-medium text-[9px]">Amount</p>
-            <p className="text-slate-800 font-medium tabular-nums">{deal.loan_amount ? formatCurrency(deal.loan_amount) : '—'}</p>
+          <div className="self-center">
+            <p className="text-slate-400 uppercase tracking-wider font-semibold text-[9px]">LO</p>
+            <p className="text-xs font-semibold text-slate-700 truncate mt-0.5">{deal.loan_officer || '—'}</p>
           </div>
-          <div>
-            <p className="text-slate-400 uppercase tracking-wider font-medium text-[9px]">In Stage</p>
-            <p className="text-slate-800 font-medium">{daysInStage == null ? '—' : `${daysInStage}d`}</p>
+          <div className="self-center">
+            <p className="text-slate-400 uppercase tracking-wider font-semibold text-[9px]">In Stage</p>
+            <p className={`text-xs font-semibold mt-0.5 ${aboveSla || stuck ? 'text-red-600' : 'text-slate-700'}`}>
+              {daysInStage == null ? '—' : `${daysInStage}d`}
+            </p>
           </div>
         </div>
 
-        {/* Next action editor */}
-        <div className="border-t border-slate-100 pt-3 flex-1 flex flex-col">
+        {/* Next action editor — the focal point of the card */}
+        <div className="flex-1 flex flex-col rounded-lg bg-blue-50/60 border border-blue-100 p-2.5">
           <div className="flex items-center justify-between mb-1.5">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-              <Flame className="w-3 h-3" /> Next Step
+            <label className="text-[11px] font-bold uppercase tracking-wider text-blue-700 flex items-center gap-1">
+              <Flame className="w-3.5 h-3.5" /> Next Step
             </label>
             {savingFlash && (
               <span className="text-[10px] text-emerald-600 flex items-center gap-0.5">
@@ -617,7 +621,7 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
             onBlur={() => saveField('next_action', nextAction.trim() || null)}
             rows={2}
             placeholder="Describe the next action…"
-            className="w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 resize-none placeholder:text-slate-300"
+            className="w-full flex-1 px-2.5 py-1.5 border border-blue-200 rounded-md text-sm font-medium text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 resize-none placeholder:text-slate-400 placeholder:font-normal"
           />
         </div>
 
