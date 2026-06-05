@@ -30,3 +30,11 @@ input[type="date"].date-empty:focus::-webkit-datetime-edit {
 input[type="date"].date-empty::-webkit-calendar-picker-indicator {
   opacity: 0.5;
 }
+
+/* Notes rich-text editor: show a placeholder when empty (contentEditable
+   has no native placeholder). */
+.note-editor:empty::before {
+  content: attr(data-placeholder);
+  color: rgb(148 163 184 / 0.6);
+  pointer-events: none;
+}
