@@ -12,12 +12,22 @@ import HotLeadsTracker from '@/components/HotLeadsTracker'
 const MS_PER_DAY = 86_400_000
 
 // The hottest, highest-intent stages — leads we cannot afford to let slip.
-const HOT_STATUSES = ['Pitching', 'App Intake']
+const HOT_STATUSES = ['Responded', 'Pitching', 'App Intake']
+
+// Two views: pre-application (Responded/Pitching) vs application taken (App Intake).
+// They behave differently — an App Intake lead who hasn't replied still has a live
+// application, so it shouldn't be read the same way as a quiet pre-app lead.
+type LeadView = 'pitching' | 'intake'
+const VIEW_STATUSES: Record<LeadView, string[]> = {
+  pitching: ['Responded', 'Pitching'],
+  intake:   ['App Intake'],
+}
 
 export default function HotLeadsPage() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
   const [loFilter, setLoFilter] = useState<'All' | string>('All')
+  const [view, setView] = useState<LeadView>('pitching')
 
   const fetchDeals = useCallback(async () => {
     setLoading(true)
@@ -37,11 +47,23 @@ export default function HotLeadsPage() {
   // in its last stage (e.g. App Intake) and just flips the GHL status to
   // Lost/Abandoned — so Hot Leads must hide anything not Open. (null/unknown
   // status is kept, so a lead we haven't classified never disappears.)
+  const viewStatuses = VIEW_STATUSES[view]
   const filtered = deals.filter(d => {
     const st = (d.ghl_status ?? '').toLowerCase()
     if (st === 'lost' || st.startsWith('abandon')) return false
+    if (!viewStatuses.includes(d.status)) return false
     return loFilter === 'All' || (d.loan_officer ?? '').toLowerCase().includes(loFilter.toLowerCase())
   })
+
+  // Per-view counts for the tab labels (LO-filtered, dead excluded).
+  const liveByView = (statuses: string[]) => deals.filter(d => {
+    const st = (d.ghl_status ?? '').toLowerCase()
+    if (st === 'lost' || st.startsWith('abandon')) return false
+    if (!statuses.includes(d.status)) return false
+    return loFilter === 'All' || (d.loan_officer ?? '').toLowerCase().includes(loFilter.toLowerCase())
+  }).length
+  const pitchingViewCount = liveByView(VIEW_STATUSES.pitching)
+  const intakeViewCount = liveByView(VIEW_STATUSES.intake)
 
   const totalVolume = filtered.reduce((s, d) => s + (d.loan_amount || 0), 0)
   // "Stalled" = 4+ days in stage with no movement (Warm threshold and beyond)
@@ -82,7 +104,9 @@ export default function HotLeadsPage() {
               Hot Leads
             </h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              Your highest-intent leads — Pitching &amp; App Intake — ranked by how long they&apos;ve stalled. Work the red columns first.
+              {view === 'pitching'
+                ? 'Responded & Pitching leads — bucketed by how long since the borrower last replied.'
+                : 'App Intake leads (application in) — bucketed by how long since the borrower last replied.'}
             </p>
           </div>
           <button
@@ -92,6 +116,28 @@ export default function HotLeadsPage() {
           >
             <RefreshCw className="w-4 h-4" />
           </button>
+        </div>
+
+        {/* View tabs — Responded/Pitching vs App Intake */}
+        <div className="flex gap-2 mb-3">
+          {([
+            { key: 'pitching' as LeadView, label: 'Responded / Pitching', count: pitchingViewCount, accent: 'bg-violet-600 border-violet-600' },
+            { key: 'intake'   as LeadView, label: 'App Intake',           count: intakeViewCount,   accent: 'bg-cyan-600 border-cyan-600' },
+          ]).map(t => {
+            const active = view === t.key
+            return (
+              <button
+                key={t.key}
+                onClick={() => setView(t.key)}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${
+                  active ? `${t.accent} text-white shadow-md` : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'
+                }`}
+              >
+                {t.label}
+                <span className={`text-xs font-semibold rounded-full px-1.5 py-0.5 ${active ? 'bg-white/20' : 'bg-slate-100 text-slate-500'}`}>{t.count}</span>
+              </button>
+            )
+          })}
         </div>
 
         {/* Metrics + LO filter */}

@@ -24,10 +24,11 @@ const STATUS_TO_GROUP: Record<string, string> = (() => {
 
 // The two "hot" stages this workspace watches. Each gets its own badge color
 // (matching STATUS_COLORS) and its own set of forward quick-actions.
-const HOT_STATUSES = ['Pitching', 'App Intake'] as const
+const HOT_STATUSES = ['Responded', 'Pitching', 'App Intake'] as const
 type HotStatus = (typeof HOT_STATUSES)[number]
 
 const STAGE_BADGE: Record<HotStatus, string> = {
+  'Responded':  'bg-sky-100 text-sky-700 border border-sky-200',
   'Pitching':   'bg-violet-100 text-violet-700 border border-violet-200',
   'App Intake': 'bg-cyan-100 text-cyan-700 border border-cyan-200',
 }
@@ -135,6 +136,12 @@ function getBucket(deal: Deal): Bucket {
 // ── Quick-advance targets — depend on the lead's CURRENT stage ───────────────
 type Advance = { status: string; label: string; title: string; group: string; color: string }
 const FORWARD_BY_STATUS: Record<HotStatus, Advance[]> = {
+  // From Responded: start pitching, take the app, or close out.
+  'Responded': [
+    { status: 'Pitching',              label: 'Pitching',   title: 'Move to Pitching',             group: 'Leads',     color: 'bg-violet-100 hover:bg-violet-200 text-violet-800 border border-violet-200' },
+    { status: 'App Intake',            label: 'App Intake', title: 'Move to App Intake',           group: 'Leads',     color: 'bg-cyan-100 hover:bg-cyan-200 text-cyan-800 border border-cyan-200' },
+    { status: 'Ghosted',               label: 'Ghosted',    title: 'Mark Ghosted',                 group: 'Leads',     color: 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200' },
+  ],
   // From Pitching: push into application, or close out.
   'Pitching': [
     { status: 'App Intake',            label: 'App Intake', title: 'Move to App Intake',           group: 'Leads',     color: 'bg-cyan-100 hover:bg-cyan-200 text-cyan-800 border border-cyan-200' },
@@ -198,7 +205,6 @@ function isPaidLead(d: Deal): boolean {
 
 export default function HotLeadsTracker({ deals, onUpdate }: Props) {
   const [search, setSearch] = useState('')
-  const [stageFilter, setStageFilter] = useState<'all' | HotStatus>('all')
   const [riskFilter, setRiskFilter] = useState<'all' | 'waiting' | 'cold'>('all')
   const [sourceFilter, setSourceFilter] = useState<'all' | 'paid' | 'self'>('all')
   const [sortBy, setSortBy] = useState<SortMode>('contact')
@@ -206,7 +212,6 @@ export default function HotLeadsTracker({ deals, onUpdate }: Props) {
 
   const filtered = useMemo(() => {
     let result = deals
-    if (stageFilter !== 'all') result = result.filter(d => d.status === stageFilter)
     if (riskFilter === 'waiting') result = result.filter(d => (d.comm_unread_count ?? 0) > 0)
     else if (riskFilter === 'cold') result = result.filter(d => daysSinceContact(d) >= COLD_DAYS)
     if (sourceFilter === 'paid') result = result.filter(d => isPaidLead(d))
@@ -220,7 +225,7 @@ export default function HotLeadsTracker({ deals, onUpdate }: Props) {
       })
     }
     return result
-  }, [deals, search, stageFilter, riskFilter, sourceFilter])
+  }, [deals, search, riskFilter, sourceFilter])
 
   // Group by age bucket; within each, sort by the chosen key (most urgent on top).
   const byBucket: Record<string, Deal[]> = {}
@@ -237,8 +242,6 @@ export default function HotLeadsTracker({ deals, onUpdate }: Props) {
     return arr
   }, [filtered, sortBy])
 
-  const pitchingCount = deals.filter(d => d.status === 'Pitching').length
-  const appIntakeCount = deals.filter(d => d.status === 'App Intake').length
   const waitingCount = deals.filter(d => (d.comm_unread_count ?? 0) > 0).length
   const coldCount = deals.filter(d => daysSinceContact(d) >= COLD_DAYS).length
   const paidCount = deals.filter(d => isPaidLead(d)).length
@@ -295,20 +298,8 @@ export default function HotLeadsTracker({ deals, onUpdate }: Props) {
         </div>
       )}
 
-      {/* Stage + risk filter chips, view toggle, sort toggle, search */}
+      {/* Risk + source filter chips, view toggle, sort toggle, search */}
       <div className="flex items-center gap-2 flex-wrap">
-        <FilterChip active={stageFilter === 'all'} onClick={() => setStageFilter('all')}>
-          All <span className="opacity-60 tabular-nums">{deals.length}</span>
-        </FilterChip>
-        <FilterChip active={stageFilter === 'Pitching'} onClick={() => setStageFilter('Pitching')} color="violet">
-          Pitching <span className="opacity-70 tabular-nums">{pitchingCount}</span>
-        </FilterChip>
-        <FilterChip active={stageFilter === 'App Intake'} onClick={() => setStageFilter('App Intake')} color="cyan">
-          App Intake <span className="opacity-70 tabular-nums">{appIntakeCount}</span>
-        </FilterChip>
-
-        <span className="w-px h-5 bg-slate-200 mx-0.5" />
-
         <FilterChip active={riskFilter === 'waiting'} onClick={() => setRiskFilter(riskFilter === 'waiting' ? 'all' : 'waiting')} color="red">
           ⏳ Waiting {waitingCount > 0 && <span className="font-bold tabular-nums">{waitingCount}</span>}
         </FilterChip>
