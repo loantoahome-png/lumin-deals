@@ -44,12 +44,21 @@ type Bucket = {
   header: string
   hint: string
 }
-const BUCKETS: Bucket[] = [
+// Leads the borrower has never replied to — usually brand-new, not stale. Their
+// own column so they don't get lumped in with cold (replied-then-went-quiet) leads.
+const NO_REPLY_BUCKET: Bucket = {
+  key: 'noreply', label: 'No reply yet', emoji: '🔵', maxDaysExclusive: 0,
+  accent: 'bg-blue-500', header: 'bg-blue-50 border-blue-200',
+  hint: "New — lead hasn't replied yet; make first contact",
+}
+// Time-based buckets, applied only to leads that HAVE replied at least once.
+const TIME_BUCKETS: Bucket[] = [
   { key: 'fresh',   label: 'Fresh',   emoji: '🟢', maxDaysExclusive: 2,        accent: 'bg-emerald-500', header: 'bg-emerald-50 border-emerald-200', hint: 'Borrower replied recently — keep momentum' },
   { key: 'warm',    label: 'Warm',    emoji: '🟡', maxDaysExclusive: 4,        accent: 'bg-amber-500',   header: 'bg-amber-50 border-amber-200',     hint: "Borrower quiet a couple days — reach out" },
   { key: 'cooling', label: 'Cooling', emoji: '🟠', maxDaysExclusive: 8,        accent: 'bg-orange-500',  header: 'bg-orange-50 border-orange-200',   hint: 'No reply in 4+ days — at risk, call today' },
-  { key: 'stale',   label: 'Stale',   emoji: '🔴', maxDaysExclusive: Infinity, accent: 'bg-red-500',     header: 'bg-red-50 border-red-200',         hint: 'No reply in 8+ days (or never) — slipping away' },
+  { key: 'stale',   label: 'Stale',   emoji: '🔴', maxDaysExclusive: Infinity, accent: 'bg-red-500',     header: 'bg-red-50 border-red-200',         hint: 'Replied before, silent 8+ days — slipping away' },
 ]
+const BUCKETS: Bucket[] = [NO_REPLY_BUCKET, ...TIME_BUCKETS]
 
 // Pull a string timestamp out of the synced GHL opportunity blob.
 function rawTs(deal: Deal, key: string): string | null {
@@ -116,11 +125,11 @@ function compareBySort(a: Deal, b: Deal, mode: SortMode): number {
   }
 }
 function getBucket(deal: Deal): Bucket {
-  // Bucket by days since the BORROWER last reached out (inbound). A borrower
-  // who replied recently is Fresh; one we haven't heard from in a while — or
-  // ever (msSinceInbound returns a huge sentinel for null) — falls to Stale.
+  // No inbound ever → "No reply yet" (likely a new lead, not a stale one).
+  if (!deal.last_inbound_at) return NO_REPLY_BUCKET
+  // Otherwise bucket by days since the borrower last reached out.
   const d = msSinceInbound(deal) / MS_PER_DAY
-  return BUCKETS.find(b => d < b.maxDaysExclusive)!
+  return TIME_BUCKETS.find(b => d < b.maxDaysExclusive)!
 }
 
 // ── Quick-advance targets — depend on the lead's CURRENT stage ───────────────
