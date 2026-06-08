@@ -7,7 +7,7 @@ import { formatCurrency, dndLabel } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import {
   ExternalLink, Calendar, Clock, Flame, Search, MoreHorizontal,
-  LayoutGrid, List as ListIcon,
+  LayoutGrid, List as ListIcon, ArrowDownLeft, ArrowUpRight,
 } from 'lucide-react'
 
 const MS_PER_DAY = 86_400_000
@@ -651,11 +651,10 @@ function HotLeadCard({ deal, bucket, onUpdate }: {
   const [followUpTime, setFollowUpTime] = useState(deal.next_action_due ? deal.next_action_due.slice(11, 16) : '')
   const [showMore, setShowMore]         = useState(false)
 
-  const days = daysInStage(deal)
-  const stageSince = stageSinceIso(deal)
-  const lastContact = lastContactIso(deal)
-  const hasRealComm = !!deal.last_communication_at
-  const channel = deal.last_communication_type
+  // Directional contact timing: when the lead last reached out vs when we did.
+  const inMs  = deal.last_inbound_at  ? Date.parse(deal.last_inbound_at)  : 0
+  const outMs = deal.last_outbound_at ? Date.parse(deal.last_outbound_at) : 0
+  const ballInOurCourt = inMs > 0 && inMs > outMs   // lead messaged more recently than we replied
   const waiting = (deal.comm_unread_count ?? 0) > 0
   const overdue = deal.next_action_due ? new Date(deal.next_action_due) < new Date() : false
   const ghlUrl = ghlContactUrl(deal)
@@ -731,23 +730,23 @@ function HotLeadCard({ deal, bucket, onUpdate }: {
         </div>
       )}
 
-      {/* Timing strip — exact time in stage + last contact */}
+      {/* Timing strip — last contact FROM the lead vs last time WE reached out */}
       <div className="px-4 py-2 grid grid-cols-2 gap-2 border-b border-slate-100 bg-slate-50/40">
-        <div className="flex items-center gap-1.5" title={stageSince ? `In ${stage} since ${new Date(stageSince).toLocaleString()}` : ''}>
-          <Clock className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+        <div className="flex items-center gap-1.5" title={deal.last_inbound_at ? `Lead last reached out ${new Date(deal.last_inbound_at).toLocaleString()}` : 'No inbound from the lead yet'}>
+          <ArrowDownLeft className={`w-3.5 h-3.5 shrink-0 ${ballInOurCourt ? 'text-red-500' : 'text-slate-400'}`} />
           <div className="min-w-0">
-            <p className="text-slate-400 uppercase tracking-wider text-[9px] font-semibold leading-none mb-0.5">In stage</p>
-            <p className="text-sm font-bold text-slate-800 tabular-nums leading-tight">{compactAgo(stageSince)}</p>
+            <p className="text-slate-400 uppercase tracking-wider text-[9px] font-semibold leading-none mb-0.5">From lead</p>
+            <p className={`text-sm font-bold tabular-nums leading-tight ${ballInOurCourt ? 'text-red-600' : 'text-slate-800'}`}>
+              {deal.last_inbound_at ? `${compactAgo(deal.last_inbound_at)} ago` : '—'}
+            </p>
           </div>
         </div>
-        <div className="flex items-center gap-1.5" title={lastContact ? `${hasRealComm ? 'Last message' : 'Last GHL activity'} ${new Date(lastContact).toLocaleString()}` : ''}>
-          <Flame className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+        <div className="flex items-center gap-1.5" title={deal.last_outbound_at ? `We last reached out ${new Date(deal.last_outbound_at).toLocaleString()}` : 'We haven’t reached out yet'}>
+          <ArrowUpRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           <div className="min-w-0">
-            <p className="text-slate-400 uppercase tracking-wider text-[9px] font-semibold leading-none mb-0.5">
-              {hasRealComm ? 'Last contact' : 'Last activity'}
-            </p>
+            <p className="text-slate-400 uppercase tracking-wider text-[9px] font-semibold leading-none mb-0.5">We reached out</p>
             <p className="text-sm font-bold text-slate-800 tabular-nums leading-tight">
-              {compactAgo(lastContact)} ago{channel ? <span className="text-[10px] font-medium text-slate-500"> · {channel}</span> : null}
+              {deal.last_outbound_at ? `${compactAgo(deal.last_outbound_at)} ago` : '—'}
             </p>
           </div>
         </div>
