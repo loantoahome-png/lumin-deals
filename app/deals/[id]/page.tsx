@@ -297,26 +297,28 @@ function DealNotes({ dealId, initialNotes }: { dealId: string; initialNotes: str
         </div>
       </div>
 
-      {/* Notes timeline */}
+      {/* Notes timeline — each note is its own card so they're easy to tell apart */}
       {notes.length > 0 ? (
-        <div className="space-y-4 pt-3 border-t border-slate-100">
+        <div className="space-y-2.5 pt-3 border-t border-slate-100">
           {notes.map(note => (
-            <div key={note.id} className="group">
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-nowrap">
+            <div
+              key={note.id}
+              className="group relative rounded-lg border border-slate-200 bg-slate-50/70 border-l-[3px] border-l-blue-300 px-3 py-2.5 shadow-sm"
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
                   {formatDate(note.created_at)}
                 </span>
-                <div className="flex-1 h-px bg-slate-100" />
                 <button
                   onClick={() => handleDeleteNote(note.id)}
                   disabled={deletingId === note.id}
                   title="Delete note"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 hover:text-red-400 p-0.5 rounded"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 hover:text-red-500 p-0.5 rounded shrink-0"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed pl-0.5">
+              <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">
                 {note.content}
               </p>
             </div>
