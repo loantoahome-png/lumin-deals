@@ -45,10 +45,10 @@ type Bucket = {
   hint: string
 }
 const BUCKETS: Bucket[] = [
-  { key: 'fresh',   label: 'Fresh',   emoji: '🟢', maxDaysExclusive: 2,        accent: 'bg-emerald-500', header: 'bg-emerald-50 border-emerald-200', hint: 'Just moved here — keep momentum' },
-  { key: 'warm',    label: 'Warm',    emoji: '🟡', maxDaysExclusive: 4,        accent: 'bg-amber-500',   header: 'bg-amber-50 border-amber-200',     hint: "Touch base today — don't let it cool" },
-  { key: 'cooling', label: 'Cooling', emoji: '🟠', maxDaysExclusive: 8,        accent: 'bg-orange-500',  header: 'bg-orange-50 border-orange-200',   hint: 'At risk — call today' },
-  { key: 'stale',   label: 'Stale',   emoji: '🔴', maxDaysExclusive: Infinity, accent: 'bg-red-500',     header: 'bg-red-50 border-red-200',         hint: 'Slipping away — convert or close out' },
+  { key: 'fresh',   label: 'Fresh',   emoji: '🟢', maxDaysExclusive: 2,        accent: 'bg-emerald-500', header: 'bg-emerald-50 border-emerald-200', hint: 'Borrower replied recently — keep momentum' },
+  { key: 'warm',    label: 'Warm',    emoji: '🟡', maxDaysExclusive: 4,        accent: 'bg-amber-500',   header: 'bg-amber-50 border-amber-200',     hint: "Borrower quiet a couple days — reach out" },
+  { key: 'cooling', label: 'Cooling', emoji: '🟠', maxDaysExclusive: 8,        accent: 'bg-orange-500',  header: 'bg-orange-50 border-orange-200',   hint: 'No reply in 4+ days — at risk, call today' },
+  { key: 'stale',   label: 'Stale',   emoji: '🔴', maxDaysExclusive: Infinity, accent: 'bg-red-500',     header: 'bg-red-50 border-red-200',         hint: 'No reply in 8+ days (or never) — slipping away' },
 ]
 
 // Pull a string timestamp out of the synced GHL opportunity blob.
@@ -116,7 +116,10 @@ function compareBySort(a: Deal, b: Deal, mode: SortMode): number {
   }
 }
 function getBucket(deal: Deal): Bucket {
-  const d = daysInStage(deal)
+  // Bucket by days since the BORROWER last reached out (inbound). A borrower
+  // who replied recently is Fresh; one we haven't heard from in a while — or
+  // ever (msSinceInbound returns a huge sentinel for null) — falls to Stale.
+  const d = msSinceInbound(deal) / MS_PER_DAY
   return BUCKETS.find(b => d < b.maxDaysExclusive)!
 }
 
