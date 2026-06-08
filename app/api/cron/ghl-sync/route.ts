@@ -26,6 +26,8 @@ const CONV_REFRESH_KEY = 'conversations_refresh_last'
 const CONV_REFRESH_INTERVAL_MS = 15 * 60 * 1000   // 15 min
 const CALLBACK_CHECK_KEY = 'second_callback_last'
 const CALLBACK_CHECK_INTERVAL_MS = 5 * 60 * 1000  //  5 min
+const MAINTENANCE_KEY = 'ghl_maintenance_last'
+const MAINTENANCE_INTERVAL_MS = 15 * 60 * 1000    // 15 min — prune/reconcile pass
 
 type LockClient = ReturnType<typeof createServiceClient>
 
@@ -109,9 +111,13 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const result = await runGhlSync({ full })
+    // Prune/reconcile (all-deals scan) is CPU-heavy and doesn't need to run on
+    // every ping — gate it to ~15 min. New-lead create/update still runs each ping.
+    const maintenance = full || await isDue(supabase, MAINTENANCE_KEY, MAINTENANCE_INTERVAL_MS)
+    const result = await runGhlSync({ full, maintenance })
+    if (maintenance) await markRan(supabase, MAINTENANCE_KEY)
     console.log(
-      `[Cron GHL Sync] ${startedAt} — ${full ? 'FULL' : 'incremental'} — ` +
+      `[Cron GHL Sync] ${startedAt} — ${full ? 'FULL' : 'incremental'}${maintenance ? ' +maint' : ''} — ` +
       `synced ${result.synced} (${result.created} new, ${result.updated} updated, ` +
       `${result.skipped} skipped, ${result.errors.length} errors, ${result.duration_ms}ms)`
     )

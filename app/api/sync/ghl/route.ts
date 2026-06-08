@@ -549,7 +549,7 @@ async function fetchContactsByIds(
 async function syncAccount(
   account: GHLAccount,
   supabase: ReturnType<typeof createServiceClient>,
-  opts: { full: boolean } = { full: false },
+  opts: { full: boolean; maintenance?: boolean } = { full: false },
 ): Promise<{ created: number; updated: number; skipped: number; pruned: number; flagged: string[]; errors: string[] }> {
   const { apiKey, locationId, label } = account
   let created = 0, updated = 0, skipped = 0, pruned = 0
@@ -989,7 +989,13 @@ async function syncAccount(
   //   • FUNDED deals are NEVER auto-deleted — they're closed business. If a
   //     funded deal's opportunity vanished, we just flag it for review.
   //   • Aborts if the orphan set looks implausibly large (logic-error guard).
-  if (oppFetchComplete && opportunities.length > 0) {
+  //
+  // CPU: this whole pass (all-deals scan + reconciliation) is skipped on most
+  // runs and only runs when the caller passes maintenance=true (the cron gates
+  // it to ~15 min). The lightweight create/update of changed opps above still
+  // runs every ping. Manual/full syncs always run it (maintenance defaults on).
+  const runMaintenance = opts.maintenance !== false
+  if (runMaintenance && oppFetchComplete && opportunities.length > 0) {
     const liveOppIds = new Set<string>()
     // oppId → opportunity value (the loan amount). GHL is the authority for the
     // loan amount on active (non-funded) deals, so we reconcile below.
@@ -1184,8 +1190,10 @@ type SyncResult = {
  *
  * @param opts.full  If true, ignores the per-location last_synced_at and
  *                   re-processes every opportunity. Use as an escape hatch.
+ * @param opts.maintenance  If false, skip the prune/reconcile pass (CPU saver
+ *                   for frequent cron pings). Defaults true; full always runs it.
  */
-export async function runGhlSync(opts: { full?: boolean } = {}): Promise<SyncResult> {
+export async function runGhlSync(opts: { full?: boolean; maintenance?: boolean } = {}): Promise<SyncResult> {
   const accounts = getAccounts()
   if (accounts.length === 0) {
     throw new Error('No GHL accounts configured. Set GHL_API_KEY + GHL_LOCATION_ID.')
@@ -1193,11 +1201,12 @@ export async function runGhlSync(opts: { full?: boolean } = {}): Promise<SyncRes
 
   const supabase = createServiceClient()
   const full = !!opts.full
+  const maintenance = full || opts.maintenance !== false
   const startMs = Date.now()
 
   // Run accounts in PARALLEL — each one is self-contained (different location,
   // contact IDs don't overlap). Halves wall time when both LOs are configured.
-  const results = await Promise.all(accounts.map(account => syncAccount(account, supabase, { full })))
+  const results = await Promise.all(accounts.map(account => syncAccount(account, supabase, { full, maintenance })))
 
   const perAccount: SyncResult['per_account'] = []
   let totalCreated = 0, totalUpdated = 0, totalSkipped = 0, totalPruned = 0
