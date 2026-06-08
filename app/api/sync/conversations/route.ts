@@ -21,7 +21,7 @@ import { GHL_BASE, getAccounts, ghlHeaders } from '@/lib/ghl'
 //     ADD COLUMN IF NOT EXISTS last_outbound_at timestamptz;
 export const maxDuration = 120
 
-const DEFAULT_STATUSES = ['Pitching', 'App Intake']
+const DEFAULT_STATUSES = ['Responded', 'Pitching', 'App Intake']
 const CONCURRENCY = 5
 
 // Map GHL message/conversation types to a short human label.
@@ -68,7 +68,10 @@ type GHLMessage = { direction?: string; dateAdded?: string | number }
 type DirTs = { inboundMs: number; outboundMs: number }
 
 async function fetchMessageDirections(conversationId: string, apiKey: string): Promise<DirTs> {
-  const url = `${GHL_BASE}/conversations/${conversationId}/messages?limit=20`
+  // limit=100 (not 20): a lead who replied once and then got many outbound
+  // follow-ups would otherwise have their inbound pushed out of the window,
+  // leaving last_inbound_at null even though they DID reply.
+  const url = `${GHL_BASE}/conversations/${conversationId}/messages?limit=100`
   const headers = {
     Authorization: `Bearer ${apiKey}`,
     Version: '2021-04-15',
