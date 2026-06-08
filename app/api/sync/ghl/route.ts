@@ -485,6 +485,48 @@ async function fetchAllOpportunities(locationId: string, apiKey: string): Promis
   return { list: all, complete: reachedEnd && !errored }
 }
 
+// Incremental opportunity fetch: pull newest-updated first (order=desc, verified
+// supported) and STOP as soon as we pass `sinceMs`, so a typical run fetches only
+// the handful of opps changed since the last sync instead of all ~1 200 (~4 MB).
+// Always returns complete:false — never used for orphan-pruning (that needs the
+// full list, which the periodic maintenance run still does via fetchAllOpportunities).
+async function fetchOpportunitiesSince(locationId: string, apiKey: string, sinceMs: number): Promise<{ list: GHLOpportunity[]; complete: boolean }> {
+  const all: GHLOpportunity[] = []
+  let startAfter: string | undefined
+  let startAfterId: string | undefined
+
+  for (let page = 0; page < 50; page++) {
+    const params: Record<string, string> = { location_id: locationId, limit: '100', order: 'desc' }
+    if (startAfter)   params.startAfter   = startAfter
+    if (startAfterId) params.startAfterId = startAfterId
+
+    const res = await fetch(
+      `${GHL_BASE}/opportunities/search?${new URLSearchParams(params)}`,
+      { headers: ghlHeaders(apiKey) }
+    )
+    if (!res.ok) {
+      console.error('[GHL Sync] Incremental opportunities fetch error:', res.status, await res.text())
+      break
+    }
+    const data = await res.json() as { opportunities?: GHLOpportunity[]; meta?: { startAfter?: string; startAfterId?: string } }
+    const batch = data.opportunities || []
+
+    let reachedOld = false
+    for (const o of batch) {
+      const u = str(o.updatedAt ?? o.dateUpdated ?? o.lastStatusChangeAt)
+      const ms = u ? Date.parse(u) : 0
+      if (ms && ms < sinceMs) { reachedOld = true; break }  // older than cursor → done
+      all.push(o)
+    }
+    if (reachedOld) break
+    if (batch.length < 100 || !data.meta?.startAfter) break
+    startAfter   = data.meta.startAfter
+    startAfterId = data.meta.startAfterId
+  }
+  console.log(`[GHL Sync] Incremental: fetched ${all.length} changed opportunit${all.length === 1 ? 'y' : 'ies'} (skipped full ~1 200-row scan)`)
+  return { list: all, complete: false }
+}
+
 async function fetchAllContacts(locationId: string, apiKey: string): Promise<Map<string, GHLContact>> {
   const map = new Map<string, GHLContact>()
   let page = 1
@@ -579,19 +621,25 @@ async function syncAccount(
   console.log(`[GHL Sync:${label}] Starting${opts.full ? ' FULL' : ''} sync for location ${locationId}` +
               (lastSyncedAt ? ` (incremental — last synced ${lastSyncedAt})` : ' (full — no prior sync state)'))
 
+  const isFullSync = lastSyncedMs === 0   // first-ever run OR ?full=1
+  const runMaintenance = opts.maintenance !== false
+  // The prune needs the COMPLETE live-opp set, so do a full opp fetch on first/
+  // forced runs and on maintenance runs (gated to ~15 min by the cron). On plain
+  // incremental pings, early-stop after the changed opps — the big CPU saver.
+  const needFullOpps = isFullSync || runMaintenance
+
   // ── 1. Fetch lookup maps ───────────────────────────────────────────────────
   // Contacts are intentionally NOT in this Promise.all — on incremental syncs
   // we only need contacts for the small set of opportunities that actually
-  // changed, so fetching all 5 000 every 5 min is pure waste.
+  // changed, so fetching all of them every ping is pure waste.
   const [pipelineMap, userMap, oppResult, customFieldDefs] = await Promise.all([
     fetchPipelineStageMap(locationId, apiKey),
     fetchUserMap(locationId, apiKey, supabase),
-    fetchAllOpportunities(locationId, apiKey),
+    needFullOpps ? fetchAllOpportunities(locationId, apiKey) : fetchOpportunitiesSince(locationId, apiKey, lastSyncedMs),
     fetchCustomFieldDefs(locationId, apiKey),
   ])
   const opportunities = oppResult.list
   const oppFetchComplete = oppResult.complete
-  const isFullSync = lastSyncedMs === 0   // first-ever run OR ?full=1
 
   // ── 1a. Pre-filter to opportunities that actually changed ────────────────
   // Was done per-iteration below; lifting it here lets us scope the contact
@@ -991,10 +1039,9 @@ async function syncAccount(
   //   • Aborts if the orphan set looks implausibly large (logic-error guard).
   //
   // CPU: this whole pass (all-deals scan + reconciliation) is skipped on most
-  // runs and only runs when the caller passes maintenance=true (the cron gates
-  // it to ~15 min). The lightweight create/update of changed opps above still
-  // runs every ping. Manual/full syncs always run it (maintenance defaults on).
-  const runMaintenance = opts.maintenance !== false
+  // runs and only runs on maintenance runs (the cron gates it to ~15 min, and
+  // those are the runs that fetched the COMPLETE opp list). The lightweight
+  // create/update of changed opps above still runs every ping.
   if (runMaintenance && oppFetchComplete && opportunities.length > 0) {
     const liveOppIds = new Set<string>()
     // oppId → opportunity value (the loan amount). GHL is the authority for the
