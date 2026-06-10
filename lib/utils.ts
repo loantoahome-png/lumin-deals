@@ -8,7 +8,7 @@ export function cn(...inputs: ClassValue[]) {
 // 15-minute time options for easy dropdown pickers (value "HH:MM", label "9:00 AM").
 export const TIME_OPTIONS: { value: string; label: string }[] = (() => {
   const out: { value: string; label: string }[] = []
-  for (let h = 0; h < 24; h++) {
+  for (let h = 8; h <= 18; h++) {
     for (const m of [0, 15, 30, 45]) {
       const value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
       const hour12 = h % 12 === 0 ? 12 : h % 12
