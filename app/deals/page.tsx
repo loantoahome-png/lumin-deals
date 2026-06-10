@@ -210,6 +210,8 @@ function DealsPageInner() {
   useEffect(() => { fetchDeals() }, [fetchDeals])
 
   const filtered = deals.filter(d => {
+    const ghlSt = (d.ghl_status ?? '').toLowerCase()
+    if (ghlSt === 'lost' || ghlSt.startsWith('abandon')) return false
     const matchSearch = !search ||
       d.name.toLowerCase().includes(search.toLowerCase()) ||
       d.property_address?.toLowerCase().includes(search.toLowerCase()) ||
