@@ -1052,6 +1052,12 @@ async function syncAccount(
     // opportunity id ends up stored there, breaking the "open in GHL" link).
     // We reconcile it from the live opportunity below.
     const oppContact = new Map<string, string>()
+    // oppId → the stage/status the live opportunity resolves to. The per-ping
+    // loop only re-resolves opps changed since the cursor, so a stage move that
+    // slipped the incremental window (or arrived via a webhook we couldn't parse)
+    // strands the deal on its old stage forever. On maintenance runs we hold the
+    // COMPLETE opp list, so we recompute every live deal's stage and fix drift.
+    const oppStageInfo = new Map<string, { status: string; pipeline_group: string; ghl_status: string | null }>()
     for (const o of opportunities) {
       const id = str(o.id)
       if (!id) continue
@@ -1060,6 +1066,18 @@ async function syncAccount(
       if (v != null && v > 0) oppValue.set(id, v)
       const cid = str((o.contact as { id?: string } | undefined)?.id ?? o.contactId)
       if (cid) oppContact.set(id, cid)
+      // Resolve stage/status exactly as the main create/update loop does.
+      const sId = str(o.pipelineStageId)
+      const sInfo = sId ? pipelineMap.get(sId) : undefined
+      const sName = sInfo?.name ?? str(o.pipelineStageName)
+      const plName = sInfo?.pipelineName ?? str(o.pipelineName)
+      const st = resolveGHLStage(sName, plName)
+      if (st) {
+        const os = (str(o.status) ?? '').toLowerCase()
+        const dead = os === 'lost' || os.startsWith('abandon')
+        const grp = (dead && st.pipeline_group !== 'Funded') ? 'Not Ready' : st.pipeline_group
+        oppStageInfo.set(id, { status: st.status, pipeline_group: grp, ghl_status: os || null })
+      }
     }
 
     // Pull this location's deals that have an opportunity id (paginated).
@@ -1067,14 +1085,14 @@ async function syncAccount(
     // a JSON blob that was ~0.5 GB/mo of egress to read for the whole table every
     // run, just to diff it. DND is reconciled below by writing the contact's
     // current value directly (see the loop), so we never need the stored copy.
-    type PruneRow = { id: string; name: string | null; ghl_opportunity_id: string | null; pipeline_group: string | null; loan_amount: number | null; ghl_contact_id: string | null }
+    type PruneRow = { id: string; name: string | null; ghl_opportunity_id: string | null; pipeline_group: string | null; status: string | null; loan_amount: number | null; ghl_contact_id: string | null }
     const locDeals: PruneRow[] = []
     let pOffset = 0
     const PRUNE_PAGE = 1000
     for (;;) {
       const { data: pr, error: pErr } = await supabase
         .from('deals')
-        .select('id, name, ghl_opportunity_id, pipeline_group, loan_amount, ghl_contact_id')
+        .select('id, name, ghl_opportunity_id, pipeline_group, status, loan_amount, ghl_contact_id')
         .eq('ghl_location_id', locationId)
         .not('ghl_opportunity_id', 'is', null)
         .order('id', { ascending: true })
@@ -1106,6 +1124,10 @@ async function syncAccount(
     // some rows had a stale/wrong value (even an opportunity id) stored here,
     // which broke the "open in GHL" link. We fix it for every live deal.
     const contactFixes: Array<{ id: string; ghl_contact_id: string }> = []
+    // Stage/status drift fixes — see oppStageInfo above. Non-funded deals only:
+    // a funded deal carries Arive-authoritative data and must not be demoted off
+    // a (possibly lagging) GHL stage, same guard as loan_amount below.
+    const stageFixes: Array<{ id: string; status: string; pipeline_group: string; ghl_status: string | null }> = []
     for (const d of locDeals) {
       if (!d.ghl_opportunity_id) continue
       if (!liveOppIds.has(d.ghl_opportunity_id)) {
@@ -1117,11 +1139,15 @@ async function syncAccount(
         }
         continue
       }
-      // Opportunity still exists → reconcile loan amount (non-funded only).
+      // Opportunity still exists → reconcile loan amount + stage (non-funded only).
       if (d.pipeline_group !== 'Funded') {
         const v = oppValue.get(d.ghl_opportunity_id)
         if (v != null && Number(v) !== Number(d.loan_amount ?? NaN)) {
           amountFixes.push({ id: d.id, loan_amount: v })
+        }
+        const resolved = oppStageInfo.get(d.ghl_opportunity_id)
+        if (resolved && (resolved.status !== d.status || resolved.pipeline_group !== d.pipeline_group)) {
+          stageFixes.push({ id: d.id, status: resolved.status, pipeline_group: resolved.pipeline_group, ghl_status: resolved.ghl_status })
         }
       }
       // Reconcile contact id (all stages) from the opportunity's real contact.
@@ -1152,6 +1178,23 @@ async function syncAccount(
         for (const e of res) { if (e) { console.error(`[GHL Sync:${label}] loan_amount fix failed:`, e.message) } else af++ }
       }
       console.log(`[GHL Sync:${label}] Reconciled loan_amount on ${af} non-funded deal(s) from the opportunity value.`)
+    }
+
+    // Apply stage/status corrections (bounded concurrency). Writing `status`
+    // trips the Postgres trigger that resets stage_changed_at — correct here,
+    // since the deal genuinely moved stage in GHL.
+    if (stageFixes.length > 0) {
+      const ST_CONC = 20
+      let sf = 0
+      for (let i = 0; i < stageFixes.length; i += ST_CONC) {
+        const chunk = stageFixes.slice(i, i + ST_CONC)
+        const res = await Promise.all(chunk.map(f =>
+          supabase.from('deals')
+            .update({ status: f.status, pipeline_group: f.pipeline_group, ghl_status: f.ghl_status })
+            .eq('id', f.id).then(r => r.error)))
+        for (const e of res) { if (e) { console.error(`[GHL Sync:${label}] stage fix failed:`, e.message) } else sf++ }
+      }
+      console.log(`[GHL Sync:${label}] Reconciled stage/status on ${sf} drifted deal(s) from the live opportunity.`)
     }
 
     // Apply DND corrections (bounded concurrency).

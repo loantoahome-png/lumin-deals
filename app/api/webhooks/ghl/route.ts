@@ -460,6 +460,32 @@ export async function POST(req: NextRequest) {
       maybeSet('dnd_settings',      fields.dndSettings)
 
       await supabase.from('deals').update(patch).eq('id', match.id)
+
+      // Apply pipeline stage/status if the payload carries it. GHL opportunity
+      // workflow webhooks (e.g. the "LD stage matt" workflow) deliver the stage
+      // under the MISSPELLED key `pipleline_stage` and the open/won/lost/abandoned
+      // status under `status` — neither of which the dedicated stage-change branch
+      // above reads, so a stage move arriving this way would otherwise update
+      // contact fields but silently leave the deal on its old stage.
+      const whStageName = pick(body, 'pipelineStageName', 'stageName', 'stage_name',
+                               'pipelineStage', 'pipleline_stage', 'pipeline_stage')
+      const whStage = resolveGHLStage(whStageName, pick(body, 'pipelineName', 'pipeline_name', 'pipeline'))
+      if (whStage) {
+        const oppStatus = (pick(body, 'status') || '').toLowerCase()
+        const dead = oppStatus === 'lost' || oppStatus.startsWith('abandon')
+        const newGroup = (dead && whStage.pipeline_group !== 'Funded') ? 'Not Ready' : whStage.pipeline_group
+        // Conditional: only write when status actually changes, so stage_changed_at
+        // (Postgres trigger) resets on a real move, not on every workflow echo of
+        // the current stage. Never demote a Funded deal (Arive-authoritative).
+        const { error: stErr } = await supabase.from('deals')
+          .update({ status: whStage.status, pipeline_group: newGroup, ...(oppStatus ? { ghl_status: oppStatus } : {}) })
+          .eq('id', match.id)
+          .neq('pipeline_group', 'Funded')
+          .neq('status', whStage.status)
+        if (stErr) console.error('[GHL Webhook] stage apply error:', stErr.message)
+        else console.log(`[GHL Webhook] Stage applied from workflow payload → ${whStage.status} (${newGroup})`)
+      }
+
       console.log(`[GHL Webhook] Updated deal ${match.id} (matched by ${match.matchedBy})`)
       return NextResponse.json({ success: true, action: 'updated', dealId: match.id, matchedBy: match.matchedBy })
     }
