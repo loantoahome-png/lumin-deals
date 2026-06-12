@@ -445,6 +445,17 @@ export type RowPlan = {
   newLoanData?: Record<string, unknown>  // full insert payload for create_loan / create_new
 }
 
+// "Arive" is our LOS, not a marketing lead source. When it shows up in the
+// Arive CSV's "Lead Source" column it just means the loan was originated in
+// Arive with no real source recorded — copying it into `source` creates a
+// phantom "Arive" bucket that pollutes the Lead Spend report. Reject it (and
+// other non-source placeholders) so `source` is left unset → shows as no-source.
+const NON_SOURCE_VALUES = new Set(['arive', 'los', 'n/a', 'na'])
+export function isRealLeadSource(v: unknown): v is string {
+  const s = typeof v === 'string' ? v.trim() : ''
+  return s.length > 0 && !NON_SOURCE_VALUES.has(s.toLowerCase())
+}
+
 // Build a full insert payload for a brand-new deal from an Arive row.
 function buildNewDealFromPatch(patch: AriveImportPatch): Record<string, unknown> {
   const data: Record<string, unknown> = {}
@@ -461,7 +472,8 @@ function buildNewDealFromPatch(patch: AriveImportPatch): Record<string, unknown>
   data.status = status
   data.pipeline_group = pipelineGroupForStatus(status)
   // Lead source → the dashboard's `source` column (so it attributes correctly).
-  if (!data.source && data.lead_source_agg) data.source = data.lead_source_agg
+  // Guard against the LOS name ("Arive") becoming a phantom source (see above).
+  if (!data.source && isRealLeadSource(data.lead_source_agg)) data.source = data.lead_source_agg
   return data
 }
 
