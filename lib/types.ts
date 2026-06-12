@@ -119,10 +119,6 @@ export type DealTask = {
   priority: string | null           // 'high' | 'normal' | 'low'
   completed_at: string | null       // ISO timestamp when marked done
   created_at: string
-  // ── GHL mirror (optional; only set on tasks synced from GoHighLevel) ──
-  ghl_task_id?: string | null       // the GHL task id — present on mirrored tasks
-  ghl_contact_id?: string | null    // the GHL contact the task belongs to
-  source?: string | null            // 'ghl' = mirrored from GHL; null/undefined = created on the dashboard
 }
 
 export const TASK_ASSIGNEES = [
