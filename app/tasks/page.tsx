@@ -359,21 +359,27 @@ function TaskRow({ task, dealName, ghlUrl, onToggle, onDelete, onEdit }: {
 }) {
   const due = relativeDue(task.due_at)
   const done = !!task.completed_at
+  // GHL-mirrored tasks are read-only on the dashboard — completion/edits live in
+  // GoHighLevel and flow back via the webhook.
+  const isGhl = task.source === 'ghl'
   return (
     <div className={`flex items-start gap-3 px-4 py-3 rounded-lg border transition group ${done ? 'bg-slate-50 border-slate-100 opacity-70' : 'bg-white border-slate-200 hover:border-blue-300 hover:shadow-sm'}`}>
-      <button onClick={onToggle} className="shrink-0 mt-0.5" title={done ? 'Mark incomplete' : 'Mark complete'}>
+      <button onClick={isGhl ? undefined : onToggle} disabled={isGhl} className="shrink-0 mt-0.5 disabled:cursor-default" title={isGhl ? 'Completion is managed in GoHighLevel' : done ? 'Mark incomplete' : 'Mark complete'}>
         {done ? <CheckCircle2 className="w-5 h-5 text-emerald-500" /> : <Circle className="w-5 h-5 text-slate-300 hover:text-slate-500 transition" />}
       </button>
-      {/* Whole info area is click-to-edit */}
+      {/* Whole info area is click-to-edit (disabled for GHL-mirrored tasks) */}
       <button
         type="button"
-        onClick={onEdit}
-        disabled={!onEdit}
+        onClick={isGhl ? undefined : onEdit}
+        disabled={!onEdit || isGhl}
         className="flex-1 min-w-0 text-left cursor-pointer disabled:cursor-default"
-        title={onEdit ? 'Click to edit' : undefined}
+        title={isGhl ? 'Synced from GoHighLevel — edit it there' : onEdit ? 'Click to edit' : undefined}
       >
-        <div className={`text-sm ${done ? 'line-through text-slate-400' : 'text-slate-900 font-medium'}`}>
-          {task.title}
+        <div className={`text-sm flex items-center gap-1.5 ${done ? 'line-through text-slate-400' : 'text-slate-900 font-medium'}`}>
+          <span>{task.title}</span>
+          {isGhl && (
+            <span className="shrink-0 text-[9px] font-bold text-blue-700 bg-blue-100 border border-blue-200 rounded px-1 py-0.5 no-underline">GHL</span>
+          )}
         </div>
         {task.description && (
           <div className="text-xs text-slate-500 mt-0.5 whitespace-pre-wrap">{task.description}</div>
@@ -431,11 +437,13 @@ function TaskRow({ task, dealName, ghlUrl, onToggle, onDelete, onEdit }: {
         )}
       </div>
 
-      <div className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
-        <button onClick={onDelete} className="p-1 text-slate-300 hover:text-red-500" title="Delete">
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-      </div>
+      {!isGhl && (
+        <div className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
+          <button onClick={onDelete} className="p-1 text-slate-300 hover:text-red-500" title="Delete">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }
