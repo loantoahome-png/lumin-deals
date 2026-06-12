@@ -12,7 +12,7 @@ import { use } from 'react'
 import {
   ArrowLeft, Check, Trash2, X, ExternalLink,
   DollarSign, Home, Lock, Hash, User, Users,
-  Calendar, Bell, MessageSquare, Building2, Phone, AlertOctagon, ClipboardList, FileText,
+  Calendar, MessageSquare, Building2, Phone, AlertOctagon, ClipboardList, FileText,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import LoanHistory from '@/components/LoanHistory'
@@ -892,83 +892,6 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                     <option value="no">No</option>
                   </select>
                 </Field>
-              </div>
-            </Section>
-
-            {/* Rate Watch */}
-            <Section title="Rate Watch" icon={<Bell className="w-4 h-4" />}>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-slate-700">Active</p>
-                    <p className="text-xs text-slate-400 mt-0.5">Alert when 10yr nears the rate at close</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => set('rate_watch_active', !form.rate_watch_active)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                      form.rate_watch_active ? 'bg-blue-600' : 'bg-slate-200'
-                    }`}
-                  >
-                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                      form.rate_watch_active ? 'translate-x-6' : 'translate-x-1'
-                    }`} />
-                  </button>
-                </div>
-
-                <Field label="10-Year Treasury Yield at Close (%)">
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={form.rate_at_close_10yr ?? ''}
-                    onChange={e => set('rate_at_close_10yr', e.target.value ? Number(e.target.value) : null)}
-                    className={inp}
-                  />
-                </Field>
-
-                {form.rate_at_close_10yr != null && (
-                  <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2.5">
-                    <p className="text-xs font-semibold text-blue-700 mb-0.5">Alert threshold</p>
-                    <p className="text-xs text-blue-600 font-mono">
-                      10yr drops to <strong>{(Number(form.rate_at_close_10yr) - 0.10).toFixed(2)}%</strong> or below
-                    </p>
-                    <p className="text-xs text-blue-500 mt-1">
-                      That&apos;s 10 bps below the {Number(form.rate_at_close_10yr).toFixed(2)}% close rate — no alert if rates rise
-                    </p>
-                  </div>
-                )}
-
-                {form.rate_watch_active && (
-                  <Field label="Rate Watch Notes">
-                    <textarea
-                      value={form.rate_watch_notes || ''}
-                      onChange={e => set('rate_watch_notes', e.target.value)}
-                      rows={2}
-                      className={inp + ' resize-none'}
-                    />
-                  </Field>
-                )}
-
-                {form.rate_watch_alerted_at ? (
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                    <p className="text-xs font-semibold text-amber-800">⚡ Alert fired!</p>
-                    <p className="text-xs text-amber-600 mt-0.5">
-                      10yr entered window on {new Date(form.rate_watch_alerted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => set('rate_watch_alerted_at', null)}
-                      className="text-xs text-amber-700 underline mt-1"
-                    >
-                      Reset (watch for next crossing)
-                    </button>
-                  </div>
-                ) : form.rate_watch_active && form.rate_at_close_10yr != null ? (
-                  <div className="flex items-center gap-1.5 text-xs text-emerald-600">
-                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    Watching — no alert yet
-                  </div>
-                ) : null}
               </div>
             </Section>
 

@@ -23,11 +23,11 @@ const LOCK_TTL_MS = 5 * 60 * 1000   // 5 min — longer than any healthy run
 // 2nd-callback check don't need to run that often. Gate them via sync_state
 // so they run on their own cadence regardless of how fast the cron pings.
 const CONV_REFRESH_KEY = 'conversations_refresh_last'
-const CONV_REFRESH_INTERVAL_MS = 15 * 60 * 1000   // 15 min
+const CONV_REFRESH_INTERVAL_MS = 30 * 60 * 1000   // 30 min
 const CALLBACK_CHECK_KEY = 'second_callback_last'
 const CALLBACK_CHECK_INTERVAL_MS = 5 * 60 * 1000  //  5 min
 const MAINTENANCE_KEY = 'ghl_maintenance_last'
-const MAINTENANCE_INTERVAL_MS = 15 * 60 * 1000    // 15 min — prune/reconcile pass
+const MAINTENANCE_INTERVAL_MS = 60 * 60 * 1000    // 60 min — prune/reconcile pass
 
 type LockClient = ReturnType<typeof createServiceClient>
 

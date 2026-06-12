@@ -7,7 +7,7 @@ import { Deal } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import DashboardNotes from '@/components/DashboardNotes'
 import {
-  DollarSign, TrendingUp, Users, CheckCircle, Clock, AlertCircle, Bell, TrendingDown, Calendar, X,
+  DollarSign, TrendingUp, Users, CheckCircle, Clock, AlertCircle, Calendar, X,
   AlertTriangle, ChevronRight, Flame,
 } from 'lucide-react'
 import {
@@ -72,136 +72,6 @@ const STAGE_COLORS: Record<string, string> = {
   'Signed':   '#16a34a', // green-600
 }
 
-// ── Treasury yield widget ─────────────────────────────────────────────────────
-type YieldData = {
-  current: number
-  date: string
-  dayChange: number
-  weekChange: number
-  sparkline: { date: string; value: number }[]
-}
-
-function TreasuryWidget() {
-  const [data, setData] = useState<YieldData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(false)
-  const [rateWatchCount, setRateWatchCount] = useState(0)
-  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
-
-  function fetchYield() {
-    return fetch('/api/treasury')
-      .then(r => r.json())
-      .then(d => {
-        // Validate the shape before trusting it. /api/treasury can occasionally
-        // return an error/partial payload (e.g. upstream FRED hiccup) that lacks
-        // sparkline/dayChange — rendering that crashed the whole dashboard with
-        // "Cannot read properties of undefined (reading 'length')". Treat a
-        // malformed response as "unavailable" instead of crashing.
-        if (!d || typeof d.dayChange !== 'number' || typeof d.weekChange !== 'number' || !Array.isArray(d.sparkline)) {
-          setError(true); setLoading(false); return
-        }
-        setData(d as YieldData); setLoading(false); setLastRefreshed(new Date())
-      })
-      .catch(() => { setError(true); setLoading(false) })
-  }
-
-  useEffect(() => {
-    fetchYield()
-
-    supabase
-      .from('deals')
-      .select('id', { count: 'exact' })
-      .eq('rate_watch_active', true)
-      .then(({ count }) => setRateWatchCount(count || 0))
-
-    // Auto-refresh every 60 minutes so the widget stays live without a page reload
-    const interval = setInterval(fetchYield, 60 * 60 * 1000)
-    return () => clearInterval(interval)
-  }, [])
-
-  if (loading) {
-    return (
-      <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 flex items-center gap-3">
-        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600" />
-        <span className="text-sm text-slate-400">Loading market data…</span>
-      </div>
-    )
-  }
-
-  if (error || !data) {
-    return (
-      <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
-        <p className="text-sm text-slate-400">Market data unavailable</p>
-      </div>
-    )
-  }
-
-  const dayUp = data.dayChange >= 0
-  const weekUp = data.weekChange >= 0
-
-  return (
-    <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl shadow-sm p-5 text-white">
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">10-Year Treasury Yield</p>
-          <div className="flex items-end gap-3 mt-1">
-            <span className="text-4xl font-bold">{data.current.toFixed(2)}%</span>
-            <div className="mb-1 flex flex-col gap-0.5">
-              <span className={`text-sm font-semibold flex items-center gap-1 ${dayUp ? 'text-red-400' : 'text-emerald-400'}`}>
-                {dayUp ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
-                {dayUp ? '+' : ''}{data.dayChange.toFixed(3)} today
-              </span>
-              <span className={`text-xs flex items-center gap-1 ${weekUp ? 'text-red-300' : 'text-emerald-300'}`}>
-                {weekUp ? '+' : ''}{data.weekChange.toFixed(3)} this week
-              </span>
-            </div>
-          </div>
-          <p className="text-slate-500 text-xs mt-1">
-            As of {data.date} · Source: FRED / St. Louis Fed
-            {lastRefreshed && (
-              <span className="ml-1 opacity-60">
-                · refreshed {lastRefreshed.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-              </span>
-            )}
-          </p>
-        </div>
-        {rateWatchCount > 0 && (
-          <div className="flex items-center gap-1.5 bg-amber-500 text-white px-3 py-1.5 rounded-lg text-sm font-semibold">
-            <Bell className="w-3.5 h-3.5" />
-            {rateWatchCount} watching
-          </div>
-        )}
-      </div>
-
-      {/* Sparkline */}
-      <div className="h-16 mt-2">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data.sparkline} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
-            <Line
-              type="monotone"
-              dataKey="value"
-              stroke={dayUp ? '#f87171' : '#34d399'}
-              strokeWidth={2}
-              dot={false}
-            />
-            <ReferenceLine
-              y={data.current}
-              stroke="rgba(255,255,255,0.1)"
-              strokeDasharray="3 3"
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      {rateWatchCount > 0 && (
-        <p className="text-slate-400 text-xs mt-2">
-          {rateWatchCount} deal{rateWatchCount !== 1 ? 's' : ''} on rate watch — checked Mon–Fri at 10 AM ET
-        </p>
-      )}
-    </div>
-  )
-}
-
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [deals, setDeals] = useState<Deal[]>([])
@@ -224,7 +94,7 @@ export default function Dashboard() {
       const DASHBOARD_COLS =
         'id,name,status,pipeline_group,loan_amount,loan_officer,loan_type,' +
         'created_at,funded_date,next_action,next_action_assignee,next_action_due,' +
-        'rate_watch_active,rate_watch_alerted_at,rate_watch_target'
+        'next_action_due'
       const data = await fetchAllDeals(
         q => q.order('created_at', { ascending: false }),
         DASHBOARD_COLS,
@@ -303,8 +173,6 @@ export default function Dashboard() {
   const recentDeals = [...escrowDeals]
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .slice(0, 5)
-  const rateWatchAlerted = deals.filter(d => d.rate_watch_active && d.rate_watch_alerted_at) // always unfiltered
-
   // ── Today widget: escrows with follow-ups due today or overdue ──────────────
   const now = new Date()
   const endOfToday = new Date(); endOfToday.setHours(23, 59, 59, 999)
@@ -421,35 +289,13 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Market Pulse + KPIs */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        <div className="lg:col-span-1">
-          <TreasuryWidget />
-        </div>
-        <div className="lg:col-span-3 grid grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-4">
-          <KPICard label="Active Escrow Volume"  value={formatCurrency(totalPipelineLoanVol)} sub={`${escrowDeals.length} escrow${escrowDeals.length !== 1 ? 's' : ''}`} icon={<TrendingUp className="w-5 h-5" />} color="blue" />
-          <KPICard label="Funding Soon"          value={formatCurrency(fundingSoonVolume)}    sub={`${fundingSoon.length} CTC / Docs Out / Signed`} icon={<DollarSign className="w-5 h-5" />} color="green" />
-          <KPICard label="Total Escrows"         value={escrowDeals.length.toString()}        sub="loans in process"                                  icon={<Users className="w-5 h-5" />} color="purple" />
-          <KPICard label="Avg Loan Size"         value={formatCurrency(avgDealSize)}          sub="active escrows"                                    icon={<CheckCircle className="w-5 h-5" />} color="amber" />
-        </div>
+      {/* KPIs */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <KPICard label="Active Escrow Volume"  value={formatCurrency(totalPipelineLoanVol)} sub={`${escrowDeals.length} escrow${escrowDeals.length !== 1 ? 's' : ''}`} icon={<TrendingUp className="w-5 h-5" />} color="blue" />
+        <KPICard label="Funding Soon"          value={formatCurrency(fundingSoonVolume)}    sub={`${fundingSoon.length} CTC / Docs Out / Signed`} icon={<DollarSign className="w-5 h-5" />} color="green" />
+        <KPICard label="Total Escrows"         value={escrowDeals.length.toString()}        sub="loans in process"                                  icon={<Users className="w-5 h-5" />} color="purple" />
+        <KPICard label="Avg Loan Size"         value={formatCurrency(avgDealSize)}          sub="active escrows"                                    icon={<CheckCircle className="w-5 h-5" />} color="amber" />
       </div>
-
-      {/* Rate Watch Alerts Banner */}
-      {rateWatchAlerted.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Bell className="w-4 h-4 text-amber-600" />
-            <h3 className="font-semibold text-amber-800 text-sm">Rate Watch Triggered — {rateWatchAlerted.length} deal{rateWatchAlerted.length !== 1 ? 's' : ''} hit their target yield</h3>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {rateWatchAlerted.map(d => (
-              <Link key={d.id} href={`/deals/${d.id}`} className="text-xs bg-amber-100 text-amber-800 hover:bg-amber-200 px-3 py-1 rounded-full font-medium transition-colors">
-                {d.name} → {d.rate_watch_target}% target
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Today widget — escrow follow-ups due today + overdue */}
       {(todayItems.length > 0) && (
