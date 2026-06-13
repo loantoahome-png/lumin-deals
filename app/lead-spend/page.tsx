@@ -124,18 +124,22 @@ export default function LeadSpendPage() {
   const filtered = useMemo(() => {
     const startMs = start?.getTime() ?? 0
     const endMs   = end?.getTime() ?? Infinity
+    const isBounded = start != null || end != null   // a real date range is active (not "All time")
     const loLower = lo.toLowerCase()
     return deals.filter(d => {
       // Anchor each deal on a REAL date, never created_at (that's the DB
       // migration date — identical for every row, so it can't segment ranges):
-      //   • Funded loans → funded_date (the month it closed / revenue landed)
+      //   • Funded loans → funded_date STRICTLY (the month money landed). Do NOT
+      //     fall back to date_added_ghl: a funded loan with no funded_date has an
+      //     unknown funding month, and anchoring it on the lead-in date mis-counts
+      //     a loan that funded in a prior month as "funded this month".
       //   • Everything else → date_added_ghl (when the lead actually came in)
-      // Deals with no real date (e.g. self-sourced with no GHL date and not yet
-      // funded) are excluded from time-bounded ranges.
       const dateStr = d.pipeline_group === 'Funded'
-        ? (d.funded_date || d.date_added_ghl)
+        ? d.funded_date
         : d.date_added_ghl
-      if (!dateStr) return false
+      // No usable date → can't place it in time. Show it only under "All time",
+      // never inside a bounded range (where it would distort the month's totals).
+      if (!dateStr) return !isBounded
       // Date-only values ("2026-05-01") parse as UTC midnight, which can fall
       // just before the LOCAL month start (e.g. Pacific) and wrongly drop
       // 1st-of-month loans. Parse them as LOCAL midnight so they align with the
