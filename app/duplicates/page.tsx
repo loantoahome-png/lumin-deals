@@ -7,11 +7,11 @@ import { Deal } from '@/lib/types'
 import Link from 'next/link'
 import {
   Loader2, Mail, Phone, User, GitMerge, AlertTriangle,
-  CheckCircle2, ExternalLink, ChevronDown, ChevronUp,
+  CheckCircle2, ExternalLink, ChevronDown, ChevronUp, DollarSign,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
-type MatchType = 'email' | 'phone' | 'name'
+type MatchType = 'email' | 'phone' | 'name' | 'amount'
 
 type DuplicateGroup = {
   key: string
@@ -60,6 +60,7 @@ function detectDuplicates(deals: Deal[]): DuplicateGroup[] {
   const byEmail   = new Map<string, Deal[]>()
   const byPhone   = new Map<string, Deal[]>()
   const byName    = new Map<string, Deal[]>()
+  const byAmount  = new Map<string, Deal[]>()   // LO + exact loan amount (funded only)
 
   for (const d of deals) {
     const e = normEmail(d.email)
@@ -68,6 +69,15 @@ function detectDuplicates(deals: Deal[]): DuplicateGroup[] {
     if (p) (byPhone.get(p) ?? byPhone.set(p, []).get(p)!).push(d)
     const n = normName(d.name)
     if (n) (byName.get(n) ?? byName.set(n, []).get(n)!).push(d)
+    // Cross-source funded duplicates: GHL and Arive create separate funded rows
+    // for the same loan with no shared key (and often different email/phone or
+    // name formatting), so email/phone/name miss them. A borrower almost never
+    // has two FUNDED loans for the exact same amount with the same LO — so that
+    // combo is a strong duplicate signal. Scoped to funded to keep it low-noise.
+    if (d.pipeline_group === 'Funded' && d.loan_amount) {
+      const k = `${(d.loan_officer ?? '').toLowerCase().trim()}|${Math.round(d.loan_amount * 100)}`
+      ;(byAmount.get(k) ?? byAmount.set(k, []).get(k)!).push(d)
+    }
   }
 
   // Build groups, deduping deals across detection methods (so a group of 3 isn't reported 3x)
@@ -76,17 +86,24 @@ function detectDuplicates(deals: Deal[]): DuplicateGroup[] {
 
   function addGroup(matchType: MatchType, matchValue: string, deals: Deal[]) {
     if (deals.length < 2) return
-    // Skip legit multi-loan groups (each deal is its own distinct opportunity)
-    if (isLegitMultiLoan(deals)) return
+    // Skip legit multi-loan groups (each deal is its own distinct opportunity) —
+    // EXCEPT for amount matches: two same-amount funded loans for one LO are a
+    // duplicate even when each carries its own GHL opportunity id (a duplicated
+    // opportunity, or a GHL row paired with an Arive row that has no opp id).
+    if (matchType !== 'amount' && isLegitMultiLoan(deals)) return
     const ids = deals.map(d => d.id).sort().join('|')
     if (seenGroupSignatures.has(ids)) return
     seenGroupSignatures.add(ids)
     groups.push({ key: `${matchType}:${matchValue}`, matchType, matchValue, deals })
   }
 
+  // email/phone/name first so they take precedence; amount fills the cross-source gap.
   for (const [v, ds] of byEmail) addGroup('email', v, ds)
   for (const [v, ds] of byPhone) addGroup('phone', v, ds)
   for (const [v, ds] of byName)  addGroup('name', v, ds)
+  for (const ds of byAmount.values()) {
+    addGroup('amount', `${ds[0].loan_officer || '—'} · ${formatCurrency(ds[0].loan_amount ?? 0)}`, ds)
+  }
 
   // Sort: largest groups first, then most-recent
   return groups.sort((a, b) =>
@@ -100,6 +117,7 @@ const SCORE_FIELDS: (keyof Deal)[] = [
   'loan_officer','loan_type','loan_amount','property_address',
   'credit_score','rate','investor','occupancy',
   'email','phone','lock_expiration','signing_date',
+  'funded_date','arive_file_no',   // the authoritative Arive row should win as primary
 ]
 function completenessScore(d: Deal): number {
   let n = 0
@@ -127,6 +145,7 @@ const MATCH_LABELS: Record<MatchType, { label: string; icon: React.ReactNode }> 
   email:           { label: 'Same email',           icon: <Mail className="w-3.5 h-3.5" /> },
   phone:           { label: 'Same phone',           icon: <Phone className="w-3.5 h-3.5" /> },
   name:            { label: 'Same name',            icon: <User className="w-3.5 h-3.5" /> },
+  amount:          { label: 'Same LO + amount (funded)', icon: <DollarSign className="w-3.5 h-3.5" /> },
 }
 
 export default function DuplicatesPage() {
@@ -237,7 +256,7 @@ export default function DuplicatesPage() {
       <div className="flex items-center gap-2">
         <span className="text-xs text-slate-500">Match type:</span>
         <div className="flex bg-slate-100 rounded-lg p-1 gap-0.5">
-          {(['all','email','phone','name'] as const).map(t => {
+          {(['all','email','phone','name','amount'] as const).map(t => {
             const count = t === 'all' ? groups.length : groups.filter(g => g.matchType === t).length
             return (
               <button
