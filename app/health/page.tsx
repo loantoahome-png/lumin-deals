@@ -126,6 +126,23 @@ export default function HealthPage() {
   const overallFieldsTotal = fieldStats.reduce((s, f) => s + f.total, 0)
   const overallPct = overallFieldsTotal > 0 ? (overallFieldsFilled / overallFieldsTotal) * 100 : 0
 
+  // ── Funded ⇄ Arive reconciliation ──────────────────────────────────────────
+  // A real (current-company) closing reconciles to an Arive loan file. A funded
+  // deal with no arive_file_no is either a LEGACY old-company loan (real, predates
+  // Arive — funded in 2025 or earlier) or an UNCONFIRMED funding: a GHL opportunity
+  // dragged to "Loan Funded" that never actually closed (e.g. the borrower couldn't
+  // qualify), or the GHL half of a loan whose Arive row is a separate record. We
+  // split them so the real problems aren't buried under the ~40 legacy loans.
+  const fundedNoArive = deals.filter(d => d.pipeline_group === 'Funded' && isBlank(d.arive_file_no))
+  const isLegacyFunded = (d: Deal) => {
+    const fd = d.funded_date
+    return !!(fd && /^\d{4}/.test(fd) && parseInt(fd.slice(0, 4), 10) <= 2025)
+  }
+  const fundedNeedsReview = fundedNoArive
+    .filter(d => !isLegacyFunded(d))
+    .sort((a, b) => (b.loan_amount ?? 0) - (a.loan_amount ?? 0))
+  const legacyFundedCount = fundedNoArive.length - fundedNeedsReview.length
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full p-12">
@@ -310,6 +327,55 @@ export default function HealthPage() {
             )
           })}
         </div>
+      </div>
+
+      {/* Funded ⇄ Arive reconciliation */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div className="px-5 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-4">
+          <div>
+            <h2 className="font-semibold text-slate-800 text-sm">Funded loans not reconciled to Arive</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              A real current-company closing has an Arive file #. These funded deals don&apos;t — review each:
+              confirm &amp; import it from Arive, or it never actually funded (move it out of &ldquo;Loan Funded&rdquo; in GHL).
+            </p>
+          </div>
+          <div className="text-right shrink-0">
+            <div className={`text-lg font-bold ${fundedNeedsReview.length ? 'text-amber-600' : 'text-emerald-600'}`}>{fundedNeedsReview.length}</div>
+            <div className="text-[10px] text-slate-400 uppercase tracking-wide">need review</div>
+          </div>
+        </div>
+        <div className="divide-y divide-slate-100 max-h-[500px] overflow-y-auto">
+          {fundedNeedsReview.map(d => (
+            <Link key={d.id} href={`/deals/${d.id}`} className="flex items-center gap-4 px-5 py-3 hover:bg-slate-50 transition">
+              <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-slate-900 truncate">{d.name}</span>
+                  <span className="text-xs text-slate-400 shrink-0">· {d.status}</span>
+                  {d.loan_officer && <span className="text-xs text-slate-400 shrink-0">· {d.loan_officer}</span>}
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  {d.source || 'no source'} · {d.funded_date || 'no funded date'} · no Arive&nbsp;#
+                </div>
+              </div>
+              <div className="text-sm font-semibold text-slate-700 tabular-nums shrink-0">
+                {d.loan_amount ? '$' + Number(d.loan_amount).toLocaleString() : '$0'}
+              </div>
+              <ExternalLink className="w-4 h-4 text-slate-400 shrink-0" />
+            </Link>
+          ))}
+          {fundedNeedsReview.length === 0 && (
+            <div className="px-5 py-12 text-center">
+              <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
+              <p className="text-sm font-semibold text-slate-800">Every current funded loan reconciles to Arive!</p>
+            </div>
+          )}
+        </div>
+        {legacyFundedCount > 0 && (
+          <div className="px-5 py-2.5 border-t border-slate-200 bg-slate-50/60 text-xs text-slate-500">
+            + {legacyFundedCount} legacy funded loan{legacyFundedCount === 1 ? '' : 's'} (funded 2025 / pre-Arive, old company) hidden — real closings with no Arive data, intentionally not flagged.
+          </div>
+        )}
       </div>
 
       {/* Worst-offender deals (lowest completeness scores first) */}
