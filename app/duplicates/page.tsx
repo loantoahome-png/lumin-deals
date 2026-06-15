@@ -7,7 +7,7 @@ import { Deal } from '@/lib/types'
 import Link from 'next/link'
 import {
   Loader2, Mail, Phone, User, GitMerge, AlertTriangle,
-  CheckCircle2, ExternalLink, ChevronDown, ChevronUp, DollarSign,
+  CheckCircle2, ExternalLink, ChevronDown, ChevronUp, DollarSign, EyeOff,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
@@ -52,6 +52,20 @@ function isLegitMultiLoan(deals: Deal[]): boolean {
   return opps.length === deals.length && new Set(opps).size === opps.length
 }
 
+// Deals explicitly linked as ONE borrower's separate loans (same borrower_id) are
+// never duplicates — e.g. a past funded loan + a new loan in process. This holds
+// even when an old loan has no GHL opportunity id (predates this company's GHL) or
+// its arive_file_no was wiped, which is exactly when isLegitMultiLoan can't tell.
+function sharesBorrowerId(deals: Deal[]): boolean {
+  const bids = deals.map(d => d.borrower_id).filter(Boolean) as string[]
+  return bids.length === deals.length && new Set(bids).size === 1
+}
+
+// Stable signature for a group = its sorted deal-id set (matches the dismiss store).
+function groupSig(deals: Deal[]): string {
+  return deals.map(d => d.id).sort().join('|')
+}
+
 // ── Detect duplicate groups ─────────────────────────────────────────────────
 // NOTE: we deliberately do NOT group by ghl_contact_id anymore — with the
 // multi-loan model, one contact legitimately has many opportunities/deals.
@@ -86,6 +100,9 @@ function detectDuplicates(deals: Deal[]): DuplicateGroup[] {
 
   function addGroup(matchType: MatchType, matchValue: string, deals: Deal[]) {
     if (deals.length < 2) return
+    // Same-borrower_id deals are intentionally-linked separate loans — never a dup,
+    // for any match type.
+    if (sharesBorrowerId(deals)) return
     // Skip legit multi-loan groups (each deal is its own distinct opportunity) —
     // EXCEPT for amount matches: two same-amount funded loans for one LO are a
     // duplicate even when each carries its own GHL opportunity id (a duplicated
@@ -158,16 +175,26 @@ export default function DuplicatesPage() {
   const [fieldOverrides, setFieldOverrides] = useState<Record<string, Record<string, string>>>({}) // groupKey → field → dealId
   const [filterType, setFilterType] = useState<'all' | MatchType>('all')
   const [resultMsg, setResultMsg] = useState<string | null>(null)
+  // Signatures the user marked "not a duplicate" — hidden from the list.
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set())
 
   async function fetchDeals() {
     setLoading(true)
     const all = await fetchAllDeals(q => q.order('updated_at', { ascending: false }))
     setDeals(all)
+    try {
+      const res = await fetch('/api/duplicates/dismiss', { cache: 'no-store' })
+      const dj = await res.json() as { ok: boolean; signatures?: string[] }
+      if (dj.ok && dj.signatures) setDismissed(new Set(dj.signatures))
+    } catch { /* non-fatal — just won't hide dismissed groups */ }
     setLoading(false)
   }
   useEffect(() => { fetchDeals() }, [])
 
-  const groups = useMemo(() => detectDuplicates(deals), [deals])
+  const groups = useMemo(
+    () => detectDuplicates(deals).filter(g => !dismissed.has(groupSig(g.deals))),
+    [deals, dismissed],
+  )
   const filteredGroups = filterType === 'all' ? groups : groups.filter(g => g.matchType === filterType)
 
   const totalDealsInDupes = groups.reduce((s, g) => s + g.deals.length, 0)
@@ -214,6 +241,27 @@ export default function DuplicatesPage() {
       setResultMsg(`Error: ${String(e)}`)
     } finally {
       setMerging(null)
+    }
+  }
+
+  // Mark a group as "not a duplicate" — hide it from the list, persistently.
+  async function dismissOne(group: DuplicateGroup) {
+    const name = group.deals[0]?.name ?? 'these'
+    if (!confirm(`Mark these ${group.deals.length} as NOT duplicates? They'll stop showing here (a borrower's separate loans, or two different people sharing a name).`)) return
+    const sig = groupSig(group.deals)
+    setDismissed(prev => new Set(prev).add(sig)) // optimistic — removes it from the list
+    try {
+      const res = await fetch('/api/duplicates/dismiss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dealIds: group.deals.map(d => d.id) }),
+      })
+      const data = await res.json()
+      if (data.ok) setResultMsg(`Marked "${name}" as not a duplicate — hidden from this list.`)
+      else { setResultMsg(`Error: ${data.error || 'dismiss failed'}`); setDismissed(prev => { const n = new Set(prev); n.delete(sig); return n }) }
+    } catch (e) {
+      setResultMsg(`Error: ${String(e)}`)
+      setDismissed(prev => { const n = new Set(prev); n.delete(sig); return n })
     }
   }
 
@@ -308,6 +356,15 @@ export default function DuplicatesPage() {
                     >
                       {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                       {isExpanded ? 'Collapse' : 'Compare side by side'}
+                    </button>
+                    <button
+                      onClick={() => dismissOne(group)}
+                      disabled={merging !== null}
+                      title="Not duplicates — a borrower's separate loans, or two different people who share a name. Hides this group for good."
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-300 rounded-md hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      <EyeOff className="w-3.5 h-3.5" />
+                      Keep separate
                     </button>
                     <button
                       onClick={() => mergeOne(group)}
