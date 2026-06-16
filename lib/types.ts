@@ -1,3 +1,20 @@
+// One PERSON (Contacts Phase 2). id = the canonical borrower_id; deals.borrower_id
+// is the foreign key. Derived + maintained by the identity resolver — not hand-edited.
+export type Contact = {
+  id: string
+  display_name: string | null
+  email: string | null
+  phone: string | null
+  ghl_contact_ids: string[]
+  loan_count: number
+  funded_count: number
+  total_funded_volume: number
+  total_comp: number
+  first_loan_at: string | null
+  last_loan_at: string | null
+  updated_at: string
+}
+
 export type Deal = {
   id: string
   borrower_id: string | null              // groups multiple loans for the same person (Option A model)

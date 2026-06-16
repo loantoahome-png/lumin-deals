@@ -1,4 +1,4 @@
-import { resolveIdentities, ResolverDeal } from '../lib/identityResolver'
+import { resolveIdentities, computeContactRows, ResolverDeal } from '../lib/identityResolver'
 
 let failures = 0
 function check(name: string, cond: boolean, detail?: unknown) {
@@ -64,6 +64,25 @@ function check(name: string, cond: boolean, detail?: unknown) {
   const r = resolveIdentities(deals)
   check('transitive chain forms 1 component', r.componentsChanged === 1 && r.largestComponentSize === 3, r)
   check('transitive canonical = oldest (A)', r.components[0]?.canonical === 'A', r.components[0])
+}
+
+// ── 6. computeContactRows: Marian → ONE contact with correct rollups ──
+{
+  const deals: ResolverDeal[] = [
+    { id: 'm1', created_at: '2025-03-01', updated_at: '2025-03-02', borrower_id: 'B1', ghl_contact_id: 'hygNEp', email: 'mariancooper6121@gmail.com', phone: '5551112222', name: 'Marian Cooper', loan_amount: 280000, compensation_amount: 7000, pipeline_group: 'Funded' },
+    { id: 'm2', created_at: '2025-01-15', updated_at: '2025-06-10', borrower_id: 'B2', ghl_contact_id: 'hygNEp', email: 'mariancooper6121@gmail.com', phone: null, name: 'Marian Elizabeth Cooper', loan_amount: 381700, compensation_amount: 9000, pipeline_group: 'Funded' }, // oldest created → canonical; newest updated → identity
+    { id: 'm3', created_at: '2025-06-01', updated_at: '2025-06-01', borrower_id: 'B3', ghl_contact_id: 'N0cIvx', email: 'MarianCooper6121@gmail.com', phone: '5551112222', name: 'Marian Cooper', loan_amount: 200000, compensation_amount: 0, pipeline_group: 'Leads' },
+  ]
+  const rows = computeContactRows(deals)
+  check('Marian = exactly 1 contact', rows.length === 1, rows.length)
+  const c = rows[0]
+  check('contact id = oldest borrower_id (B2)', c?.id === 'B2', c?.id)
+  check('loan_count = 3', c?.loan_count === 3, c?.loan_count)
+  check('funded_count = 2', c?.funded_count === 2, c?.funded_count)
+  check('total_funded_volume = 661700', c?.total_funded_volume === 661700, c?.total_funded_volume)
+  check('total_comp = 16000', c?.total_comp === 16000, c?.total_comp)
+  check('display_name from most-recently-updated row', c?.display_name === 'Marian Elizabeth Cooper', c?.display_name)
+  check('both ghl_contact_ids captured', c?.ghl_contact_ids.length === 2, c?.ghl_contact_ids)
 }
 
 console.log(failures === 0 ? '\nALL FIXTURES PASSED' : `\n${failures} FIXTURE(S) FAILED`)

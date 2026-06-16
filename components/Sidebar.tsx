@@ -17,6 +17,7 @@ import {
   BarChart3,
   Target,
   Inbox,
+  Users,
   FileUp,
   LogOut,
   RefreshCw,
@@ -38,6 +39,7 @@ const navGroups = [
       { href: '/unread', label: 'Unread Messages', icon: Inbox },
       { href: '/deals', label: 'Active Escrows', icon: Table2 },
       { href: '/funded', label: 'Funded', icon: DollarSign },
+      { href: '/contacts', label: 'Contacts', icon: Users },
     ],
   },
   {

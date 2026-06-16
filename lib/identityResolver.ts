@@ -47,6 +47,13 @@ export type ResolverDeal = {
   ghl_contact_id: string | null
   email: string | null
   phone: string | null
+  // Optional — only needed to build contact rollups (computeContactRows). The pure
+  // resolver matching ignores them, so fixtures can omit them.
+  updated_at?: string | null
+  name?: string | null
+  loan_amount?: number | null
+  compensation_amount?: number | null
+  pipeline_group?: string | null
 }
 
 export type ComponentReport = {
@@ -66,16 +73,15 @@ export type ResolverResult = {
 }
 
 /**
- * Group deals into people and compute the canonical borrower_id for each.
- * Pure and deterministic — no database access.
+ * Union-find deals into people via shared NON-WEAK identifiers
+ * (ghl_contact_id ∪ email ∪ phone). Returns EVERY component, including
+ * single-deal people. Pure and deterministic — no database access.
  */
-export function resolveIdentities(deals: ResolverDeal[]): ResolverResult {
-  // ── Union-Find over deal ids ──
+export function buildComponents(deals: ResolverDeal[]): ResolverDeal[][] {
   const parent = new Map<string, string>()
   const find = (x: string): string => {
     let root = x
     while (parent.get(root) !== root) root = parent.get(root)!
-    // path compression
     let cur = x
     while (parent.get(cur) !== root) {
       const next = parent.get(cur)!
@@ -105,7 +111,6 @@ export function resolveIdentities(deals: ResolverDeal[]): ResolverResult {
     if (!isWeakPhone(d.phone)) linkKey('phone:' + normPhone(d.phone), d.id)
   }
 
-  // ── Collect components ──
   const comps = new Map<string, ResolverDeal[]>()
   for (const d of deals) {
     const root = find(d.id)
@@ -113,21 +118,33 @@ export function resolveIdentities(deals: ResolverDeal[]): ResolverResult {
     if (arr) arr.push(d)
     else comps.set(root, [d])
   }
+  return [...comps.values()]
+}
 
+/** Canonical borrower_id for a component: earliest-created member that has one,
+ *  tie-break = lexicographically smallest borrower_id. Null if none has one. */
+export function canonicalBorrowerId(members: ResolverDeal[]): string | null {
+  const withBid = members.filter(m => m.borrower_id)
+  if (withBid.length === 0) return null
+  withBid.sort((a, b) => {
+    const t = a.created_at.localeCompare(b.created_at)
+    return t !== 0 ? t : (a.borrower_id as string).localeCompare(b.borrower_id as string)
+  })
+  return withBid[0].borrower_id as string
+}
+
+/**
+ * Compute the canonical borrower_id per person and the rewrites needed to unify
+ * split identities. Pure and deterministic.
+ */
+export function resolveIdentities(deals: ResolverDeal[]): ResolverResult {
   const rewrites: ResolverResult['rewrites'] = []
   const components: ComponentReport[] = []
   let largestComponentSize = 0
 
-  for (const members of comps.values()) {
-    // Canonical = borrower_id of the earliest-created member that has one;
-    // deterministic tie-break = lexicographically smallest borrower_id.
-    const withBid = members.filter(m => m.borrower_id)
-    if (withBid.length === 0) continue // no borrower_id anywhere (shouldn't happen) → skip
-    withBid.sort((a, b) => {
-      const t = a.created_at.localeCompare(b.created_at)
-      return t !== 0 ? t : (a.borrower_id as string).localeCompare(b.borrower_id as string)
-    })
-    const canonical = withBid[0].borrower_id as string
+  for (const members of buildComponents(deals)) {
+    const canonical = canonicalBorrowerId(members)
+    if (!canonical) continue // no borrower_id anywhere (shouldn't happen) → skip
 
     const changed = members.filter(m => m.borrower_id !== canonical)
     if (changed.length === 0) continue // already unified — nothing to do
@@ -148,6 +165,58 @@ export function resolveIdentities(deals: ResolverDeal[]): ResolverResult {
     largestComponentSize,
     components,
   }
+}
+
+// ── Contacts (Phase 2) ───────────────────────────────────────────────────────
+// One ContactRow per person, keyed by the canonical borrower_id, with identity +
+// rollups derived from that person's loans. Pure; the I/O pass persists them.
+
+export type ContactRow = {
+  id: string // = canonical borrower_id
+  display_name: string | null
+  email: string | null
+  phone: string | null
+  ghl_contact_ids: string[]
+  loan_count: number
+  funded_count: number
+  total_funded_volume: number
+  total_comp: number
+  first_loan_at: string | null
+  last_loan_at: string | null
+}
+
+export function computeContactRows(deals: ResolverDeal[]): ContactRow[] {
+  const rows: ContactRow[] = []
+  for (const members of buildComponents(deals)) {
+    const id = canonicalBorrowerId(members)
+    if (!id) continue
+
+    // Identity = the most-recently-updated member's non-null values.
+    const byRecency = [...members].sort((a, b) =>
+      (b.updated_at ?? b.created_at).localeCompare(a.updated_at ?? a.created_at),
+    )
+    const pick = (f: (d: ResolverDeal) => string | null | undefined): string | null => {
+      for (const d of byRecency) { const v = f(d); if (v) return v }
+      return null
+    }
+    const funded = members.filter(m => m.pipeline_group === 'Funded')
+    const createdAts = members.map(m => m.created_at).filter(Boolean).sort()
+
+    rows.push({
+      id,
+      display_name: pick(d => d.name),
+      email: pick(d => d.email),
+      phone: pick(d => d.phone),
+      ghl_contact_ids: [...new Set(members.map(m => m.ghl_contact_id).filter(Boolean) as string[])],
+      loan_count: members.length,
+      funded_count: funded.length,
+      total_funded_volume: funded.reduce((s, m) => s + (m.loan_amount ?? 0), 0),
+      total_comp: funded.reduce((s, m) => s + (m.compensation_amount ?? 0), 0),
+      first_loan_at: createdAts[0] ?? null,
+      last_loan_at: createdAts[createdAts.length - 1] ?? null,
+    })
+  }
+  return rows
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -175,6 +244,8 @@ export type PassSummary = {
   largestComponentSize: number
   sample: ComponentReport[] // up to 20 largest changed components
   backupKey?: string
+  contactsUpserted?: number
+  contactsDeleted?: number
 }
 
 export async function runIdentityResolutionPass(
@@ -191,7 +262,7 @@ export async function runIdentityResolutionPass(
   for (;;) {
     const { data, error } = await supabase
       .from('deals')
-      .select('id, created_at, borrower_id, ghl_contact_id, email, phone')
+      .select('id, created_at, updated_at, borrower_id, ghl_contact_id, email, phone, name, loan_amount, compensation_amount, pipeline_group')
       .order('id', { ascending: true })
       .range(offset, offset + PAGE - 1)
     if (error) throw new Error(`[identityResolver] deal page ${offset} failed: ${error.message}`)
@@ -231,31 +302,59 @@ export async function runIdentityResolutionPass(
   // 4. Dry run → report only, no writes.
   if (!apply) return base
 
-  // 5. Apply. Nothing to do?
-  if (result.rewrites.length === 0) return { ...base, applied: true }
-
-  // 5a. Reversible backup FIRST (durable in `sync_state`; works on Vercel's read-only FS).
-  const backupKey = `identity_resolve_backup_${new Date().toISOString()}`
-  const { error: backupErr } = await supabase
-    .from('sync_state')
-    .upsert({ key: backupKey, value: result.rewrites })
-  if (backupErr) {
-    throw new Error(`[identityResolver] backup write failed — aborting before any mutation: ${backupErr.message}`)
-  }
-
-  // 5b. Batched borrower_id rewrites (bounded concurrency).
-  const CHUNK = 50
+  // 5. Apply borrower_id rewrites (if any) — reversible backup FIRST.
   let written = 0
-  for (let i = 0; i < result.rewrites.length; i += CHUNK) {
-    const chunk = result.rewrites.slice(i, i + CHUNK)
-    const errs = await Promise.all(
-      chunk.map(w => supabase.from('deals').update({ borrower_id: w.to }).eq('id', w.id).then(r => r.error)),
-    )
-    for (const e of errs) {
-      if (e) console.error(`[identityResolver] borrower_id update failed: ${e.message}`)
-      else written++
+  let backupKey: string | undefined
+  if (result.rewrites.length > 0) {
+    backupKey = `identity_resolve_backup_${new Date().toISOString()}`
+    const { error: backupErr } = await supabase
+      .from('sync_state')
+      .upsert({ key: backupKey, value: result.rewrites })
+    if (backupErr) {
+      throw new Error(`[identityResolver] backup write failed — aborting before any mutation: ${backupErr.message}`)
+    }
+    const CHUNK = 50
+    for (let i = 0; i < result.rewrites.length; i += CHUNK) {
+      const chunk = result.rewrites.slice(i, i + CHUNK)
+      const errs = await Promise.all(
+        chunk.map(w => supabase.from('deals').update({ borrower_id: w.to }).eq('id', w.id).then(r => r.error)),
+      )
+      for (const e of errs) {
+        if (e) console.error(`[identityResolver] borrower_id update failed: ${e.message}`)
+        else written++
+      }
     }
   }
 
-  return { ...base, applied: true, dealsRewritten: written, backupKey }
+  // 6. Maintain the contacts table — one row per person, keyed by the canonical
+  //    borrower_id. Runs on EVERY apply (new deals need their contact refreshed even
+  //    when grouping didn't change). computeContactRows derives the canonical id
+  //    itself, so it is correct against the just-written borrower_ids.
+  const contactRows = computeContactRows(deals)
+  const stamp = new Date().toISOString()
+  let contactsUpserted = 0
+  const CCHUNK = 100
+  for (let i = 0; i < contactRows.length; i += CCHUNK) {
+    const chunk = contactRows.slice(i, i + CCHUNK).map(c => ({ ...c, updated_at: stamp }))
+    const { error } = await supabase.from('contacts').upsert(chunk)
+    if (error) console.error(`[identityResolver] contacts upsert failed: ${error.message}`)
+    else contactsUpserted += chunk.length
+  }
+
+  // Delete orphan contacts (id no longer a canonical borrower_id). Guarded: never
+  // run the delete when we somehow computed zero people (avoids wiping the table).
+  let contactsDeleted = 0
+  if (contactRows.length > 0) {
+    const validIds = new Set(contactRows.map(c => c.id))
+    const { data: existing } = await supabase.from('contacts').select('id')
+    const orphanIds = ((existing ?? []) as { id: string }[]).map(r => r.id).filter(id => !validIds.has(id))
+    for (let i = 0; i < orphanIds.length; i += 100) {
+      const chunk = orphanIds.slice(i, i + 100)
+      const { error } = await supabase.from('contacts').delete().in('id', chunk)
+      if (error) console.error(`[identityResolver] contacts delete failed: ${error.message}`)
+      else contactsDeleted += chunk.length
+    }
+  }
+
+  return { ...base, applied: true, dealsRewritten: written, backupKey, contactsUpserted, contactsDeleted }
 }
