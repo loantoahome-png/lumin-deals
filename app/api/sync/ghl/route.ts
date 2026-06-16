@@ -784,9 +784,6 @@ async function syncAccount(
   // Accumulators — we collect everything, then write in batches at the end.
   const toInsert: Record<string, unknown>[] = []
   const toUpdate: Record<string, unknown>[] = []
-  // Opportunities whose GHL "Arive Loan ID" field is populated → used after the
-  // writes to FILL (never overwrite) arive_file_no on existing deals that lack it.
-  const ariveFills: Array<{ oppId: string; ariveLoanId: string }> = []
   // De-dupe within this run by opportunity id (rare but possible if GHL pages overlap).
   const seenOppIds = new Set<string>()
   // Track borrower ids assigned to brand-new contacts within this run, so a
@@ -954,10 +951,6 @@ async function syncAccount(
         const incomingEmail = normEmail(dealData.email as string | null)
         const incomingPhone = normPhone(dealData.phone as string | null)
         const existing: DealKey | null = byOppId.get(oppId) ?? null
-        // Existing deal + GHL now carries the Arive #: queue a FILL. The update path
-        // below deliberately never touches arive_file_no (so a correct value from the
-        // Arive CSV is never clobbered); blanks get filled fill-only after the writes.
-        if (existing && ariveLoanId && oppId) ariveFills.push({ oppId, ariveLoanId })
 
         if (existing) {
           // Update the loan. Sync status/pipeline always; other fields only when
@@ -1054,17 +1047,24 @@ async function syncAccount(
   }
 
   // ── 3a½. Fill arive_file_no from GHL's "Arive Loan ID" field (FILL-ONLY) ───
-  // Arive writes the loan # back into each GHL opportunity; we read it during the
-  // loop above and now fill it onto deals that don't already have one. The
-  // `.is('arive_file_no', null)` guard makes this strictly additive — a value
-  // already set (e.g. from the Arive CSV) is never overwritten. This is the
-  // deterministic GHL↔Arive link that stops duplicate/phantom funded rows at the
-  // source: every opportunity that reached Arive now carries its real loan #.
-  if (ariveFills.length) {
+  // Arive writes each loan # back into its GHL opportunity. Read it off the FULL
+  // fetched opp list (`opportunities`, NOT just `changedOpps`) so the backlog of
+  // already-closed opps links on a full/maintenance run — not only when an opp next
+  // changes. `.is('arive_file_no', null)` keeps it strictly additive: a value already
+  // set (e.g. from the Arive CSV) is never overwritten. This is the deterministic
+  // GHL↔Arive join that stops duplicate/phantom funded rows at the source.
+  {
+    const fills: Array<{ oppId: string; ariveLoanId: string }> = []
+    for (const opp of opportunities) {
+      const oppId = str(opp.id)
+      if (!oppId) continue
+      const ariveLoanId = ariveLoanIdFromOpp(opp, customFieldDefs)
+      if (ariveLoanId) fills.push({ oppId, ariveLoanId })
+    }
     let filled = 0
     const FILL_CONC = 20
-    for (let i = 0; i < ariveFills.length; i += FILL_CONC) {
-      const chunk = ariveFills.slice(i, i + FILL_CONC)
+    for (let i = 0; i < fills.length; i += FILL_CONC) {
+      const chunk = fills.slice(i, i + FILL_CONC)
       const counts = await Promise.all(chunk.map(async ({ oppId, ariveLoanId }) => {
         const { error, count } = await supabase
           .from('deals')
@@ -1076,7 +1076,7 @@ async function syncAccount(
       }))
       filled += counts.reduce((s, n) => s + n, 0)
     }
-    if (filled) console.log(`[GHL Sync:${label}] Filled arive_file_no on ${filled} deals from GHL's Arive Loan ID field`)
+    if (filled) console.log(`[GHL Sync:${label}] Filled arive_file_no on ${filled} deals from GHL's Arive Loan ID field (${fills.length} opps carry it)`)
   }
 
   // ── 3b. Prune orphans — deals whose GHL opportunity no longer exists ──────
