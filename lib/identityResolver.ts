@@ -109,6 +109,11 @@ export function buildComponents(deals: ResolverDeal[]): ResolverDeal[][] {
     if (d.ghl_contact_id) linkKey('cid:' + d.ghl_contact_id, d.id)
     if (!isWeakEmail(d.email)) linkKey('email:' + normEmail(d.email), d.id)
     if (!isWeakPhone(d.phone)) linkKey('phone:' + normPhone(d.phone), d.id)
+    // Also link by the already-assigned borrower_id. This keeps a KEYLESS deal
+    // (e.g. an Arive-only row with no email/phone/contact-id, matched in by name at
+    // import) attached to its person, and never merges two distinct borrower_ids —
+    // so a component can't resolve two ways and clobber a contact row.
+    if (d.borrower_id) linkKey('bid:' + d.borrower_id, d.id)
   }
 
   const comps = new Map<string, ResolverDeal[]>()

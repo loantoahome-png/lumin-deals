@@ -85,5 +85,17 @@ function check(name: string, cond: boolean, detail?: unknown) {
   check('both ghl_contact_ids captured', c?.ghl_contact_ids.length === 2, c?.ghl_contact_ids)
 }
 
+// ── 7. Keyless deal (no email/phone/cid) stays attached via shared borrower_id ──
+{
+  const deals: ResolverDeal[] = [
+    { id: 'k1', created_at: '2025-01-01', updated_at: '2025-01-01', borrower_id: 'P', ghl_contact_id: 'cidP', email: 'p@example.com', phone: '5557770001', name: 'Pat Person', loan_amount: 300000, compensation_amount: 5000, pipeline_group: 'Funded' },
+    { id: 'k2', created_at: '2025-02-01', updated_at: '2025-02-01', borrower_id: 'P', ghl_contact_id: null, email: null, phone: null, name: 'Pat Person.2', loan_amount: 150000, compensation_amount: 2000, pipeline_group: 'Funded' }, // keyless, same borrower_id
+  ]
+  const rows = computeContactRows(deals)
+  check('keyless row joins its person → 1 contact', rows.length === 1, rows.length)
+  check('keyless contact loan_count = 2', rows[0]?.loan_count === 2, rows[0]?.loan_count)
+  check('keyless contact volume = 450000', rows[0]?.total_funded_volume === 450000, rows[0]?.total_funded_volume)
+}
+
 console.log(failures === 0 ? '\nALL FIXTURES PASSED' : `\n${failures} FIXTURE(S) FAILED`)
 process.exit(failures === 0 ? 0 : 1)
