@@ -30,3 +30,36 @@ volume in the header, only when > 0.
 returned; `Deal` type carries `compensation_amount`; tsc clean.
 **Result:** Header now reads "{n} deals · {volume} funded volume · {comp} comp".
 LOS-authoritative revenue, consistent with lead-spend (which already sums comp).
+
+### [2026-06-16] Data fix: Mario Nieto $432k phantom funded row
+**Status:** VERIFIED
+**Issue:** Deal `ea2bba9e` (Mario Nieto, $432k, "Loan Funded", no arive#, no funded_date)
+was a phantom. Live GHL (contact 9yRiiinpoO4w4fhaUCvU) has 4 opps: 3× Mario all **lost**
+($305,250 / $305,250 / $210,000) + Olga Alvarez $119,106.98 **won**. The row's opp
+`lXFc5JNrYZ6upSTuNOdG` was DELETED in GHL; the funded-deal prune guard flags-not-deletes
+funded rows, so the orphan persisted. Real closing ($119,106.98 under Olga) is already a
+separate funded row (`56bb46ba`, arive 16651764).
+**Changes:** Demoted to pipeline_group='Not Ready', status='Not Qualified - Income'
+(documented reason: couldn't qualify; funded under wife Olga). Row backed up to
+`_mario-nieto-phantom-backup-*.json`. Next maintenance sync prunes the orphan (opp gone).
+**Result:** Funded 150→149; /health need-review 2→1 (only Stephen Coon remains).
+
+### [2026-06-16] Feature: Cross-Source Identity Resolver (Contacts Phase 1)
+**Status:** VERIFIED
+**Issue:** Frozen-at-insert borrower_id split ~40 people across multiple ids → false duplicates
+on /duplicates (e.g. Marian Cooper's 3 loans, Rene Gonzalez).
+**Changes:** New `lib/identityResolver.ts` (pure guarded-transitive union-find over
+ghl_contact_id ∪ email ∪ phone, weak-value blocklist, never name; oldest borrower_id wins) +
+`runIdentityResolutionPass` (paginate, safety cap 20 / 200, sync_state backup, batched writes);
+`POST /api/resolve-identities` (dry-run default); 30-min auto-heal hook in the maintenance cron.
+**Test Method:** 9 fixture assertions (npx tsc compile + node) + live dry-run review + live apply
++ acceptance queries.
+**Result:**
+- Fixtures: Marian collapses (oldest wins), role-email & junk-phone strangers NOT merged,
+  transitivity works, idempotent — ALL PASS.
+- Live dry-run: 40 components, 55 rewrites, largest=8 (Rene Gonzalez, manually confirmed one
+  real person — identical email/phone/contact-id across 8 loans). No abort.
+- Live apply: 55 borrower_ids rewritten; backup = sync_state key
+  identity_resolve_backup_2026-06-16T23:29:11.673Z.
+- Post-apply: Marian's 3 deals → 1 borrower_id; same-contact-id splits 31 → 0; idempotent
+  re-run rewrites 0.

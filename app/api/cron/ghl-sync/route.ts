@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { runGhlSync } from '@/app/api/sync/ghl/route'
 import { refreshConversations } from '@/app/api/sync/conversations/route'
 import { runSecondCallbackCheck } from '@/app/api/cron/second-callback/route'
+import { runIdentityResolutionPass } from '@/lib/identityResolver'
 
 // Scheduled GHL sync — pinged by an external cron (cron-job.org).
 // Reuses the exact same logic as the manual "Sync GHL" button.
@@ -28,6 +29,8 @@ const CALLBACK_CHECK_KEY = 'second_callback_last'
 const CALLBACK_CHECK_INTERVAL_MS = 5 * 60 * 1000  //  5 min
 const MAINTENANCE_KEY = 'ghl_maintenance_last'
 const MAINTENANCE_INTERVAL_MS = 60 * 60 * 1000    // 60 min — prune/reconcile pass
+const IDENTITY_RESOLVE_KEY = 'identity_resolve_last'
+const IDENTITY_RESOLVE_INTERVAL_MS = 30 * 60 * 1000   // 30 min — collapse split borrower_ids
 
 type LockClient = ReturnType<typeof createServiceClient>
 
@@ -121,6 +124,23 @@ export async function GET(req: NextRequest) {
       `synced ${result.synced} (${result.created} new, ${result.updated} updated, ` +
       `${result.skipped} skipped, ${result.errors.length} errors, ${result.duration_ms}ms)`
     )
+
+    // Identity resolver — recompute the canonical borrower_id across ALL deals so a
+    // person's separate loans stop surfacing as duplicates. Runs on its OWN 30-min
+    // timer, independent of the maintenance pass. Non-fatal: a resolver hiccup must
+    // never fail the sync. ?full=1 forces it.
+    if (full || await isDue(supabase, IDENTITY_RESOLVE_KEY, IDENTITY_RESOLVE_INTERVAL_MS)) {
+      try {
+        const idr = await runIdentityResolutionPass(supabase, { apply: true })
+        await markRan(supabase, IDENTITY_RESOLVE_KEY)
+        console.log(
+          `[Cron GHL Sync] identity resolve: ` +
+          (idr.aborted ? `ABORTED — ${idr.reason}` : `${idr.dealsRewritten} borrower_id(s) rewritten`)
+        )
+      } catch (e) {
+        console.error('[Cron GHL Sync] identity resolve failed (non-fatal):', e)
+      }
+    }
 
     // Refresh "last communication" data for the hot stages — throttled to
     // every 15 min (the cron may ping much more often). Forced on ?full=1.
