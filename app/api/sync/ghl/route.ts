@@ -195,30 +195,49 @@ type CustomFieldDef = { id: string; name: string; fieldKey: string }
 
 async function fetchCustomFieldDefs(locationId: string, apiKey: string): Promise<Map<string, CustomFieldDef>> {
   const map = new Map<string, CustomFieldDef>()
-  try {
-    const res = await fetch(
-      `${GHL_BASE}/locations/${locationId}/customFields`,
-      { headers: ghlHeaders(apiKey) }
-    )
-    if (!res.ok) {
-      console.warn(`[GHL Sync] customFields schema returned ${res.status} — custom fields will not be enriched`)
-      return map
-    }
-    const data = await res.json() as { customFields?: Array<{ id?: string; name?: string; fieldKey?: string }> }
-    for (const f of data.customFields ?? []) {
-      if (f.id) {
-        map.set(f.id, {
-          id: f.id,
-          name: f.name ?? '',
-          fieldKey: f.fieldKey ?? '',
-        })
+  // Pull BOTH schemas. The default endpoint returns only CONTACT custom fields;
+  // OPPORTUNITY custom fields (e.g. "Arive Loan ID" — key opportunity.arive_loan_id,
+  // written back from Arive) need ?model=opportunity. Without the opportunity schema
+  // the sync can't resolve the Arive loan number that GHL already holds.
+  for (const url of [
+    `${GHL_BASE}/locations/${locationId}/customFields`,
+    `${GHL_BASE}/locations/${locationId}/customFields?model=opportunity`,
+  ]) {
+    try {
+      const res = await fetch(url, { headers: ghlHeaders(apiKey) })
+      if (!res.ok) {
+        console.warn(`[GHL Sync] customFields schema ${url} returned ${res.status} — those fields won't be enriched`)
+        continue
       }
+      const data = await res.json() as { customFields?: Array<{ id?: string; name?: string; fieldKey?: string }> }
+      for (const f of data.customFields ?? []) {
+        if (f.id) map.set(f.id, { id: f.id, name: f.name ?? '', fieldKey: f.fieldKey ?? '' })
+      }
+    } catch (e) {
+      console.error(`[GHL Sync] customFields schema fetch failed (${url}):`, e)
     }
-    console.log(`[GHL Sync] Custom-field schema: ${map.size} definitions`)
-  } catch (e) {
-    console.error('[GHL Sync] customFields schema fetch failed:', e)
   }
+  console.log(`[GHL Sync] Custom-field schema: ${map.size} definitions (contact + opportunity)`)
   return map
+}
+
+// Read the "Arive Loan ID" OPPORTUNITY custom field (key opportunity.arive_loan_id),
+// written back into GHL from Arive. Opportunity custom fields carry their value in
+// `fieldValueString` (not field_value/value) and live on opp.customFields — so the
+// normal getCustomField() path can't see them. Read it directly, matched by the
+// field def's key/name so it's robust across the two sub-accounts' differing field ids.
+function ariveLoanIdFromOpp(opp: GHLOpportunity, defs: Map<string, CustomFieldDef>): string | null {
+  const cf = (opp.customFields as Array<{ id?: string; key?: string; fieldKey?: string; fieldValueString?: string; value?: string }>) || []
+  if (!Array.isArray(cf)) return null
+  for (const f of cf) {
+    const def = f.id ? defs.get(f.id) : undefined
+    const key = `${def?.fieldKey ?? f.fieldKey ?? ''} ${def?.name ?? ''} ${f.key ?? ''}`.toLowerCase()
+    if (key.includes('arive_loan_id') || key.includes('arive loan id')) {
+      const v = String(f.fieldValueString ?? f.value ?? '').trim()
+      if (v) return v
+    }
+  }
+  return null
 }
 
 /** Join an opportunity/contact's {id, value} custom-field entries with the
@@ -765,6 +784,9 @@ async function syncAccount(
   // Accumulators — we collect everything, then write in batches at the end.
   const toInsert: Record<string, unknown>[] = []
   const toUpdate: Record<string, unknown>[] = []
+  // Opportunities whose GHL "Arive Loan ID" field is populated → used after the
+  // writes to FILL (never overwrite) arive_file_no on existing deals that lack it.
+  const ariveFills: Array<{ oppId: string; ariveLoanId: string }> = []
   // De-dupe within this run by opportunity id (rare but possible if GHL pages overlap).
   const seenOppIds = new Set<string>()
   // Track borrower ids assigned to brand-new contacts within this run, so a
@@ -850,6 +872,9 @@ async function syncAccount(
           (opp.customFields as GHLCustomField[]) || []
         )
         const customFields = enrichCustomFields(rawCustomFields, customFieldDefs)
+        // Arive loan number that Arive writes back into the GHL opportunity. This is
+        // the deterministic GHL↔Arive join key — far better than fuzzy name matching.
+        const ariveLoanId = ariveLoanIdFromOpp(opp, customFieldDefs)
 
         // Names
         const firstName = str(fullContact.firstName) ?? ''
@@ -880,6 +905,7 @@ async function syncAccount(
           loan_officer:     loanOfficer,
           ghl_contact_id:   contactId,
           ghl_opportunity_id: str(opp.id),     // the GHL opportunity (loan) ID
+          arive_file_no:    ariveLoanId,       // Arive loan #, written back into GHL (deterministic join)
           ghl_location_id:  locationId,        // so the dashboard can link to the right GHL sub-account
           ghl_tags:         ghlTags,
           ghl_assigned_user:assignedToId,
@@ -928,6 +954,10 @@ async function syncAccount(
         const incomingEmail = normEmail(dealData.email as string | null)
         const incomingPhone = normPhone(dealData.phone as string | null)
         const existing: DealKey | null = byOppId.get(oppId) ?? null
+        // Existing deal + GHL now carries the Arive #: queue a FILL. The update path
+        // below deliberately never touches arive_file_no (so a correct value from the
+        // Arive CSV is never clobbered); blanks get filled fill-only after the writes.
+        if (existing && ariveLoanId && oppId) ariveFills.push({ oppId, ariveLoanId })
 
         if (existing) {
           // Update the loan. Sync status/pipeline always; other fields only when
@@ -1021,6 +1051,32 @@ async function syncAccount(
         updated--
       }
     }
+  }
+
+  // ── 3a½. Fill arive_file_no from GHL's "Arive Loan ID" field (FILL-ONLY) ───
+  // Arive writes the loan # back into each GHL opportunity; we read it during the
+  // loop above and now fill it onto deals that don't already have one. The
+  // `.is('arive_file_no', null)` guard makes this strictly additive — a value
+  // already set (e.g. from the Arive CSV) is never overwritten. This is the
+  // deterministic GHL↔Arive link that stops duplicate/phantom funded rows at the
+  // source: every opportunity that reached Arive now carries its real loan #.
+  if (ariveFills.length) {
+    let filled = 0
+    const FILL_CONC = 20
+    for (let i = 0; i < ariveFills.length; i += FILL_CONC) {
+      const chunk = ariveFills.slice(i, i + FILL_CONC)
+      const counts = await Promise.all(chunk.map(async ({ oppId, ariveLoanId }) => {
+        const { error, count } = await supabase
+          .from('deals')
+          .update({ arive_file_no: ariveLoanId }, { count: 'exact' })
+          .eq('ghl_opportunity_id', oppId)
+          .is('arive_file_no', null)
+        if (error) { errors.push(`arive fill: ${error.message}`); return 0 }
+        return count ?? 0
+      }))
+      filled += counts.reduce((s, n) => s + n, 0)
+    }
+    if (filled) console.log(`[GHL Sync:${label}] Filled arive_file_no on ${filled} deals from GHL's Arive Loan ID field`)
   }
 
   // ── 3b. Prune orphans — deals whose GHL opportunity no longer exists ──────
