@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# claude code local scratch
+.claude/
+
+# local migration scratch + reversible undo backups (kept on disk, out of git)
+_bobrea.mjs
+_*-backup-*.json

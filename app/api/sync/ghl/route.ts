@@ -706,15 +706,15 @@ async function syncAccount(
   //   FULL sync: page through every deal (cap 1 000/page from PostgREST).
   //   INCREMENTAL: scoped query — only deals matching the changed opps' ids
   //   or their contact_ids. Cuts a multi-thousand-row scan to a few dozen.
-  type DealKey = { id: string }
+  type DealKey = { id: string; pipeline_group: string | null }
   const byOppId = new Map<string, DealKey>()
   const contactToBorrower = new Map<string, string>()
   const emailToBorrower = new Map<string, string>()
   const phoneToBorrower = new Map<string, string>()
 
-  type DedupRow = { id: string; ghl_contact_id: string | null; ghl_opportunity_id: string | null; email: string | null; phone: string | null; borrower_id: string | null }
+  type DedupRow = { id: string; ghl_contact_id: string | null; ghl_opportunity_id: string | null; email: string | null; phone: string | null; borrower_id: string | null; pipeline_group: string | null }
   const ingestDedupRow = (d: DedupRow) => {
-    if (d.ghl_opportunity_id && !byOppId.has(d.ghl_opportunity_id)) byOppId.set(d.ghl_opportunity_id, { id: d.id })
+    if (d.ghl_opportunity_id && !byOppId.has(d.ghl_opportunity_id)) byOppId.set(d.ghl_opportunity_id, { id: d.id, pipeline_group: d.pipeline_group })
     if (d.borrower_id) {
       if (d.ghl_contact_id && !contactToBorrower.has(d.ghl_contact_id)) contactToBorrower.set(d.ghl_contact_id, d.borrower_id)
       const e = normEmail(d.email); if (e && !emailToBorrower.has(e)) emailToBorrower.set(e, d.borrower_id)
@@ -728,7 +728,7 @@ async function syncAccount(
     for (;;) {
       const { data: pageRows, error: pageErr } = await supabase
         .from('deals')
-        .select('id, ghl_contact_id, ghl_opportunity_id, email, phone, borrower_id')
+        .select('id, ghl_contact_id, ghl_opportunity_id, email, phone, borrower_id, pipeline_group')
         .order('id', { ascending: true })
         .range(offset, offset + DEDUP_PAGE - 1)
       if (pageErr) {
@@ -760,7 +760,7 @@ async function syncAccount(
         const chunk = arr.slice(i, i + CHUNK)
         const { data, error } = await supabase
           .from('deals')
-          .select('id, ghl_contact_id, ghl_opportunity_id, email, phone, borrower_id')
+          .select('id, ghl_contact_id, ghl_opportunity_id, email, phone, borrower_id, pipeline_group')
           .in(col, chunk)
         if (error) {
           console.error(`[GHL Sync:${label}] Scoped dedup query (${col}) failed:`, error.message)
@@ -965,7 +965,17 @@ async function syncAccount(
             ghl_location_id:  dealData.ghl_location_id,
             ghl_contact_id:   contactId,
           }
-          const maybeSet = (k: string) => { if (dealData[k] != null) patch[k] = dealData[k] }
+          // A funded deal carries Arive-authoritative dollars. GHL's opportunity
+          // value (often a stale lead estimate, sometimes 0) must NOT overwrite the
+          // closed-loan amount — mirrors the funded guard in the reconcile block
+          // below. Without this, any later opp change clobbers funded volume back
+          // to the GHL number.
+          const existingIsFunded = existing.pipeline_group === 'Funded'
+          const maybeSet = (k: string) => {
+            if (dealData[k] == null) return
+            if (k === 'loan_amount' && existingIsFunded) return
+            patch[k] = dealData[k]
+          }
           ;['loan_officer','loan_amount','estimated_value','credit_score','loan_type','loan_purpose',
             'occupancy','property_type','property_address','current_balance','ltv',
             'cash_out','down_payment','rate','investor','credit_rating','is_military',

@@ -35,6 +35,9 @@ export default function FundedPage() {
   })
 
   const totalVolume = filtered.reduce((s, d) => s + (d.loan_amount || 0), 0)
+  // Revenue = Arive broker compensation on funded loans (LOS-authoritative).
+  // Only a subset have comp imported from Arive, so show it only when present.
+  const totalComp = filtered.reduce((s, d) => s + (d.compensation_amount || 0), 0)
 
   async function handleUpdate(id: string, patch: Record<string, unknown>) {
     const { error } = await supabase.from('deals').update(patch).eq('id', id)
@@ -54,7 +57,7 @@ export default function FundedPage() {
           <div>
             <h1 className="text-xl font-bold text-slate-900">Funded Loans</h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              {filtered.length} deal{filtered.length !== 1 ? 's' : ''} · {formatCurrency(totalVolume)} funded volume
+              {filtered.length} deal{filtered.length !== 1 ? 's' : ''} · {formatCurrency(totalVolume)} funded volume{totalComp > 0 ? ` · ${formatCurrency(totalComp)} comp` : ''}
             </p>
           </div>
           <div className="flex items-center gap-2">
