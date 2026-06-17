@@ -195,4 +195,5 @@ Skipped the Opportunity tier per Efrain. Spec/probe basis: lead_price ~90% on le
 84–90% (FICO only ~10%), loan_type funded-only — so the panel leans on the populated fields.
 **Test Method:** `npx tsc --noEmit` (3 changed files clean; error set = 4 pre-existing); `npm run
 build` (✓ both `/contacts` routes). Mockup shown for sign-off.
-**Result:** Type-clean, build READY. Not browser-verified here (auth wall). Pending deploy.
+**Result:** Type-clean, build READY. Not browser-verified here (auth wall). **Deployed** commit
+`1d0b41e` → prod READY (dpl_qdtbnj292), 2026-06-16.
