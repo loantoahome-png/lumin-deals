@@ -401,13 +401,13 @@ function NoteCard({
         </div>
       </div>
 
-      {/* Title */}
+      {/* Title — its own header section, divided from the body below */}
       <input
         value={title}
         onChange={e => setTitle(e.target.value)}
         onBlur={() => save()}
         placeholder="Title"
-        className="w-full bg-transparent text-base font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none mb-1.5 shrink-0"
+        className="w-full bg-transparent text-base font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none border-b border-slate-200 focus:border-blue-400 pb-2 mb-2.5 shrink-0"
       />
 
       {/* Toolbar (edit mode) */}

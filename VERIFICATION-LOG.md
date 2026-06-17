@@ -1,5 +1,14 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-17] Notes: divider between title header and body
+**Status:** CHANGED (build-passed; live visual gated by login)
+**File:** components/NotesBoard.tsx
+**Changes:** Title input now has a bottom border (`border-b border-slate-200`,
+`focus:border-blue-400`) + `pb-2 mb-2.5`, so the title reads as a distinct header
+section separated from the note body. Applies in both preview and edit modes.
+**Test Method:** `npm run build` ✓ (`/notes` prerenders). className-only change.
+**Result:** Pending your visual check.
+
 ### [2026-06-17] Notes: uniform text size slider, fixed-height scroll, 3 cols
 **Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
 **Files:** components/NotesBoard.tsx, components/NoteMarkdown.tsx
