@@ -28,9 +28,9 @@ const CONV_REFRESH_INTERVAL_MS = 30 * 60 * 1000   // 30 min
 const CALLBACK_CHECK_KEY = 'second_callback_last'
 const CALLBACK_CHECK_INTERVAL_MS = 5 * 60 * 1000  //  5 min
 const MAINTENANCE_KEY = 'ghl_maintenance_last'
-const MAINTENANCE_INTERVAL_MS = 60 * 60 * 1000    // 60 min — prune/reconcile pass
+const MAINTENANCE_INTERVAL_MS = 3 * 60 * 60 * 1000    // 3 h — prune/reconcile pass (full-opp scan; Fluid CPU saver, widened 2026-06-17 from 60 min)
 const IDENTITY_RESOLVE_KEY = 'identity_resolve_last'
-const IDENTITY_RESOLVE_INTERVAL_MS = 30 * 60 * 1000   // 30 min — collapse split borrower_ids
+const IDENTITY_RESOLVE_INTERVAL_MS = 3 * 60 * 60 * 1000   // 3 h — collapse split borrower_ids (full deal-table scan; Fluid CPU saver, widened 2026-06-17 from 30 min). Force anytime with ?full=1 or POST /api/resolve-identities
 
 type LockClient = ReturnType<typeof createServiceClient>
 

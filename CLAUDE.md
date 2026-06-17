@@ -21,13 +21,13 @@ Two GHL sub-accounts synced in parallel:
 - **Matt**: `GHL_API_KEY_MATT` + `GHL_LOCATION_ID_MATT`
 
 ## Sync Architecture
-Driven by an **external cron on cron-job.org** — schedule should be `*/15 8-18 * * 1-5` (every 15 min, 8 AM–6 PM, Mon–Fri).
+Driven by an **external cron on cron-job.org** — schedule is `*/15 8-18 * * 1-5` (every 15 min, 8 AM–6 PM, Mon–Fri). **CONFIRMED set to 15 min as of 2026-06-17** (Efrain verified the cron-job.org setting). This is the authoritative ping cadence — ignore any older code comments suggesting "1–2 min." Do not assume a tighter cadence when reasoning about Fluid CPU.
 
 Per ping behavior (controlled by intervals in `app/api/cron/ghl-sync/route.ts`):
 - **Every ping**: Incremental GHL sync — only fetches opportunities changed since last run
 - **Every 30 min** (`CONV_REFRESH_INTERVAL_MS`): Conversations refresh — last message timestamps, unread counts, inbound/outbound direction for active leads
-- **Every 60 min** (`MAINTENANCE_INTERVAL_MS`): Full opportunity fetch for orphan pruning, loan amount + contact ID reconciliation
-- **Every 30 min** (`IDENTITY_RESOLVE_INTERVAL_MS`): Identity resolver (`lib/identityResolver.ts`) — collapses split `borrower_id`s into the canonical person (guarded-transitive union-find over `ghl_contact_id ∪ email ∪ phone ∪ borrower_id`, never name) AND maintains the `contacts` table (one row per person, keyed by canonical `borrower_id`). Non-fatal; safety caps (component>20 / >200 rewrites) + reversible `sync_state` backup; `?full=1` forces it. Manual/dry-run: `POST /api/resolve-identities` (dry-run default)
+- **Every 3 h** (`MAINTENANCE_INTERVAL_MS`): Full opportunity fetch for orphan pruning, loan amount + contact ID reconciliation (widened from 60 min on 2026-06-17 to cut Fluid Active CPU)
+- **Every 3 h** (`IDENTITY_RESOLVE_INTERVAL_MS`, widened from 30 min on 2026-06-17 to cut Fluid Active CPU): Identity resolver (`lib/identityResolver.ts`) — collapses split `borrower_id`s into the canonical person (guarded-transitive union-find over `ghl_contact_id ∪ email ∪ phone ∪ borrower_id`, never name) AND maintains the `contacts` table (one row per person, keyed by canonical `borrower_id`). Non-fatal; safety caps (component>20 / >200 rewrites) + reversible `sync_state` backup; `?full=1` forces it. Manual/dry-run: `POST /api/resolve-identities` (dry-run default)
 - **Every 5 min** (`CALLBACK_CHECK_INTERVAL_MS`): Auto-creates a task for Brianne when a new lead sits in "New Lead" or "Attempted Contact" for ~45 min
 - Overlap guard via `sync_state` table lock (5 min TTL)
 

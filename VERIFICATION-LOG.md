@@ -1,5 +1,26 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-17] Fluid CPU: widen identity-resolver + maintenance cron intervals
+**Status:** CHANGED (build-passed) — live CPU impact verifiable only on the Vercel chart over the next few days
+**File:** app/api/cron/ghl-sync/route.ts (+ CLAUDE.md sync-architecture docs)
+**Issue:** Fluid Active CPU creeping up (3h28m / 4h). Root cause: the Contacts/identity-resolver feature (shipped 2026-06-16) added a full deal-table scan + contacts rebuild running every 30 min, plus the every-60-min maintenance full-opp scan. On the confirmed `*/15 8-18 * * 1-5` cron that's ~20 + ~10 full-table sweeps/business day, each heavier as data grows.
+**Changes:**
+- `IDENTITY_RESOLVE_INTERVAL_MS` 30 min → 3 h (~20×/day → ~3×/day)
+- `MAINTENANCE_INTERVAL_MS` 60 min → 3 h (~10×/day → ~3–4×/day)
+- Cron ping cadence unchanged (confirmed correct at 15 min); `?full=1` / `POST /api/resolve-identities` still force on demand.
+**Test Method:** `npm run build` ✓ (route table prerendered, no errors in changed file; pre-existing tsc errors in reports/underwriting/DealForm are unrelated). Real verification: watch Fluid Active CPU on the Vercel dashboard bend down over the next 2–3 days post-deploy.
+**Result:** Built green. Pending deploy + multi-day CPU observation.
+
+### [2026-06-17] Notes: grey header strip for the title section
+**Status:** CHANGED (build-passed; live visual gated by login)
+**File:** components/NotesBoard.tsx
+**Changes:** Restructured the note card into header / body / footer. The header
+(grip+pin row + title) now sits on a faint **grey strip** (`bg-slate-50` + `border-b`)
+while the body stays white; card got `overflow-hidden` so the strip respects the
+rounded corners. Replaced the prior title bottom-border with the strip.
+**Test Method:** JSX nesting verified balanced; `npm run build` ✓ (`/notes` prerenders).
+**Result:** Pending your visual check.
+
 ### [2026-06-17] Notes: divider between title header and body
 **Status:** CHANGED (build-passed; live visual gated by login)
 **File:** components/NotesBoard.tsx
