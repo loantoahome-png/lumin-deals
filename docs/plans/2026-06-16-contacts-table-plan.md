@@ -27,7 +27,7 @@
 **Test:** resolver apply → `contacts` count == distinct borrower_id count; Marian = 1 contact, 3 loans.
 **Skills:** lint-and-validate
 **Commit:** "Contacts: resolver upserts one contact per person (Phase 2)"
-**Status:** [ ]
+**Status:** [x]
 
 ### Task 3: /contacts list page  [P]
 **Depends on:** Task 2
@@ -38,7 +38,7 @@ styling of `app/funded/page.tsx`.
 **Test:** page renders, search filters, links work (preview).
 **Skills:** lint-and-validate, ui-ux-pro-max
 **Commit:** "Contacts: /contacts list page"
-**Status:** [ ]
+**Status:** [x]
 
 ### Task 4: /contacts/[id] person page  [P]
 **Depends on:** Task 2
@@ -48,7 +48,7 @@ list the person's loans (name/amount/stage/funded_date/arive#). Reuse deal-row s
 **Test:** open a known contact (Marian) → shows her 3 loans (preview).
 **Skills:** lint-and-validate, ui-ux-pro-max
 **Commit:** "Contacts: /contacts/[id] person page"
-**Status:** [ ]
+**Status:** [x]
 
 ### Task 5: Nav link + verify + ship
 **Depends on:** Task 3, Task 4
@@ -58,4 +58,4 @@ pages; commit; deploy.
 **Test:** acceptance criteria from the spec; preview screenshots.
 **Skills:** lint-and-validate
 **Commit:** "Contacts: nav link"
-**Status:** [ ]
+**Status:** [x]

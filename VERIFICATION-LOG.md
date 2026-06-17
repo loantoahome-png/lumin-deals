@@ -63,3 +63,21 @@ ghl_contact_id ∪ email ∪ phone, weak-value blocklist, never name; oldest bor
   identity_resolve_backup_2026-06-16T23:29:11.673Z.
 - Post-apply: Marian's 3 deals → 1 borrower_id; same-contact-id splits 31 → 0; idempotent
   re-run rewrites 0.
+
+### [2026-06-16] Feature: Contacts table + person view (Phase 2)
+**Status:** VERIFIED (data + logic + build) — live visual is user-confirmable
+**Changes:** `contacts` table (id = canonical borrower_id; supabase-contacts.sql, installed by
+Efrain). Resolver extended: `buildComponents` (now also links by borrower_id so keyless Arive rows
+join their person), `computeContactRows`, and `runIdentityResolutionPass` upserts/prunes contacts
+on every apply. `/contacts` list + `/contacts/[id]` person page; Sidebar nav link.
+**Test Method:** 20 fixtures (incl. keyless-row + contact rollups) via tsc+node; live populate +
+acceptance queries; prod build (compiles all routes).
+**Result:**
+- Fixtures: ALL PASS (20).
+- Live populate: 1454 contacts == 1454 distinct borrower_id; 0 orphans.
+- Marian Cooper = ONE contact, loan_count 4, funded 3, $941,700 volume, both GHL contact ids,
+  name+email populated (fixed the keyless-row clobber that first showed loan_count 1).
+- Top contacts sane (Rene Gonzalez 8 loans).
+- Deployed (commit 4e5422c) — prod build READY → /contacts routes compile.
+**Not verified here:** live browser render (preview tool grabbed a different project + app is
+auth-gated) — visual confirm is on the live site.
