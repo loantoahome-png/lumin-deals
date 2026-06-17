@@ -18,6 +18,7 @@ import {
   Target,
   Inbox,
   Users,
+  Radar,
   FileUp,
   LogOut,
   RefreshCw,
@@ -40,6 +41,7 @@ const navGroups = [
       { href: '/deals', label: 'Active Escrows', icon: Table2 },
       { href: '/funded', label: 'Funded', icon: DollarSign },
       { href: '/contacts', label: 'Contacts', icon: Users },
+      { href: '/radar', label: 'Refi Radar', icon: Radar },
     ],
   },
   {

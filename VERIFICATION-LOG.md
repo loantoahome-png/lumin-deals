@@ -215,3 +215,23 @@ build` (✓ `/contacts`). Mockup shown for sign-off.
 **Result:** Type-clean, build READY. Not browser-verified here (auth wall). **Deployed** commit
 `4893596` → prod READY (dpl_camrrr9hn), 2026-06-16. Data basis (probe): 16 sources (FRU 419,
 Lendgo 344, LMB 250…), total lead spend $37,412, 141 funded clients.
+
+### [2026-06-16] Feature: Refi Radar — dedicated /radar page (Opportunity Radar v1)
+**Status:** CHANGED (tsc + build + 12 fixtures pass) — pending deploy
+**Issue:** Surface "who to call to refi/consolidate, and why" from the funded book. Cross-tab killed
+the naïve "rate > par" idea: the high-rate book is HELOCs (59, avg 9.60%; 28/30 ≥9% loans are
+HELOCs), firsts mostly closed well (Conv 6.23/FHA 5.64/VA 5.75), and 65/148 funded are <6mo.
+**Changes:** `lib/refiRadar.ts` — pure, dependency-free product-segmented scorer (`classify` /
+`scoreFundedBook`): plays = second-lien (HELOC/HELOAN ≥8.5%), first-lien (Conv ≥ conv par +0.5%),
+non-qm season-out, fha-mip (≤80% LTV or streamline), va-irrrl; seasoning gate 6mo (eligible vs
+maturing); $-ranked by delta×balance; equity plays flag "needs equity" when balance unknown; loans
+with no rate skipped; par rates user-set (no live rate in DB). `app/radar/page.tsx` — funded-deal
+load + par config bar (editable, persisted), play filter tabs, ranked table (client→person link,
+play badge, reason, seasoned, est $/mo or "needs equity", DND/last-contact, comp). `app/api/radar/
+par-rates/route.ts` — GET/POST `sync_state` key `refi_par_rates` (service client; mirrors dedupe
+dismiss). Sidebar nav link ("Refi Radar"). Started with the no-equity plays per Efrain.
+**Test Method:** `scripts/refi-radar-check.ts` — 12 fixtures (seasoning, per-product triggers,
+net-benefit threshold, no-rate skip, funded-only, ranking) compiled via tsc→/tmp + node: ALL PASS.
+`npx tsc --noEmit` (new files clean; error set = 4 pre-existing). `npm run build` (✓ `/radar` +
+`/api/radar/par-rates`). Output matches the approved mockup. No RLS step (reads `deals`; par via API).
+**Result:** Type-clean, build READY, fixtures green. Not browser-verified here (auth wall). Pending deploy.
