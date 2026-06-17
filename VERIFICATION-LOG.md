@@ -212,6 +212,6 @@ in the bulk bar (Blob download, no backend) alongside Copy emails. Selection now
 sorted/visible set.
 **Test Method:** `npx tsc --noEmit` (contacts page clean; error set = 4 pre-existing); `npm run
 build` (✓ `/contacts`). Mockup shown for sign-off.
-**Result:** Type-clean, build READY. Not browser-verified here (auth wall). Pending deploy. Data
-basis (probe): 16 sources (FRU 419, Lendgo 344, LMB 250…), total lead spend $37,412, 141 funded
-clients.
+**Result:** Type-clean, build READY. Not browser-verified here (auth wall). **Deployed** commit
+`4893596` → prod READY (dpl_camrrr9hn), 2026-06-16. Data basis (probe): 16 sources (FRU 419,
+Lendgo 344, LMB 250…), total lead spend $37,412, 141 funded clients.
