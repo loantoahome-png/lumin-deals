@@ -89,16 +89,7 @@ research, then answer. Specifically:
 - **Prefer reading the source of truth** (the code, the DB row, the API
   response, the log line) over inferring from symptoms or memory.
 
-## Deploy policy — ship verified changes WITHOUT asking (Efrain, 2026-06-16)
-Efrain does not want to approve each deploy. **Once a change is verified, deploy it to prod
-automatically and report the result — do NOT ask "want me to deploy?" first.**
-- **"Verified"** = `npx tsc --noEmit` adds no new errors (the standing pre-existing set is
-  `reports`, `underwriting`, `DealForm`, `next.config`) AND `npm run build` succeeds, AND any
-  fixtures/tests for the touched code pass. Then deploy: `vercel --prod --yes` from this directory.
-- **Always** report the outcome (prod URL + `readyState`) and keep `VERIFICATION-LOG.md` current.
-- **STILL pause and flag first** (do NOT silently deploy) only when a change:
-  1. needs a manual step to take effect — a Supabase SQL migration / RLS change (e.g.
-     `supabase-contacts.sql`); the deploy is useless until Efrain runs the SQL, so call it out;
-  2. is destructive or hard to reverse (data deletion/mutation, secret rotation, force-push);
-  3. Efrain explicitly said "don't deploy yet" for that change.
-- These carve-outs are the *only* reasons to ask. Everything else: verify → deploy → report.
+## Deploy policy — confirm before deploying (Efrain, 2026-06-16)
+**Always ask before `vercel --prod`.** Verify changes (tsc + build + tests), get them deploy-ready,
+and offer to ship — but do NOT deploy until Efrain confirms. (He briefly tried an auto-deploy rule
+on 2026-06-16 and reverted it the same day; he wants the confirmation step.)

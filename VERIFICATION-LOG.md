@@ -243,3 +243,6 @@ Set as a standing instruction in `CLAUDE.md` → "Deploy policy" + vault memory
 `project_lumin_deploy_policy`. Default now: verify (tsc + build + tests) → `vercel --prod --yes` →
 report; only pause for (1) manual SQL/RLS migrations, (2) destructive/irreversible changes, (3) an
 explicit "don't deploy yet." Not a hook (a hook can't tell verified from mid-edit).
+**REVERTED same day** — Efrain: "actually lets get rid of the auto deploy, let me confirm before
+deploying." Policy is now: **always confirm before `vercel --prod`.** CLAUDE.md + vault memory
+updated to match.
