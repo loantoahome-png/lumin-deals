@@ -132,3 +132,22 @@ duplicated); only Marian's is split-LO. NOTE anomaly: arive 16893761 sits on TWO
 **Recommended fix (not yet built):** add a `arive_file_no`-shared duplicate detector to
 `/duplicates` (dead-certain signal now that the join populates it on GHL rows) for one-click human
 merge; correct Marian's wrong LO (Matt→Moe — affects comp credit, confirm first).
+
+### [2026-06-16] Feature: "Same Arive file #" duplicate detector (the systemic cure)
+**Status:** CHANGED (tsc + build clean) — pending deploy
+**Issue:** GHL↔Arive duplicate rows that share an `arive_file_no` slipped past `/duplicates`. The
+amount detector keys on `loan_officer + loan_amount` (misses LO/amount drift); email/phone/name are
+skipped when the rows share a `borrower_id` — which the resolver gives Marian's twin rows, so they
+were hidden. See `docs/diagnoses/2026-06-16-ghl-arive-duplicate-arive-file.md`.
+**Changes:** `app/duplicates/page.tsx` only. New `'arive'` MatchType + `byArive` detector keyed on
+trimmed `arive_file_no`; run FIRST so the authoritative label wins. In `addGroup`, arive matches
+BYPASS `sharesBorrowerId` + `isLegitMultiLoan` (those guards are what hid the dups); other detectors
+unchanged. Added match label "Same Arive file #" (Hash icon), an Arive filter tab, header copy.
+Reuses the existing `/api/deals/merge` + dismiss flow — no API/schema change.
+**Test Method:** `npx tsc --noEmit` (duplicates page clean; error set = the 4 pre-existing files
+only); `npm run build` (✓ Compiled; `/duplicates` builds). Detector output set pre-confirmed by live
+probe: exactly 6 arive_file_no values sit on >1 deal row (Marian, Rene Gonzalez, Henry Cardoza,
+Jeffrey Kilgrow, Jong Oh + the Southerby anomaly).
+**Result:** Type-clean, build READY. Merge picks the Arive row as primary (funded_date +
+arive_file_no are completeness-score fields) → merging Marian's pair also corrects the LO to Moe.
+Not browser-verified here (auth wall). Pending deploy (bundle with label fix `b7a49d0`).

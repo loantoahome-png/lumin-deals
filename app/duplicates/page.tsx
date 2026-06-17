@@ -7,11 +7,11 @@ import { Deal } from '@/lib/types'
 import Link from 'next/link'
 import {
   Loader2, Mail, Phone, User, GitMerge, AlertTriangle,
-  CheckCircle2, ExternalLink, ChevronDown, ChevronUp, DollarSign, EyeOff,
+  CheckCircle2, ExternalLink, ChevronDown, ChevronUp, DollarSign, EyeOff, Hash,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
-type MatchType = 'email' | 'phone' | 'name' | 'amount'
+type MatchType = 'email' | 'phone' | 'name' | 'amount' | 'arive'
 
 type DuplicateGroup = {
   key: string
@@ -75,6 +75,7 @@ function detectDuplicates(deals: Deal[]): DuplicateGroup[] {
   const byPhone   = new Map<string, Deal[]>()
   const byName    = new Map<string, Deal[]>()
   const byAmount  = new Map<string, Deal[]>()   // LO + exact loan amount (funded only)
+  const byArive   = new Map<string, Deal[]>()   // shared Arive file # = the same loan
 
   for (const d of deals) {
     const e = normEmail(d.email)
@@ -92,6 +93,11 @@ function detectDuplicates(deals: Deal[]): DuplicateGroup[] {
       const k = `${(d.loan_officer ?? '').toLowerCase().trim()}|${Math.round(d.loan_amount * 100)}`
       ;(byAmount.get(k) ?? byAmount.set(k, []).get(k)!).push(d)
     }
+    // Arive file # is a definitional same-loan key. The durable GHL→Arive join now
+    // stamps it onto GHL opportunity rows too, so a GHL row and its Arive twin finally
+    // share it — the highest-confidence dup signal we have, across any stage or LO.
+    const af = (d.arive_file_no ?? '').trim()
+    if (af) (byArive.get(af) ?? byArive.set(af, []).get(af)!).push(d)
   }
 
   // Build groups, deduping deals across detection methods (so a group of 3 isn't reported 3x)
@@ -100,21 +106,29 @@ function detectDuplicates(deals: Deal[]): DuplicateGroup[] {
 
   function addGroup(matchType: MatchType, matchValue: string, deals: Deal[]) {
     if (deals.length < 2) return
-    // Same-borrower_id deals are intentionally-linked separate loans — never a dup,
-    // for any match type.
-    if (sharesBorrowerId(deals)) return
-    // Skip legit multi-loan groups (each deal is its own distinct opportunity) —
-    // EXCEPT for amount matches: two same-amount funded loans for one LO are a
-    // duplicate even when each carries its own GHL opportunity id (a duplicated
-    // opportunity, or a GHL row paired with an Arive row that has no opp id).
-    if (matchType !== 'amount' && isLegitMultiLoan(deals)) return
+    // A shared arive_file_no IS the same loan — bypass the "separate loans" heuristics
+    // below (they are exactly what hid these GHL↔Arive dups: Marian's twin rows share a
+    // borrower_id, so sharesBorrowerId silently exempted them). A wrong arive# fill that
+    // chains two real people (the Southerby case) is caught by human review / dismiss.
+    if (matchType !== 'arive') {
+      // Same-borrower_id deals are intentionally-linked separate loans — never a dup.
+      if (sharesBorrowerId(deals)) return
+      // Skip legit multi-loan groups (each deal is its own distinct opportunity) —
+      // EXCEPT for amount matches: two same-amount funded loans for one LO are a
+      // duplicate even when each carries its own GHL opportunity id (a duplicated
+      // opportunity, or a GHL row paired with an Arive row that has no opp id).
+      if (matchType !== 'amount' && isLegitMultiLoan(deals)) return
+    }
     const ids = deals.map(d => d.id).sort().join('|')
     if (seenGroupSignatures.has(ids)) return
     seenGroupSignatures.add(ids)
     groups.push({ key: `${matchType}:${matchValue}`, matchType, matchValue, deals })
   }
 
-  // email/phone/name first so they take precedence; amount fills the cross-source gap.
+  // arive_file_no FIRST — the most authoritative same-loan signal claims the group label
+  // before the softer email/phone/name/amount detectors can.
+  for (const [v, ds] of byArive) addGroup('arive', `#${v}`, ds)
+  // email/phone/name next so they take precedence over amount; amount fills the gap.
   for (const [v, ds] of byEmail) addGroup('email', v, ds)
   for (const [v, ds] of byPhone) addGroup('phone', v, ds)
   for (const [v, ds] of byName)  addGroup('name', v, ds)
@@ -159,6 +173,7 @@ const PIPELINE_RANK: Record<string, number> = {
 }
 
 const MATCH_LABELS: Record<MatchType, { label: string; icon: React.ReactNode }> = {
+  arive:           { label: 'Same Arive file #',    icon: <Hash className="w-3.5 h-3.5" /> },
   email:           { label: 'Same email',           icon: <Mail className="w-3.5 h-3.5" /> },
   phone:           { label: 'Same phone',           icon: <Phone className="w-3.5 h-3.5" /> },
   name:            { label: 'Same name',            icon: <User className="w-3.5 h-3.5" /> },
@@ -280,8 +295,9 @@ export default function DuplicatesPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Possible Duplicate Contacts</h1>
           <p className="text-slate-500 text-sm mt-0.5">
-            Same person matched by email / phone / name. <strong>Review each before merging</strong> —
-            a borrower&apos;s separate loans are intentionally kept as separate cards and are NOT shown here.
+            Matched by Arive file # / email / phone / name. <strong>Review each before merging</strong> —
+            a borrower&apos;s separate loans are kept apart and are NOT shown here, EXCEPT when two rows
+            share one Arive file # (that&apos;s the same loan, duplicated across GHL and Arive).
           </p>
         </div>
       </div>
@@ -304,7 +320,7 @@ export default function DuplicatesPage() {
       <div className="flex items-center gap-2">
         <span className="text-xs text-slate-500">Match type:</span>
         <div className="flex bg-slate-100 rounded-lg p-1 gap-0.5">
-          {(['all','email','phone','name','amount'] as const).map(t => {
+          {(['all','arive','email','phone','name','amount'] as const).map(t => {
             const count = t === 'all' ? groups.length : groups.filter(g => g.matchType === t).length
             return (
               <button
