@@ -356,9 +356,11 @@ function NoteCard({
 
   // Uniform fixed height — long notes scroll internally rather than growing the card.
   return (
-    <div className={`group relative flex flex-col h-[360px] bg-white border border-slate-200 border-l-4 ${accentOf(note.color)} rounded-xl p-4 shadow-sm`}>
-      {/* Top row: grip + pin + (hover) colors / edit / delete */}
-      <div className="flex items-center justify-between mb-1.5 shrink-0">
+    <div className={`group relative flex flex-col h-[360px] bg-white border border-slate-200 border-l-4 ${accentOf(note.color)} rounded-xl shadow-sm overflow-hidden`}>
+      {/* Header strip — title section, greyed to separate it from the white body */}
+      <div className="bg-slate-50 border-b border-slate-200 px-4 pt-2.5 pb-2 shrink-0">
+        {/* Top row: grip + pin + (hover) colors / edit / delete */}
+        <div className="flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-1">
           {handle}
           <button
@@ -401,17 +403,20 @@ function NoteCard({
         </div>
       </div>
 
-      {/* Title — its own header section, divided from the body below */}
-      <input
-        value={title}
-        onChange={e => setTitle(e.target.value)}
-        onBlur={() => save()}
-        placeholder="Title"
-        className="w-full bg-transparent text-base font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none border-b border-slate-200 focus:border-blue-400 pb-2 mb-2.5 shrink-0"
-      />
+        {/* Title */}
+        <input
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          onBlur={() => save()}
+          placeholder="Title"
+          className="w-full bg-transparent text-base font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none"
+        />
+      </div>
 
-      {/* Toolbar (edit mode) */}
-      {editing && (
+      {/* Body (white) */}
+      <div className="flex-1 min-h-0 flex flex-col px-4 py-3">
+        {/* Toolbar (edit mode) */}
+        {editing && (
         <div className="flex flex-wrap items-center gap-0.5 mb-2 border border-slate-200 rounded-lg p-1 bg-slate-50 shrink-0">
           <button {...tb(() => prefixLine('# '))} title="Heading 1" className={btn}><Heading1 className="w-4 h-4" /></button>
           <button {...tb(() => prefixLine('## '))} title="Heading 2" className={btn}><Heading2 className="w-4 h-4" /></button>
@@ -442,9 +447,10 @@ function NoteCard({
               : <span className="text-slate-300">Empty — click the pencil to edit</span>}
           </div>
         )}
+        </div>
       </div>
 
-      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 shrink-0">
+      <div className="flex items-center justify-between px-4 py-2 border-t border-slate-100 shrink-0">
         <span className="text-[10px] text-slate-400">
           {savedFlash
             ? <span className="text-emerald-600 flex items-center gap-0.5"><Check className="w-3 h-3" /> Saved</span>
