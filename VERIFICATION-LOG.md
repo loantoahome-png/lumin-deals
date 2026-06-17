@@ -117,7 +117,7 @@ returns, dedupes on `resolvedLocation:contact_id`, and labels from the location 
 GHL · Moe (one contact) + GHL · Matt (the other).
 **Test Method:** `npx tsc --noEmit` (error set unchanged = 4 pre-existing files); reasoned against
 live data (location map: 84fC…=Matt, PKEB…=Moe).
-**Result:** Type-clean. Pending redeploy.
+**Result:** Type-clean. **Deployed** commit `b7a49d0` → prod READY (dpl_HUtocKiXEi4yYh5PfqsAyGfHGY5e), 2026-06-16.
 
 ### [2026-06-16] DIAGNOSIS (not a code fix): GHL↔Arive duplicate rows share an arive_file_no
 **Finding:** Efrain spotted two "$280,000" rows on Marian = the SAME loan. Confirmed: both carry
@@ -150,4 +150,5 @@ probe: exactly 6 arive_file_no values sit on >1 deal row (Marian, Rene Gonzalez,
 Jeffrey Kilgrow, Jong Oh + the Southerby anomaly).
 **Result:** Type-clean, build READY. Merge picks the Arive row as primary (funded_date +
 arive_file_no are completeness-score fields) → merging Marian's pair also corrects the LO to Moe.
-Not browser-verified here (auth wall). Pending deploy (bundle with label fix `b7a49d0`).
+Not browser-verified here (auth wall). **Deployed** commit `7893579` → prod READY
+(dpl_HUtocKiXEi4yYh5PfqsAyGfHGY5e), 2026-06-16. Live check: `/duplicates` → Arive tab (6 groups).
