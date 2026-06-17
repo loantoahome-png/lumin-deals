@@ -47,6 +47,8 @@ The dashboard owns the **unified person** (`contacts` table) that no upstream sy
 - `/unread` — GHL conversations with unread messages
 - `/deals` — Active Escrows table
 - `/funded` — Closed/funded deals
+- `/contacts` — People list (FUB-style: avatar, source, lifecycle stage, sortable, source filter, CSV export, book stats strip) + person detail `/contacts/[id]` (identity, read-only Details panel, loans, activity timeline)
+- `/radar` — Refi Radar: product-segmented refinance scoring over the funded book (`lib/refiRadar.ts`); user-set par rates in `sync_state`
 - `/reports` — Charts and analytics
 - `/lead-spend` — Cost per lead source
 - `/deals/new` — Manual deal creation
@@ -86,3 +88,17 @@ research, then answer. Specifically:
   plausible ones.
 - **Prefer reading the source of truth** (the code, the DB row, the API
   response, the log line) over inferring from symptoms or memory.
+
+## Deploy policy — ship verified changes WITHOUT asking (Efrain, 2026-06-16)
+Efrain does not want to approve each deploy. **Once a change is verified, deploy it to prod
+automatically and report the result — do NOT ask "want me to deploy?" first.**
+- **"Verified"** = `npx tsc --noEmit` adds no new errors (the standing pre-existing set is
+  `reports`, `underwriting`, `DealForm`, `next.config`) AND `npm run build` succeeds, AND any
+  fixtures/tests for the touched code pass. Then deploy: `vercel --prod --yes` from this directory.
+- **Always** report the outcome (prod URL + `readyState`) and keep `VERIFICATION-LOG.md` current.
+- **STILL pause and flag first** (do NOT silently deploy) only when a change:
+  1. needs a manual step to take effect — a Supabase SQL migration / RLS change (e.g.
+     `supabase-contacts.sql`); the deploy is useless until Efrain runs the SQL, so call it out;
+  2. is destructive or hard to reverse (data deletion/mutation, secret rotation, force-push);
+  3. Efrain explicitly said "don't deploy yet" for that change.
+- These carve-outs are the *only* reasons to ask. Everything else: verify → deploy → report.

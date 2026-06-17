@@ -234,4 +234,12 @@ dismiss). Sidebar nav link ("Refi Radar"). Started with the no-equity plays per 
 net-benefit threshold, no-rate skip, funded-only, ranking) compiled via tsc→/tmp + node: ALL PASS.
 `npx tsc --noEmit` (new files clean; error set = 4 pre-existing). `npm run build` (✓ `/radar` +
 `/api/radar/par-rates`). Output matches the approved mockup. No RLS step (reads `deals`; par via API).
-**Result:** Type-clean, build READY, fixtures green. Not browser-verified here (auth wall). Pending deploy.
+**Result:** Type-clean, build READY, fixtures green. Not browser-verified here (auth wall).
+**Deployed** commit `3e66097` → prod READY (dpl_3ojxnj1fo), 2026-06-16.
+
+### [2026-06-16] Policy: auto-deploy verified changes (no per-deploy ask)
+Efrain: "make it a rule that you ALWAYS deploy new changes — I don't want to tell you every time."
+Set as a standing instruction in `CLAUDE.md` → "Deploy policy" + vault memory
+`project_lumin_deploy_policy`. Default now: verify (tsc + build + tests) → `vercel --prod --yes` →
+report; only pause for (1) manual SQL/RLS migrations, (2) destructive/irreversible changes, (3) an
+explicit "don't deploy yet." Not a hook (a hook can't tell verified from mid-edit).
