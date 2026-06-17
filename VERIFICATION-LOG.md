@@ -1,5 +1,21 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-17] Notes: search + drag-reorder + 4-col grid
+**Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
+**Files:** components/NotesBoard.tsx, app/api/notes/order/route.ts (NEW)
+**Changes:**
+- 4 columns on wide screens (`2xl:grid-cols-4`; 1/2/3 below).
+- Search box in the header — filters by title + content (drag disabled while searching).
+- Drag-to-reorder via @dnd-kit/sortable with a per-card grip handle. Order persisted
+  in `sync_state` (key `notes_order`, an id array) through `/api/notes/order` (GET/POST,
+  service client) — same shared, no-schema-change pattern as par-rates. Order self-heals
+  on drift (deleted ids dropped, new notes appended).
+- Pin now = mark + move the note to the front of the arrangement (persisted), replacing
+  the old pinned-float sort.
+**Test Method:** `npx tsc --noEmit` clean for changed files; `npm run build` ✓ —
+`/notes` prerenders, `/api/notes/order` registered. Visual gated by login.
+**Result:** Pending your visual check. Build + types green.
+
 ### [2026-06-17] Notes: own /notes page + advanced markdown editor
 **Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
 **Files:** lib/noteMarkdown.ts (NEW), components/NoteMarkdown.tsx (NEW),

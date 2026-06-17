@@ -3,9 +3,15 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
-  StickyNote, Plus, Trash2, Check, Loader2, Pin, Pencil,
+  StickyNote, Plus, Trash2, Check, Loader2, Pin, Pencil, Search, GripVertical,
   Bold, Highlighter, List, Heading1, Heading2, Heading3,
 } from 'lucide-react'
+import {
+  DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import { SortableContext, useSortable, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import NoteMarkdown from '@/components/NoteMarkdown'
 import { htmlToMarkdown, looksLikeHtml } from '@/lib/noteMarkdown'
 
@@ -19,7 +25,7 @@ type Note = {
   created_at: string
 }
 
-// Color is now an accent only — the note background stays white.
+// Color is an accent only — the note background stays white.
 const ACCENT: Record<string, string> = {
   amber:  'border-l-amber-400',
   blue:   'border-l-blue-400',
@@ -39,26 +45,74 @@ const DOT: Record<string, string> = {
 const COLOR_KEYS = Object.keys(ACCENT)
 const accentOf = (c: string | null) => ACCENT[c ?? 'amber'] ?? ACCENT.amber
 
-function sortNotes(a: Note, b: Note): number {
-  if (!!b.pinned !== !!a.pinned) return b.pinned ? 1 : -1
-  return Date.parse(a.created_at) - Date.parse(b.created_at)
+async function saveOrder(ids: string[]) {
+  try {
+    await fetch('/api/notes/order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    })
+  } catch { /* non-fatal — order re-saves on the next reorder */ }
 }
 
 export default function NotesBoard() {
   const [notes, setNotes] = useState<Note[]>([])
+  const [order, setOrder] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
+  const [search, setSearch] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('dashboard_notes')
-      .select('id, title, content, color, pinned, updated_at, created_at')
-    if (!error && data) setNotes((data as Note[]).sort(sortNotes))
+    const [notesRes, orderRes] = await Promise.all([
+      supabase.from('dashboard_notes').select('id, title, content, color, pinned, updated_at, created_at'),
+      fetch('/api/notes/order').then(r => r.json()).catch(() => ({ ids: [] })),
+    ])
+    if (!notesRes.error && notesRes.data) setNotes(notesRes.data as Note[])
+    setOrder(Array.isArray(orderRes?.ids) ? orderRes.ids : [])
     setLoading(false)
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Canonical arrangement: ids in the saved order first, then any notes not yet
+  // in the order array (new ones), oldest first. Pin floats nothing on its own —
+  // pinning moves a note to the front of this list (persisted).
+  const canonical = useMemo(() => {
+    const byId = new Map(notes.map(n => [n.id, n]))
+    const seen = new Set<string>()
+    const out: Note[] = []
+    for (const id of order) {
+      const n = byId.get(id)
+      if (n && !seen.has(id)) { out.push(n); seen.add(id) }
+    }
+    const rest = notes.filter(n => !seen.has(n.id))
+      .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
+    return [...out, ...rest]
+  }, [notes, order])
+
+  const display = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return canonical
+    return canonical.filter(n => ((n.title ?? '') + ' ' + (n.content ?? '')).toLowerCase().includes(q))
+  }, [canonical, search])
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  function handleDragEnd(e: DragEndEvent) {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const ids = canonical.map(n => n.id)
+    const oldI = ids.indexOf(String(active.id))
+    const newI = ids.indexOf(String(over.id))
+    if (oldI < 0 || newI < 0) return
+    const next = arrayMove(ids, oldI, newI)
+    setOrder(next)
+    void saveOrder(next)
+  }
 
   async function addNote() {
     if (adding) return
@@ -68,40 +122,72 @@ export default function NotesBoard() {
       .insert({ content: '', color: 'amber', pinned: false })
       .select('id, title, content, color, pinned, updated_at, created_at')
       .single()
-    if (!error && data) setNotes(prev => [...prev, data as Note].sort(sortNotes))
+    if (!error && data) {
+      const n = data as Note
+      setNotes(prev => [...prev, n])
+      setOrder(prev => { const next = [...prev, n.id]; void saveOrder(next); return next })
+    }
     setAdding(false)
   }
 
   async function deleteNote(id: string) {
     setNotes(prev => prev.filter(n => n.id !== id))
+    setOrder(prev => { const next = prev.filter(x => x !== id); void saveOrder(next); return next })
     await supabase.from('dashboard_notes').delete().eq('id', id)
   }
 
-  async function patchNote(id: string, fields: Partial<Note>, resort = false) {
-    setNotes(prev => {
-      const next = prev.map(n => n.id === id ? { ...n, ...fields } : n)
-      return resort ? [...next].sort(sortNotes) : next
-    })
+  async function patchNote(id: string, fields: Partial<Note>) {
+    setNotes(prev => prev.map(n => n.id === id ? { ...n, ...fields } : n))
     await supabase.from('dashboard_notes')
       .update({ ...fields, updated_at: new Date().toISOString() })
       .eq('id', id)
   }
 
+  // Pin = mark + jump to the front of the arrangement (persisted). Unpin just clears the mark.
+  function togglePin(note: Note) {
+    const next = !note.pinned
+    void patchNote(note.id, { pinned: next })
+    if (next) setOrder(prev => { const moved = [note.id, ...prev.filter(x => x !== note.id)]; void saveOrder(moved); return moved })
+  }
+
+  const canReorder = !search.trim()
+
+  const grid = (
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 items-start">
+      {display.map(n =>
+        canReorder
+          ? <SortableNote key={n.id} note={n} onPatch={patchNote} onDelete={deleteNote} onPin={togglePin} />
+          : <NoteCard key={n.id} note={n} onPatch={patchNote} onDelete={deleteNote} onPin={togglePin} />,
+      )}
+    </div>
+  )
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="px-6 py-4 bg-white border-b border-slate-200 shrink-0 flex items-center justify-between">
+      <div className="px-6 py-4 bg-white border-b border-slate-200 shrink-0 flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
           <StickyNote className="w-5 h-5 text-amber-500" /> Notes
         </h1>
-        <button
-          onClick={addNote}
-          disabled={adding}
-          className="flex items-center gap-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg px-3 py-2 disabled:opacity-50"
-        >
-          {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-          Add note
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search notes…"
+              className="w-56 pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <button
+            onClick={addNote}
+            disabled={adding}
+            className="flex items-center gap-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg px-3 py-2 disabled:opacity-50"
+          >
+            {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            Add note
+          </button>
+        </div>
       </div>
 
       {/* Board */}
@@ -117,24 +203,58 @@ export default function NotesBoard() {
           >
             + Add your first note
           </button>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
-            {notes.map(n => (
-              <NoteCard key={n.id} note={n} onPatch={patchNote} onDelete={deleteNote} />
-            ))}
-          </div>
-        )}
+        ) : display.length === 0 ? (
+          <p className="text-sm text-slate-400 px-1">No notes match “{search}”.</p>
+        ) : canReorder ? (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={display.map(n => n.id)} strategy={rectSortingStrategy}>
+              {grid}
+            </SortableContext>
+          </DndContext>
+        ) : grid}
       </div>
     </div>
   )
 }
 
+function SortableNote(props: {
+  note: Note
+  onPatch: (id: string, fields: Partial<Note>) => Promise<void>
+  onDelete: (id: string) => void
+  onPin: (note: Note) => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.note.id })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+    opacity: isDragging ? 0.6 : 1,
+  }
+  const handle = (
+    <button
+      {...attributes}
+      {...listeners}
+      title="Drag to reorder"
+      className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 touch-none"
+    >
+      <GripVertical className="w-4 h-4" />
+    </button>
+  )
+  return (
+    <div ref={setNodeRef} style={style}>
+      <NoteCard {...props} handle={handle} />
+    </div>
+  )
+}
+
 function NoteCard({
-  note, onPatch, onDelete,
+  note, onPatch, onDelete, onPin, handle,
 }: {
   note: Note
-  onPatch: (id: string, fields: Partial<Note>, resort?: boolean) => Promise<void>
+  onPatch: (id: string, fields: Partial<Note>) => Promise<void>
   onDelete: (id: string) => void
+  onPin: (note: Note) => void
+  handle?: React.ReactNode
 }) {
   // Legacy notes hold contentEditable HTML — convert to markdown for display/edit.
   // Non-destructive: the DB only changes to markdown when the user next saves.
@@ -200,15 +320,18 @@ function NoteCard({
 
   return (
     <div className={`group relative bg-white border border-slate-200 border-l-4 ${accentOf(note.color)} rounded-xl p-4 shadow-sm`}>
-      {/* Top row: pin + (hover) colors / edit / delete */}
+      {/* Top row: grip + pin + (hover) colors / edit / delete */}
       <div className="flex items-center justify-between mb-1.5">
-        <button
-          onClick={() => onPatch(note.id, { pinned: !note.pinned }, true)}
-          title={note.pinned ? 'Unpin' : 'Pin to top'}
-          className={`transition-colors ${note.pinned ? 'text-amber-600' : 'text-slate-300 hover:text-slate-500'}`}
-        >
-          <Pin className={`w-3.5 h-3.5 ${note.pinned ? 'fill-amber-500' : ''}`} />
-        </button>
+        <div className="flex items-center gap-1">
+          {handle}
+          <button
+            onClick={() => onPin(note)}
+            title={note.pinned ? 'Unpin' : 'Pin to top'}
+            className={`transition-colors ${note.pinned ? 'text-amber-600' : 'text-slate-300 hover:text-slate-500'}`}
+          >
+            <Pin className={`w-3.5 h-3.5 ${note.pinned ? 'fill-amber-500' : ''}`} />
+          </button>
+        </div>
         <div className="flex items-center gap-1.5">
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
             {COLOR_KEYS.map(key => (
