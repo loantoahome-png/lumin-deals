@@ -1,5 +1,18 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-17] Lead Spend: funded-loans section for the current timeframe
+**Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
+**File:** app/lead-spend/page.tsx
+**Changes:** Added a "Funded loans · {range}" section below the per-source table —
+a flat table of the individual funded deals (Borrower→/deals/[id], Source, LO, Funded
+date, Loan amount, Revenue) for the active filters, with a Total row. Derived via
+`fundedView` = `filtered` funded deals scoped to `visibleSources` names, so the count
+matches the Funded KPI (respects range/LO/stage/source/paid-only). Added a local
+`fmtDate` + `rangeLabel`. Section hidden when zero funded in range.
+**Test Method:** `npx tsc --noEmit` lead-spend clean; `npm run build` ✓ (`/lead-spend`
+prerenders). Visual gated by login.
+**Result:** Pending your visual check. Build + types green.
+
 ### [2026-06-17] Fluid CPU: widen identity-resolver + maintenance cron intervals
 **Status:** CHANGED (build-passed) — live CPU impact verifiable only on the Vercel chart over the next few days
 **File:** app/api/cron/ghl-sync/route.ts (+ CLAUDE.md sync-architecture docs)

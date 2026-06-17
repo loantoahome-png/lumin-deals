@@ -51,6 +51,12 @@ function monthsBetween(start: Date | null, end: Date | null): number {
   return Math.max(0.1, days / 30.4375)   // average month length, floor at 0.1 to avoid div-by-0
 }
 
+function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 type LO = 'All' | 'Matt' | 'Moe'
 
 // Green/teal palette for the funded-share donut (positive, "money in" feel).
@@ -245,6 +251,20 @@ export default function LeadSpendPage() {
     if (paidOnly) list = list.filter(s => s.leadCost > 0 || s.totalSpend > 0)
     return list
   }, [sources, includedSources, paidOnly])
+
+  // Funded loans within the current timeframe + active filters (range/LO/stage/source/
+  // paid-only). Mirrors what the Funded KPI counts, so the list and the KPI agree.
+  const fundedView = useMemo(() => {
+    const names = new Set(visibleSources.map(s => s.source))
+    const list = filtered
+      .filter(d => (d.pipeline_group ?? '') === 'Funded' && names.has((d.source ?? '').trim() || '(no source set)'))
+      .sort((a, b) => new Date(b.funded_date || b.created_at).getTime() - new Date(a.funded_date || a.created_at).getTime())
+    const volume = list.reduce((a, d) => a + (d.loan_amount ?? 0), 0)
+    const comp = list.reduce((a, d) => a + (d.compensation_amount ?? 0), 0)
+    return { list, volume, comp }
+  }, [filtered, visibleSources])
+
+  const rangeLabel = useMemo(() => RANGE_OPTIONS.find(o => o.key === range)?.label ?? 'All time', [range])
 
   // How many sources are being hidden by the paid-only filter (for the toggle label).
   const noCostCount = useMemo(() => {
@@ -1009,6 +1029,58 @@ export default function LeadSpendPage() {
             <strong> Net Profit</strong> = Revenue − Lead Cost ·
             <strong> ROI</strong> = Net Profit ÷ Lead Cost ·
             Expand a source row to see its deals, set an optional flat <strong>monthly cost</strong> (for retainer-billed sources), or recategorize.
+          </div>
+        )}
+
+        {/* Funded loans for the current timeframe (matches the Funded KPI) */}
+        {!loading && fundedView.list.length > 0 && (
+          <div className="mt-6 bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-2 flex-wrap">
+              <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                <DollarSign className="w-4 h-4 text-emerald-500" />
+                Funded loans <span className="font-normal text-slate-400">· {rangeLabel}</span>
+              </h3>
+              <span className="text-xs text-slate-500">
+                <span className="font-semibold text-slate-700">{fundedView.list.length}</span> funded
+                {' · '}<span className="font-semibold text-slate-700">{formatCurrency(fundedView.volume)}</span> volume
+                {fundedView.comp > 0 && <>{' · '}<span className="font-semibold text-emerald-700">{formatCurrency(fundedView.comp)}</span> comp</>}
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr className="text-left text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                    <th className="px-4 py-2.5">Borrower</th>
+                    <th className="px-3 py-2.5">Source</th>
+                    <th className="px-3 py-2.5">LO</th>
+                    <th className="px-3 py-2.5 text-right">Funded</th>
+                    <th className="px-3 py-2.5 text-right">Loan Amount</th>
+                    <th className="px-3 py-2.5 text-right pr-4">Revenue</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {fundedView.list.map((d, i) => (
+                    <tr key={d.id} className={i % 2 ? 'bg-slate-50/40' : 'bg-white'}>
+                      <td className="px-4 py-2.5">
+                        <Link href={`/deals/${d.id}`} className="font-medium text-slate-900 hover:text-blue-700">{d.name || '(no name)'}</Link>
+                      </td>
+                      <td className="px-3 py-2.5 text-slate-600">{(d.source ?? '').trim() || '—'}</td>
+                      <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{d.loan_officer || '—'}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-600 whitespace-nowrap">{fmtDate(d.funded_date)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums font-medium text-slate-800">{d.loan_amount ? formatCurrency(d.loan_amount) : '—'}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700 pr-4">{d.compensation_amount ? formatCurrency(d.compensation_amount) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-50 border-t border-slate-200 font-semibold text-slate-800">
+                    <td className="px-4 py-2.5" colSpan={4}>Total</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{formatCurrency(fundedView.volume)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700 pr-4">{formatCurrency(fundedView.comp)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </div>
         )}
       </div>
