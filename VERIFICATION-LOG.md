@@ -246,3 +246,12 @@ explicit "don't deploy yet." Not a hook (a hook can't tell verified from mid-edi
 **REVERTED same day** — Efrain: "actually lets get rid of the auto deploy, let me confirm before
 deploying." Policy is now: **always confirm before `vercel --prod`.** CLAUDE.md + vault memory
 updated to match.
+
+### [2026-06-16] Tweak: roomier par-rate config bar on /radar
+**Status:** CHANGED (tsc + build clean) — pending deploy (awaiting confirm)
+**Issue:** Efrain — the par-rate bar was cramped (label + 4 inputs + Save jammed on one line).
+**Changes:** `app/radar/page.tsx` — par config is now a `p-4` card: header row (label + one-line
+hint + Save), then the four rate fields stacked (label above input), bigger inputs (`py-2`, w-24),
+spaced `gap-x-10 gap-y-4`.
+**Test Method:** `npx tsc --noEmit` (radar page clean); `npm run build` (✓ `/radar`). Mockup shown.
+**Result:** Type-clean, build READY. Pending deploy.

@@ -101,29 +101,36 @@ export default function RadarPage() {
         </div>
 
         {/* Par-rate config */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-          <span className="text-[11px] uppercase tracking-wide text-slate-400">Your par rates</span>
-          {PAR_FIELDS.map(f => (
-            <label key={f.k} className="flex items-center gap-1.5 text-sm text-slate-600">
-              {f.label}
-              <div className="relative">
-                <input
-                  type="number" step="0.125" min="0" max="25"
-                  value={draft[f.k]}
-                  onChange={e => setDraft(prev => ({ ...prev, [f.k]: e.target.value === '' ? 0 : Number(e.target.value) }))}
-                  className="w-16 pl-2 pr-5 py-1 text-sm border border-slate-200 rounded-md tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">%</span>
-              </div>
-            </label>
-          ))}
-          <button
-            onClick={savePar}
-            disabled={!parDirty || saving}
-            className="text-xs font-semibold px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
+        <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-4">
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-slate-400">Your par rates</div>
+              <div className="text-xs text-slate-400 mt-0.5">Today&apos;s rate per product — each loan is scored against these.</div>
+            </div>
+            <button
+              onClick={savePar}
+              disabled={!parDirty || saving}
+              className="text-xs font-semibold px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-x-10 gap-y-4">
+            {PAR_FIELDS.map(f => (
+              <label key={f.k} className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-slate-500">{f.label}</span>
+                <div className="relative w-24">
+                  <input
+                    type="number" step="0.125" min="0" max="25"
+                    value={draft[f.k]}
+                    onChange={e => setDraft(prev => ({ ...prev, [f.k]: e.target.value === '' ? 0 : Number(e.target.value) }))}
+                    className="w-full pl-3 pr-7 py-2 text-sm border border-slate-200 rounded-md tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">%</span>
+                </div>
+              </label>
+            ))}
+          </div>
         </div>
 
         {/* Play filter */}
