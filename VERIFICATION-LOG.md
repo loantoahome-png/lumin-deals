@@ -254,4 +254,4 @@ updated to match.
 hint + Save), then the four rate fields stacked (label above input), bigger inputs (`py-2`, w-24),
 spaced `gap-x-10 gap-y-4`.
 **Test Method:** `npx tsc --noEmit` (radar page clean); `npm run build` (✓ `/radar`). Mockup shown.
-**Result:** Type-clean, build READY. Pending deploy.
+**Result:** Type-clean, build READY. **Deployed** commit `c39b389` → prod (dpl_6ijpx8gef), 2026-06-16.
