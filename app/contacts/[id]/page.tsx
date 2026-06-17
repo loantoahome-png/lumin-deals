@@ -28,17 +28,22 @@ type SubLink = { url: string; label: string }
  *  A person can exist in BOTH Moe's and Matt's GHL with different contact ids —
  *  that cross-account jump is the whole reason the dashboard owns the person. */
 function subAccountLinks(deals: Deal[]): SubLink[] {
+  const MATT = process.env.NEXT_PUBLIC_GHL_LOCATION_ID_MATT
+  const MOE = process.env.NEXT_PUBLIC_GHL_LOCATION_ID
   const seen = new Map<string, SubLink>()
   for (const d of deals) {
     if (!d.ghl_contact_id) continue
     const url = ghlContactUrl(d)
     if (!url) continue
-    const key = `${d.ghl_location_id ?? ''}:${d.ghl_contact_id}`
+    // Label + dedup by the ACTUAL sub-account the link opens (parsed from the URL
+    // ghlContactUrl resolved), NOT by loan_officer — that free-text field can
+    // disagree with the real GHL location (an opp can sit in Moe's sub-account yet
+    // be stamped LO "Matt Park"), which would mislabel the link and split one
+    // contact into two rows.
+    const locId = url.match(/\/location\/([^/]+)\//)?.[1] ?? ''
+    const key = `${locId}:${d.ghl_contact_id}`
     if (seen.has(key)) continue
-    const lo = (d.loan_officer ?? '').toLowerCase()
-    const label =
-      lo.includes('matt') || lo.includes('park') ? 'GHL · Matt' :
-      lo.includes('moe') || lo.includes('sefati') ? 'GHL · Moe' : 'GHL'
+    const label = locId && locId === MATT ? 'GHL · Matt' : locId && locId === MOE ? 'GHL · Moe' : 'GHL'
     seen.set(key, { url, label })
   }
   return [...seen.values()]

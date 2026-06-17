@@ -100,4 +100,35 @@ features. `communications` JSONB = 0% → NO message timeline built (milestone-o
 the 4 pre-existing files only); `npm run build` (compiles `ƒ /contacts/[id]` — build succeeds).
 **Result:** Type-clean, build READY. Not browser-verified here (auth wall, same as Phase 2) —
 visual confirm is on the live logged-in `/contacts/[id]` page (e.g. open Marian Cooper or Rene
-Gonzalez). **Not yet deployed** — awaiting Efrain's go to `vercel --prod`.
+Gonzalez). **Deployed** commit `f34057d` → prod READY (`lumin-deals.vercel.app`), 2026-06-16.
+
+### [2026-06-16] Fix: person-view GHL link mislabeled by loan_officer
+**Status:** CHANGED (tsc clean) — pending redeploy
+**Issue:** On `/contacts/[id]`, Marian Cooper showed GHL jump-links "GHL · Matt, GHL · Matt,
+GHL · Moe" — but two of those were the SAME GHL contact (hygNEpIZsaE9YCM4GzzY) in Moe's
+sub-account; one was mislabeled "Matt". Root cause: `subAccountLinks` derived the LABEL from the
+free-text `loan_officer` and DEDUPED on the raw `ghl_location_id` (null on one of the two deals).
+A GHL opp sitting in Moe's location but stamped `loan_officer="Matt Park"` (deal 28bdd70e)
+therefore got a "Matt" label on a link that actually opens Moe's sub-account, and didn't collapse
+with the same contact's other row.
+**Changes:** `subAccountLinks` now parses the resolved location id out of the URL `ghlContactUrl`
+returns, dedupes on `resolvedLocation:contact_id`, and labels from the location id vs the
+`NEXT_PUBLIC_GHL_LOCATION_ID*` env (never from loan_officer). Marian now correctly shows 2 links —
+GHL · Moe (one contact) + GHL · Matt (the other).
+**Test Method:** `npx tsc --noEmit` (error set unchanged = 4 pre-existing files); reasoned against
+live data (location map: 84fC…=Matt, PKEB…=Moe).
+**Result:** Type-clean. Pending redeploy.
+
+### [2026-06-16] DIAGNOSIS (not a code fix): GHL↔Arive duplicate rows share an arive_file_no
+**Finding:** Efrain spotted two "$280,000" rows on Marian = the SAME loan. Confirmed: both carry
+`arive_file_no=16057126`. One row (4b479d31) is the Arive import (Moe, funded 2026-03-30, comp
+$4,701, subject 6923 Standish Dr); the other (28bdd70e) is the GHL opportunity for that loan (in
+Moe's GHL location, no funded_date, mailing addr 6121 41st Ave) onto which the durable join stamped
+arive# 16057126. They don't merge because the dedup key is `loan_officer + loan_amount` and the LOs
+differ (28bdd70e is wrongly stamped "Matt Park"; it's Moe's loan on every other signal).
+**Scope (live probe):** 6 distinct `arive_file_no` values appear on >1 deal row (same loan
+duplicated); only Marian's is split-LO. NOTE anomaly: arive 16893761 sits on TWO DIFFERENT people
+(Cynthia $1.22M / Paul Southerby $122k) — likely a bad arive# fill or co-borrower, separate issue.
+**Recommended fix (not yet built):** add a `arive_file_no`-shared duplicate detector to
+`/duplicates` (dead-certain signal now that the join populates it on GHL rows) for one-click human
+merge; correct Marian's wrong LO (Matt→Moe — affects comp credit, confirm first).
