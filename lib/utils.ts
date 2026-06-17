@@ -100,3 +100,14 @@ export function dndLabel(deal: DndCarrier | null | undefined): string | null {
   if (!s) return null
   return s.all ? 'Do Not Contact' : `DND: ${s.channels.join(', ')}`
 }
+
+// ── Lead source ──────────────────────────────────────────────────────────────
+/** A lead source worth displaying, or null. Filters empties, the "Unknown" bucket,
+ *  and "Arive" — Arive is the LOS, never a real lead source (see project rules). */
+export function cleanSource(s: string | null | undefined): string | null {
+  const t = (s ?? '').trim()
+  if (!t) return null
+  const l = t.toLowerCase()
+  if (l === 'unknown' || l === 'arive') return null
+  return t
+}

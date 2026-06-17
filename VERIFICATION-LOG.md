@@ -179,3 +179,20 @@ from the mockup.
 shown for contrast sign-off.
 **Result:** Type-clean, build READY. **Deployed** commit `7f28915` → prod READY
 (dpl_5ow97jiix), 2026-06-16.
+
+### [2026-06-16] Feature: read-only Details panel on the person page (Contacts Phase 3.2)
+**Status:** CHANGED (tsc + build clean) — pending deploy
+**Issue:** Efrain wants more read-only info on `/contacts/[id]` (loves Loans + Activity), incl. ALL
+contact points in the body, not just the one line under the name.
+**Changes:** `app/contacts/[id]/page.tsx` — new "Details" panel above Loans with 4 groups:
+**Contact** (all distinct emails + phones across the loans, dedup'd), **Profile** (location,
+purpose, occupancy + property type, value · LTV, credit *rating* bucket, veteran/VA), **Source &
+cost** (lead source, LO(s), Σ lead_price acquisition cost + funded return), **Reachability** (DND,
+last contact + channel, last inbound). All derived from the already-fetched deals (`buildDetails`),
+read-only. `reachability` extended for comm type + inbound. Added shared `cleanSource` to
+`lib/utils` (filters Arive + Unknown) and used it on both the list sub-line and the panel source.
+Skipped the Opportunity tier per Efrain. Spec/probe basis: lead_price ~90% on leads, credit_rating
+84–90% (FICO only ~10%), loan_type funded-only — so the panel leans on the populated fields.
+**Test Method:** `npx tsc --noEmit` (3 changed files clean; error set = 4 pre-existing); `npm run
+build` (✓ both `/contacts` routes). Mockup shown for sign-off.
+**Result:** Type-clean, build READY. Not browser-verified here (auth wall). Pending deploy.

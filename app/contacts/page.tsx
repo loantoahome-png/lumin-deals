@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Contact } from '@/lib/types'
-import { formatCurrency, titleCase } from '@/lib/utils'
+import { formatCurrency, titleCase, cleanSource } from '@/lib/utils'
 import Link from 'next/link'
 import { RefreshCw, Search, Copy, Check } from 'lucide-react'
 
@@ -42,13 +42,6 @@ function avatarColor(seed: string): string {
   let h = 0
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length]
-}
-
-// A source we don't want to surface as a label (empty or the "we don't know" bucket).
-function cleanSource(s: string | null): string | null {
-  const t = (s ?? '').trim()
-  if (!t || t.toLowerCase() === 'unknown') return null
-  return t
 }
 
 export default function ContactsPage() {
