@@ -177,4 +177,5 @@ from the mockup.
 `bg-slate-50`); selected rows stay `bg-blue-50`, hover `bg-slate-100`.
 **Test Method:** `npx tsc --noEmit` (contacts page clean); `npm run build` (✓ `/contacts`). Mockup
 shown for contrast sign-off.
-**Result:** Type-clean, build READY. Pending deploy.
+**Result:** Type-clean, build READY. **Deployed** commit `7f28915` → prod READY
+(dpl_5ow97jiix), 2026-06-16.
