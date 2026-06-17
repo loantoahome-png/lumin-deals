@@ -152,3 +152,19 @@ Jeffrey Kilgrow, Jong Oh + the Southerby anomaly).
 arive_file_no are completeness-score fields) → merging Marian's pair also corrects the LO to Moe.
 Not browser-verified here (auth wall). **Deployed** commit `7893579` → prod READY
 (dpl_HUtocKiXEi4yYh5PfqsAyGfHGY5e), 2026-06-16. Live check: `/duplicates` → Arive tab (6 groups).
+
+### [2026-06-16] Feature: FUB-style contacts list (Contacts Phase 3.1)
+**Status:** CHANGED (tsc + build clean) — pending deploy
+**Issue:** `/contacts` was a dense, undifferentiated table — no per-person visual anchor, no
+lifecycle signal, no bulk actions. Efrain wants each lead "divided" (Follow Up Boss reference).
+**Changes:** `app/contacts/page.tsx` only. Each row now: colored initials **avatar** + two-line
+name/source, a **lifecycle Stage pill** (In Process > Past Client > Lead > Not Ready), a **select
+checkbox** (+ header select-all) with a selection bar (**Copy emails** to clipboard), and
+**lifecycle filter tabs** with counts; kept search + money columns. Source + lifecycle are derived
+client-side from a slim parallel deals fetch (`borrower_id, pipeline_group, source, created_at`) —
+NO schema/resolver change (promote into the resolver later if the per-load fetch is heavy). Spec:
+`docs/specs/2026-06-16-contacts-list-fub-style-spec.md`.
+**Test Method:** `npx tsc --noEmit` (contacts page clean; error set = 4 pre-existing files);
+`npm run build` (✓ Compiled; `/contacts` builds). Design shown to Efrain as a mockup for approval.
+**Result:** Type-clean, build READY. Not browser-verified here (auth wall). Pending deploy + Efrain
+sign-off on the design.
