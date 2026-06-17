@@ -197,3 +197,21 @@ Skipped the Opportunity tier per Efrain. Spec/probe basis: lead_price ~90% on le
 build` (✓ both `/contacts` routes). Mockup shown for sign-off.
 **Result:** Type-clean, build READY. Not browser-verified here (auth wall). **Deployed** commit
 `1d0b41e` → prod READY (dpl_qdtbnj292), 2026-06-16.
+
+### [2026-06-16] Feature: contacts list command center + source lens (Contacts Phase 3.3)
+**Status:** CHANGED (tsc + build clean) — pending deploy
+**Issue:** Efrain — make the list a working tool. Picked "List command center" + "Source lens" from
+the suggestions (skipped tags / opportunity flags this round).
+**Changes:** `app/contacts/page.tsx` — (1) **book-of-business stats strip** (people · funded clients
+· funded volume · comp · lead spend) that reflects the live filters; (2) **sortable columns** (Name,
+Loans, Funded, Funded volume, Comp, Cost) via a `SortTh` header + `sorted` memo, default = existing
+last-activity order; (3) a new **Cost** column = Σ `lead_price` per person (added `leadCost` to the
+per-person `DealMeta`, fetched `lead_price` in the slim deal projection); (4) **Source dropdown**
+filter over the 16 clean lead vendors (`sourceOptions` by frequency); (5) **Export selected → CSV**
+in the bulk bar (Blob download, no backend) alongside Copy emails. Selection now operates on the
+sorted/visible set.
+**Test Method:** `npx tsc --noEmit` (contacts page clean; error set = 4 pre-existing); `npm run
+build` (✓ `/contacts`). Mockup shown for sign-off.
+**Result:** Type-clean, build READY. Not browser-verified here (auth wall). Pending deploy. Data
+basis (probe): 16 sources (FRU 419, Lendgo 344, LMB 250…), total lead spend $37,412, 141 funded
+clients.
