@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { RefreshCw, Inbox, ExternalLink, Phone, MessageSquare, Mail, Send, Check, Sparkles } from 'lucide-react'
 
@@ -47,11 +47,11 @@ function ChannelIcon({ channel }: { channel: string }) {
 }
 
 // ── Client-side cache (B) ────────────────────────────────────────────────────
-// The inbox now lives on the Dashboard, which mounts on every app load and on
-// every client-side nav back to "/". Without a guard that would hit GHL each
-// time. We cache the last result in sessionStorage for a short TTL: a remount
-// within the window reuses it (no call); the Refresh button always pulls live.
-const UNREAD_TTL_MS = 2 * 60_000
+// The inbox lives on the Dashboard, which remounts on every app load and on every
+// client-side nav back to "/". The cache is the throttle: we keep the last result
+// in sessionStorage (survives same-tab reloads) for a 15-min TTL, so any remount
+// within the window reuses it with NO GHL call. The Refresh button always pulls live.
+const UNREAD_TTL_MS = 15 * 60_000
 const UNREAD_CACHE_KEY = 'lumin:unread-cache:v1'
 type CachedUnread = { items: UnreadItem[]; at: number }
 
@@ -73,11 +73,8 @@ export default function UnreadInbox() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [loFilter, setLoFilter] = useState<'All' | 'Matt' | 'Moe'>('All')
-  const loadedRef = useRef(false)        // ensures the lazy observer fetches at most once
-  const rootRef = useRef<HTMLDivElement>(null)
 
   const fetchUnread = useCallback(async () => {
-    loadedRef.current = true
     setLoading(true); setError(null)
     try {
       const res = await fetch('/api/ghl/unread', { cache: 'no-store' })
@@ -90,22 +87,16 @@ export default function UnreadInbox() {
     setLoading(false)
   }, [])
 
-  // Mount: serve a fresh cache hit immediately (no call). Otherwise fetch lazily
-  // — only when the section nears the viewport, so an ignored dashboard doesn't
-  // hit GHL at all.
+  // Mount: serve a fresh cache hit with no call; otherwise fetch once. The cache
+  // (sessionStorage, survives same-tab reloads + in-app nav back to "/") is what
+  // throttles GHL — at most one call per TTL window per tab.
   useEffect(() => {
     const cached = readUnreadCache()
     if (cached && Date.now() - cached.at < UNREAD_TTL_MS) {
-      setItems(cached.items); setLoading(false); loadedRef.current = true
+      setItems(cached.items); setLoading(false)
       return
     }
-    const el = rootRef.current
-    if (!el || typeof IntersectionObserver === 'undefined') { fetchUnread(); return }
-    const obs = new IntersectionObserver(entries => {
-      if (entries.some(e => e.isIntersecting) && !loadedRef.current) fetchUnread()
-    }, { rootMargin: '300px' })
-    obs.observe(el)
-    return () => obs.disconnect()
+    fetchUnread()
   }, [fetchUnread])
 
   const filtered = useMemo(() => {
@@ -130,7 +121,7 @@ export default function UnreadInbox() {
   }
 
   return (
-    <div ref={rootRef} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
       <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <Inbox className="w-4 h-4 text-blue-500" />

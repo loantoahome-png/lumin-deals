@@ -1,5 +1,19 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-17] Unread: drop lazy-load, cache TTL 2→15 min
+**Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
+**File:** components/UnreadInbox.tsx
+**Issue:** The inbox sits high on the Dashboard (in view on load), so the lazy
+IntersectionObserver fired immediately and bought nothing — the sessionStorage
+cache is the actual throttle, not the observer.
+**Changes:** Removed the IntersectionObserver + its `loadedRef`/`rootRef`/`useRef`
+(mount now: serve fresh cache, else fetch once). Raised `UNREAD_TTL_MS` 2min → 15min.
+Net call pattern: ≤1 GHL call per 15-min window per tab; same-tab reloads + in-app
+nav back to "/" within the window reuse the cache (no call); Refresh always live.
+**Test Method:** grep confirms no lingering `loadedRef`/`rootRef`/`IntersectionObserver`;
+`npx tsc --noEmit` UnreadInbox-clean; `npm run build` ✓ (`/` prerenders).
+**Result:** Pending your visual check. Build + types green.
+
 ### [2026-06-17] Unread: true move to Dashboard + call-volume guard (A+B)
 **Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
 **Files:** components/UnreadInbox.tsx, components/Dashboard.tsx, app/unread/page.tsx (DELETED)
