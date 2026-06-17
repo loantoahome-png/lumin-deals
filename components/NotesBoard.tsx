@@ -45,6 +45,12 @@ const DOT: Record<string, string> = {
 const COLOR_KEYS = Object.keys(ACCENT)
 const accentOf = (c: string | null) => ACCENT[c ?? 'amber'] ?? ACCENT.amber
 
+// One uniform text size for every note (px). Adjustable 12–26; persisted per browser.
+const FONT_KEY = 'lumin:notes-fontsize'
+const FONT_MIN = 12
+const FONT_MAX = 26
+const FONT_DEFAULT = 15
+
 async function saveOrder(ids: string[]) {
   try {
     await fetch('/api/notes/order', {
@@ -61,6 +67,20 @@ export default function NotesBoard() {
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
   const [search, setSearch] = useState('')
+  const [fontSize, setFontSizeState] = useState(FONT_DEFAULT)
+
+  // Font size: read once on mount, write on change (clamped).
+  useEffect(() => {
+    try {
+      const v = Number(localStorage.getItem(FONT_KEY))
+      if (v >= FONT_MIN && v <= FONT_MAX) setFontSizeState(v)
+    } catch { /* ignore */ }
+  }, [])
+  const setFontSize = (v: number) => {
+    const clamped = Math.min(FONT_MAX, Math.max(FONT_MIN, Math.round(v)))
+    setFontSizeState(clamped)
+    try { localStorage.setItem(FONT_KEY, String(clamped)) } catch { /* ignore */ }
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -75,9 +95,8 @@ export default function NotesBoard() {
 
   useEffect(() => { load() }, [load])
 
-  // Canonical arrangement: ids in the saved order first, then any notes not yet
-  // in the order array (new ones), oldest first. Pin floats nothing on its own —
-  // pinning moves a note to the front of this list (persisted).
+  // Canonical arrangement: ids in the saved order first, then any notes not yet in
+  // the order array (new ones), oldest first. Pinning moves a note to the front.
   const canonical = useMemo(() => {
     const byId = new Map(notes.map(n => [n.id, n]))
     const seen = new Set<string>()
@@ -143,7 +162,7 @@ export default function NotesBoard() {
       .eq('id', id)
   }
 
-  // Pin = mark + jump to the front of the arrangement (persisted). Unpin just clears the mark.
+  // Pin = mark + jump to the front of the arrangement (persisted). Unpin clears the mark.
   function togglePin(note: Note) {
     const next = !note.pinned
     void patchNote(note.id, { pinned: next })
@@ -153,11 +172,11 @@ export default function NotesBoard() {
   const canReorder = !search.trim()
 
   const grid = (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 items-start">
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
       {display.map(n =>
         canReorder
-          ? <SortableNote key={n.id} note={n} onPatch={patchNote} onDelete={deleteNote} onPin={togglePin} />
-          : <NoteCard key={n.id} note={n} onPatch={patchNote} onDelete={deleteNote} onPin={togglePin} />,
+          ? <SortableNote key={n.id} note={n} fontSize={fontSize} onPatch={patchNote} onDelete={deleteNote} onPin={togglePin} />
+          : <NoteCard key={n.id} note={n} fontSize={fontSize} onPatch={patchNote} onDelete={deleteNote} onPin={togglePin} />,
       )}
     </div>
   )
@@ -169,14 +188,29 @@ export default function NotesBoard() {
         <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
           <StickyNote className="w-5 h-5 text-amber-500" /> Notes
         </h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Uniform text size */}
+          <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-1.5" title="Text size for all notes">
+            <span className="text-[11px] font-semibold text-slate-400 leading-none">A</span>
+            <input
+              type="range"
+              min={FONT_MIN}
+              max={FONT_MAX}
+              value={fontSize}
+              onChange={e => setFontSize(Number(e.target.value))}
+              className="w-24 accent-blue-600 cursor-pointer"
+              aria-label="Note text size"
+            />
+            <span className="text-base font-semibold text-slate-500 leading-none">A</span>
+            <span className="text-xs text-slate-500 tabular-nums w-9 text-right">{fontSize}px</span>
+          </div>
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search notes…"
-              className="w-56 pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-52 pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
           <button
@@ -219,6 +253,7 @@ export default function NotesBoard() {
 
 function SortableNote(props: {
   note: Note
+  fontSize: number
   onPatch: (id: string, fields: Partial<Note>) => Promise<void>
   onDelete: (id: string) => void
   onPin: (note: Note) => void
@@ -248,9 +283,10 @@ function SortableNote(props: {
 }
 
 function NoteCard({
-  note, onPatch, onDelete, onPin, handle,
+  note, fontSize, onPatch, onDelete, onPin, handle,
 }: {
   note: Note
+  fontSize: number
   onPatch: (id: string, fields: Partial<Note>) => Promise<void>
   onDelete: (id: string) => void
   onPin: (note: Note) => void
@@ -318,10 +354,11 @@ function NoteCard({
     ? new Date(note.updated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
     : ''
 
+  // Uniform fixed height — long notes scroll internally rather than growing the card.
   return (
-    <div className={`group relative bg-white border border-slate-200 border-l-4 ${accentOf(note.color)} rounded-xl p-4 shadow-sm`}>
+    <div className={`group relative flex flex-col h-[360px] bg-white border border-slate-200 border-l-4 ${accentOf(note.color)} rounded-xl p-4 shadow-sm`}>
       {/* Top row: grip + pin + (hover) colors / edit / delete */}
-      <div className="flex items-center justify-between mb-1.5">
+      <div className="flex items-center justify-between mb-1.5 shrink-0">
         <div className="flex items-center gap-1">
           {handle}
           <button
@@ -370,41 +407,44 @@ function NoteCard({
         onChange={e => setTitle(e.target.value)}
         onBlur={() => save()}
         placeholder="Title"
-        className="w-full bg-transparent text-base font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none mb-1.5"
+        className="w-full bg-transparent text-base font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none mb-1.5 shrink-0"
       />
 
-      {editing ? (
-        <>
-          {/* Markdown toolbar */}
-          <div className="flex flex-wrap items-center gap-0.5 mb-2 border border-slate-200 rounded-lg p-1 bg-slate-50">
-            <button {...tb(() => prefixLine('# '))} title="Heading 1" className={btn}><Heading1 className="w-4 h-4" /></button>
-            <button {...tb(() => prefixLine('## '))} title="Heading 2" className={btn}><Heading2 className="w-4 h-4" /></button>
-            <button {...tb(() => prefixLine('### '))} title="Heading 3" className={btn}><Heading3 className="w-4 h-4" /></button>
-            <span className="w-px h-4 bg-slate-200 mx-1" />
-            <button {...tb(() => surround('**'))} title="Bold" className={btn}><Bold className="w-4 h-4" /></button>
-            <button {...tb(() => surround('=='))} title="Highlight" className="w-7 h-7 flex items-center justify-center rounded text-slate-500 hover:bg-yellow-100 hover:text-slate-800"><Highlighter className="w-4 h-4" /></button>
-            <button {...tb(() => prefixLine('- '))} title="Bullet list" className={btn}><List className="w-4 h-4" /></button>
-          </div>
+      {/* Toolbar (edit mode) */}
+      {editing && (
+        <div className="flex flex-wrap items-center gap-0.5 mb-2 border border-slate-200 rounded-lg p-1 bg-slate-50 shrink-0">
+          <button {...tb(() => prefixLine('# '))} title="Heading 1" className={btn}><Heading1 className="w-4 h-4" /></button>
+          <button {...tb(() => prefixLine('## '))} title="Heading 2" className={btn}><Heading2 className="w-4 h-4" /></button>
+          <button {...tb(() => prefixLine('### '))} title="Heading 3" className={btn}><Heading3 className="w-4 h-4" /></button>
+          <span className="w-px h-4 bg-slate-200 mx-1" />
+          <button {...tb(() => surround('**'))} title="Bold" className={btn}><Bold className="w-4 h-4" /></button>
+          <button {...tb(() => surround('=='))} title="Highlight" className="w-7 h-7 flex items-center justify-center rounded text-slate-500 hover:bg-yellow-100 hover:text-slate-800"><Highlighter className="w-4 h-4" /></button>
+          <button {...tb(() => prefixLine('- '))} title="Bullet list" className={btn}><List className="w-4 h-4" /></button>
+        </div>
+      )}
 
+      {/* Body — fixed-height card, this region scrolls. */}
+      <div className="flex-1 min-h-0">
+        {editing ? (
           <textarea
             ref={taRef}
             value={draft}
             onChange={e => setDraft(e.target.value)}
             onBlur={done}
-            rows={Math.max(5, draft.split('\n').length + 1)}
+            style={{ fontSize: `${fontSize}px` }}
             placeholder="Write in markdown — # heading, **bold**, ==highlight==, - bullet"
-            className="w-full bg-white text-sm text-slate-800 border border-slate-200 rounded-lg p-2.5 leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-400 resize-y"
+            className="w-full h-full resize-none bg-white text-slate-800 border border-slate-200 rounded-lg p-2.5 leading-relaxed overflow-y-auto focus:outline-none focus:ring-2 focus:ring-blue-400"
           />
-        </>
-      ) : (
-        <button onClick={enterEdit} className="w-full text-left cursor-text min-h-[40px]" title="Click to edit">
-          {md.trim()
-            ? <NoteMarkdown md={md} />
-            : <span className="text-sm text-slate-300">Click to write…</span>}
-        </button>
-      )}
+        ) : (
+          <div className="h-full overflow-y-auto pr-1" style={{ fontSize: `${fontSize}px` }}>
+            {md.trim()
+              ? <NoteMarkdown md={md} />
+              : <span className="text-slate-300">Empty — click the pencil to edit</span>}
+          </div>
+        )}
+      </div>
 
-      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
+      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 shrink-0">
         <span className="text-[10px] text-slate-400">
           {savedFlash
             ? <span className="text-emerald-600 flex items-center gap-0.5"><Check className="w-3 h-3" /> Saved</span>

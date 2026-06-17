@@ -1,5 +1,22 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-17] Notes: uniform text size slider, fixed-height scroll, 3 cols
+**Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
+**Files:** components/NotesBoard.tsx, components/NoteMarkdown.tsx
+**Changes:**
+- Global **text-size slider** (12–26px, default 15) in the header — one uniform size
+  applied to every note body + the editor; persisted per browser (localStorage
+  `lumin:notes-fontsize`). Headings (`#`) now use em sizing so they scale with it.
+- **Uniform fixed-height cards** (`h-[360px]`): the body region scrolls internally
+  (`overflow-y-auto`) for long notes instead of the card growing. Edit textarea fills
+  the same region and scrolls.
+- **Back to 3 columns** (`xl:grid-cols-3`; removed the 4-col breakpoint).
+- Edit is now via the pencil only (removed click-to-edit on the body so preview links
+  don't fight the edit action).
+**Test Method:** `npx tsc --noEmit` clean for changed files; `npm run build` ✓ —
+`/notes` prerenders. Visual gated by login.
+**Result:** Pending your visual check. Build + types green.
+
 ### [2026-06-17] Notes: search + drag-reorder + 4-col grid
 **Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
 **Files:** components/NotesBoard.tsx, app/api/notes/order/route.ts (NEW)

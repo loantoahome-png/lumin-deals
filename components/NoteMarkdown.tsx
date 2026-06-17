@@ -8,10 +8,11 @@ import React from 'react'
 //   - bullet      -> list
 //   https://...   -> link
 
+// Sizes are relative (em) so headings scale with the note's base font size.
 const HEADING_CLASS: Record<number, string> = {
-  1: 'text-xl font-bold text-slate-900 mt-3 mb-1 first:mt-0',
-  2: 'text-lg font-semibold text-slate-900 mt-2.5 mb-0.5 first:mt-0',
-  3: 'text-base font-semibold text-slate-800 mt-2 first:mt-0',
+  1: 'text-[1.5em] font-bold text-slate-900 mt-3 mb-1 first:mt-0',
+  2: 'text-[1.25em] font-semibold text-slate-900 mt-2.5 mb-0.5 first:mt-0',
+  3: 'text-[1.1em] font-semibold text-slate-800 mt-2 first:mt-0',
 }
 
 const TOKEN = /(\*\*[^*]+\*\*|==[^=]+==|https?:\/\/[^\s)]+)/g
@@ -68,5 +69,6 @@ export default function NoteMarkdown({ md }: { md: string }) {
   })
   flush()
 
-  return <div className="text-sm text-slate-800 break-words">{blocks}</div>
+  // No fixed text size here — inherits the base font size set on the note body.
+  return <div className="text-slate-800 break-words leading-relaxed">{blocks}</div>
 }
