@@ -169,3 +169,12 @@ NO schema/resolver change (promote into the resolver later if the per-load fetch
 **Result:** Type-clean, build READY. Not browser-verified here (auth wall). **Deployed** commit
 `675425a` → prod READY (dpl_5r769wdHSeujDTpUs8iMDaV66msj), 2026-06-16. Design approved by Efrain
 from the mockup.
+
+### [2026-06-16] Tweak: zebra striping on the contacts list
+**Status:** CHANGED (tsc + build clean) — pending deploy
+**Issue:** Efrain — rows blend together; hard to see where one lead ends and the next begins.
+**Changes:** `app/contacts/page.tsx` — alternating row backgrounds (even `bg-white` / odd
+`bg-slate-50`); selected rows stay `bg-blue-50`, hover `bg-slate-100`.
+**Test Method:** `npx tsc --noEmit` (contacts page clean); `npm run build` (✓ `/contacts`). Mockup
+shown for contrast sign-off.
+**Result:** Type-clean, build READY. Pending deploy.

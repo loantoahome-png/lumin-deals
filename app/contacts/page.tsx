@@ -235,13 +235,15 @@ export default function ContactsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(c => {
+              {filtered.map((c, i) => {
                 const name = titleCase(c.display_name) || c.display_name || '(no name)'
                 const sub = cleanSource(meta.get(c.id)?.source ?? null) ?? c.email ?? c.phone ?? '—'
                 const stage = lifecycleOf(c, meta.get(c.id))
                 const isSel = selected.has(c.id)
+                // Zebra striping so each lead row is visually distinct from its neighbors.
+                const rowBg = isSel ? 'bg-blue-50' : i % 2 === 0 ? 'bg-white' : 'bg-slate-50'
                 return (
-                  <tr key={c.id} className={`border-b border-slate-100 ${isSel ? 'bg-blue-50/50' : 'hover:bg-slate-50'}`}>
+                  <tr key={c.id} className={`border-b border-slate-100 ${rowBg} ${isSel ? '' : 'hover:bg-slate-100'}`}>
                     <td className="pl-6 pr-2 py-2.5">
                       <input type="checkbox" checked={isSel} onChange={() => toggleOne(c.id)} className="rounded border-slate-300" aria-label={`Select ${name}`} />
                     </td>
