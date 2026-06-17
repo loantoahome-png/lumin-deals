@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Deal, STATUS_COLORS, LOAN_OFFICERS } from '@/lib/types'
-import { formatCurrency, titleCase } from '@/lib/utils'
+import { formatCurrency, formatPercent, titleCase, cleanSource } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { ariveUrl } from '@/lib/ariveLinks'
 import {
@@ -22,8 +22,14 @@ function fmtDate(iso: string | null | undefined): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+function fmtLocation(city: string | null | undefined, state: string | null | undefined): string {
+  const c = (city ?? '').trim(), s = (state ?? '').trim()
+  if (c && s) return `${c}, ${s}`
+  return c || s || '—'
+}
+
 // ── Sortable column header (same pattern as the Contacts list) ───────────────
-type SortKey = 'name' | 'lo' | 'stage' | 'type' | 'amount' | 'comp' | 'funded' | 'paid'
+type SortKey = 'name' | 'lo' | 'location' | 'source' | 'stage' | 'type' | 'rate' | 'amount' | 'comp' | 'funded' | 'paid'
 
 function SortTh({ label, k, sortKey, sortDir, onSort, align = 'left', className = '' }: {
   label: string; k: SortKey; sortKey: SortKey; sortDir: 'asc' | 'desc'
@@ -65,7 +71,7 @@ export default function FundedTracker({ deals, onUpdate }: Props) {
     const q = search.trim().toLowerCase()
     if (!q) return deals
     return deals.filter(d => {
-      const hay = [d.name, d.loan_officer, d.property_address, d.investor, d.loan_type, d.email]
+      const hay = [d.name, d.loan_officer, d.property_address, d.city, d.state, d.source, d.investor, d.loan_type, d.email]
         .filter(Boolean).join(' ').toLowerCase()
       return hay.includes(q)
     })
@@ -116,11 +122,14 @@ export default function FundedTracker({ deals, onUpdate }: Props) {
     }
     const val = (d: Deal): number | string => {
       switch (sortKey) {
-        case 'name':   return (d.name ?? '').toLowerCase()
-        case 'lo':     return (d.loan_officer ?? '').toLowerCase()
-        case 'stage':  return stageRank(d.status)
-        case 'type':   return (d.loan_type ?? '').toLowerCase()
-        case 'amount': return d.loan_amount ?? 0
+        case 'name':     return (d.name ?? '').toLowerCase()
+        case 'lo':       return (d.loan_officer ?? '').toLowerCase()
+        case 'location': return `${(d.state ?? '').trim()} ${(d.city ?? '').trim()}`.toLowerCase()
+        case 'source':   return (cleanSource(d.source) ?? '').toLowerCase()
+        case 'stage':    return stageRank(d.status)
+        case 'type':     return (d.loan_type ?? '').toLowerCase()
+        case 'rate':     return d.rate ?? 0
+        case 'amount':   return d.loan_amount ?? 0
         case 'comp':   return d.compensation_amount ?? 0
         case 'funded': return new Date(d.funded_date || d.created_at).getTime()
         case 'paid':   return d.paid_date ? new Date(d.paid_date).getTime() : 0
@@ -142,7 +151,7 @@ export default function FundedTracker({ deals, onUpdate }: Props) {
 
   const toggleSort = (k: SortKey) => {
     if (sortKey === k) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
-    else { setSortKey(k); setSortDir(k === 'name' || k === 'lo' || k === 'type' ? 'asc' : 'desc') }
+    else { setSortKey(k); setSortDir(['name', 'lo', 'location', 'source', 'type'].includes(k) ? 'asc' : 'desc') }
   }
 
   // ── Selection ──────────────────────────────────────────────────────────────
@@ -172,13 +181,15 @@ export default function FundedTracker({ deals, onUpdate }: Props) {
     const rows = deals.filter(d => selected.has(d.id))
     if (rows.length === 0) return
     const esc = (v: unknown) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
-    const header = ['Borrower', 'LO', 'Stage', 'Type', 'Investor', 'Property', 'Loan amount', 'Comp', 'Funded date', 'Paid date', 'Arive file #']
+    const header = ['Borrower', 'LO', 'City', 'State', 'Source', 'Stage', 'Type', 'Rate', 'Investor', 'Property', 'Loan amount', 'Comp', 'Funded date', 'Paid date', 'Arive file #']
     const lines = [header.join(',')]
     for (const d of rows) {
       lines.push([
         titleCase(d.name) || d.name || '',
-        d.loan_officer || '', d.status || '', d.loan_type || '', d.investor || '',
-        d.property_address || '',
+        d.loan_officer || '',
+        d.city || '', d.state || '', cleanSource(d.source) || '',
+        d.status || '', d.loan_type || '', d.rate ?? '',
+        d.investor || '', d.property_address || '',
         d.loan_amount || 0, d.compensation_amount || 0,
         d.funded_date || '', d.paid_date || '', d.arive_file_no || '',
       ].map(esc).join(','))
@@ -294,8 +305,11 @@ export default function FundedTracker({ deals, onUpdate }: Props) {
                 </th>
                 <SortTh label="Borrower" k="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="LO" k="lo" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortTh label="Location" k="location" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortTh label="Source" k="source" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="Stage" k="stage" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="Type" k="type" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortTh label="Rate" k="rate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
                 <SortTh label="Loan amount" k="amount" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
                 <SortTh label="Comp" k="comp" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
                 <SortTh label="Funded" k="funded" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
@@ -309,6 +323,8 @@ export default function FundedTracker({ deals, onUpdate }: Props) {
                 const ghlUrl = ghlContactUrl(d)
                 const aUrl = ariveUrl(d.arive_file_no)
                 const name = titleCase(d.name) || d.name || '(no name)'
+                const src = cleanSource(d.source)
+                const loc = fmtLocation(d.city, d.state)
                 return (
                   <tr key={d.id} className={`border-b border-slate-100 ${rowBg} ${isSel ? '' : 'hover:bg-slate-100'}`}>
                     <td className="pl-6 pr-2 py-2.5 align-top">
@@ -343,6 +359,14 @@ export default function FundedTracker({ deals, onUpdate }: Props) {
                     </td>
                     {/* LO */}
                     <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap">{d.loan_officer || '—'}</td>
+                    {/* Location (city, state) */}
+                    <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">
+                      {loc === '—' ? <span className="text-slate-300">—</span> : loc}
+                    </td>
+                    {/* Lead source */}
+                    <td className="px-3 py-2.5 text-slate-600">
+                      <span className="block max-w-[150px] truncate" title={src ?? undefined}>{src || <span className="text-slate-300">—</span>}</span>
+                    </td>
                     {/* Stage — inline editable (advances the loan + pushes to GHL) */}
                     <td className="px-3 py-2.5">
                       <StageSelect deal={d} onUpdate={onUpdate} />
@@ -351,6 +375,10 @@ export default function FundedTracker({ deals, onUpdate }: Props) {
                     <td className="px-3 py-2.5">
                       {d.loan_type ? <span className="text-slate-700">{d.loan_type}</span> : <span className="text-slate-300">—</span>}
                       {d.investor && <span className="text-xs text-slate-400 block truncate">{d.investor}</span>}
+                    </td>
+                    {/* Rate */}
+                    <td className="px-3 py-2.5 text-right tabular-nums text-slate-600 whitespace-nowrap">
+                      {d.rate != null ? formatPercent(d.rate) : <span className="text-slate-300">—</span>}
                     </td>
                     {/* Loan amount */}
                     <td className="px-3 py-2.5 text-right tabular-nums font-medium text-slate-800 whitespace-nowrap">

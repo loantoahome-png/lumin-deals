@@ -6,6 +6,7 @@ import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import DashboardNotes from '@/components/DashboardNotes'
+import UnreadInbox from '@/components/UnreadInbox'
 import {
   DollarSign, TrendingUp, Users, CheckCircle, Clock, AlertCircle, Calendar, X,
   AlertTriangle, ChevronRight, Flame,
@@ -361,6 +362,9 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Unread Messages — live client inbox across both GHL accounts */}
+      <UnreadInbox embedded />
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

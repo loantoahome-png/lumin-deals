@@ -1,5 +1,27 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-17] Funded columns + Unread→Dashboard move
+**Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
+**Files:** components/FundedTracker.tsx, components/UnreadInbox.tsx (NEW),
+app/unread/page.tsx, components/Dashboard.tsx, components/Sidebar.tsx
+**Changes:**
+1. Funded list — added 3 sortable columns: **Location** (city, state), **Source**
+   (`cleanSource`), **Rate** (`formatPercent`). All three also added to the search
+   haystack and the CSV export (City/State/Source/Rate). Header order verified to
+   match cell order (11 data cols + checkbox).
+2. Unread Messages — extracted the `/unread` page into a reusable `UnreadInbox`
+   component with an `embedded` prop. Dashboard (`components/Dashboard.tsx`) renders
+   `<UnreadInbox embedded />` as a card section (after the Today widget). `/unread`
+   route kept as a thin wrapper (`<UnreadInbox />`) for bookmarks. Reply composer /
+   AI draft / mark-read all preserved.
+3. Sidebar — removed the "Unread Messages" nav item + its now-unused `Inbox` import.
+**Test Method:** `npx tsc --noEmit` (all changed files clean; only the standing
+pre-existing set remains). `npm run build` ✓ — `/`, `/funded`, `/unread` all
+prerender. Visual gated by Supabase login — please confirm on prod after login:
+Funded shows the 3 new columns + sorts; Dashboard shows the Unread section; the
+sidebar no longer lists Unread Messages.
+**Result:** Pending your visual check. Build + types green.
+
 ### [2026-06-17] File: components/FundedTracker.tsx + app/funded/page.tsx
 **Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
 **Issue:** Funded tab was a drag-and-drop kanban (3 columns: Loan Funded / Broker
@@ -19,7 +41,9 @@ compiles + prerenders. Live table render needs a Supabase login (middleware redi
 `/funded` → `/login`), which I can't perform — please verify visually at
 `localhost:3000/funded` after `npm run dev`: sort each column, the stage tabs/LO/type
 filters, search, change a row's stage (confirm GHL push), and Export CSV on a selection.
-**Result:** Pending your visual check. Build + types green.
+**Result:** Shipped — commit `73beb70`, deployed to prod 2026-06-17
+(`lumin-deals.vercel.app`, dpl_2Wm2W56SAKfBYfr31Sp5AE7ER7xq, READY). Route serving
+(`/funded` → 307 → login). Build + types green. Visual pending your login.
 
 ### [2026-06-16] File: app/api/sync/ghl/route.ts
 **Status:** VERIFIED
