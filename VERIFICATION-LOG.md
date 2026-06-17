@@ -1,5 +1,26 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-17] Notes: own /notes page + advanced markdown editor
+**Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
+**Files:** lib/noteMarkdown.ts (NEW), components/NoteMarkdown.tsx (NEW),
+components/NotesBoard.tsx (NEW), app/notes/page.tsx (NEW), components/Sidebar.tsx,
+components/Dashboard.tsx, components/DashboardNotes.tsx (DELETED)
+**Changes:**
+- Moved Notes off the Dashboard into a dedicated `/notes` page + sidebar nav item
+  (Actions group). Removed the board + its import from the Dashboard.
+- Advanced editor: markdown source where `# / ## / ###` set heading size (replaces
+  the old S/M/L buttons), `**bold**`, `==highlight==` (highlighter toolbar button),
+  `- ` bullets, autolinks. Toolbar: H1/H2/H3 / Bold / Highlight / Bullet.
+- Note cards are now **white** with the color shown as a left-accent border (color
+  picker retained as an accent only).
+- Rendering uses React elements (`NoteMarkdown.tsx`), not raw HTML strings, so user
+  text is escaped by React. Legacy contentEditable notes are converted to markdown on
+  load (`htmlToMarkdown`, text-preserving) — non-destructive, only persisted when the
+  user next saves that note.
+**Test Method:** `npx tsc --noEmit` clean for all changed/new files; `npm run build`
+✓ — `/notes` prerenders, no dangling references to the old component. Visual gated by login.
+**Result:** Pending your visual check. Build + types green.
+
 ### [2026-06-17] Unread: collapsible Dashboard section
 **Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
 **File:** components/UnreadInbox.tsx

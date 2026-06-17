@@ -5,7 +5,6 @@ import { supabase } from '@/lib/supabase'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
-import DashboardNotes from '@/components/DashboardNotes'
 import UnreadInbox from '@/components/UnreadInbox'
 import {
   DollarSign, TrendingUp, Users, CheckCircle, Clock, AlertCircle, Calendar, X,
@@ -464,8 +463,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Team notes board */}
-      <DashboardNotes />
     </div>
   )
 }

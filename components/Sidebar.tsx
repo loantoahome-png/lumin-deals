@@ -16,6 +16,7 @@ import {
   DollarSign,
   BarChart3,
   Target,
+  StickyNote,
   Users,
   Radar,
   FileUp,
@@ -58,6 +59,7 @@ const navGroups = [
       { href: '/deals/new', label: 'Add Deal', icon: PlusCircle },
       { href: '/tasks', label: 'Tasks', icon: ClipboardList },
       { href: '/tools', label: 'Tools', icon: Wrench },
+      { href: '/notes', label: 'Notes', icon: StickyNote },
     ],
   },
   {
