@@ -1,5 +1,18 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-17] Unread: collapsible Dashboard section
+**Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
+**File:** components/UnreadInbox.tsx
+**Changes:** Header is now a toggle button (chevron) that collapses/expands the list.
+Collapse is a persisted UI pref (`localStorage` key `lumin:unread-collapsed`), read
+once post-mount to avoid hydration mismatch. Counts stay live in the header when
+collapsed (collapse never affects fetching/cache). Header bottom-border drops when
+collapsed so the card reads as a clean single bar.
+**Test Method:** read render block — `{!collapsed && (…)}` wrap balanced; `<h3>`→`<span>`
+inside the button to avoid invalid nesting. `npx tsc --noEmit` UnreadInbox-clean;
+`npm run build` ✓ (`/` prerenders).
+**Result:** Pending your visual check. Build + types green.
+
 ### [2026-06-17] Unread: drop lazy-load, cache TTL 2→15 min
 **Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
 **File:** components/UnreadInbox.tsx

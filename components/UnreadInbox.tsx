@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import Link from 'next/link'
-import { RefreshCw, Inbox, ExternalLink, Phone, MessageSquare, Mail, Send, Check, Sparkles } from 'lucide-react'
+import { RefreshCw, Inbox, ExternalLink, Phone, MessageSquare, Mail, Send, Check, Sparkles, ChevronDown, ChevronRight } from 'lucide-react'
 
 export type UnreadItem = {
   conversationId: string | null
@@ -53,6 +53,7 @@ function ChannelIcon({ channel }: { channel: string }) {
 // within the window reuses it with NO GHL call. The Refresh button always pulls live.
 const UNREAD_TTL_MS = 15 * 60_000
 const UNREAD_CACHE_KEY = 'lumin:unread-cache:v1'
+const UNREAD_COLLAPSE_KEY = 'lumin:unread-collapsed'   // persisted collapse preference
 type CachedUnread = { items: UnreadItem[]; at: number }
 
 function readUnreadCache(): CachedUnread | null {
@@ -73,6 +74,7 @@ export default function UnreadInbox() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [loFilter, setLoFilter] = useState<'All' | 'Matt' | 'Moe'>('All')
+  const [collapsed, setCollapsed] = useState(false)
 
   const fetchUnread = useCallback(async () => {
     setLoading(true); setError(null)
@@ -99,6 +101,18 @@ export default function UnreadInbox() {
     fetchUnread()
   }, [fetchUnread])
 
+  // Collapse is a persisted UI preference only — it never affects fetching, so the
+  // header counts stay live even when the list is hidden. Read once post-mount to
+  // avoid an SSR/hydration mismatch; write on toggle.
+  useEffect(() => {
+    try { if (localStorage.getItem(UNREAD_COLLAPSE_KEY) === '1') setCollapsed(true) } catch { /* ignore */ }
+  }, [])
+  const toggleCollapsed = () => setCollapsed(c => {
+    const next = !c
+    try { localStorage.setItem(UNREAD_COLLAPSE_KEY, next ? '1' : '0') } catch { /* ignore */ }
+    return next
+  })
+
   const filtered = useMemo(() => {
     if (loFilter === 'All') return items
     const q = loFilter.toLowerCase()
@@ -122,16 +136,25 @@ export default function UnreadInbox() {
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-      <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
+      <div className={`px-5 py-3 flex items-center justify-between gap-3 flex-wrap ${collapsed ? '' : 'border-b border-slate-100'}`}>
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          aria-expanded={!collapsed}
+          title={collapsed ? 'Expand' : 'Collapse'}
+          className="flex items-center gap-2 group -ml-1 px-1 py-0.5 rounded-md hover:bg-slate-50"
+        >
+          {collapsed
+            ? <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600" />
+            : <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-slate-600" />}
           <Inbox className="w-4 h-4 text-blue-500" />
-          <h3 className="font-semibold text-slate-800 text-sm">Unread Messages</h3>
+          <span className="font-semibold text-slate-800 text-sm">Unread Messages</span>
           <span className="text-xs text-slate-500">
             <span className="font-semibold text-slate-700 tabular-nums">{filtered.length}</span> conversation{filtered.length !== 1 ? 's' : ''}
             {' · '}
             <span className="font-semibold text-red-600 tabular-nums">{totalUnread}</span> unread
           </span>
-        </div>
+        </button>
         <div className="flex items-center gap-1.5">
           {(['All', 'Matt', 'Moe'] as const).map(opt => (
             <button
@@ -150,6 +173,7 @@ export default function UnreadInbox() {
         </div>
       </div>
 
+      {!collapsed && (
       <div className="p-4 max-h-[520px] overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -174,6 +198,7 @@ export default function UnreadInbox() {
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }
