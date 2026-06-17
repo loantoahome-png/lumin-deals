@@ -81,3 +81,23 @@ acceptance queries; prod build (compiles all routes).
 - Deployed (commit 4e5422c) — prod build READY → /contacts routes compile.
 **Not verified here:** live browser render (preview tool grabbed a different project + app is
 auth-gated) — visual confirm is on the live site.
+
+### [2026-06-16] Feature: Rich person view (Contacts Phase 3)
+**Status:** CHANGED (build + tsc clean) — live visual is user-confirmable
+**Issue:** `/contacts/[id]` was thin — a 4-stat header + bare loan table. Couldn't see a person's
+history, jump to them in the right GHL sub-account, or tell if they were contactable.
+**Changes:** Enriched `app/contacts/[id]/page.tsx` only (no DB / resolver change). Added: (1)
+reachability + jump bar — DND badge via `dndSummary`/`dndLabel`, last-contacted, and one GHL link
+per distinct sub-account via `ghlContactUrl`; (2) milestone activity timeline (added / stage move /
+signed / funded), newest first, interleaved across the person's loans; (3) enriched loans list with
+status badge, property, rate, type/purpose, amount + per-loan `/deals/[id]` / GHL / Arive links;
+(4) title-cased name + first-seen/last-activity. Spec+plan in `docs/`.
+**Data grounding (live probe 2026-06-16):** ghl_contact_id 94% (exactly 2 sub-accounts),
+dnd/dnd_settings ~72% (237 hard-DND), stage_changed_at 84%, date_added_ghl 94% — all support the
+features. `communications` JSONB = 0% → NO message timeline built (milestone-only, by design).
+67 people have >1 loan (timeline interleave matters for them).
+**Test Method:** `npx tsc --noEmit` (changed file + its libs type-clean; error set unchanged =
+the 4 pre-existing files only); `npm run build` (compiles `ƒ /contacts/[id]` — build succeeds).
+**Result:** Type-clean, build READY. Not browser-verified here (auth wall, same as Phase 2) —
+visual confirm is on the live logged-in `/contacts/[id]` page (e.g. open Marian Cooper or Rene
+Gonzalez). **Not yet deployed** — awaiting Efrain's go to `vercel --prod`.
