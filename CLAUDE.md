@@ -27,10 +27,14 @@ Per ping behavior (controlled by intervals in `app/api/cron/ghl-sync/route.ts`):
 - **Every ping**: Incremental GHL sync — only fetches opportunities changed since last run
 - **Every 30 min** (`CONV_REFRESH_INTERVAL_MS`): Conversations refresh — last message timestamps, unread counts, inbound/outbound direction for active leads
 - **Every 60 min** (`MAINTENANCE_INTERVAL_MS`): Full opportunity fetch for orphan pruning, loan amount + contact ID reconciliation
+- **Every 30 min** (`IDENTITY_RESOLVE_INTERVAL_MS`): Identity resolver (`lib/identityResolver.ts`) — collapses split `borrower_id`s into the canonical person (guarded-transitive union-find over `ghl_contact_id ∪ email ∪ phone ∪ borrower_id`, never name) AND maintains the `contacts` table (one row per person, keyed by canonical `borrower_id`). Non-fatal; safety caps (component>20 / >200 rewrites) + reversible `sync_state` backup; `?full=1` forces it. Manual/dry-run: `POST /api/resolve-identities` (dry-run default)
 - **Every 5 min** (`CALLBACK_CHECK_INTERVAL_MS`): Auto-creates a task for Brianne when a new lead sits in "New Lead" or "Attempted Contact" for ~45 min
 - Overlap guard via `sync_state` table lock (5 min TTL)
 
 Manual sync button in sidebar calls `POST /api/sync/ghl`.
+
+## Contacts / Identity (Phase 1-2, 2026-06-16)
+The dashboard owns the **unified person** (`contacts` table) that no upstream system can — GHL has two sub-accounts (a person = a different contact id per account) and Arive has no API. `contacts.id` = the canonical `borrower_id`, so `deals.borrower_id` is already the FK (no deals migration). Built + maintained by the identity resolver above. Pages: `/contacts` (people list) + `/contacts/[id]` (person + their loans). DDL: `supabase-contacts.sql` (needs the RLS policy in that file to be readable by the logged-in app). Long-run roadmap (refi radar, per-person LTV, referral, lead-spend person-dedup) in vault `architecture-direction` + `docs/specs/2026-06-16-contacts-table-spec.md`.
 
 ## Vercel Built-in Crons (`vercel.json`)
 - `contingency-alerts` — daily 3 PM UTC: emails LOs at 3-day, 1-day, day-of for purchase contingency dates. Deduped via `contingency_alerts_sent` JSONB column.
