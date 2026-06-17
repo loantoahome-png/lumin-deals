@@ -1,5 +1,28 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-17] Unread: true move to Dashboard + call-volume guard (A+B)
+**Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
+**Files:** components/UnreadInbox.tsx, components/Dashboard.tsx, app/unread/page.tsx (DELETED)
+**Issue:** Prior step embedded the inbox on the Dashboard but kept `/unread` alive,
+so (1) it wasn't a true "move" (two mount points) and (2) the inbox hit
+`/api/ghl/unread` on every dashboard load (the landing page).
+**Changes:**
+- **A (true move):** deleted the `/unread` page route (`app/unread/page.tsx`). The
+  inbox now lives only as the Dashboard card. `UnreadInbox` simplified to embedded-
+  only (dropped the `embedded` prop + full-page branch). `/api/ghl/unread` endpoint
+  untouched. No nav links pointed at `/unread` (grep-verified before delete).
+- **B (call-volume guard):** sessionStorage cache (key `lumin:unread-cache:v1`, TTL
+  2 min) — a remount/return-to-dashboard within the window reuses the cached result
+  with NO GHL call. First load per window fetches lazily via IntersectionObserver
+  (only when the section nears the viewport, 300px margin), so an ignored dashboard
+  makes zero calls. The Refresh button always pulls live + rewrites cache; mark-read/
+  reply keep the cache in sync.
+**Test Method:** `npx tsc --noEmit` clean for changed files (only the standing
+pre-existing set remains; the transient `.next` validator error for the deleted route
+cleared after rebuild). `npm run build` ✓ — `/` prerenders, `/api/ghl/unread` retained,
+`/unread` page route gone from the manifest. Visual gated by login.
+**Result:** Pending your visual check. Build + types green.
+
 ### [2026-06-17] Funded columns + Unread→Dashboard move
 **Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
 **Files:** components/FundedTracker.tsx, components/UnreadInbox.tsx (NEW),

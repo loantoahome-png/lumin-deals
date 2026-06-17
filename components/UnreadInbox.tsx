@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { RefreshCw, Inbox, ExternalLink, Phone, MessageSquare, Mail, Send, Check, Sparkles } from 'lucide-react'
 
@@ -46,20 +46,43 @@ function ChannelIcon({ channel }: { channel: string }) {
   return <MessageSquare className="w-4 h-4 text-blue-600" />
 }
 
-// Shared inbox — renders full-page on /unread, or as a compact card section on the
-// Dashboard when `embedded`. Data fetch, LO filter and reply/mark-read are identical.
-export default function UnreadInbox({ embedded = false }: { embedded?: boolean }) {
+// ── Client-side cache (B) ────────────────────────────────────────────────────
+// The inbox now lives on the Dashboard, which mounts on every app load and on
+// every client-side nav back to "/". Without a guard that would hit GHL each
+// time. We cache the last result in sessionStorage for a short TTL: a remount
+// within the window reuses it (no call); the Refresh button always pulls live.
+const UNREAD_TTL_MS = 2 * 60_000
+const UNREAD_CACHE_KEY = 'lumin:unread-cache:v1'
+type CachedUnread = { items: UnreadItem[]; at: number }
+
+function readUnreadCache(): CachedUnread | null {
+  try {
+    const raw = sessionStorage.getItem(UNREAD_CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as CachedUnread
+    return parsed && Array.isArray(parsed.items) ? parsed : null
+  } catch { return null }
+}
+function writeUnreadCache(items: UnreadItem[]) {
+  try { sessionStorage.setItem(UNREAD_CACHE_KEY, JSON.stringify({ items, at: Date.now() })) } catch { /* private mode / quota — non-fatal */ }
+}
+
+// Live client inbox across both GHL accounts. Rendered as a Dashboard card section.
+export default function UnreadInbox() {
   const [items, setItems] = useState<UnreadItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [loFilter, setLoFilter] = useState<'All' | 'Matt' | 'Moe'>('All')
+  const loadedRef = useRef(false)        // ensures the lazy observer fetches at most once
+  const rootRef = useRef<HTMLDivElement>(null)
 
   const fetchUnread = useCallback(async () => {
+    loadedRef.current = true
     setLoading(true); setError(null)
     try {
       const res = await fetch('/api/ghl/unread', { cache: 'no-store' })
       const data = await res.json() as { ok: boolean; items?: UnreadItem[]; error?: string }
-      if (data.ok && data.items) setItems(data.items)
+      if (data.ok && data.items) { setItems(data.items); writeUnreadCache(data.items) }
       else setError(data.error || 'Failed to load')
     } catch (e) {
       setError(String(e))
@@ -67,7 +90,23 @@ export default function UnreadInbox({ embedded = false }: { embedded?: boolean }
     setLoading(false)
   }, [])
 
-  useEffect(() => { fetchUnread() }, [fetchUnread])
+  // Mount: serve a fresh cache hit immediately (no call). Otherwise fetch lazily
+  // — only when the section nears the viewport, so an ignored dashboard doesn't
+  // hit GHL at all.
+  useEffect(() => {
+    const cached = readUnreadCache()
+    if (cached && Date.now() - cached.at < UNREAD_TTL_MS) {
+      setItems(cached.items); setLoading(false); loadedRef.current = true
+      return
+    }
+    const el = rootRef.current
+    if (!el || typeof IntersectionObserver === 'undefined') { fetchUnread(); return }
+    const obs = new IntersectionObserver(entries => {
+      if (entries.some(e => e.isIntersecting) && !loadedRef.current) fetchUnread()
+    }, { rootMargin: '300px' })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [fetchUnread])
 
   const filtered = useMemo(() => {
     if (loFilter === 'All') return items
@@ -77,123 +116,72 @@ export default function UnreadInbox({ embedded = false }: { embedded?: boolean }
 
   const totalUnread = filtered.reduce((s, i) => s + i.unreadCount, 0)
 
-  // After a successful reply, drop the conversation from the inbox (sending in
-  // GHL marks it read). If GHL still has it unread, the next refresh re-adds it.
+  // After a reply/mark-read, drop the conversation from the inbox (sending in GHL
+  // marks it read) and keep the cache in sync. If GHL still has it unread, the
+  // next live refresh re-adds it.
   function markSent(target: UnreadItem) {
-    setItems(prev => prev.filter(i =>
-      !(i.contactId === target.contactId && i.conversationId === target.conversationId)
-    ))
+    setItems(prev => {
+      const next = prev.filter(i =>
+        !(i.contactId === target.contactId && i.conversationId === target.conversationId)
+      )
+      writeUnreadCache(next)
+      return next
+    })
   }
 
-  const loPills = (
-    <div className="flex items-center gap-1.5">
-      {(['All', 'Matt', 'Moe'] as const).map(opt => (
-        <button
-          key={opt}
-          onClick={() => setLoFilter(opt)}
-          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-            loFilter === opt ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-700 hover:border-slate-400'
-          }`}
-        >
-          {opt === 'All' ? 'All LOs' : opt}
-        </button>
-      ))}
-    </div>
-  )
-
-  // The list body — shared between both layouts.
-  const body = (
-    loading ? (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-      </div>
-    ) : error ? (
-      <div className="bg-white border border-red-200 rounded-xl p-8 text-center">
-        <p className="text-sm font-semibold text-red-700">Couldn&apos;t load unread messages</p>
-        <p className="text-xs text-slate-500 mt-1">{error}</p>
-      </div>
-    ) : filtered.length === 0 ? (
-      <div className="bg-white border border-slate-200 rounded-xl p-12 text-center">
-        <Inbox className="w-10 h-10 text-emerald-400 mx-auto mb-2" />
-        <p className="text-sm font-semibold text-slate-800">Inbox zero 🎉</p>
-        <p className="text-xs text-slate-500 mt-1">No unread client messages right now.</p>
-      </div>
-    ) : (
-      <div className={`space-y-2 ${embedded ? '' : 'max-w-4xl'}`}>
-        {filtered.map((it, idx) => (
-          <UnreadRow key={it.conversationId || it.contactId || idx} item={it} onSent={() => markSent(it)} />
-        ))}
-      </div>
-    )
-  )
-
-  // ── Embedded (Dashboard card section) ───────────────────────────────────────
-  if (embedded) {
-    return (
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2">
-            <Inbox className="w-4 h-4 text-blue-500" />
-            <h3 className="font-semibold text-slate-800 text-sm">Unread Messages</h3>
-            <span className="text-xs text-slate-500">
-              <span className="font-semibold text-slate-700 tabular-nums">{filtered.length}</span> conversation{filtered.length !== 1 ? 's' : ''}
-              {' · '}
-              <span className="font-semibold text-red-600 tabular-nums">{totalUnread}</span> unread
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            {loPills}
-            <button onClick={fetchUnread} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg" title="Refresh">
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
-        </div>
-        <div className="p-4 max-h-[520px] overflow-y-auto">
-          {body}
-        </div>
-      </div>
-    )
-  }
-
-  // ── Full page (/unread route) ───────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="px-6 py-4 bg-white border-b border-slate-200 shrink-0">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-              <Inbox className="w-5 h-5 text-blue-500" />
-              Unread Messages
-            </h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              Every unread client message across both GHL accounts — all stages, live. Reply in GHL to clear it.
-            </p>
-          </div>
-          <button onClick={fetchUnread} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg" title="Refresh">
+    <div ref={rootRef} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Inbox className="w-4 h-4 text-blue-500" />
+          <h3 className="font-semibold text-slate-800 text-sm">Unread Messages</h3>
+          <span className="text-xs text-slate-500">
+            <span className="font-semibold text-slate-700 tabular-nums">{filtered.length}</span> conversation{filtered.length !== 1 ? 's' : ''}
+            {' · '}
+            <span className="font-semibold text-red-600 tabular-nums">{totalUnread}</span> unread
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {(['All', 'Matt', 'Moe'] as const).map(opt => (
+            <button
+              key={opt}
+              onClick={() => setLoFilter(opt)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                loFilter === opt ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-700 hover:border-slate-400'
+              }`}
+            >
+              {opt === 'All' ? 'All LOs' : opt}
+            </button>
+          ))}
+          <button onClick={fetchUnread} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg" title="Refresh (live)">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="border border-slate-200 rounded-lg px-3 py-1.5 bg-white">
-            <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold leading-none mb-0.5">Conversations</p>
-            <p className="text-sm font-bold text-slate-800 tabular-nums">{filtered.length}</p>
-          </div>
-          <div className="border border-red-200 bg-red-50 rounded-lg px-3 py-1.5">
-            <p className="text-[10px] text-red-500 uppercase tracking-wider font-semibold leading-none mb-0.5">Unread messages</p>
-            <p className="text-sm font-bold text-red-700 tabular-nums">{totalUnread}</p>
-          </div>
-
-          <div className="ml-auto">
-            {loPills}
-          </div>
-        </div>
       </div>
 
-      {/* Body */}
-      <div className="flex-1 overflow-y-auto p-6">
-        {body}
+      <div className="p-4 max-h-[520px] overflow-y-auto">
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+          </div>
+        ) : error ? (
+          <div className="bg-white border border-red-200 rounded-xl p-8 text-center">
+            <p className="text-sm font-semibold text-red-700">Couldn&apos;t load unread messages</p>
+            <p className="text-xs text-slate-500 mt-1">{error}</p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="bg-white border border-slate-200 rounded-xl p-10 text-center">
+            <Inbox className="w-10 h-10 text-emerald-400 mx-auto mb-2" />
+            <p className="text-sm font-semibold text-slate-800">Inbox zero 🎉</p>
+            <p className="text-xs text-slate-500 mt-1">No unread client messages right now.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {filtered.map((it, idx) => (
+              <UnreadRow key={it.conversationId || it.contactId || idx} item={it} onSent={() => markSent(it)} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
