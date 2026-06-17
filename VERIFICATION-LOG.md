@@ -1,5 +1,26 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-17] File: components/FundedTracker.tsx + app/funded/page.tsx
+**Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
+**Issue:** Funded tab was a drag-and-drop kanban (3 columns: Loan Funded / Broker
+Check Received / Loan Finalized). Wanted a list view with more columns + filtering.
+**Changes:** Rewrote `FundedTracker` from a dnd-kit kanban into a sortable, filterable
+table modeled on the Contacts list (`SortTh`, zebra rows, stats strip, bulk-select →
+Copy emails / Export CSV). Columns: Borrower (+property sub-line, GHL/Arive links) ·
+LO · Stage · Type (+investor) · Loan amount · Comp · Funded · Paid — all sortable
+(default Funded ↓). Filters: search, stage tabs w/ counts, LO dropdown, loan-type
+dropdown. Kanban's stage-advance preserved as an inline `StageSelect` per row (still
+calls `onUpdate` → `pushStageToGHL`). Simplified `app/funded/page.tsx` to a thin shell
+(fetch + title + refresh + New Deal); all filters/stats moved into the tracker.
+Removed dnd-kit usage from this file (still used elsewhere).
+**Test Method:** `npx tsc --noEmit` (changed files clean; only the standing pre-existing
+set remains: reports, underwriting, DealForm, next.config). `npm run build` ✓ — `/funded`
+compiles + prerenders. Live table render needs a Supabase login (middleware redirects
+`/funded` → `/login`), which I can't perform — please verify visually at
+`localhost:3000/funded` after `npm run dev`: sort each column, the stage tabs/LO/type
+filters, search, change a row's stage (confirm GHL push), and Export CSV on a selection.
+**Result:** Pending your visual check. Build + types green.
+
 ### [2026-06-16] File: app/api/sync/ghl/route.ts
 **Status:** VERIFIED
 **Issue:** Funded volume was not LOS-authoritative. The GHL sync update path
