@@ -166,5 +166,6 @@ NO schema/resolver change (promote into the resolver later if the per-load fetch
 `docs/specs/2026-06-16-contacts-list-fub-style-spec.md`.
 **Test Method:** `npx tsc --noEmit` (contacts page clean; error set = 4 pre-existing files);
 `npm run build` (✓ Compiled; `/contacts` builds). Design shown to Efrain as a mockup for approval.
-**Result:** Type-clean, build READY. Not browser-verified here (auth wall). Pending deploy + Efrain
-sign-off on the design.
+**Result:** Type-clean, build READY. Not browser-verified here (auth wall). **Deployed** commit
+`675425a` → prod READY (dpl_5r769wdHSeujDTpUs8iMDaV66msj), 2026-06-16. Design approved by Efrain
+from the mockup.
