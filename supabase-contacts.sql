@@ -27,8 +27,16 @@ CREATE TABLE IF NOT EXISTS contacts (
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Match the rest of the schema (the app uses the service role; RLS is disabled).
-ALTER TABLE contacts DISABLE ROW LEVEL SECURITY;
+-- Access: the dashboard PAGES read with the logged-in user's session (the
+-- `authenticated` role), so that role needs a read/write policy or it sees zero rows
+-- (the resolver writes via `service_role`, which bypasses RLS). Mirror how the app
+-- reaches the other tables — team members are all trusted.
+GRANT SELECT, INSERT, UPDATE, DELETE ON contacts TO authenticated;
+ALTER TABLE contacts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS contacts_team_rw ON contacts;
+CREATE POLICY contacts_team_rw ON contacts
+  FOR ALL TO authenticated
+  USING (true) WITH CHECK (true);
 
 -- Helpful for the contacts list ordering / search.
 CREATE INDEX IF NOT EXISTS contacts_last_loan_at_idx ON contacts (last_loan_at DESC);
