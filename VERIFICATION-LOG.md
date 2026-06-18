@@ -1,5 +1,31 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-18] Notes: fix doubled content after editing (render bug)
+**Status:** CHANGED (UI; live visual gated by login)
+**Files:** components/NotesBoard.tsx (distinct keys on editor vs view branches).
+**Issue:** After editing, the read-only view showed the note's content TWICE. Verified via DB
+(`dashboard_notes`): stored content was a single correct line — so a RENDER bug, not data.
+**Root cause:** the `editing ? <div contentEditable> : <div>NoteMarkdown</div>` branches are
+both `<div>` in the same JSX slot → React reused the same DOM node on toggle. The editor's
+imperatively-set innerHTML (via ref) stayed in the node, and NoteMarkdown's output was appended
+on top → duplicate text.
+**Fix:** `key="note-editor"` / `key="note-view"` on the two branches forces React to unmount
+the editor and mount the view fresh (no stale children). Data was already correct (no migration).
+**Test Method:** `npx tsc --noEmit` clean; `npm run build` ✓. DB confirmed single-line content.
+**Result:** Build + types green. Visual confirm after deploy.
+
+### [2026-06-18] Notes: highlight is now a TOGGLE (bugfix)
+**Status:** CHANGED (UI; live visual gated by login)
+**Files:** components/NotesBoard.tsx (toggleHighlight).
+**Issue:** Highlight button used execCommand('hiliteColor') which only APPLIES — no way to
+un-highlight (reported: highlighted text, couldn't remove it).
+**Changes:** Replaced with a custom `toggleHighlight()`: wraps selection in <mark> to apply;
+clicking again on highlighted text (or with the caret inside it) unwraps it. Also clears
+legacy highlights stored as background-color spans/fonts (from the prior hiliteColor version),
+so already-stuck highlights can be removed. Storage unchanged (<mark> → == ; unwrapped → plain).
+**Test Method:** `npx tsc --noEmit` clean; notes-md-check 23/23; `npm run build` ✓.
+**Result:** Build + types green. Toggle behavior is DOM/Selection — verify live after deploy.
+
 ### [2026-06-18] Notes: WYSIWYG editor + per-note font size
 **Status:** VERIFIED (logic) / CHANGED (UI; live visual gated by login)
 **Files:** lib/noteMarkdown.ts (NEW markdownToHtml + upgraded htmlToMarkdown: headings,

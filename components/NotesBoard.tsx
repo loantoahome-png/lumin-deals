@@ -322,6 +322,55 @@ function NoteCard({
   // the button's default focus-steal (onMouseDown preventDefault).
   const exec = (cmd: string, val?: string) => { try { document.execCommand(cmd, false, val) } catch { /* ignore */ }; edRef.current?.focus() }
   const tb = (fn: () => void) => ({ onMouseDown: (e: React.MouseEvent) => { e.preventDefault(); fn() } })
+
+  // Highlight is a TOGGLE (execCommand hiliteColor can't un-highlight). Apply wraps the
+  // selection in <mark>; clicking again on highlighted text (or with the caret inside it)
+  // unwraps it. Also clears legacy highlights stored as background-color spans/fonts.
+  function toggleHighlight() {
+    const ed = edRef.current
+    const sel = window.getSelection()
+    if (!ed || !sel || sel.rangeCount === 0) return
+    const range = sel.getRangeAt(0)
+    const unwrap = (el: Element) => {
+      const p = el.parentNode
+      if (!p) return
+      while (el.firstChild) p.insertBefore(el.firstChild, el)
+      p.removeChild(el)
+    }
+    const ancestorHilite = (node: Node | null): Element | null => {
+      let n: Node | null = node
+      while (n && n !== ed) {
+        if (n.nodeType === 1) {
+          const el = n as Element
+          if (el.tagName === 'MARK' || /background/i.test(el.getAttribute('style') || '')) return el
+        }
+        n = n.parentNode
+      }
+      return null
+    }
+    // Caret inside a highlight (nothing selected) → remove that highlight.
+    if (range.collapsed) {
+      const h = ancestorHilite(sel.anchorNode)
+      if (h) { unwrap(h); ed.normalize() }
+      ed.focus()
+      return
+    }
+    const hits = Array.from(ed.querySelectorAll('mark, span[style*="background"], font[style*="background"]'))
+      .filter(el => range.intersectsNode(el))
+    if (hits.length) {
+      hits.forEach(unwrap)
+      ed.normalize()
+    } else {
+      const mark = document.createElement('mark')
+      try { range.surroundContents(mark) }
+      catch { mark.appendChild(range.extractContents()); range.insertNode(mark) }
+      sel.removeAllRanges()
+      const r = document.createRange()
+      r.selectNodeContents(mark)
+      sel.addRange(r)
+    }
+    ed.focus()
+  }
   const btn = 'w-7 h-7 flex items-center justify-center rounded text-slate-500 hover:bg-white hover:text-slate-800'
 
   const updated = note.updated_at
@@ -397,7 +446,7 @@ function NoteCard({
           <button {...tb(() => exec('formatBlock', '<h3>'))} title="Heading 3" className={btn}><Heading3 className="w-4 h-4" /></button>
           <span className="w-px h-4 bg-slate-200 mx-1" />
           <button {...tb(() => exec('bold'))} title="Bold" className={btn}><Bold className="w-4 h-4" /></button>
-          <button {...tb(() => exec('hiliteColor', '#fde68a'))} title="Highlight" className="w-7 h-7 flex items-center justify-center rounded text-slate-500 hover:bg-yellow-100 hover:text-slate-800"><Highlighter className="w-4 h-4" /></button>
+          <button {...tb(toggleHighlight)} title="Highlight / remove highlight" className="w-7 h-7 flex items-center justify-center rounded text-slate-500 hover:bg-yellow-100 hover:text-slate-800"><Highlighter className="w-4 h-4" /></button>
           <button {...tb(() => exec('insertUnorderedList'))} title="Bullet list" className={btn}><List className="w-4 h-4" /></button>
           {/* Per-note text size (12–26) */}
           <div className="flex items-center gap-0.5 ml-auto pl-1" title="Text size for this note">
@@ -414,6 +463,7 @@ function NoteCard({
       <div className="flex-1 min-h-0">
         {editing ? (
           <div
+            key="note-editor"
             ref={edRef}
             contentEditable
             suppressContentEditableWarning
@@ -430,7 +480,7 @@ function NoteCard({
               [&:empty]:before:content-[attr(data-placeholder)] [&:empty]:before:text-slate-300"
           />
         ) : (
-          <div className="h-full overflow-y-auto pr-1" style={{ fontSize: `${fontSize}px` }}>
+          <div key="note-view" className="h-full overflow-y-auto pr-1" style={{ fontSize: `${fontSize}px` }}>
             {md.trim()
               ? <NoteMarkdown md={md} />
               : <span className="text-slate-300">Empty — click the pencil to edit</span>}
