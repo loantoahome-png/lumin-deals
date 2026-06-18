@@ -1,5 +1,22 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-18] Notes: WYSIWYG editor + per-note font size
+**Status:** VERIFIED (logic) / CHANGED (UI; live visual gated by login)
+**Files:** lib/noteMarkdown.ts (NEW markdownToHtml + upgraded htmlToMarkdown: headings,
+lists, highlight, font-weight spans), components/NotesBoard.tsx (textarea → contentEditable
+WYSIWYG via execCommand; per-note font size 12–26 in the editor toolbar via localStorage by
+note id; removed global header font slider), scripts/notes-md-check.ts (NEW, 23 fixtures).
+**Changes:** (1) Bold/highlight/headings/bullets now render live while editing instead of
+showing raw markdown (`**WA**`). Storage stays MARKDOWN (htmlToMarkdown on save) so existing
+notes + the read-only NoteMarkdown renderer are unaffected; legacy HTML notes still convert.
+(2) Each note has its own 12–26 size control (A− / A+) in the edit toolbar, persisted per
+browser by note id (font size was never a DB value → no migration).
+**Test Method:** `notes-md-check` **23/23 pass** (md→html, html→md incl. hiliteColor spans,
+md→html→md round-trips); `npx tsc --noEmit` clean on changed files; `npm run build` ✓ (/notes
+prerendered).
+**Result:** Converter logic VERIFIED; build + types green. execCommand toolbar behavior +
+rendered visual are behind the login wall — confirm live after deploy.
+
 ### [2026-06-18] /lead-performance — group HELOC into Refinance
 **Status:** VERIFIED (logic) / CHANGED (page; live visual gated by login)
 **Files:** lib/leadReport.ts (Purpose now All|Purchase|Refinance; matchesPurpose Refinance

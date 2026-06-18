@@ -13,7 +13,7 @@ import {
 import { SortableContext, useSortable, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import NoteMarkdown from '@/components/NoteMarkdown'
-import { htmlToMarkdown, looksLikeHtml } from '@/lib/noteMarkdown'
+import { markdownToHtml, htmlToMarkdown, looksLikeHtml } from '@/lib/noteMarkdown'
 
 type Note = {
   id: string
@@ -45,11 +45,13 @@ const DOT: Record<string, string> = {
 const COLOR_KEYS = Object.keys(ACCENT)
 const accentOf = (c: string | null) => ACCENT[c ?? 'amber'] ?? ACCENT.amber
 
-// One uniform text size for every note (px). Adjustable 12–26; persisted per browser.
-const FONT_KEY = 'lumin:notes-fontsize'
+// Text size is PER-NOTE (px), adjustable 12–26 from each note's editor toolbar,
+// persisted per browser keyed by note id (font size was never a DB value).
 const FONT_MIN = 12
 const FONT_MAX = 26
 const FONT_DEFAULT = 15
+const fontKey = (id: string) => `lumin:notes-fontsize:${id}`
+const clampFont = (v: number) => Math.min(FONT_MAX, Math.max(FONT_MIN, Math.round(v)))
 
 async function saveOrder(ids: string[]) {
   try {
@@ -67,20 +69,6 @@ export default function NotesBoard() {
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
   const [search, setSearch] = useState('')
-  const [fontSize, setFontSizeState] = useState(FONT_DEFAULT)
-
-  // Font size: read once on mount, write on change (clamped).
-  useEffect(() => {
-    try {
-      const v = Number(localStorage.getItem(FONT_KEY))
-      if (v >= FONT_MIN && v <= FONT_MAX) setFontSizeState(v)
-    } catch { /* ignore */ }
-  }, [])
-  const setFontSize = (v: number) => {
-    const clamped = Math.min(FONT_MAX, Math.max(FONT_MIN, Math.round(v)))
-    setFontSizeState(clamped)
-    try { localStorage.setItem(FONT_KEY, String(clamped)) } catch { /* ignore */ }
-  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -175,8 +163,8 @@ export default function NotesBoard() {
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
       {display.map(n =>
         canReorder
-          ? <SortableNote key={n.id} note={n} fontSize={fontSize} onPatch={patchNote} onDelete={deleteNote} onPin={togglePin} />
-          : <NoteCard key={n.id} note={n} fontSize={fontSize} onPatch={patchNote} onDelete={deleteNote} onPin={togglePin} />,
+          ? <SortableNote key={n.id} note={n} onPatch={patchNote} onDelete={deleteNote} onPin={togglePin} />
+          : <NoteCard key={n.id} note={n} onPatch={patchNote} onDelete={deleteNote} onPin={togglePin} />,
       )}
     </div>
   )
@@ -189,21 +177,6 @@ export default function NotesBoard() {
           <StickyNote className="w-5 h-5 text-amber-500" /> Notes
         </h1>
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Uniform text size */}
-          <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-1.5" title="Text size for all notes">
-            <span className="text-[11px] font-semibold text-slate-400 leading-none">A</span>
-            <input
-              type="range"
-              min={FONT_MIN}
-              max={FONT_MAX}
-              value={fontSize}
-              onChange={e => setFontSize(Number(e.target.value))}
-              className="w-24 accent-blue-600 cursor-pointer"
-              aria-label="Note text size"
-            />
-            <span className="text-base font-semibold text-slate-500 leading-none">A</span>
-            <span className="text-xs text-slate-500 tabular-nums w-9 text-right">{fontSize}px</span>
-          </div>
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
@@ -253,7 +226,6 @@ export default function NotesBoard() {
 
 function SortableNote(props: {
   note: Note
-  fontSize: number
   onPatch: (id: string, fields: Partial<Note>) => Promise<void>
   onDelete: (id: string) => void
   onPin: (note: Note) => void
@@ -283,10 +255,9 @@ function SortableNote(props: {
 }
 
 function NoteCard({
-  note, fontSize, onPatch, onDelete, onPin, handle,
+  note, onPatch, onDelete, onPin, handle,
 }: {
   note: Note
-  fontSize: number
   onPatch: (id: string, fields: Partial<Note>) => Promise<void>
   onDelete: (id: string) => void
   onPin: (note: Note) => void
@@ -301,11 +272,27 @@ function NoteCard({
 
   const [title, setTitle] = useState(note.title ?? '')
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(md)
   const [savedFlash, setSavedFlash] = useState(false)
-  const taRef = useRef<HTMLTextAreaElement | null>(null)
+  const [fontSize, setFontSizeState] = useState(FONT_DEFAULT)
+  const edRef = useRef<HTMLDivElement | null>(null)
 
-  async function save(nextDraft = draft, nextTitle = title) {
+  // Per-note font size — read once on mount, persisted per browser by note id.
+  useEffect(() => {
+    try {
+      const v = Number(localStorage.getItem(fontKey(note.id)))
+      if (v >= FONT_MIN && v <= FONT_MAX) setFontSizeState(v)
+    } catch { /* ignore */ }
+  }, [note.id])
+  const setFontSize = (v: number) => {
+    const clamped = clampFont(v)
+    setFontSizeState(clamped)
+    try { localStorage.setItem(fontKey(note.id), String(clamped)) } catch { /* ignore */ }
+  }
+
+  // Read the editor's HTML back as markdown (storage format stays markdown).
+  const readDraft = () => (edRef.current ? htmlToMarkdown(edRef.current.innerHTML) : md)
+
+  async function save(nextDraft: string, nextTitle = title) {
     if (nextTitle === (note.title ?? '') && nextDraft === md) return
     await onPatch(note.id, { title: nextTitle.trim() || null, content: nextDraft })
     setSavedFlash(true)
@@ -313,40 +300,27 @@ function NoteCard({
   }
 
   function enterEdit() {
-    setDraft(md)
     setEditing(true)
-    requestAnimationFrame(() => taRef.current?.focus())
+    requestAnimationFrame(() => {
+      const ed = edRef.current
+      if (!ed) return
+      ed.innerHTML = markdownToHtml(md)             // seed WYSIWYG from stored markdown
+      try { document.execCommand('styleWithCSS', false, 'false') } catch { /* ignore */ }
+      ed.focus()
+      // place caret at the end
+      const sel = window.getSelection()
+      if (sel) { const r = document.createRange(); r.selectNodeContents(ed); r.collapse(false); sel.removeAllRanges(); sel.addRange(r) }
+    })
   }
   function done() {
+    const next = readDraft()
     setEditing(false)
-    void save()
+    void save(next)
   }
 
-  // ── Toolbar edits (operate on the controlled textarea, restore selection) ──
-  function applyEdit(transform: (value: string, s: number, e: number) => { value: string; selStart: number; selEnd: number }) {
-    const ta = taRef.current
-    if (!ta) return
-    const r = transform(ta.value, ta.selectionStart, ta.selectionEnd)
-    setDraft(r.value)
-    requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(r.selStart, r.selEnd) })
-  }
-  const surround = (marker: string) => applyEdit((value, s, e) => {
-    const sel = value.slice(s, e) || 'text'
-    return {
-      value: value.slice(0, s) + marker + sel + marker + value.slice(e),
-      selStart: s + marker.length,
-      selEnd: s + marker.length + sel.length,
-    }
-  })
-  const prefixLine = (prefix: string) => applyEdit((value, s) => {
-    const lineStart = value.lastIndexOf('\n', s - 1) + 1
-    const cleaned = value.slice(lineStart).replace(/^(#{1,3}\s+|[-*]\s+)/, '')
-    const pos = lineStart + prefix.length
-    return { value: value.slice(0, lineStart) + prefix + cleaned, selStart: pos, selEnd: pos }
-  })
-
-  // onMouseDown+preventDefault keeps the textarea focus/selection while a toolbar
-  // button is clicked (otherwise blur fires and closes the editor).
+  // execCommand acts on the focused editor; keep the editor selection by preventing
+  // the button's default focus-steal (onMouseDown preventDefault).
+  const exec = (cmd: string, val?: string) => { try { document.execCommand(cmd, false, val) } catch { /* ignore */ }; edRef.current?.focus() }
   const tb = (fn: () => void) => ({ onMouseDown: (e: React.MouseEvent) => { e.preventDefault(); fn() } })
   const btn = 'w-7 h-7 flex items-center justify-center rounded text-slate-500 hover:bg-white hover:text-slate-800'
 
@@ -407,7 +381,7 @@ function NoteCard({
         <input
           value={title}
           onChange={e => setTitle(e.target.value)}
-          onBlur={() => save()}
+          onBlur={() => save(editing ? readDraft() : md, title)}
           placeholder="Title"
           className="w-full bg-transparent text-base font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none"
         />
@@ -418,27 +392,42 @@ function NoteCard({
         {/* Toolbar (edit mode) */}
         {editing && (
         <div className="flex flex-wrap items-center gap-0.5 mb-2 border border-slate-200 rounded-lg p-1 bg-slate-50 shrink-0">
-          <button {...tb(() => prefixLine('# '))} title="Heading 1" className={btn}><Heading1 className="w-4 h-4" /></button>
-          <button {...tb(() => prefixLine('## '))} title="Heading 2" className={btn}><Heading2 className="w-4 h-4" /></button>
-          <button {...tb(() => prefixLine('### '))} title="Heading 3" className={btn}><Heading3 className="w-4 h-4" /></button>
+          <button {...tb(() => exec('formatBlock', '<h1>'))} title="Heading 1" className={btn}><Heading1 className="w-4 h-4" /></button>
+          <button {...tb(() => exec('formatBlock', '<h2>'))} title="Heading 2" className={btn}><Heading2 className="w-4 h-4" /></button>
+          <button {...tb(() => exec('formatBlock', '<h3>'))} title="Heading 3" className={btn}><Heading3 className="w-4 h-4" /></button>
           <span className="w-px h-4 bg-slate-200 mx-1" />
-          <button {...tb(() => surround('**'))} title="Bold" className={btn}><Bold className="w-4 h-4" /></button>
-          <button {...tb(() => surround('=='))} title="Highlight" className="w-7 h-7 flex items-center justify-center rounded text-slate-500 hover:bg-yellow-100 hover:text-slate-800"><Highlighter className="w-4 h-4" /></button>
-          <button {...tb(() => prefixLine('- '))} title="Bullet list" className={btn}><List className="w-4 h-4" /></button>
+          <button {...tb(() => exec('bold'))} title="Bold" className={btn}><Bold className="w-4 h-4" /></button>
+          <button {...tb(() => exec('hiliteColor', '#fde68a'))} title="Highlight" className="w-7 h-7 flex items-center justify-center rounded text-slate-500 hover:bg-yellow-100 hover:text-slate-800"><Highlighter className="w-4 h-4" /></button>
+          <button {...tb(() => exec('insertUnorderedList'))} title="Bullet list" className={btn}><List className="w-4 h-4" /></button>
+          {/* Per-note text size (12–26) */}
+          <div className="flex items-center gap-0.5 ml-auto pl-1" title="Text size for this note">
+            <button {...tb(() => setFontSize(fontSize - 1))} disabled={fontSize <= FONT_MIN}
+              className={`${btn} disabled:opacity-30`}><span className="text-xs font-bold leading-none">A−</span></button>
+            <span className="text-[11px] text-slate-500 tabular-nums w-6 text-center">{fontSize}</span>
+            <button {...tb(() => setFontSize(fontSize + 1))} disabled={fontSize >= FONT_MAX}
+              className={`${btn} disabled:opacity-30`}><span className="text-sm font-bold leading-none">A+</span></button>
+          </div>
         </div>
       )}
 
       {/* Body — fixed-height card, this region scrolls. */}
       <div className="flex-1 min-h-0">
         {editing ? (
-          <textarea
-            ref={taRef}
-            value={draft}
-            onChange={e => setDraft(e.target.value)}
+          <div
+            ref={edRef}
+            contentEditable
+            suppressContentEditableWarning
             onBlur={done}
+            data-placeholder="Write your note…"
             style={{ fontSize: `${fontSize}px` }}
-            placeholder="Write in markdown — # heading, **bold**, ==highlight==, - bullet"
-            className="w-full h-full resize-none bg-white text-slate-800 border border-slate-200 rounded-lg p-2.5 leading-relaxed overflow-y-auto focus:outline-none focus:ring-2 focus:ring-blue-400"
+            className="w-full h-full bg-white text-slate-800 border border-slate-200 rounded-lg p-2.5 leading-relaxed overflow-y-auto focus:outline-none focus:ring-2 focus:ring-blue-400 break-words
+              [&_h1]:text-[1.5em] [&_h1]:font-bold [&_h1]:my-1
+              [&_h2]:text-[1.25em] [&_h2]:font-semibold [&_h2]:my-1
+              [&_h3]:text-[1.1em] [&_h3]:font-semibold [&_h3]:my-1
+              [&_b]:font-bold [&_strong]:font-bold
+              [&_mark]:bg-yellow-200 [&_mark]:rounded [&_mark]:px-0.5
+              [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1
+              [&:empty]:before:content-[attr(data-placeholder)] [&:empty]:before:text-slate-300"
           />
         ) : (
           <div className="h-full overflow-y-auto pr-1" style={{ fontSize: `${fontSize}px` }}>
