@@ -23,7 +23,7 @@ import { ghlContactUrl } from '@/lib/ghlLinks'
 import { isChannelBlocked, dndLabel } from '@/lib/utils'
 import DealTasks from '@/components/DealTasks'
 import DocumentChecklist from '@/components/DocumentChecklist'
-import { WAITING_ON_OPTIONS } from '@/lib/types'
+import { WAITING_ON_OPTIONS, PROCESSORS } from '@/lib/types'
 import type { REOProperty, Communication, DealDocument } from '@/lib/types'
 
 // ── Format helpers ──────────────────────────────────────────────────────────
@@ -916,8 +916,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                 <Field label="Processor">
                   <select value={form.processor_status || ''} onChange={e => set('processor_status', e.target.value)} className={sel}>
                     <option value="">—</option>
-                    <option value="Brianne Han">Brianne Han</option>
-                    <option value="Self Processing">Self Processing</option>
+                    {PROCESSORS.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </Field>
                 <Field label="Waiting On">

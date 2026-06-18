@@ -6,14 +6,14 @@ import {
   DndContext, useSensors, useSensor, PointerSensor,
   useDraggable, useDroppable, type DragEndEvent,
 } from '@dnd-kit/core'
-import { Deal, STATUS_COLORS, WAITING_ON_OPTIONS, STAGE_SLA_DAYS, Communication } from '@/lib/types'
+import { Deal, STATUS_COLORS, WAITING_ON_OPTIONS, STAGE_SLA_DAYS, Communication, PROCESSORS } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { ariveUrl } from '@/lib/ariveLinks'
 import {
   AlertTriangle, Clock, ChevronRight, CalendarClock,
   Flame, ExternalLink, CheckCircle2, Snowflake, Lock, Search,
-  Hourglass, Phone, AlertOctagon, GripVertical,
+  Hourglass, Phone, AlertOctagon, GripVertical, UserCog,
 } from 'lucide-react'
 
 
@@ -601,6 +601,25 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
               {daysInStage == null ? '—' : `${daysInStage}d`}
             </p>
           </div>
+        </div>
+
+        {/* Processor — at-a-glance + editable */}
+        <div className="flex items-center gap-2">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1 shrink-0">
+            <UserCog className="w-3 h-3" /> Processor
+          </label>
+          <select
+            value={deal.processor_status || ''}
+            onChange={e => saveField('processor_status', e.target.value || null)}
+            className={`flex-1 px-2 py-1 border rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              deal.processor_status
+                ? 'bg-cyan-50 border-cyan-200 text-cyan-800 font-semibold'
+                : 'bg-white border-slate-200 text-slate-500'
+            }`}
+          >
+            <option value="">— Unassigned —</option>
+            {PROCESSORS.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
         </div>
 
         {/* Next action editor — the focal point of the card (Lumin orange) */}

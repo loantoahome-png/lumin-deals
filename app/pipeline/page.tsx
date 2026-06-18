@@ -9,7 +9,7 @@ import {
 import { useDroppable, useDraggable } from '@dnd-kit/core'
 import { supabase } from '@/lib/supabase'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
-import { Deal, LOAN_STATUSES, STATUS_COLORS, LOAN_TYPES, OCCUPANCY_TYPES, LOAN_OFFICERS, APPRAISAL_STATUSES, WAITING_ON_OPTIONS } from '@/lib/types'
+import { Deal, LOAN_STATUSES, STATUS_COLORS, LOAN_TYPES, OCCUPANCY_TYPES, LOAN_OFFICERS, APPRAISAL_STATUSES, WAITING_ON_OPTIONS, PROCESSORS } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { pushStageToGHL } from '@/lib/pushStage'
 import { ghlContactUrl } from '@/lib/ghlLinks'
@@ -1355,7 +1355,7 @@ function PipelinePageInner() {
     // Workflow
     { key: 'status',               label: 'Status',           category: 'Workflow', type: 'select',         icon: <Tag className="w-3.5 h-3.5 text-violet-500" />,        options: LOAN_STATUSES },
     { key: 'loan_officer',         label: 'Loan Officer',     category: 'Workflow', type: 'select',         icon: <User className="w-3.5 h-3.5 text-violet-500" />,       options: LOAN_OFFICERS },
-    { key: 'processor_status',     label: 'Processor',        category: 'Workflow', type: 'select',         icon: <User className="w-3.5 h-3.5 text-cyan-500" />,         options: ['Brianne Han', 'Self Processing'] },
+    { key: 'processor_status',     label: 'Processor',        category: 'Workflow', type: 'select',         icon: <User className="w-3.5 h-3.5 text-cyan-500" />,         options: [...PROCESSORS] },
     { key: 'next_action_assignee', label: 'Assigned To',      category: 'Workflow', type: 'select',         icon: <User className="w-3.5 h-3.5 text-blue-500" />,         options: [...LOAN_OFFICERS, 'Efrain Ramirez', 'Brianne Han'] },
     { key: 'next_action_due',      label: 'Follow-up Date',   category: 'Workflow', type: 'datetime-local', icon: <Clock className="w-3.5 h-3.5 text-orange-500" /> },
     { key: 'escrow_priority',      label: 'Priority',         category: 'Workflow', type: 'select',         icon: <Flame className="w-3.5 h-3.5 text-red-500" />,         options: ['high', 'normal', 'low'] },

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import {
-  Deal, PIPELINE_GROUPS, PIPELINE_STATUSES, LOAN_OFFICERS,
+  Deal, PIPELINE_GROUPS, PIPELINE_STATUSES, LOAN_OFFICERS, PROCESSORS,
   LOAN_TYPES, REFINANCE_TYPES, LIEN_POSITIONS, OCCUPANCY_TYPES, APPRAISAL_STATUSES,
 } from '@/lib/types'
 import {
@@ -583,8 +583,7 @@ export default function DealForm({ deal }: { deal?: Deal }) {
                 <Field label="Processor">
                   <select value={form.processor_status || ''} onChange={e => set('processor_status', e.target.value)} className={sel}>
                     <option value="">—</option>
-                    <option value="Brianne Han">Brianne Han</option>
-                    <option value="Self Processing">Self Processing</option>
+                    {PROCESSORS.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </Field>
               </div>

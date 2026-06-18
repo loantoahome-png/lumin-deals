@@ -1,5 +1,23 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-18] Active Escrows: processor dropdown + new processor options
+**Status:** CHANGED (UI; live visual gated by login)
+**Files:** lib/types.ts (NEW `PROCESSORS = [Self Processing, Susan Lim, Hanh Nguyen]`),
+components/EscrowTracker.tsx (processor dropdown on the card, under the Amount/LO/In-Stage row),
+app/deals/[id]/page.tsx + components/DealForm.tsx + app/pipeline/page.tsx (options → PROCESSORS).
+**Changes:** Added an at-a-glance + editable Processor `<select>` to the Active Escrows card
+(binds to `processor_status`, saves via existing onUpdate). Replaced the 3 hardcoded option
+lists (`Brianne Han / Self Processing`) with the shared PROCESSORS constant. Dropdowns show ONLY
+the three options (no legacy fallback) per Efrain.
+**Data cleanup (prod, authorized):** Efrain chose to CLEAR all non-standard values, not migrate.
+Set `processor_status = NULL` for the 6 deals not in PROCESSORS (Hanh - 3rd party ×3,
+Susan - In house ×2, Lexi - 3rd party ×1). Verified: 0 non-standard remaining; Self Processing
+intact at 126. No 'Brianne Han' ever existed. `processor_status` is only written by the manual
+(non-cron) Monday sync, so values won't auto-reappear.
+**Test Method:** changed files type-clean (only the pre-existing DealForm:18 standing error
+remains); `npm run build` ✓; DB verified via count queries.
+**Result:** Build + types green; data cleaned. Visual confirm after deploy.
+
 ### [2026-06-18] Notes: fix doubled content after editing (render bug)
 **Status:** CHANGED (UI; live visual gated by login)
 **Files:** components/NotesBoard.tsx (distinct keys on editor vs view branches).
