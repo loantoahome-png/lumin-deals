@@ -1,5 +1,16 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-17] Deal detail: "View Contact" button in the header
+**Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
+**File:** app/deals/[id]/page.tsx
+**Changes:** Added a "View Contact" button (User icon) as the first item in the header
+action group, linking to `/contacts/{borrower_id}` (the person rollup page with all
+their loans). Rendered only when `form.borrower_id` is set. Styled to match the dark
+header (white/10 chip).
+**Test Method:** `npx tsc --noEmit` deals/[id] clean; `npm run build` ✓ (`/deals/[id]`
+compiles). Visual gated by login.
+**Result:** Pending your visual check. Build + types green.
+
 ### [2026-06-17] Lead Spend: LO/stage filter leaked date-less funded deals
 **Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
 **File:** app/lead-spend/page.tsx

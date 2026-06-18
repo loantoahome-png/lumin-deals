@@ -516,6 +516,15 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {(form.borrower_id as string | null) && (
+              <Link
+                href={`/contacts/${form.borrower_id}`}
+                title="View this person's contact — all their loans"
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-200 bg-white/10 border border-white/20 rounded-lg hover:bg-white/20 transition"
+              >
+                <User className="w-3.5 h-3.5" /> View Contact
+              </Link>
+            )}
             {form.ghl_contact_id && (() => {
               // Resolve which GHL sub-account this deal lives in:
               //   1. The stored ghl_location_id (set during sync) — best signal
