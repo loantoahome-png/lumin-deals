@@ -1,5 +1,22 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-17] Lead Spend: LO/stage filter leaked date-less funded deals
+**Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
+**File:** app/lead-spend/page.tsx
+**Issue:** Funded deals with a NULL `funded_date` showed under the wrong LO. In
+`filtered`, the date-anchor early-return `if (!dateStr) return !isBounded` ran BEFORE
+the LO + stage checks, so under "All time" a date-less funded row bypassed the LO
+filter and leaked into the other LO's view. Confirmed against data: Marian Cooper
+(Arive, Matt Park, funded_date null) and Jong Oh (Lending Tree, Matt Park, the null-
+date one of his two rows) both appeared under Moe — both are the Arive duplicate rows.
+**Changes:** Moved the LO + stage filters to the top of the `deals.filter` callback so
+they apply to every deal, including date-less funded loans. Date anchoring unchanged.
+**Test Method:** `npx tsc --noEmit` lead-spend clean; `npm run build` ✓. Logic: a
+Matt-Park funded row with no funded_date now fails the Moe LO check first → excluded
+from Moe; still shows under Matt/All. Visual gated by login.
+**Result:** Pending your visual check. (Root data fix = merge the Arive duplicate rows
+on /duplicates — separate, human-in-the-loop.)
+
 ### [2026-06-17] Dashboard: Next Steps section (mirrors Active Escrows)
 **Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
 **File:** components/Dashboard.tsx

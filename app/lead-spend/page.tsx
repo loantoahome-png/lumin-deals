@@ -133,6 +133,17 @@ export default function LeadSpendPage() {
     const isBounded = start != null || end != null   // a real date range is active (not "All time")
     const loLower = lo.toLowerCase()
     return deals.filter(d => {
+      // LO + stage filters apply to EVERY deal — including funded loans with no
+      // funded_date. Otherwise the date-less early-return below short-circuits before
+      // these run, so a Matt-Park deal with no funded_date leaks into Moe's view under
+      // "All time" (and vice versa). See the funded-loans list for the symptom.
+      if (lo !== 'All') {
+        if (!d.loan_officer || !d.loan_officer.toLowerCase().includes(loLower)) return false
+      }
+      if (stage) {
+        if (stageIsGroup) { if ((d.pipeline_group ?? '') !== stage) return false }
+        else              { if ((d.status ?? '')         !== stage) return false }
+      }
       // Anchor each deal on a REAL date, never created_at (that's the DB
       // migration date — identical for every row, so it can't segment ranges):
       //   • Funded loans → funded_date STRICTLY (the month money landed). Do NOT
@@ -154,13 +165,6 @@ export default function LeadSpendPage() {
         ? new Date(dateStr + 'T00:00:00').getTime()
         : Date.parse(dateStr)
       if (isNaN(ct) || ct < startMs || ct > endMs) return false
-      if (lo !== 'All') {
-        if (!d.loan_officer || !d.loan_officer.toLowerCase().includes(loLower)) return false
-      }
-      if (stage) {
-        if (stageIsGroup) { if ((d.pipeline_group ?? '') !== stage) return false }
-        else              { if ((d.status ?? '')         !== stage) return false }
-      }
       return true
     })
   }, [deals, start, end, lo, stage, stageIsGroup])
