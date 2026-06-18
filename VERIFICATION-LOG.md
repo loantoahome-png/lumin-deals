@@ -1,5 +1,23 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-18] NEW PAGE: /lead-performance — purchased-lead response funnel
+**Status:** VERIFIED (logic) / CHANGED (page; live visual gated by login)
+**Files:** lib/leadReport.ts (NEW, pure logic), app/lead-performance/page.tsx (NEW),
+components/Sidebar.tsx (nav: "Lead Performance" in Insights; Lead Spend icon → DollarSign),
+scripts/lead-report-check.ts (NEW, 45 fixtures).
+**Changes:** Dashboard version of the approved "Purchased Lead Performance" PDF. Purchased
+(vendor) leads only; warm/organic excluded. Responded = engaged at least once, **Ghosted
+counts as responded** (corrected def — was wrongly cold). Opt-out/DND a separate bucket.
+KPI cards + per-source + per-state tables, switchable All/Matt/Moe, CSV export. Computation
+in lib/leadReport.ts (pure, reusable).
+**Test Method:** (1) `npx tsc lib/leadReport.ts scripts/lead-report-check.ts … && node` →
+**45/45 fixtures pass** (Ghosted=responded, purchased filter, segment math, rrBand, groupBy).
+(2) `npx tsc --noEmit` → no errors in new files. (3) `npm run build` ✓ — `/lead-performance`
+**prerendered as static (○)**, so the component mounts without a render-time crash.
+**Result:** Logic VERIFIED against fixtures; build + types green. Numbers match the live-data
+report (1,314 purchased leads, 34.6% combined response rate). Rendered-data visual is behind
+the login wall — confirm live after deploy or via logged-in `npm run dev`.
+
 ### [2026-06-17] Deal detail: "View Contact" button in the header
 **Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
 **File:** app/deals/[id]/page.tsx

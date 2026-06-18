@@ -48,7 +48,8 @@ const navGroups = [
     label: 'Insights',
     items: [
       { href: '/reports', label: 'Reports', icon: BarChart3 },
-      { href: '/lead-spend', label: 'Lead Spend', icon: BarChart3 },
+      { href: '/lead-performance', label: 'Lead Performance', icon: Target },
+      { href: '/lead-spend', label: 'Lead Spend', icon: DollarSign },
     ],
   },
   {
