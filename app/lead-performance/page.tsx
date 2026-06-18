@@ -17,12 +17,13 @@ import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import type { Deal } from '@/lib/types'
 import {
   PURCHASED_SOURCES, segment, groupBy, sourceKey, stateKey, purchasedBook, rrBand,
-  type LO, type Segment, type GroupRow,
+  type LO, type Purpose, type Segment, type GroupRow,
 } from '@/lib/leadReport'
 import { RefreshCw, Download, Target } from 'lucide-react'
 
-const LEAD_COLS = 'id,loan_officer,pipeline_group,status,source,state,lead_price,date_added_ghl'
+const LEAD_COLS = 'id,loan_officer,pipeline_group,status,source,state,lead_price,loan_purpose,date_added_ghl'
 const LO_TABS: LO[] = ['All', 'Matt', 'Moe']
+const PURPOSE_TABS: Purpose[] = ['All', 'Purchase', 'Refinance']
 
 const pct = (x: number) => x.toFixed(1) + '%'
 const money = (x: number | null) => (x == null ? '—' : '$' + Math.round(x).toLocaleString())
@@ -49,6 +50,7 @@ export default function LeadPerformancePage() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
   const [lo, setLo] = useState<LO>('All')
+  const [purpose, setPurpose] = useState<Purpose>('All')
 
   async function load() {
     setLoading(true)
@@ -58,7 +60,7 @@ export default function LeadPerformancePage() {
   }
   useEffect(() => { load() }, [])
 
-  const book = useMemo(() => purchasedBook(deals, lo), [deals, lo])
+  const book = useMemo(() => purchasedBook(deals, lo, purpose), [deals, lo, purpose])
   const totals: Segment = useMemo(() => segment(book), [book])
   const bySource: GroupRow[] = useMemo(() => groupBy(book, sourceKey), [book])
   const byState: GroupRow[] = useMemo(() => groupBy(book, stateKey), [book])
@@ -85,7 +87,7 @@ export default function LeadPerformancePage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `lead-performance-${lo.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv`
+    a.download = `lead-performance-${lo.toLowerCase()}-${purpose.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -101,6 +103,7 @@ export default function LeadPerformancePage() {
             </h1>
             <p className="text-sm text-slate-500 mt-0.5">
               Purchased leads only · Ghosted counts as responded
+              {purpose !== 'All' && <span className="text-blue-600 font-medium"> · {purpose}</span>}
               {dateWindow && <span className="text-slate-400"> · {dateWindow}</span>}
             </p>
           </div>
@@ -115,16 +118,34 @@ export default function LeadPerformancePage() {
           </div>
         </div>
 
-        {/* LO toggle */}
-        <div className="flex items-center gap-1">
-          {LO_TABS.map(t => (
-            <button key={t} onClick={() => setLo(t)}
-              className={`px-3 py-1 text-xs font-medium rounded-full transition ${
-                lo === t ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}>
-              {t === 'All' ? 'Matt + Moe' : t === 'Matt' ? 'Matt Park' : 'Moe Sefati'}
-            </button>
-          ))}
+        {/* Filters */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 w-12">LO</span>
+            <div className="flex items-center gap-1">
+              {LO_TABS.map(t => (
+                <button key={t} onClick={() => setLo(t)}
+                  className={`px-3 py-1 text-xs font-medium rounded-full transition ${
+                    lo === t ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}>
+                  {t === 'All' ? 'Matt + Moe' : t === 'Matt' ? 'Matt Park' : 'Moe Sefati'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 w-12">Purpose</span>
+            <div className="flex items-center gap-1">
+              {PURPOSE_TABS.map(t => (
+                <button key={t} onClick={() => setPurpose(t)}
+                  className={`px-3 py-1 text-xs font-medium rounded-full transition ${
+                    purpose === t ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}>
+                  {t === 'All' ? 'All purposes' : t}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -154,7 +175,8 @@ export default function LeadPerformancePage() {
                 <p><b>Responded:</b> engaged at least once. <b>Ghosted counts</b> — only New Lead / Attempted Contact / Non-Responsive are &ldquo;no response.&rdquo;</p>
                 <p><b>Opted out / DND:</b> STOP, DND-SMS, Remove from All Automations — shown separately, not counted as responded.</p>
                 <p><b>Funded:</b> Loan Funded / Broker Check Received / Loan Finalized. <b>Cost/funded</b> = spend ÷ funded.</p>
-                <p className="text-slate-400">Coverage: lead price on ~84% of leads (spend is a floor); state on ~90%.</p>
+                <p><b>Purpose filter:</b> Purchase vs Refinance — <b>Refinance includes HELOCs</b> (a HELOC is an equity refinance). ~8% of leads are untagged and appear only under &ldquo;All purposes.&rdquo;</p>
+                <p className="text-slate-400">Coverage: lead price on ~84% of leads (spend is a floor); state on ~90%; loan purpose on ~92%.</p>
               </div>
             </details>
 

@@ -2,7 +2,7 @@
 // Run: npx tsc lib/leadReport.ts scripts/lead-report-check.ts --outDir /tmp/lrc \
 //        --module nodenext --moduleResolution nodenext --skipLibCheck && node /tmp/lrc/scripts/lead-report-check.js
 import {
-  isPurchased, isResponded, isCold, isOptout, isFunded, matchesLO,
+  isPurchased, isResponded, isCold, isOptout, isFunded, matchesLO, matchesPurpose,
   segment, groupBy, sourceKey, stateKey, purchasedBook, rrBand, type LeadRow,
 } from '../lib/leadReport'
 
@@ -12,7 +12,8 @@ function eq(label: string, got: unknown, want: unknown) {
   if (ok) { pass++ } else { fail++; console.error(`✗ ${label}\n   got:  ${JSON.stringify(got)}\n   want: ${JSON.stringify(want)}`) }
 }
 const row = (p: Partial<LeadRow>): LeadRow => ({
-  loan_officer: null, pipeline_group: 'Leads', status: 'New Lead', source: 'FRU', state: 'CA', lead_price: 0, ...p,
+  loan_officer: null, pipeline_group: 'Leads', status: 'New Lead', source: 'FRU', state: 'CA',
+  lead_price: 0, loan_purpose: 'Refinance', ...p,
 })
 
 // ── Purchased vs warm ──────────────────────────────────────────────
@@ -46,6 +47,14 @@ eq('Matt Park matches Matt', matchesLO(row({ loan_officer: 'Matt Park' }), 'Matt
 eq('Moe Sefati matches Moe', matchesLO(row({ loan_officer: 'Moe Sefati' }), 'Moe'), true)
 eq('Matt Park not Moe', matchesLO(row({ loan_officer: 'Matt Park' }), 'Moe'), false)
 eq('All matches anyone', matchesLO(row({ loan_officer: 'Matt Park' }), 'All'), true)
+
+// ── Purpose matching ───────────────────────────────────────────────
+eq('purpose All matches anything', matchesPurpose(row({ loan_purpose: null }), 'All'), true)
+eq('Purchase matches', matchesPurpose(row({ loan_purpose: 'Purchase' }), 'Purchase'), true)
+eq('Refinance matches case-insensitive', matchesPurpose(row({ loan_purpose: 'refinance' }), 'Refinance'), true)
+eq('HELOC grouped into Refinance', matchesPurpose(row({ loan_purpose: 'HELOC' }), 'Refinance'), true)
+eq('Purchase is not Refinance', matchesPurpose(row({ loan_purpose: 'Purchase' }), 'Refinance'), false)
+eq('null purpose excluded from Purchase', matchesPurpose(row({ loan_purpose: null }), 'Purchase'), false)
 
 // ── Keys ───────────────────────────────────────────────────────────
 eq('stateKey upper/trim', stateKey(row({ state: ' ca ' })), 'CA')
@@ -86,6 +95,19 @@ const mixed: LeadRow[] = [
 ]
 eq('purchasedBook All excludes warm', purchasedBook(mixed, 'All').length, 3)
 eq('purchasedBook Matt', purchasedBook(mixed, 'Matt').length, 2)
+
+// purpose filter on the cohort
+const purp: LeadRow[] = [
+  row({ source: 'FRU', status: 'Ghosted', loan_purpose: 'Purchase' }),
+  row({ source: 'FRU', status: 'Pitching', loan_purpose: 'Refinance' }),
+  row({ source: 'Lendgo', status: 'Pitching', loan_purpose: 'HELOC' }),
+  row({ source: 'LMB', status: 'New Lead', loan_purpose: null }),       // untagged → only under All
+  row({ source: 'Self Source', status: 'Loan Funded', loan_purpose: 'Purchase' }), // warm → excluded always
+]
+eq('purpose All keeps all purchased (incl untagged)', purchasedBook(purp, 'All', 'All').length, 4)
+eq('purpose Purchase', purchasedBook(purp, 'All', 'Purchase').length, 1)
+eq('purpose Refinance includes HELOC', purchasedBook(purp, 'All', 'Refinance').length, 2)
+eq('purchasedBook default purpose = All', purchasedBook(purp, 'All').length, 4)
 const grp = groupBy(purchasedBook(mixed, 'All'), sourceKey)
 eq('groupBy sorted desc by n, FRU first', grp[0].key, 'FRU')
 eq('groupBy FRU n', grp.find(g => g.key === 'FRU')!.n, 2)

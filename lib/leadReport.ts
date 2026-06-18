@@ -23,7 +23,7 @@ export const OPTOUT_STATUSES = new Set(['DND - SMS', 'Remove from All Automation
 const FUNDED_STATUSES = new Set(['Loan Funded', 'Broker Check Received', 'Loan Finalized'])
 
 // Only the fields the report needs — keeps the page's select() slim.
-export type LeadRow = Pick<Deal, 'loan_officer' | 'pipeline_group' | 'status' | 'source' | 'state' | 'lead_price'>
+export type LeadRow = Pick<Deal, 'loan_officer' | 'pipeline_group' | 'status' | 'source' | 'state' | 'lead_price' | 'loan_purpose'>
 
 export const rawSource = (d: LeadRow): string => (d.source ?? '').trim()
 export const isPurchased = (d: LeadRow): boolean => PURCHASED_SET.has(rawSource(d).toLowerCase())
@@ -39,6 +39,17 @@ export function matchesLO(d: LeadRow, lo: LO): boolean {
   if (lo === 'All') return true
   const l = (d.loan_officer ?? '').toLowerCase()
   return lo === 'Matt' ? l.includes('matt') : l.includes('moe')
+}
+
+// loan_purpose buckets in the data: Refinance, Purchase, HELOC (+ ~8% untagged that
+// only appear under 'All'). 'Refinance' GROUPS true refinances AND HELOCs together
+// (a HELOC is an equity refinance).
+export type Purpose = 'All' | 'Purchase' | 'Refinance'
+export function matchesPurpose(d: LeadRow, p: Purpose): boolean {
+  if (p === 'All') return true
+  const lp = (d.loan_purpose ?? '').trim().toLowerCase()
+  if (p === 'Refinance') return lp === 'refinance' || lp === 'heloc'
+  return lp === p.toLowerCase()
 }
 
 export const sourceKey = (d: LeadRow): string => rawSource(d) || '(no source)'
@@ -85,6 +96,6 @@ export function groupBy(rows: LeadRow[], keyFn: (d: LeadRow) => string): GroupRo
 /** Response-rate band → semantic color key (≥28 good · 20–28 mid · <20 bad). */
 export const rrBand = (rr: number): 'good' | 'mid' | 'bad' => (rr >= 28 ? 'good' : rr >= 20 ? 'mid' : 'bad')
 
-/** Filter a raw deal list down to the purchased-lead cohort for a given LO. */
-export const purchasedBook = (deals: LeadRow[], lo: LO): LeadRow[] =>
-  deals.filter(d => isPurchased(d) && matchesLO(d, lo))
+/** Filter a raw deal list down to the purchased-lead cohort for a given LO + loan purpose. */
+export const purchasedBook = (deals: LeadRow[], lo: LO, purpose: Purpose = 'All'): LeadRow[] =>
+  deals.filter(d => isPurchased(d) && matchesLO(d, lo) && matchesPurpose(d, purpose))

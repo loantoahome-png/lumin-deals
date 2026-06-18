@@ -1,5 +1,27 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-18] /lead-performance — group HELOC into Refinance
+**Status:** VERIFIED (logic) / CHANGED (page; live visual gated by login)
+**Files:** lib/leadReport.ts (Purpose now All|Purchase|Refinance; matchesPurpose Refinance
+matches refinance OR heloc), app/lead-performance/page.tsx (PURPOSE_TABS, methodology note),
+scripts/lead-report-check.ts (updated grouping fixtures).
+**Changes:** Per Efrain, HELOC is no longer a standalone toggle — it's grouped INTO Refinance
+(equity refinance). Toggle is now All / Purchase / Refinance. Refinance(+HELOC) = 1,090 leads.
+**Test Method:** fixtures **55/55 pass**; `npx tsc --noEmit` clean; `npm run build` ✓ (prerendered).
+**Result:** Logic VERIFIED; build + types green. Visual behind login.
+
+### [2026-06-18] /lead-performance — Purchase/Refinance/HELOC purpose filter
+**Status:** VERIFIED (logic) / CHANGED (page; live visual gated by login)
+**Files:** lib/leadReport.ts (+ Purpose type, matchesPurpose, purchasedBook 3rd arg),
+app/lead-performance/page.tsx (purpose toggle row), scripts/lead-report-check.ts (+11 fixtures).
+**Changes:** Added a loan-purpose filter (All / Purchase / Refinance / HELOC). Real data values
+in the purchased cohort: Refinance 1,022, Purchase 125, HELOC 68, untagged 103. HELOC kept as
+its own bucket (not folded into Refinance). Untagged (~8%) show only under "All purposes".
+Active purpose shown in subheader + CSV filename.
+**Test Method:** fixtures **56/56 pass**; `npx tsc --noEmit` clean on the page/lib; `npm run build`
+✓ (`/lead-performance` prerendered static).
+**Result:** Logic VERIFIED; build + types green. Rendered visual behind login wall.
+
 ### [2026-06-18] NEW PAGE: /lead-performance — purchased-lead response funnel
 **Status:** VERIFIED (logic) / CHANGED (page; live visual gated by login)
 **Files:** lib/leadReport.ts (NEW, pure logic), app/lead-performance/page.tsx (NEW),
