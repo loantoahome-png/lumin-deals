@@ -8,7 +8,7 @@ import { formatCurrency } from '@/lib/utils'
 import UnreadInbox from '@/components/UnreadInbox'
 import {
   DollarSign, TrendingUp, Users, CheckCircle, Clock, AlertCircle, Calendar, X,
-  AlertTriangle, ChevronRight, Flame,
+  AlertTriangle, ChevronRight, Flame, ListChecks,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -186,6 +186,14 @@ export default function Dashboard() {
   )
   const overdueItems = todayItems.filter(d => new Date(d.next_action_due as string) < now)
   const dueTodayItems = todayItems.filter(d => new Date(d.next_action_due as string) >= now && new Date(d.next_action_due as string) <= endOfToday)
+
+  // Next Steps section — every active escrow + its next action, soonest due first (no-due last).
+  const nextStepRows = [...escrowsInProcess].sort((a, b) => {
+    const ad = a.next_action_due ? new Date(a.next_action_due).getTime() : Infinity
+    const bd = b.next_action_due ? new Date(b.next_action_due).getTime() : Infinity
+    if (ad !== bd) return ad - bd
+    return (a.name || '').localeCompare(b.name || '')
+  })
 
   const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#f97316', '#8b5cf6', '#ec4899']
 
@@ -462,6 +470,49 @@ export default function Dashboard() {
           <Link href="/deals" className="block text-center text-blue-600 text-xs font-medium mt-3 hover:underline">View all deals →</Link>
         </div>
       </div>
+
+      {/* Next Steps — every active escrow + its next action (mirrors Active Escrows) */}
+      {escrowsInProcess.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ListChecks className="w-4 h-4 text-blue-500" />
+              <h3 className="font-semibold text-slate-800 text-sm">Next Steps</h3>
+              <span className="text-xs text-slate-500">{escrowsInProcess.length} active escrow{escrowsInProcess.length !== 1 ? 's' : ''}</span>
+            </div>
+            <Link href="/deals" className="text-xs font-medium text-blue-600 hover:text-blue-700 flex items-center gap-0.5">
+              Open Active Escrows <ChevronRight className="w-3 h-3" />
+            </Link>
+          </div>
+          <div className="divide-y divide-slate-100 max-h-[480px] overflow-y-auto">
+            {nextStepRows.map(d => {
+              const due = d.next_action_due ? new Date(d.next_action_due) : null
+              const overdue = due ? due < now : false
+              const dueStr = due ? due.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
+              return (
+                <Link key={d.id} href={`/deals/${d.id}`} className="flex items-start gap-3 px-5 py-2.5 hover:bg-slate-50 transition group">
+                  <div className="w-48 shrink-0 min-w-0">
+                    <div className="text-sm font-semibold text-slate-900 group-hover:text-blue-700 truncate">{d.name}</div>
+                    <div className="text-[11px] text-slate-400 truncate">
+                      {d.status}{(d.next_action_assignee || d.loan_officer) ? ` · ${d.next_action_assignee || d.loan_officer}` : ''}
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-slate-700">
+                      {d.next_action || <span className="italic text-slate-400">No next step set</span>}
+                    </div>
+                    {due && (
+                      <div className={`text-[11px] ${overdue ? 'text-red-600 font-medium' : 'text-slate-400'}`}>
+                        {overdue ? 'Overdue · ' : 'Due '}{dueStr}
+                      </div>
+                    )}
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
     </div>
   )

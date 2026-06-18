@@ -1,5 +1,18 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-17] Dashboard: Next Steps section (mirrors Active Escrows)
+**Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
+**File:** components/Dashboard.tsx
+**Changes:** New "Next Steps" card at the bottom of the Dashboard listing every active
+escrow (Loans in Process) with its `next_action` beside the name (left = name + stage/
+assignee; right = next step + due, overdue in red). Built from the existing
+`escrowsInProcess` (no new fetch; `next_action` already in DASHBOARD_COLS), sorted by
+`next_action_due` soonest-first (no-due last). Scrolls at `max-h-[480px]`; "Open Active
+Escrows" link. Not date-range filtered (current pipeline work, like the Today widget).
+**Test Method:** `npx tsc --noEmit` Dashboard clean; `npm run build` ✓ (`/` prerenders).
+Visual gated by login.
+**Result:** Pending your visual check. Build + types green.
+
 ### [2026-06-17] Lead Spend: funded-loans section for the current timeframe
 **Status:** CHANGED (tsc-clean + build-passed; live visual gated by login)
 **File:** app/lead-spend/page.tsx
