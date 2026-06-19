@@ -1,5 +1,19 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-18] Remove Monday.com sync (button + dead route)
+**Status:** CHANGED (UI + dead-code removal; live visual gated by login)
+**Files:** app/health/page.tsx (removed "Sync from Monday" button, simplified runSync to GHL-only,
+dropped 'monday' from syncing state, removed unused Database icon import); DELETED
+app/api/sync/monday/route.ts (398 lines, the only caller was that button).
+**Why:** Efrain confirmed Monday will never be synced again. The Monday sync was also the ONLY
+writer of `processor_status` (it's not on any cron), so removing it prevents the legacy
+processor labels (just cleared) from ever reappearing.
+**Left intact (intentional):** app/tools/page.tsx Monday board bookmark (read-only reference link)
+and a historical comment in app/api/sync/ghl/route.ts. GHL sync is now the only sync.
+**Test Method:** grep confirms no remaining code refs to the route; `npx tsc --noEmit` clean on
+health page (only pre-existing DealForm:18 standing error remains); `npm run build` ✓.
+**Result:** Build + types green; route removed. Visual confirm after deploy.
+
 ### [2026-06-18] Active Escrows: processor dropdown + new processor options
 **Status:** CHANGED (UI; live visual gated by login)
 **Files:** lib/types.ts (NEW `PROCESSORS = [Self Processing, Susan Lim, Hanh Nguyen]`),

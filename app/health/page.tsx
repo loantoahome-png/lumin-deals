@@ -6,7 +6,7 @@ import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal } from '@/lib/types'
 import Link from 'next/link'
 import {
-  AlertCircle, CheckCircle2, RefreshCw, Database, ExternalLink,
+  AlertCircle, CheckCircle2, RefreshCw, ExternalLink,
   ArrowRight, Loader2,
 } from 'lucide-react'
 
@@ -50,7 +50,7 @@ function applicableCriticalFields(deal: Deal) {
 export default function HealthPage() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState<'monday' | 'ghl' | null>(null)
+  const [syncing, setSyncing] = useState<'ghl' | null>(null)
   const [syncResult, setSyncResult] = useState<string | null>(null)
   const [expandedField, setExpandedField] = useState<string | null>(null)
   const [activeOnly, setActiveOnly] = useState(true)
@@ -63,22 +63,16 @@ export default function HealthPage() {
   }
   useEffect(() => { fetchDeals() }, [])
 
-  async function runSync(source: 'monday' | 'ghl') {
-    setSyncing(source)
+  async function runSync() {
+    setSyncing('ghl')
     setSyncResult(null)
     try {
-      const url = source === 'monday' ? '/api/sync/monday' : '/api/sync/ghl'
-      const opts = source === 'monday'
-        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'fill_blanks' }) }
-        : { method: 'POST' }
-      const res = await fetch(url, opts)
+      const res = await fetch('/api/sync/ghl', { method: 'POST' })
       const data = await res.json()
       if (data.success) {
-        const msg = source === 'monday'
-          ? `Monday: updated ${data.updated} · created ${data.created} · filled ${data.fields_filled} fields`
-          : `GHL: ${data.synced} written (${data.created} new, ${data.updated} updated)` +
-            (typeof data.skipped === 'number' ? `, ${data.skipped} unchanged` : '') +
-            (typeof data.duration_ms === 'number' ? ` · ${(data.duration_ms / 1000).toFixed(1)}s` : '')
+        const msg = `GHL: ${data.synced} written (${data.created} new, ${data.updated} updated)` +
+          (typeof data.skipped === 'number' ? `, ${data.skipped} unchanged` : '') +
+          (typeof data.duration_ms === 'number' ? ` · ${(data.duration_ms / 1000).toFixed(1)}s` : '')
         setSyncResult(msg)
         await fetchDeals()
       } else {
@@ -163,20 +157,12 @@ export default function HealthPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => runSync('ghl')}
+            onClick={() => runSync()}
             disabled={!!syncing}
             className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50"
           >
             {syncing === 'ghl' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
             Sync GHL
-          </button>
-          <button
-            onClick={() => runSync('monday')}
-            disabled={!!syncing}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            {syncing === 'monday' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
-            Sync from Monday
           </button>
         </div>
       </div>
