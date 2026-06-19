@@ -1,5 +1,18 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-18] NEW PAGE: /compliance — calling & texting cheat sheet
+**Status:** CHANGED (UI; live visual gated by login)
+**Files:** docs/compliance-quick-reference.md (NEW source doc), app/compliance/page.tsx (NEW,
+static server component mirroring the doc), components/Sidebar.tsx ("Compliance" link in Actions
+group, ShieldCheck icon).
+**Changes:** In-app, read-only compliance reference for Efrain/Matt/Moe. Covers the calls-vs-texts
+split (3-month DNC inquiry window is calls-only; TCPA written consent governs texts and doesn't
+expire until revoked), the always-applies layer (opt-outs/10DLC/quiet hours/state mini-TCPAs), a
+decision cheat table, and "what protects us today." Opens with a not-legal-advice disclaimer.
+**Test Method:** `npx tsc --noEmit` clean on changed files; `npm run build` ✓ (`/compliance`
+prerendered static).
+**Result:** Build + types green. Visual confirm after deploy.
+
 ### [2026-06-18] Remove Monday.com sync (button + dead route)
 **Status:** CHANGED (UI + dead-code removal; live visual gated by login)
 **Files:** app/health/page.tsx (removed "Sync from Monday" button, simplified runSync to GHL-only,

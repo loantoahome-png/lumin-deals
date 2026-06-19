@@ -23,6 +23,7 @@ import {
   LogOut,
   RefreshCw,
   ChevronDown,
+  ShieldCheck,
 } from 'lucide-react'
 import GlobalSearch from './GlobalSearch'
 import NotificationBell from './NotificationBell'
@@ -61,6 +62,7 @@ const navGroups = [
       { href: '/tasks', label: 'Tasks', icon: ClipboardList },
       { href: '/tools', label: 'Tools', icon: Wrench },
       { href: '/notes', label: 'Notes', icon: StickyNote },
+      { href: '/compliance', label: 'Compliance', icon: ShieldCheck },
     ],
   },
   {
