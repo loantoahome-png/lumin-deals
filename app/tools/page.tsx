@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import {
-  ExternalLink, Plus, Pencil, Trash2, X, Check, GripVertical, Shield,
+  ExternalLink, Plus, Pencil, Trash2, X, Check, GripVertical, Shield, Users,
 } from 'lucide-react'
 
 // ── Default tools (industry-standard mortgage tooling, pre-populated for first-time users) ───
@@ -136,18 +136,60 @@ function displayHost(url: string): string {
 export default function ToolsPage() {
   const [tools, setTools] = useState<Tool[]>([])
   const [hydrated, setHydrated] = useState(false)
+  const [shared, setShared] = useState(false)       // true once the list lives in the DB (team-wide)
+  const [publishing, setPublishing] = useState(false)
   const [editing, setEditing] = useState<Tool | null>(null) // null = no modal, an object = edit, {} = create
   const [creating, setCreating] = useState(false)
 
-  // Load from localStorage after hydration to avoid SSR mismatch
+  // Prefer the shared team list (DB). If it isn't published yet, fall back to this
+  // browser's local list so nothing breaks — then "Publish to team" makes it shared.
   useEffect(() => {
-    setTools(loadTools())
-    setHydrated(true)
+    (async () => {
+      try {
+        const res = await fetch('/api/tools', { cache: 'no-store' })
+        const data = await res.json() as { ok: boolean; tools: Tool[] | null }
+        if (data.ok && Array.isArray(data.tools) && data.tools.length > 0) {
+          setTools(data.tools)
+          setShared(true)
+        } else {
+          setTools(loadTools())
+          setShared(false)
+        }
+      } catch {
+        setTools(loadTools())
+        setShared(false)
+      }
+      setHydrated(true)
+    })()
   }, [])
 
-  function persistAndUpdate(next: Tool[]) {
+  // Write-through: shared list → DB (everyone sees it); otherwise → localStorage (this browser).
+  async function persistAndUpdate(next: Tool[]) {
     setTools(next)
-    saveTools(next)
+    if (shared) {
+      try {
+        await fetch('/api/tools', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tools: next }),
+        })
+      } catch { /* optimistic UI already updated; next edit retries */ }
+    } else {
+      saveTools(next)
+    }
+  }
+
+  // One-time: make THIS list the team's shared master. After this, all edits are team-wide.
+  async function publishToTeam() {
+    if (!confirm('Publish this tool list as the shared team list? Everyone will see and edit this same list from now on.')) return
+    setPublishing(true)
+    try {
+      const res = await fetch('/api/tools', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tools }),
+      })
+      const data = await res.json() as { ok: boolean }
+      if (data.ok) setShared(true)
+    } catch { /* no-op */ } finally {
+      setPublishing(false)
+    }
   }
 
   function handleSave(t: Tool) {
@@ -195,10 +237,29 @@ export default function ToolsPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Tools</h1>
           <p className="text-slate-500 text-sm mt-0.5">
-            Quick-launch your most-used tools. Built-in tools open in-app; external links open in a new tab.
+            {shared
+              ? 'Shared across the team — edits here update everyone’s Tools page.'
+              : 'Quick-launch your most-used tools. Built-in tools open in-app; external links open in a new tab.'}
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {shared ? (
+            <span
+              className="flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-2.5 py-1.5"
+              title="This list is stored in the database and shared with Matt, Moe & Efrain"
+            >
+              <Users className="w-3.5 h-3.5" /> Shared with team
+            </span>
+          ) : (
+            <button
+              onClick={publishToTeam}
+              disabled={publishing || !tools.length}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+              title="Make this the shared team list"
+            >
+              <Users className="w-4 h-4" /> {publishing ? 'Publishing…' : 'Publish to team'}
+            </button>
+          )}
           <button
             onClick={resetToDefaults}
             className="text-xs text-slate-500 hover:text-slate-800"

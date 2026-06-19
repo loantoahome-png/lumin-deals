@@ -1,5 +1,21 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-19] Tools page: make the list team-shared (was per-browser localStorage)
+**Status:** CHANGED (UI + new API; live visual gated by login)
+**Files:** app/api/tools/route.ts (NEW — GET/POST shared list in sync_state key `tools_list`,
+same pattern as radar par-rates, no schema change), app/tools/page.tsx (load shared list from
+DB; write-through to DB when shared else localStorage; "Publish to team" button + "Shared with
+team" badge).
+**Issue:** Tools were stored in `localStorage` (`lumin_tools_v1`), so each person had a private
+copy — Efrain's edits never reached Matt/Moe.
+**Fix:** Tools now persist in `sync_state` (team-wide). Page prefers the shared list; until it's
+published it falls back to the local list (nothing breaks). **Efrain clicks "Publish to team"
+once** → his current list becomes the shared master; after that every add/edit/delete by anyone
+writes to the one shared list and everyone sees it.
+**Test Method:** `npx tsc --noEmit` clean on changed files; `npm run build` ✓ (`/api/tools` +
+`/tools` built); confirmed `sync_state` reachable, `tools_list` not yet seeded (correct).
+**Result:** Build + types green. Visual + publish flow confirm after deploy.
+
 ### [2026-06-18] NEW PAGE: /compliance — calling & texting cheat sheet
 **Status:** CHANGED (UI; live visual gated by login)
 **Files:** docs/compliance-quick-reference.md (NEW source doc), app/compliance/page.tsx (NEW,
