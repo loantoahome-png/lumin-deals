@@ -1,5 +1,27 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-19] Dashboard visual redesign — hero metric + depth + hierarchy
+**Status:** CHANGED (UI only; verified locally with mock data, real data gated by login)
+**Files:** components/Dashboard.tsx (KPI section → blue gradient hero card for Active Escrow
+Volume + 3 accent KPI cards with left accent bars / filled icon badges; `KPICard` reworked
+`color` prop → `accent` (emerald|violet|amber); "Escrows by Stage" bar chart → gradient bars +
+`LabelList` count labels + Re-Sub red / Signed green / rest blue, YAxis dropped; all insight
+cards bumped from `shadow-sm border-slate-100` → `shadow-md shadow-slate-200/60 border-slate-200/80`;
+`<UnreadInbox />` moved below Next Steps so the page leads with metrics, not the inbox; added
+Wallet/Layers/LabelList imports).
+**Issue:** Efrain felt the dashboard looked flat/unprofessional. Diagnosis: inverted hierarchy
+(inbox dominated the top), flat KPI cards with rainbow icon tints, no focal point.
+**Fix:** Depth + hierarchy, tight hue palette (one brand blue + semantic green/red). Direction
+approved via two iterated mockups before any code.
+**Test Method:** Local Next dev server with a temporary NODE_ENV-guarded auth bypass + dev-only
+`NEXT_PUBLIC_DEV_MOCK` mock escrows (BOTH removed after screenshots — middleware.ts and
+Dashboard.tsx back to clean). Captured before/after screenshots, all sections rendered, no console
+errors. `npx tsc --noEmit`: zero errors in Dashboard.tsx (pre-existing errors elsewhere unchanged;
+build ignores them via next.config `ignoreBuildErrors`/`ignoreDuringBuilds`).
+**Result:** VERIFIED — deployed to production 2026-06-19 via `vercel --prod` (dpl_2GSWyMNQNGtDZ6kc
+rpuSoh97TRkJ, readyState READY) → https://lumin-deals.vercel.app. NOTE: local working tree not yet
+committed to git — the live code is not in a commit (drift risk if a git-based deploy runs later).
+
 ### [2026-06-19] Tools page: make the list team-shared (was per-browser localStorage)
 **Status:** CHANGED (UI + new API; live visual gated by login)
 **Files:** app/api/tools/route.ts (NEW — GET/POST shared list in sync_state key `tools_list`,

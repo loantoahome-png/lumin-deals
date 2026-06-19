@@ -8,10 +8,10 @@ import { formatCurrency } from '@/lib/utils'
 import UnreadInbox from '@/components/UnreadInbox'
 import {
   DollarSign, TrendingUp, Users, CheckCircle, Clock, AlertCircle, Calendar, X,
-  AlertTriangle, ChevronRight, Flame, ListChecks,
+  AlertTriangle, ChevronRight, Flame, ListChecks, Wallet, Layers,
 } from 'lucide-react'
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList,
   PieChart, Pie, Legend, LineChart, Line, ReferenceLine,
 } from 'recharts'
 import Link from 'next/link'
@@ -297,12 +297,26 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <KPICard label="Active Escrow Volume"  value={formatCurrency(totalPipelineLoanVol)} sub={`${escrowDeals.length} escrow${escrowDeals.length !== 1 ? 's' : ''}`} icon={<TrendingUp className="w-5 h-5" />} color="blue" />
-        <KPICard label="Funding Soon"          value={formatCurrency(fundingSoonVolume)}    sub={`${fundingSoon.length} CTC / Docs Out / Signed`} icon={<DollarSign className="w-5 h-5" />} color="green" />
-        <KPICard label="Total Escrows"         value={escrowDeals.length.toString()}        sub="loans in process"                                  icon={<Users className="w-5 h-5" />} color="purple" />
-        <KPICard label="Avg Loan Size"         value={formatCurrency(avgDealSize)}          sub="active escrows"                                    icon={<CheckCircle className="w-5 h-5" />} color="amber" />
+      {/* KPIs — a hero metric anchors the page, supported by three accent cards */}
+      <div className="space-y-4">
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-700 via-blue-600 to-blue-500 p-6 text-white shadow-lg shadow-blue-600/30">
+          <div className="relative z-10">
+            <div className="flex items-center gap-2 text-blue-100 text-sm font-medium">
+              <TrendingUp className="w-4 h-4" /> Active Escrow Volume
+            </div>
+            <div className="text-4xl font-extrabold tracking-tight mt-1.5">{formatCurrency(totalPipelineLoanVol)}</div>
+            <div className="text-blue-100/90 text-sm mt-1.5 font-medium">
+              {escrowDeals.length} active escrow{escrowDeals.length !== 1 ? 's' : ''} in process
+            </div>
+          </div>
+          <TrendingUp className="absolute -right-5 -bottom-6 w-40 h-40 text-white/10" strokeWidth={1.5} aria-hidden />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <KPICard label="Funding Soon"  value={formatCurrency(fundingSoonVolume)} sub={`${fundingSoon.length} CTC / Docs Out / Signed`} icon={<DollarSign className="w-5 h-5" />} accent="emerald" />
+          <KPICard label="Total Escrows" value={escrowDeals.length.toString()}     sub="loans in process"                              icon={<Layers className="w-5 h-5" />}     accent="violet" />
+          <KPICard label="Avg Loan Size" value={formatCurrency(avgDealSize)}       sub="active escrows"                                icon={<Wallet className="w-5 h-5" />}     accent="amber" />
+        </div>
       </div>
 
       {/* Today widget — escrow follow-ups due today + overdue */}
@@ -370,26 +384,40 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Unread Messages — live client inbox across both GHL accounts */}
-      <UnreadInbox />
-
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+        <div className="lg:col-span-2 bg-white rounded-xl shadow-md shadow-slate-200/60 border border-slate-200/80 p-5">
           <h2 className="font-semibold text-slate-800 mb-4">Escrows by Stage</h2>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={stageData} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
-              <XAxis dataKey="stage" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }} />
-              <Bar dataKey="count" name="deals" radius={[4, 4, 0, 0]}>
-                {stageData.map(entry => <Cell key={entry.stage} fill={STAGE_COLORS[entry.stage] || '#94a3b8'} />)}
+          <ResponsiveContainer width="100%" height={230}>
+            <BarChart data={stageData} margin={{ top: 22, right: 0, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id="barBlue" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#93c5fd" /><stop offset="100%" stopColor="#2563eb" />
+                </linearGradient>
+                <linearGradient id="barRed" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#fca5a5" /><stop offset="100%" stopColor="#ef4444" />
+                </linearGradient>
+                <linearGradient id="barGreen" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#6ee7b7" /><stop offset="100%" stopColor="#10b981" />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="stage" tick={{ fontSize: 11, fill: '#475569', fontWeight: 600 }} axisLine={false} tickLine={false} interval={0} />
+              <Tooltip cursor={{ fill: 'rgba(148,163,184,0.12)' }} contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }} />
+              <Bar dataKey="count" name="deals" radius={[6, 6, 0, 0]} maxBarSize={42}>
+                <LabelList dataKey="count" position="top" style={{ fontSize: 12, fontWeight: 700, fill: '#0f172a' }} />
+                {stageData.map(entry => (
+                  <Cell key={entry.stage} fill={
+                    entry.stage === 'Re-Sub' ? 'url(#barRed)'
+                      : entry.stage === 'Signed' ? 'url(#barGreen)'
+                      : 'url(#barBlue)'
+                  } />
+                ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+        <div className="bg-white rounded-xl shadow-md shadow-slate-200/60 border border-slate-200/80 p-5">
           <h2 className="font-semibold text-slate-800 mb-4">Loan Types</h2>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
@@ -405,7 +433,7 @@ export default function Dashboard() {
 
       {/* LO Performance + At Risk + Recent */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+        <div className="bg-white rounded-xl shadow-md shadow-slate-200/60 border border-slate-200/80 p-5">
           <h2 className="font-semibold text-slate-800 mb-4">LO Performance</h2>
           <div className="space-y-4">
             {loData.map(lo => (
@@ -426,7 +454,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+        <div className="bg-white rounded-xl shadow-md shadow-slate-200/60 border border-slate-200/80 p-5">
           <div className="flex items-center gap-2 mb-4">
             <AlertCircle className="w-4 h-4 text-amber-500" />
             <h2 className="font-semibold text-slate-800">Needs Attention</h2>
@@ -448,7 +476,7 @@ export default function Dashboard() {
           )}
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+        <div className="bg-white rounded-xl shadow-md shadow-slate-200/60 border border-slate-200/80 p-5">
           <div className="flex items-center gap-2 mb-4">
             <Clock className="w-4 h-4 text-blue-500" />
             <h2 className="font-semibold text-slate-800">Recent Deals</h2>
@@ -514,21 +542,31 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Unread Messages — moved below the metrics so the dashboard leads with
+          the numbers, not the inbox. Live client inbox across both GHL accounts. */}
+      <UnreadInbox />
+
     </div>
   )
 }
 
-function KPICard({ label, value, sub, icon, color }: {
-  label: string; value: string; sub: string; icon: React.ReactNode; color: 'blue' | 'green' | 'purple' | 'amber'
+function KPICard({ label, value, sub, icon, accent }: {
+  label: string; value: string; sub: string; icon: React.ReactNode; accent: 'emerald' | 'violet' | 'amber'
 }) {
-  const colors = { blue: 'bg-blue-50 text-blue-600', green: 'bg-emerald-50 text-emerald-600', purple: 'bg-purple-50 text-purple-600', amber: 'bg-amber-50 text-amber-600' }
+  const map = {
+    emerald: { bar: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-600' },
+    violet:  { bar: 'bg-violet-500',  badge: 'bg-violet-100 text-violet-700' },
+    amber:   { bar: 'bg-amber-500',   badge: 'bg-amber-100 text-amber-600' },
+  }
+  const c = map[accent]
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-sm text-slate-500 font-medium">{label}</p>
-        <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${colors[color]}`}>{icon}</div>
+    <div className="relative overflow-hidden bg-white rounded-xl border border-slate-200/80 p-5 shadow-md shadow-slate-200/60">
+      <span className={`absolute left-0 top-0 bottom-0 w-1.5 ${c.bar}`} aria-hidden />
+      <div className="flex items-center justify-between mb-4">
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${c.badge}`}>{icon}</div>
       </div>
-      <p className="text-2xl font-bold text-slate-900">{value}</p>
+      <p className="text-2xl font-bold text-slate-900 tracking-tight">{value}</p>
+      <p className="text-sm font-medium text-slate-600 mt-0.5">{label}</p>
       <p className="text-xs text-slate-400 mt-1">{sub}</p>
     </div>
   )
