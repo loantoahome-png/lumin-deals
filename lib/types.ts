@@ -66,6 +66,7 @@ export type Deal = {
   down_payment: number | null
   purchase_price: number | null          // Arive "Purchase Price"
   housing_payment: number | null         // Arive "Total Housing Payment" (monthly PITI)
+  pi_payment: number | null              // Arive "First Mortgage Payment" (monthly principal & interest)
   county: string | null                  // Arive "Subject County"
   adverse: string | null                 // Arive "Adverse" flag
   is_military: string | null

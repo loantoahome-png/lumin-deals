@@ -1,5 +1,40 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-22] Map Arive Stage "Suspended" → "Non-Responsive"
+**Status:** CHANGED (1-line normStage fuzzy match; type-checked; NOT deployed)
+**Files:** lib/ariveCsv.ts (`normStage`)
+**Issue:** 4 rows in the export have Stage Name = "Suspended", which matched no dashboard stage →
+status imported blank. Efrain chose to treat Suspended as a dead/paused file.
+**Changes:** Added `lower.includes('suspend') → 'Non-Responsive'` (lands in the Not Ready group).
+**Test Method:** `npx tsc --noEmit` (7/7 pre-existing). Confirm via import preview: the 4 Suspended
+rows now resolve status = Non-Responsive, pipeline_group = Not Ready.
+**Result:** Type-clean. NOT deployed — awaiting go-ahead per deploy policy.
+
+### [2026-06-22] Add P&I Payment field (Arive "First Mortgage Payment")
+**Status:** CHANGED (new field + mapping + UI + migration; type-checked; NOT deployed; SQL pending)
+**Files:** lib/types.ts (`pi_payment`), lib/ariveCsv.ts (MAPPINGS), app/deals/[id]/page.tsx,
+components/DealForm.tsx (field + default), supabase-add-pi-payment.sql (NEW migration).
+**Issue:** Efrain's Arive export now carries "First Mortgage Payment" (monthly P&I, 81% populated),
+distinct from "Total Housing Payment" (full PITI → existing `housing_payment`). He wants the P&I
+visible. No field existed, so it was being dropped on import.
+**Changes:** Added `pi_payment NUMERIC`; mapped `First Mortgage Payment` → `pi_payment`; surfaced a
+"P&I Payment" CurrencyInput beside "Total Housing Payment" on deal detail + new-deal form.
+**Test Method:** `npx tsc --noEmit` (total errors unchanged at 7, all pre-existing; 0 mention
+pi_payment). Run `supabase-add-pi-payment.sql`, then an import preview to confirm pi_payment fills.
+**Result:** Type-clean. NOT deployed — SQL migration must run first; awaiting go-ahead per deploy policy.
+
+### [2026-06-22] Arive importer: consume "Primary Loan Processor Name"
+**Status:** CHANGED (1-line mapping add; type-checked; NOT deployed)
+**Files:** lib/ariveCsv.ts (MAPPINGS — `processor` entry)
+**Issue:** The daily Arive export carries the processor as **"Primary Loan Processor Name"** (27%
+of rows populated), but the importer's `processor` mapping only matched **"Processor Type"** —
+exact, case-sensitive — so that data was silently dropped on every import.
+**Changes:** Added `'Primary Loan Processor Name'` as the first accepted header for the `processor`
+field (kept `'Processor Type'` as a fallback for older exports).
+**Test Method:** `npx tsc --noEmit` (clean on ariveCsv.ts). Functional check: re-run an import
+preview and confirm `processor` now appears in the change plan for rows that have a processor name.
+**Result:** Type-clean. NOT deployed — awaiting go-ahead per deploy policy.
+
 ### [2026-06-22] Rename display labels: Investor → Lender, Investor File # → Lender Loan #
 **Status:** CHANGED (label text only; type-checked; NOT deployed)
 **Files:** components/EscrowTracker.tsx, app/deals/[id]/page.tsx, components/DealForm.tsx,

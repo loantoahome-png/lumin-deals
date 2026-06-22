@@ -160,6 +160,8 @@ function normStage(v: string | null): string | null {
   if (lower.includes('funded'))           return 'Loan Funded'
   if (lower.includes('disclosed'))        return 'Disclosed'
   if (lower.includes('loan setup'))       return 'Loan Setup'
+  // Arive "Suspended" = file paused/withdrawn → dead bucket (Efrain's call 2026-06-22)
+  if (lower.includes('suspend'))          return 'Non-Responsive'
   return null
 }
 
@@ -256,6 +258,7 @@ const MAPPINGS: Mapping[] = [
   { ariveCols: ['LTV'],                      field: 'ltv',               normalize: r => num(r) },
   { ariveCols: ['Purchase Price'],           field: 'purchase_price',    normalize: r => num(r) },
   { ariveCols: ['Total Housing Payment'],    field: 'housing_payment',   normalize: r => num(r) },
+  { ariveCols: ['First Mortgage Payment'],   field: 'pi_payment',        normalize: r => num(r) },
   { ariveCols: ['Subject County'],           field: 'county',            normalize: r => trimStr(r) },
   { ariveCols: ['Adverse'],                  field: 'adverse',           normalize: r => trimStr(r) },
   { ariveCols: ['Appraised Value','Property Value'], field: 'estimated_value', normalize: r => num(r) },
@@ -271,7 +274,7 @@ const MAPPINGS: Mapping[] = [
   { ariveCols: ['Subject ZIP'],              field: 'zip',               normalize: r => trimStr(r) },
   { ariveCols: ['Property Type (Housing Type)','Property Type'], field: 'property_type', normalize: r => normPropertyType(r) },
   { ariveCols: ['Lender Loan #'],            field: 'investor_file_no',  normalize: r => trimStr(r) },
-  { ariveCols: ['Processor Type'],           field: 'processor',         normalize: r => trimStr(r) },
+  { ariveCols: ['Primary Loan Processor Name', 'Processor Type'], field: 'processor', normalize: r => trimStr(r) },
   { ariveCols: ['Interest Rate'],            field: 'rate',              normalize: r => num(r) },
   { ariveCols: ['Lock Expiration'],          field: 'lock_expiration',   normalize: r => dateOnly(r) },
   { ariveCols: ['Estimated Closing Date'],   field: 'close_of_escrow_date', normalize: r => dateOnly(r) },

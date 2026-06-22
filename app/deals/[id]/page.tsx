@@ -722,6 +722,9 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                 <Field label="Total Housing Payment">
                   <CurrencyInput value={form.housing_payment as number | null} onChange={v => set('housing_payment', v)} />
                 </Field>
+                <Field label="P&I Payment">
+                  <CurrencyInput value={form.pi_payment as number | null} onChange={v => set('pi_payment', v)} />
+                </Field>
                 <Field label="County">
                   <input value={(form.county as string | null) || ''} onChange={e => set('county', e.target.value)} className={inp} />
                 </Field>

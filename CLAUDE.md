@@ -5,7 +5,14 @@
 # Project Overview — Lumin Deals Dashboard
 
 ## What It Is
-An internal mortgage pipeline management dashboard for **Lumin Lending** (two LOs: Moe Sefati and Matt Park). It syncs from GoHighLevel (GHL) as the source of truth, stores data in Supabase, and adds deal tracking, team tooling, and automated alerts on top.
+An internal mortgage pipeline management dashboard for **Lumin Lending** (two LOs: Moe Sefati and Matt Park). It syncs from GoHighLevel (GHL), stores data in Supabase, and adds deal tracking, team tooling, and automated alerts on top. GHL drives stage/contact/messaging; **Arive (the LOS) is the source of truth for the loan AMOUNT** (and funded $).
+
+## Recent Changes (2026-06-22)
+- **`loan_amount` is Arive-authoritative.** GHL no longer writes/overwrites `loan_amount` on any Arive-backed (`arive_file_no`) or funded deal — only fills pre-Arive leads from the opp value. Dropped the unreliable GHL `customField('Loan Amount')` source (it once put $610k on a $150k loan).
+- **Dashboard redesign** — hero metric, depth, metrics-first hierarchy.
+- **Active Escrows card** (`EscrowTracker.tsx`) — grey box = Lender·Amount·LO; added "Subbed on teams" (`subbed`) + "Processor Handoff" (`processor_handoff`, new col) checkboxes; follow-up moved into Next Step; removed In-Stage + Waiting-On.
+- **Labels renamed** Investor→Lender, Investor File #→Lender Loan # (display only; columns unchanged).
+- See `~/.claude/handoffs/lumin-deals.md` — next session: which Arive export fields to add for a daily import.
 
 ## Tech Stack
 - **Framework**: Next.js 16 (App Router, TypeScript)

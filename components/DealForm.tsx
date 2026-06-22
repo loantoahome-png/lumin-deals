@@ -51,6 +51,7 @@ const emptyDeal: DealFormData = {
   cash_out: null,
   purchase_price: null,
   housing_payment: null,
+  pi_payment: null,
   county: null,
   adverse: null,
   down_payment: null,
@@ -390,6 +391,9 @@ export default function DealForm({ deal }: { deal?: Deal }) {
                 </Field>
                 <Field label="Total Housing Payment">
                   <CurrencyInput value={form.housing_payment} onChange={v => set('housing_payment', v)} />
+                </Field>
+                <Field label="P&I Payment">
+                  <CurrencyInput value={form.pi_payment} onChange={v => set('pi_payment', v)} />
                 </Field>
                 <Field label="County">
                   <input value={form.county || ''} onChange={e => set('county', e.target.value)} className={inp} />
