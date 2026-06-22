@@ -1,5 +1,27 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-22] Active Escrows card redesign (EscrowTracker)
+**Status:** CHANGED (UI + 1 new column; type-checked + visually verified; NOT deployed; SQL migration pending)
+**Files:** components/EscrowTracker.tsx, lib/types.ts (`processor_handoff`), components/DealForm.tsx
+(default), supabase-add-processor-handoff.sql (NEW migration).
+**Changes (per Efrain's spec):**
+- Grey stats box: added **Investor** (left of Amount) → Investor · Amount · LO; removed **In Stage**.
+- Added **☑ Subbed on teams** below the grey box → persists to the existing (previously unused)
+  `subbed` boolean (his call: reuse it).
+- Removed ALL time-in-stage UI from the card (grey-box number + the "Stuck Nd" / "Above SLA X/Yd"
+  alert badges; his call). Toolbar SLA/blocked filters left intact.
+- Moved the **Follow-up** picker INSIDE the Next Step box; removed the standalone Follow-up section.
+- Removed the **Waiting on** section.
+- Added **☑ Processor Handoff** under the Processor dropdown → new `processor_handoff` boolean.
+- Dropped now-unused imports (Snowflake, Hourglass, AlertOctagon, WAITING_ON_OPTIONS) + vars.
+**Test Method:** `npx tsc --noEmit` → 0 errors in changed files; total unchanged at 7 (pre-existing,
+build-ignored). Visually verified with a temp local auth-bypass + dev mock (both removed after):
+DOM extraction confirmed field order Investor·Amount·LO, Subbed/Handoff checkboxes bound correctly,
+Follow-up renders inside Next Step, In Stage + Waiting On gone. Screenshot captured.
+**Result:** Type-clean + visually verified. **BLOCKER for Processor Handoff persistence:** run
+`supabase-add-processor-handoff.sql` in the Supabase SQL Editor (adds the column). Until then the
+checkbox toggles but the write silently fails. NOT deployed — awaiting go-ahead per deploy policy.
+
 ### [2026-06-22] loan_amount is now ARIVE-authoritative (reverted the GHL-value approach)
 **Status:** CHANGED (sync + webhook; type-checked; NOT yet deployed)
 **Files:** app/api/sync/ghl/route.ts, app/api/webhooks/ghl/route.ts

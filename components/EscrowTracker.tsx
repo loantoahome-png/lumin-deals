@@ -6,14 +6,14 @@ import {
   DndContext, useSensors, useSensor, PointerSensor,
   useDraggable, useDroppable, type DragEndEvent,
 } from '@dnd-kit/core'
-import { Deal, STATUS_COLORS, WAITING_ON_OPTIONS, STAGE_SLA_DAYS, Communication, PROCESSORS } from '@/lib/types'
+import { Deal, STATUS_COLORS, STAGE_SLA_DAYS, Communication, PROCESSORS } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { ariveUrl } from '@/lib/ariveLinks'
 import {
   AlertTriangle, Clock, ChevronRight, CalendarClock,
-  Flame, ExternalLink, CheckCircle2, Snowflake, Lock, Search,
-  Hourglass, Phone, AlertOctagon, GripVertical, UserCog,
+  Flame, ExternalLink, CheckCircle2, Lock, Search,
+  Phone, GripVertical, UserCog,
 } from 'lucide-react'
 
 
@@ -475,10 +475,6 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
 
   const overdue = isOverdue(deal.next_action_due)
   const today = !overdue && isToday(deal.next_action_due)
-  const daysInStage = daysSince(deal.stage_changed_at) ?? daysSince(deal.created_at)
-  const stuck = daysInStage != null && daysInStage > 14
-  const slaDays = STAGE_SLA_DAYS[deal.status]
-  const aboveSla = slaDays != null && daysInStage != null && daysInStage > slaDays
   const lockDaysLeft = daysUntil(deal.lock_expiration)
   const lockExpiringSoon = lockDaysLeft != null && lockDaysLeft >= 0 && lockDaysLeft <= 7
   const statusClass = STATUS_COLORS[deal.status] || 'bg-gray-100 text-gray-600'
@@ -551,7 +547,7 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
       </div>
 
       {/* Alerts row */}
-      {(overdue || today || stuck || aboveSla || lockExpiringSoon) && (
+      {(overdue || today || lockExpiringSoon) && (
         <div className="px-4 py-1.5 flex items-center gap-2 flex-wrap text-[10px] font-semibold uppercase tracking-wider bg-slate-50/50 border-b border-slate-100">
           {overdue && (
             <span className="flex items-center gap-0.5 text-red-700">
@@ -561,16 +557,6 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
           {today && (
             <span className="flex items-center gap-0.5 text-amber-700">
               <Clock className="w-3 h-3" /> Today
-            </span>
-          )}
-          {aboveSla && !stuck && (
-            <span className="flex items-center gap-0.5 text-blue-700" title={`Target: ${slaDays}d`}>
-              <Hourglass className="w-3 h-3" /> Above SLA ({daysInStage}/{slaDays}d)
-            </span>
-          )}
-          {stuck && (
-            <span className="flex items-center gap-0.5 text-purple-700">
-              <Snowflake className="w-3 h-3" /> Stuck {daysInStage}d
             </span>
           )}
           {lockExpiringSoon && (
@@ -583,43 +569,64 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
 
       {/* Body */}
       <div className="p-4 space-y-3 flex-1 flex flex-col">
-        {/* Quick stats — Amount is the hero number */}
+        {/* Quick stats — Investor · Amount (hero) · LO */}
         <div className="grid grid-cols-3 gap-2 rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5">
+          <div className="self-center min-w-0">
+            <p className="text-slate-400 uppercase tracking-wider font-semibold text-[9px]">Investor</p>
+            <p className="text-xs font-semibold text-slate-700 truncate mt-0.5" title={deal.investor || undefined}>{deal.investor || '—'}</p>
+          </div>
           <div>
             <p className="text-slate-400 uppercase tracking-wider font-semibold text-[9px]">Amount</p>
             <p className="text-lg font-extrabold text-slate-900 tabular-nums leading-tight">
               {deal.loan_amount ? formatCurrency(deal.loan_amount) : '—'}
             </p>
           </div>
-          <div className="self-center">
+          <div className="self-center min-w-0">
             <p className="text-slate-400 uppercase tracking-wider font-semibold text-[9px]">LO</p>
             <p className="text-xs font-semibold text-slate-700 truncate mt-0.5">{deal.loan_officer || '—'}</p>
           </div>
-          <div className="self-center">
-            <p className="text-slate-400 uppercase tracking-wider font-semibold text-[9px]">In Stage</p>
-            <p className={`text-xs font-semibold mt-0.5 ${aboveSla || stuck ? 'text-red-600' : 'text-slate-700'}`}>
-              {daysInStage == null ? '—' : `${daysInStage}d`}
-            </p>
-          </div>
         </div>
 
-        {/* Processor — at-a-glance + editable */}
-        <div className="flex items-center gap-2">
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1 shrink-0">
-            <UserCog className="w-3 h-3" /> Processor
+        {/* Subbed on teams */}
+        <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={!!deal.subbed}
+            onChange={e => saveField('subbed', e.target.checked)}
+            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+          />
+          Subbed on teams
+        </label>
+
+        {/* Processor — dropdown + handoff checkbox */}
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1 shrink-0">
+              <UserCog className="w-3 h-3" /> Processor
+            </label>
+            <select
+              value={deal.processor_status || ''}
+              onChange={e => saveField('processor_status', e.target.value || null)}
+              className={`flex-1 px-2 py-1 border rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                deal.processor_status
+                  ? 'bg-cyan-50 border-cyan-200 text-cyan-800 font-semibold'
+                  : 'bg-white border-slate-200 text-slate-500'
+              }`}
+            >
+              <option value="">— Unassigned —</option>
+              {PROCESSORS.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+          {/* Processor Handoff */}
+          <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={!!deal.processor_handoff}
+              onChange={e => saveField('processor_handoff', e.target.checked)}
+              className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+            />
+            Processor Handoff
           </label>
-          <select
-            value={deal.processor_status || ''}
-            onChange={e => saveField('processor_status', e.target.value || null)}
-            className={`flex-1 px-2 py-1 border rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              deal.processor_status
-                ? 'bg-cyan-50 border-cyan-200 text-cyan-800 font-semibold'
-                : 'bg-white border-slate-200 text-slate-500'
-            }`}
-          >
-            <option value="">— Unassigned —</option>
-            {PROCESSORS.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
         </div>
 
         {/* Next action editor — the focal point of the card (Lumin orange) */}
@@ -642,34 +649,14 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
             placeholder="Describe the next action…"
             className="w-full flex-1 px-2.5 py-1.5 border border-orange-200 rounded-md text-sm font-medium text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#F37021] focus:border-orange-400 resize-none placeholder:text-slate-400 placeholder:font-normal"
           />
-        </div>
-
-        {/* Follow-up — full-width so the date + time inputs have room to breathe */}
-        <FollowUpPicker
-          value={deal.next_action_due}
-          onChange={v => saveField('next_action_due', v)}
-          overdue={overdue}
-          today={today}
-        />
-
-        {/* Waiting On — what's blocking */}
-        <div className="border-t border-slate-100 pt-2.5">
-          <div className="flex items-center gap-2">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1 shrink-0">
-              <AlertOctagon className="w-3 h-3" /> Waiting on
-            </label>
-            <select
-              value={deal.waiting_on || ''}
-              onChange={e => saveField('waiting_on', e.target.value || null)}
-              className={`flex-1 px-2 py-1 border rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                deal.waiting_on
-                  ? 'bg-amber-50 border-amber-200 text-amber-800 font-semibold'
-                  : 'bg-white border-slate-200 text-slate-500'
-              }`}
-            >
-              <option value="">— Not blocked —</option>
-              {WAITING_ON_OPTIONS.map(w => <option key={w} value={w}>{w}</option>)}
-            </select>
+          {/* Follow-up now lives inside the Next Step section */}
+          <div className="mt-2 pt-2 border-t border-orange-200">
+            <FollowUpPicker
+              value={deal.next_action_due}
+              onChange={v => saveField('next_action_due', v)}
+              overdue={overdue}
+              today={today}
+            />
           </div>
         </div>
 

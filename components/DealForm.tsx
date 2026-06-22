@@ -81,6 +81,7 @@ const emptyDeal: DealFormData = {
   lo_notes: null,
   client_notes: null,
   subbed: false,
+  processor_handoff: false,
   signing_date: null,
   paid_date: null,
   funded_date: null,

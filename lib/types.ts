@@ -80,7 +80,8 @@ export type Deal = {
   rate_watch_alerted_at: string | null
   lo_notes: string | null
   client_notes: string | null
-  subbed: boolean
+  subbed: boolean                              // "Subbed on teams" checkbox on the escrow card
+  processor_handoff: boolean | null            // "Processor Handoff" checkbox on the escrow card
   // ── Purchase contingency tracking (only shown in UI when loan_purpose === 'Purchase') ──
   escrow_start_date: string | null            // contract acceptance / EMD opened
   inspection_contingency_date: string | null  // last day to back out for property condition (~17d typical in CA)
