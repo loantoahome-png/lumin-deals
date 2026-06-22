@@ -386,15 +386,31 @@ export async function POST(req: NextRequest) {
       const oppName = pick(body, 'name', 'opportunityName', 'title')
 
       const stage = resolveGHLStage(stageName, pipelineName)
+      // The opportunity's "Value" (monetaryValue) is the authoritative loan amount
+      // for ACTIVE deals. Read it here so a value edit in GHL reflects on the
+      // dashboard immediately, instead of waiting for the ~15-min maintenance sync
+      // (which is the only other place loan_amount gets reconciled from the opp).
+      const oppValue = parseAmount(pick(body, 'monetaryValue', 'monetary_value', 'value'))
 
-      if (oppContactId && stage) {
+      if (oppContactId && (stage || (oppValue != null && oppValue > 0))) {
         const { data: existing } = await supabase
-          .from('deals').select('id, name').eq('ghl_contact_id', oppContactId).single()
+          .from('deals').select('id, name, pipeline_group').eq('ghl_contact_id', oppContactId).single()
 
         if (existing) {
-          await supabase.from('deals').update(stage).eq('id', existing.id)
-          console.log('[GHL Webhook] Stage updated:', existing.id, '→', stage)
-          return NextResponse.json({ success: true, action: 'stage_updated', dealId: existing.id, newStage: stage })
+          const update: Record<string, unknown> = {}
+          if (stage) { update.status = stage.status; update.pipeline_group = stage.pipeline_group }
+          // Reconcile loan_amount from the opp value — but Funded deals keep their
+          // Arive amount (closed-loan authority), so never overwrite a Funded deal.
+          // Mirrors the sync's rule (route.ts: reconcile only when group !== Funded).
+          const groupNow = stage ? stage.pipeline_group : existing.pipeline_group
+          if (oppValue != null && oppValue > 0 && groupNow !== 'Funded') {
+            update.loan_amount = oppValue
+          }
+          if (Object.keys(update).length > 0) {
+            await supabase.from('deals').update(update).eq('id', existing.id)
+          }
+          console.log('[GHL Webhook] Opportunity update:', existing.id, JSON.stringify(update))
+          return NextResponse.json({ success: true, action: 'opportunity_updated', dealId: existing.id, update })
         }
       }
 

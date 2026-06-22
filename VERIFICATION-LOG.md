@@ -1,5 +1,23 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-22] Webhook reconciles loan_amount from opp value (kill dashboard lag)
+**Status:** CHANGED (server webhook; type-checked; NOT deployed; live confirm pending a real GHL webhook)
+**Files:** app/api/webhooks/ghl/route.ts — the opportunity-event branch now reads the
+opp `monetaryValue` and writes it to `loan_amount` in the same update as the stage, so a
+Value edit in GHL reflects on the dashboard immediately instead of waiting for the
+~15-min maintenance sync (previously the only place loan_amount reconciled from the opp).
+Guarded to non-funded only (`group !== 'Funded'`), mirroring the sync's rule so Funded
+deals keep their Arive amount. The branch now also fires on a value-only edit (no stage
+change), using the existing row's pipeline_group for the Funded guard in that case.
+**Issue:** Active deals showed stale/blank loan_amount until the cron maintenance
+reconcile (Laura $610k→$150k, Mayra blank→$340k). See [[loan-amount-provenance]].
+**Test Method:** `npx tsc --noEmit` → 0 errors in the file; full error count unchanged
+at 7 (all pre-existing: reports/underwriting/DealForm/next.config, build-ignored). Could
+NOT fire a live webhook (GHL_WEBHOOK_SECRET gate + it would mutate prod data), so
+functional confirmation waits for a real opp webhook or Efrain watching a value edit
+reflect on the dashboard within seconds.
+**Result:** Type-clean. NOT deployed — awaiting go-ahead per deploy policy.
+
 ### [2026-06-19] Dashboard visual redesign — hero metric + depth + hierarchy
 **Status:** CHANGED (UI only; verified locally with mock data, real data gated by login)
 **Files:** components/Dashboard.tsx (KPI section → blue gradient hero card for Active Escrow
