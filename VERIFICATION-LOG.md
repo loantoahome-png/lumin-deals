@@ -17,7 +17,7 @@ and the route now sets `patch.pipeline_group` whenever `patch.status` is written
 "Disclosed → Non-Responsive (overwrite)" → pipeline_group "Loans in Process → Not Ready".
 **Operational:** requires importing the 23:21+ export (earlier exports still said "Disclosed") in
 **Overwrite** mode (fill-blanks won't replace an existing status).
-**Result:** VERIFIED. Type-clean (7/7 pre-existing). NOT deployed — awaiting go-ahead per deploy policy.
+**Result:** VERIFIED. Type-clean (7/7 pre-existing). DEPLOYED 2026-06-22 (commit 920a0a2 → lumin-deals.vercel.app).
 
 ### [2026-06-22] Fix escrow-card stats box: Amount overlapping LO
 **Status:** VERIFIED (visual proof) — NOT yet deployed
