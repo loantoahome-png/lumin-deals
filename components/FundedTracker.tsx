@@ -181,7 +181,7 @@ export default function FundedTracker({ deals, onUpdate }: Props) {
     const rows = deals.filter(d => selected.has(d.id))
     if (rows.length === 0) return
     const esc = (v: unknown) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
-    const header = ['Borrower', 'LO', 'City', 'State', 'Source', 'Stage', 'Type', 'Rate', 'Investor', 'Property', 'Loan amount', 'Comp', 'Funded date', 'Paid date', 'Arive file #']
+    const header = ['Borrower', 'LO', 'City', 'State', 'Source', 'Stage', 'Type', 'Rate', 'Lender', 'Property', 'Loan amount', 'Comp', 'Funded date', 'Paid date', 'Arive file #']
     const lines = [header.join(',')]
     for (const d of rows) {
       lines.push([

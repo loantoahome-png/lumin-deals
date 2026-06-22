@@ -1,5 +1,20 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-22] Rename display labels: Investor → Lender, Investor File # → Lender Loan #
+**Status:** CHANGED (label text only; type-checked; NOT deployed)
+**Files:** components/EscrowTracker.tsx, app/deals/[id]/page.tsx, components/DealForm.tsx,
+app/pipeline/page.tsx, app/health/page.tsx, app/deals/page.tsx, components/FundedTracker.tsx,
+app/api/cron/lock-alerts/route.ts (8 files).
+**Issue:** Dashboard said "Investor"/"Investor File #" while Arive calls them "Lender"/"Lender
+Loan #"; Efrain wanted the wording to match so everything lines up.
+**Changes:** Renamed every user-facing label/header/CSV-export-header/email label. DB columns and
+field keys (`investor`, `investor_file_no`) and all mapping/logic UNCHANGED — display text only.
+Covered: escrow card, deal detail form, new-deal form, pipeline table + column picker + field
+config + CSV export, deals table + CSV export, health column, funded CSV export, lock-alert email.
+Updated two internal comments too. Verified no user-facing "Investor" label remains (grep).
+**Test Method:** `npx tsc --noEmit` → total unchanged at 7 (all pre-existing). No field keys touched.
+**Result:** Type-clean. NOT deployed — awaiting go-ahead per deploy policy.
+
 ### [2026-06-22] Active Escrows card redesign (EscrowTracker)
 **Status:** CHANGED (UI + 1 new column; type-checked + visually verified; NOT deployed; SQL migration pending)
 **Files:** components/EscrowTracker.tsx, lib/types.ts (`processor_handoff`), components/DealForm.tsx

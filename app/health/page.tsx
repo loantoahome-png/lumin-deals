@@ -27,7 +27,7 @@ const TRACKED_FIELDS: Array<{ key: keyof Deal; label: string; critical?: boolean
   { key: 'credit_score',     label: 'Credit Score',     escrowOnly: true },
   { key: 'estimated_value',  label: 'Property Value',   escrowOnly: true },
   { key: 'rate',             label: 'Rate',             escrowOnly: true },
-  { key: 'investor',         label: 'Investor',         escrowOnly: true },
+  { key: 'investor',         label: 'Lender',           escrowOnly: true },
   { key: 'occupancy',        label: 'Occupancy' },
   { key: 'loan_purpose',     label: 'Loan Purpose' },
   { key: 'lock_expiration',  label: 'Lock Exp',         escrowOnly: true },

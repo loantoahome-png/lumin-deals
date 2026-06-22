@@ -488,7 +488,7 @@ const ALL_COLS = [
   { key: 'loan_amount',      label: 'Amount',         defaultOn: true },
   { key: 'ltv',              label: 'LTV',            defaultOn: true },
   { key: 'credit_score',     label: 'FICO',           defaultOn: true },
-  { key: 'investor',         label: 'Investor',       defaultOn: true },
+  { key: 'investor',         label: 'Lender',         defaultOn: true },
   { key: 'lock_exp',         label: 'Lock Exp',       defaultOn: true },
   { key: 'age',              label: 'Age',            defaultOn: true },
   { key: 'source',           label: 'Source',         defaultOn: true },
@@ -648,7 +648,7 @@ function ListView({ deals, onStatusChange, onUpdate, selectedIds, onToggleSelect
               {col('loan_amount')      && <Th label="Amount"        k="loan_amount" />}
               {col('ltv')              && <Th label="LTV"           k="ltv" />}
               {col('credit_score')     && <Th label="FICO"          k="credit_score" />}
-              {col('investor')         && <Th label="Investor"      k="investor" />}
+              {col('investor')         && <Th label="Lender"        k="investor" />}
               {col('lock_exp')         && <ThStatic label="Lock Exp" />}
               {col('age')              && <Th label="Age"           k="age" />}
               {col('source')           && <Th label="Source"        k="source" />}
@@ -1238,7 +1238,7 @@ function PipelinePageInner() {
       { header: 'Property Value',   get: d => d.estimated_value },
       { header: 'LTV',              get: d => d.ltv },
       { header: 'Rate',             get: d => d.rate },
-      { header: 'Investor',         get: d => d.investor },
+      { header: 'Lender',           get: d => d.investor },
       { header: 'FICO',             get: d => d.credit_score },
       { header: 'Credit Rating',    get: d => d.credit_rating },
       { header: 'Occupancy',        get: d => d.occupancy },
@@ -1249,7 +1249,7 @@ function PipelinePageInner() {
       { header: 'Source',           get: d => d.source },
       { header: 'Lead Source Agg',  get: d => d.lead_source_agg },
       { header: 'Arive File #',     get: d => d.arive_file_no },
-      { header: 'Investor File #',  get: d => d.investor_file_no },
+      { header: 'Lender Loan #',    get: d => d.investor_file_no },
       { header: 'Lock Expiration',  get: d => d.lock_expiration ? new Date(d.lock_expiration).toLocaleDateString() : null },
       { header: 'Signing Date',     get: d => d.signing_date ? new Date(d.signing_date).toLocaleDateString() : null },
       { header: 'Funded Date',      get: d => d.funded_date ? new Date(d.funded_date).toLocaleDateString() : null },
@@ -1366,7 +1366,7 @@ function PipelinePageInner() {
     { key: 'loan_amount',          label: 'Loan Amount',      category: 'Loan',     type: 'currency',       icon: <DollarSign className="w-3.5 h-3.5 text-emerald-500" /> },
     { key: 'estimated_value',      label: 'Property Value',   category: 'Loan',     type: 'currency',       icon: <DollarSign className="w-3.5 h-3.5 text-emerald-500" /> },
     { key: 'rate',                 label: 'Rate',             category: 'Loan',     type: 'percent',        icon: <Activity className="w-3.5 h-3.5 text-blue-500" /> },
-    { key: 'investor',             label: 'Investor',         category: 'Loan',     type: 'text',           icon: <Building2 className="w-3.5 h-3.5 text-amber-500" />,    placeholder: 'e.g. UWM, PennyMac, Rocket' },
+    { key: 'investor',             label: 'Lender',           category: 'Loan',     type: 'text',           icon: <Building2 className="w-3.5 h-3.5 text-amber-500" />,    placeholder: 'e.g. UWM, PennyMac, Rocket' },
     { key: 'broker_corr',          label: 'Broker / Corr.',   category: 'Loan',     type: 'select',         icon: <Briefcase className="w-3.5 h-3.5 text-slate-500" />,    options: ['Broker', 'Correspondent'] },
     { key: 'source',               label: 'Source',           category: 'Loan',     type: 'select',         icon: <Tag className="w-3.5 h-3.5 text-cyan-500" />,           options: ['GHL', 'Self Source', 'Referral', 'Past Client', 'Open House', 'Agent Partner', 'Financial Advisor', 'Builder', 'Online / Social', 'Lendgo', 'FRU', 'Lending Tree'] },
     // Borrower
@@ -1384,7 +1384,7 @@ function PipelinePageInner() {
     { key: 'appraisal_status',     label: 'Appraisal Status', category: 'Lock & Appraisal', type: 'select', icon: <Home className="w-3.5 h-3.5 text-slate-500" />,         options: APPRAISAL_STATUSES },
     // File Numbers
     { key: 'arive_file_no',        label: 'Arive File #',     category: 'Files',    type: 'text',           icon: <Hash className="w-3.5 h-3.5 text-slate-500" /> },
-    { key: 'investor_file_no',     label: 'Investor File #',  category: 'Files',    type: 'text',           icon: <Hash className="w-3.5 h-3.5 text-slate-500" /> },
+    { key: 'investor_file_no',     label: 'Lender Loan #',    category: 'Files',    type: 'text',           icon: <Hash className="w-3.5 h-3.5 text-slate-500" /> },
     // Contact
     { key: 'email',                label: 'Email',            category: 'Contact',  type: 'text',           icon: <Mail className="w-3.5 h-3.5 text-blue-500" /> },
     { key: 'phone',                label: 'Phone',            category: 'Contact',  type: 'text',           icon: <Phone className="w-3.5 h-3.5 text-emerald-500" /> },

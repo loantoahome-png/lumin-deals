@@ -96,7 +96,7 @@ function buildHtml(deal: Record<string, unknown>, daysOut: number, dateStr: stri
 
         <table style="width:100%;border-collapse:collapse;margin:18px 0">
           <tr style="background:#f8fafc">
-            <td style="padding:8px 12px;font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #f1f5f9;width:120px">Investor / Lender</td>
+            <td style="padding:8px 12px;font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #f1f5f9;width:120px">Lender</td>
             <td style="padding:8px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">${deal.investor || '—'}</td>
           </tr>
           <tr>

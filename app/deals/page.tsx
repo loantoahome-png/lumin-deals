@@ -139,10 +139,10 @@ function DealsInlineCell({
 function exportToCSV(deals: Deal[]) {
   const headers = [
     'Name', 'Status', 'Pipeline Group', 'Loan Type', 'Loan Amount', 'Estimated Value',
-    'Rate (%)', 'Investor', 'Loan Officer', 'Processor', 'Property Address',
+    'Rate (%)', 'Lender', 'Loan Officer', 'Processor', 'Property Address',
     'Email', 'Phone', 'Credit Score', 'Occupancy', 'Locked', 'Lock Expiration',
     'Appraisal Status', 'Source', 'Signing Date', 'Funded Date', 'Paid Date',
-    'Last Contacted', 'Arive File #', 'Investor File #', 'Created At',
+    'Last Contacted', 'Arive File #', 'Lender Loan #', 'Created At',
   ]
   const rows = deals.map(d => [
     d.name, d.status, d.pipeline_group, d.loan_type || '', d.loan_amount || '', d.estimated_value || '',
@@ -421,7 +421,7 @@ function DealsPageInner() {
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Loan Type</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Loan Amount</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">LO</th>
-                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Investor</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Lender</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Rate</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Added</th>
                   <th className="px-4 py-3"></th>
@@ -526,7 +526,7 @@ function DealsPageInner() {
                         <td className="px-4 py-3 min-w-[110px]">
                           {ic('loan_officer', deal.loan_officer, 'select', LOAN_OFFICERS)}
                         </td>
-                        {/* Investor */}
+                        {/* Lender */}
                         <td className="px-4 py-3 min-w-[100px]">
                           {ic('investor', deal.investor, 'text')}
                         </td>

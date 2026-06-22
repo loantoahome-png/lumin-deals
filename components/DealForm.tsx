@@ -400,7 +400,7 @@ export default function DealForm({ deal }: { deal?: Deal }) {
                 <Field label="Rate">
                   <PercentInput value={form.rate} onChange={v => set('rate', v)} step="0.001" />
                 </Field>
-                <Field label="Investor">
+                <Field label="Lender">
                   <input value={form.investor || ''} onChange={e => set('investor', e.target.value)} className={inp} />
                 </Field>
                 <Field label="Broker / Correspondent">
@@ -511,7 +511,7 @@ export default function DealForm({ deal }: { deal?: Deal }) {
                     className={inp}
                   />
                 </Field>
-                <Field label="Investor File #">
+                <Field label="Lender Loan #">
                   <input value={form.investor_file_no || ''} onChange={e => set('investor_file_no', e.target.value)} className={inp} />
                 </Field>
               </div>
