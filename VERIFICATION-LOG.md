@@ -1,5 +1,18 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-22] Fix escrow-card stats box: Amount overlapping LO
+**Status:** VERIFIED (visual proof) — NOT yet deployed
+**Files:** components/EscrowTracker.tsx (Quick-stats grid, ~line 573)
+**Issue:** Large loan amounts (e.g. Cynthia Southerby $1,220,480) overflowed the middle column of
+the `grid-cols-3` stats box and visually overlapped the LO name ("$1,220,480oe Sefati").
+**Changes:** Grid → `grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]` so the Amount column sizes to its
+content on its own track; amount centered with `px-1 whitespace-nowrap`; LO cell right-aligned +
+`truncate` + title. Lender/LO now shrink/truncate, Amount never collides.
+**Test Method:** Rendered the exact card markup (same Tailwind classes) at 340px with $1,220,480 and
+an 8-figure + long-lender stress case; screenshot compared before/after.
+**Result:** VERIFIED — no overlap in either case; lender truncates, amount + LO stay separated.
+Type-clean (7/7 pre-existing). NOT deployed — awaiting go-ahead per deploy policy.
+
 ### [2026-06-22] Map Arive Stage "Suspended" → "Non-Responsive"
 **Status:** CHANGED (1-line normStage fuzzy match; type-checked; NOT deployed)
 **Files:** lib/ariveCsv.ts (`normStage`)
