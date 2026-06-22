@@ -1,6 +1,29 @@
 # Verification Log — Lumin Deals
 
-### [2026-06-22] Webhook reconciles loan_amount from opp value (kill dashboard lag)
+### [2026-06-22] loan_amount is now ARIVE-authoritative (reverted the GHL-value approach)
+**Status:** CHANGED (sync + webhook; type-checked; NOT yet deployed)
+**Files:** app/api/sync/ghl/route.ts, app/api/webhooks/ghl/route.ts
+**Issue:** Root cause CORRECTED. My earlier diagnosis (the $610k came from Arive) was an
+unverified assumption and WRONG. A service-role query of Laura's stored payload showed
+the $610k was the GHL custom field "Loan Amount"=610000 (lead-intake); Arive had the
+correct $150k. GHL was clobbering Arive. Per Efrain, Arive (the LOS) is ALWAYS
+authoritative for the loan amount.
+**Changes:**
+- Reverted the prior "webhook reconciles loan_amount from opp monetaryValue" change
+  (wrong direction — it trusted GHL).
+- Sync: dropped the `?? customField('Loan Amount')` fallback (the $610k source);
+  loan_amount now comes only from opp monetaryValue, and an `ariveOwnsAmount` guard
+  (arive_file_no present OR funded) means GHL never touches loan_amount on Arive deals.
+- Sync maintenance reconcile now skips Arive-backed deals (added arive_file_no to scan).
+- Webhook: removed the contact-branch loan_amount write (it pulled the bad custom field).
+- Net: Arive owns loan_amount on every Arive-backed deal; GHL only fills pre-Arive leads.
+**Test Method:** `npx tsc --noEmit` → 0 errors in both files; total unchanged at 7
+(pre-existing, build-ignored). Cannot fire a live sync/webhook safely (mutates prod).
+Functional confirm: after deploy, an Arive deal's amount should match Arive and never
+flip to a GHL number.
+**Result:** Type-clean. NOT deployed — awaiting go-ahead per deploy policy.
+
+### [2026-06-22] Webhook reconciles loan_amount from opp value (kill dashboard lag)  — REVERTED (see entry above)
 **Status:** CHANGED (server webhook; type-checked; NOT deployed; live confirm pending a real GHL webhook)
 **Files:** app/api/webhooks/ghl/route.ts — the opportunity-event branch now reads the
 opp `monetaryValue` and writes it to `loan_amount` in the same update as the stage, so a

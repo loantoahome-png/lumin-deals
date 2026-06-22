@@ -926,8 +926,11 @@ async function syncAccount(
           dnd:              typeof fullContact.dnd === 'boolean' ? fullContact.dnd : null,
           dnd_settings:     (fullContact.dndSettings && typeof fullContact.dndSettings === 'object') ? fullContact.dndSettings : null,
           // Loan fields from custom fields
-          loan_amount:      parseAmount(opp.monetaryValue as number | null) ??
-                            parseAmount(getCustomField(customFields, 'loan_amount', 'loan amount', 'Loan Amount')),
+          // loan_amount: GHL is only a placeholder for pre-Arive leads. Use the opp
+          // Value (monetaryValue) ONLY — NEVER the "Loan Amount" custom field, an
+          // unreliable lead-intake number (it put $610k on a $150k loan). Arive owns
+          // this once the deal has an arive_file_no (see the update guard below).
+          loan_amount:      parseAmount(opp.monetaryValue as number | null),
           estimated_value:  parseAmount(getCustomField(customFields, 'estimated_value', 'property_value', 'home_value', 'Property Value')),
           credit_score:     parseAmount(getCustomField(customFields, 'credit_score', 'credit score', 'fico')),
           loan_type:        normalizeGhlLoanType(getCustomField(customFields, 'loan_type', 'loan type', 'Loan Type')),
@@ -971,9 +974,14 @@ async function syncAccount(
           // below. Without this, any later opp change clobbers funded volume back
           // to the GHL number.
           const existingIsFunded = existing.pipeline_group === 'Funded'
+          // Arive is authoritative for loan_amount. Once a deal has an Arive loan #
+          // (arive_file_no), GHL must NEVER touch loan_amount — Arive's import owns
+          // it. Funded deals are likewise Arive-authoritative. This stops GHL from
+          // clobbering the correct Arive figure with a stale/wrong opp value.
+          const ariveOwnsAmount = existingIsFunded || dealData.arive_file_no != null
           const maybeSet = (k: string) => {
             if (dealData[k] == null) return
-            if (k === 'loan_amount' && existingIsFunded) return
+            if (k === 'loan_amount' && ariveOwnsAmount) return
             patch[k] = dealData[k]
           }
           ;['loan_officer','loan_amount','estimated_value','credit_score','loan_type','loan_purpose',
@@ -1151,14 +1159,14 @@ async function syncAccount(
     // a JSON blob that was ~0.5 GB/mo of egress to read for the whole table every
     // run, just to diff it. DND is reconciled below by writing the contact's
     // current value directly (see the loop), so we never need the stored copy.
-    type PruneRow = { id: string; name: string | null; ghl_opportunity_id: string | null; pipeline_group: string | null; status: string | null; loan_amount: number | null; ghl_contact_id: string | null }
+    type PruneRow = { id: string; name: string | null; ghl_opportunity_id: string | null; pipeline_group: string | null; status: string | null; loan_amount: number | null; ghl_contact_id: string | null; arive_file_no: string | null }
     const locDeals: PruneRow[] = []
     let pOffset = 0
     const PRUNE_PAGE = 1000
     for (;;) {
       const { data: pr, error: pErr } = await supabase
         .from('deals')
-        .select('id, name, ghl_opportunity_id, pipeline_group, status, loan_amount, ghl_contact_id')
+        .select('id, name, ghl_opportunity_id, pipeline_group, status, loan_amount, ghl_contact_id, arive_file_no')
         .eq('ghl_location_id', locationId)
         .not('ghl_opportunity_id', 'is', null)
         .order('id', { ascending: true })
@@ -1207,8 +1215,11 @@ async function syncAccount(
       }
       // Opportunity still exists → reconcile loan amount + stage (non-funded only).
       if (d.pipeline_group !== 'Funded') {
+        // Arive owns loan_amount on Arive-backed deals — only reconcile the GHL opp
+        // value onto pre-Arive leads (no arive_file_no). Prevents a maintenance run
+        // from overwriting the authoritative Arive figure with a GHL number.
         const v = oppValue.get(d.ghl_opportunity_id)
-        if (v != null && Number(v) !== Number(d.loan_amount ?? NaN)) {
+        if (!d.arive_file_no && v != null && Number(v) !== Number(d.loan_amount ?? NaN)) {
           amountFixes.push({ id: d.id, loan_amount: v })
         }
         const resolved = oppStageInfo.get(d.ghl_opportunity_id)
