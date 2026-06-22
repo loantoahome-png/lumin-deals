@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import {
   parseRowsFromCsv, rowToPatch, buildMatchIndex, matchRow, buildPlan, summarizePlan,
+  pipelineGroupForStatus,
   type RowPlan,
 } from '@/lib/ariveCsv'
 
@@ -155,6 +156,13 @@ export async function POST(req: NextRequest) {
       }
     }
     if (Object.keys(patch).length === 0) continue
+    // When the import changes `status`, keep `pipeline_group` in lockstep — the
+    // Escrows/Funded/Not-Ready tabs filter by pipeline_group, so writing status
+    // alone (e.g. Disclosed → Non-Responsive when a loan is adversed in Arive)
+    // would leave the deal stranded in its old tab.
+    if (typeof patch.status === 'string') {
+      patch.pipeline_group = pipelineGroupForStatus(patch.status)
+    }
     const { error } = await supabase.from('deals').update(patch).eq('id', plan.dealId)
     if (error) {
       errors.push({ rowIndex: plan.rowIndex, borrower: plan.borrower, error: error.message })

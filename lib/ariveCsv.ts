@@ -162,6 +162,8 @@ function normStage(v: string | null): string | null {
   if (lower.includes('loan setup'))       return 'Loan Setup'
   // Arive "Suspended" = file paused/withdrawn → dead bucket (Efrain's call 2026-06-22)
   if (lower.includes('suspend'))          return 'Non-Responsive'
+  // Arive "Adverse" / "Adverse (Others)" = adverse action / declined → same dead bucket
+  if (lower.includes('adverse'))          return 'Non-Responsive'
   return null
 }
 
@@ -410,7 +412,7 @@ export function matchRow(
 }
 
 // Map a dashboard status to its pipeline_group (mirrors lib/types.ts groupings).
-function pipelineGroupForStatus(status: string): string {
+export function pipelineGroupForStatus(status: string): string {
   const FUNDED = new Set(['Loan Funded', 'Broker Check Received', 'Loan Finalized'])
   const IN_PROCESS = new Set(['Loan Setup','Disclosed','Submitted to UW','Approved w/ Conditions','Re-Submittal','Clear to Close','Docs Out','Docs Signed'])
   const NOT_READY = new Set(['Not Qualified - Credit','Not Qualified - Income','Not Ready - Timeframe','DND - SMS','Not Ready - Rate','Lost to Competitor','Non-Responsive','Remove from All Automations','STOP'])

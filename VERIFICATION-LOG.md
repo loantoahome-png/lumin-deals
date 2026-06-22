@@ -1,5 +1,24 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-22] Adverse loans not leaving Active Escrows after import
+**Status:** VERIFIED (functional proof) — NOT yet deployed
+**Files:** lib/ariveCsv.ts (`normStage` + export `pipelineGroupForStatus`),
+app/api/import/arive/route.ts (update path).
+**Issue:** Devon Spaulding (#17010728) was adversed in Arive but stayed in Active Escrows after a
+re-import. Two gaps: (1) `normStage` had no mapping for Arive Stage "Adverse" → returned null →
+status left at "Disclosed" (a Loans-in-Process stage); (2) the import update path wrote `status`
+alone and never recomputed `pipeline_group`, but the Escrows/Funded/Not-Ready tabs filter by
+`pipeline_group` — so even a mapped status change wouldn't move the deal between tabs. (2) also
+affected the earlier `Suspended` mapping.
+**Changes:** Map "Adverse"/"Adverse (Others)" → "Non-Responsive"; exported `pipelineGroupForStatus`
+and the route now sets `patch.pipeline_group` whenever `patch.status` is written on an update.
+**Test Method:** Ran Devon's real 23:21 export row through parseRowsFromCsv → rowToPatch → buildPlan
+(overwrite) → route group-sync. Output: Stage "Adverse" → status Non-Responsive → plan
+"Disclosed → Non-Responsive (overwrite)" → pipeline_group "Loans in Process → Not Ready".
+**Operational:** requires importing the 23:21+ export (earlier exports still said "Disclosed") in
+**Overwrite** mode (fill-blanks won't replace an existing status).
+**Result:** VERIFIED. Type-clean (7/7 pre-existing). NOT deployed — awaiting go-ahead per deploy policy.
+
 ### [2026-06-22] Fix escrow-card stats box: Amount overlapping LO
 **Status:** VERIFIED (visual proof) — NOT yet deployed
 **Files:** components/EscrowTracker.tsx (Quick-stats grid, ~line 573)
@@ -11,7 +30,7 @@ content on its own track; amount centered with `px-1 whitespace-nowrap`; LO cell
 **Test Method:** Rendered the exact card markup (same Tailwind classes) at 340px with $1,220,480 and
 an 8-figure + long-lender stress case; screenshot compared before/after.
 **Result:** VERIFIED — no overlap in either case; lender truncates, amount + LO stay separated.
-Type-clean (7/7 pre-existing). NOT deployed — awaiting go-ahead per deploy policy.
+Type-clean (7/7 pre-existing). DEPLOYED 2026-06-22 (commit f6508d0 → lumin-deals.vercel.app).
 
 ### [2026-06-22] Map Arive Stage "Suspended" → "Non-Responsive"
 **Status:** CHANGED (1-line normStage fuzzy match; type-checked; NOT deployed)
