@@ -8,7 +8,7 @@ status imported blank. Efrain chose to treat Suspended as a dead/paused file.
 **Changes:** Added `lower.includes('suspend') → 'Non-Responsive'` (lands in the Not Ready group).
 **Test Method:** `npx tsc --noEmit` (7/7 pre-existing). Confirm via import preview: the 4 Suspended
 rows now resolve status = Non-Responsive, pipeline_group = Not Ready.
-**Result:** Type-clean. NOT deployed — awaiting go-ahead per deploy policy.
+**Result:** Type-clean. DEPLOYED 2026-06-22 (commit f31bbbd → lumin-deals.vercel.app).
 
 ### [2026-06-22] Add P&I Payment field (Arive "First Mortgage Payment")
 **Status:** CHANGED (new field + mapping + UI + migration; type-checked; NOT deployed; SQL pending)
@@ -21,7 +21,7 @@ visible. No field existed, so it was being dropped on import.
 "P&I Payment" CurrencyInput beside "Total Housing Payment" on deal detail + new-deal form.
 **Test Method:** `npx tsc --noEmit` (total errors unchanged at 7, all pre-existing; 0 mention
 pi_payment). Run `supabase-add-pi-payment.sql`, then an import preview to confirm pi_payment fills.
-**Result:** Type-clean. NOT deployed — SQL migration must run first; awaiting go-ahead per deploy policy.
+**Result:** Type-clean. SQL migration run by Efrain; DEPLOYED 2026-06-22 (commit f31bbbd → lumin-deals.vercel.app).
 
 ### [2026-06-22] Arive importer: consume "Primary Loan Processor Name"
 **Status:** CHANGED (1-line mapping add; type-checked; NOT deployed)
@@ -33,7 +33,7 @@ exact, case-sensitive — so that data was silently dropped on every import.
 field (kept `'Processor Type'` as a fallback for older exports).
 **Test Method:** `npx tsc --noEmit` (clean on ariveCsv.ts). Functional check: re-run an import
 preview and confirm `processor` now appears in the change plan for rows that have a processor name.
-**Result:** Type-clean. NOT deployed — awaiting go-ahead per deploy policy.
+**Result:** Type-clean. DEPLOYED 2026-06-22 (commit f31bbbd → lumin-deals.vercel.app).
 
 ### [2026-06-22] Rename display labels: Investor → Lender, Investor File # → Lender Loan #
 **Status:** CHANGED (label text only; type-checked; NOT deployed)
@@ -48,7 +48,7 @@ Covered: escrow card, deal detail form, new-deal form, pipeline table + column p
 config + CSV export, deals table + CSV export, health column, funded CSV export, lock-alert email.
 Updated two internal comments too. Verified no user-facing "Investor" label remains (grep).
 **Test Method:** `npx tsc --noEmit` → total unchanged at 7 (all pre-existing). No field keys touched.
-**Result:** Type-clean. NOT deployed — awaiting go-ahead per deploy policy.
+**Result:** Type-clean. DEPLOYED 2026-06-22 (commit f31bbbd → lumin-deals.vercel.app).
 
 ### [2026-06-22] Active Escrows card redesign (EscrowTracker)
 **Status:** CHANGED (UI + 1 new column; type-checked + visually verified; NOT deployed; SQL migration pending)
@@ -93,7 +93,7 @@ authoritative for the loan amount.
 (pre-existing, build-ignored). Cannot fire a live sync/webhook safely (mutates prod).
 Functional confirm: after deploy, an Arive deal's amount should match Arive and never
 flip to a GHL number.
-**Result:** Type-clean. NOT deployed — awaiting go-ahead per deploy policy.
+**Result:** Type-clean. DEPLOYED 2026-06-22 (commit f31bbbd → lumin-deals.vercel.app).
 
 ### [2026-06-22] Webhook reconciles loan_amount from opp value (kill dashboard lag)  — REVERTED (see entry above)
 **Status:** CHANGED (server webhook; type-checked; NOT deployed; live confirm pending a real GHL webhook)
@@ -111,7 +111,7 @@ at 7 (all pre-existing: reports/underwriting/DealForm/next.config, build-ignored
 NOT fire a live webhook (GHL_WEBHOOK_SECRET gate + it would mutate prod data), so
 functional confirmation waits for a real opp webhook or Efrain watching a value edit
 reflect on the dashboard within seconds.
-**Result:** Type-clean. NOT deployed — awaiting go-ahead per deploy policy.
+**Result:** Type-clean. DEPLOYED 2026-06-22 (commit f31bbbd → lumin-deals.vercel.app).
 
 ### [2026-06-19] Dashboard visual redesign — hero metric + depth + hierarchy
 **Status:** CHANGED (UI only; verified locally with mock data, real data gated by login)
