@@ -194,6 +194,29 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
     })
   }, [deals, filter, search, currentUser])
 
+  // ── Stable display order ────────────────────────────────────────────────────
+  // The sort above is by next_action_due, so the instant you set a follow-up date
+  // the card floats up into the by-due order and "jumps" out from under you.
+  // Freeze the order: only reflow when the SET of visible cards changes
+  // (add/remove/filter/search/user) or on reload — never on an inline field edit.
+  const [orderedIds, setOrderedIds] = useState<string[]>([])
+  const membershipKey = useMemo(
+    () => [...filteredAndSorted.map(d => d.id)].sort().join(','),
+    [filteredAndSorted],
+  )
+  useEffect(() => {
+    setOrderedIds(filteredAndSorted.map(d => d.id))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membershipKey, filter, search, currentUser])
+
+  const displayList = useMemo(() => {
+    const byId = new Map(filteredAndSorted.map(d => [d.id, d]))
+    const inOrder = orderedIds.map(id => byId.get(id)).filter((d): d is Deal => !!d)
+    const seen = new Set(orderedIds)
+    for (const d of filteredAndSorted) if (!seen.has(d.id)) inOrder.push(d) // new cards → end
+    return inOrder
+  }, [filteredAndSorted, orderedIds])
+
   // Counts for filter chips
   const counts = useMemo(() => {
     const now = new Date()
@@ -249,14 +272,14 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
       </div>
 
       {/* Kanban: columns per escrow stage, cards stacked within each */}
-      {filteredAndSorted.length === 0 ? (
+      {displayList.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-xl p-12 text-center">
           <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
           <p className="text-sm font-semibold text-slate-800">Nothing matches this filter</p>
           <p className="text-xs text-slate-500 mt-1">Try a different filter or search term.</p>
         </div>
       ) : (
-        <KanbanColumns deals={filteredAndSorted} onUpdate={onUpdate} />
+        <KanbanColumns deals={displayList} onUpdate={onUpdate} />
       )}
     </div>
   )
