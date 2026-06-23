@@ -15,9 +15,32 @@ export type Contact = {
   updated_at: string
 }
 
+// ── Co-borrower linking (deal_contacts join) ────────────────────────────────
+// A loan's PRIMARY borrower is `deals.borrower_id`. Additional people on the
+// loan (spouse/partner) are rows in `deal_contacts` with role='co'. Two DIFFERENT
+// people on one loan — distinct from the identity resolver, which groups records
+// that are the SAME person.
+export const BORROWER_ROLES = ['primary', 'co'] as const
+export type BorrowerRole = (typeof BORROWER_ROLES)[number]
+export type DealContactLink = {
+  id: string
+  deal_id: string
+  contact_id: string
+  role: BorrowerRole
+  created_at: string
+}
+// Lightweight contact shape embedded on a loaded deal (the co-borrowers list).
+export type CoborrowerLite = {
+  contact_id: string
+  name: string | null
+  email: string | null
+  phone: string | null
+}
+
 export type Deal = {
   id: string
   borrower_id: string | null              // groups multiple loans for the same person (Option A model)
+  coborrowers: CoborrowerLite[] | null    // role='co' links, loaded join (null when not loaded)
   ghl_opportunity_id: string | null       // the GHL opportunity (loan) ID — distinct per loan
   name: string
   first_name: string | null

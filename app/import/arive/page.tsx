@@ -19,6 +19,8 @@ type RowPlan = {
   reason?: string
   changes: FieldChange[]
   action?: 'update' | 'create_loan' | 'create_new'
+  coborrower?: { name: string | null; email: string | null; phone: string | null }
+  dedupWarning?: string
 }
 type Summary = {
   total_rows: number
@@ -297,6 +299,20 @@ export default function AriveImportPage() {
                         : willWriteCount > 0 ? `${willWriteCount} change${willWriteCount === 1 ? '' : 's'}` : (p.matched ? 'no change' : '—')}
                     </span>
                   </button>
+                  {(p.coborrower || p.dedupWarning) && (
+                    <div className="mt-1 ml-7 flex flex-wrap items-center gap-1.5">
+                      {p.coborrower && (
+                        <span className="text-[10px] font-medium bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded">
+                          + co-borrower: {p.coborrower.name || p.coborrower.email || p.coborrower.phone}
+                        </span>
+                      )}
+                      {p.dedupWarning && (
+                        <span className="text-[10px] font-medium bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded" title={p.dedupWarning}>
+                          ⚠ {p.dedupWarning}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {expanded && (p.matched || p.action === 'create_new') && (
                     <div className="mt-2 ml-7 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
                       {p.changes.length === 0 ? (

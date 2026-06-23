@@ -518,6 +518,13 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
             <span className="truncate">{deal.name}</span>
             <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-blue-500 opacity-0 group-hover:opacity-100 transition shrink-0" />
           </Link>
+          {deal.coborrowers && deal.coborrowers.length > 0 && (
+            <span
+              title={`${deal.coborrowers.length} co-borrower${deal.coborrowers.length === 1 ? '' : 's'}: ${deal.coborrowers.map(c => c.name || c.email || c.contact_id).join(', ')}`}
+              className="shrink-0 text-[10px] font-bold text-sky-700 bg-sky-100 rounded px-1 py-0.5 leading-none">
+              +{deal.coborrowers.length}
+            </span>
+          )}
         </div>
 
         {/* Row 2 — quick links + stage badge */}

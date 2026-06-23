@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import LoanHistory from '@/components/LoanHistory'
+import CoborrowerManager from '@/components/CoborrowerManager'
 import RealEstateOwned from '@/components/RealEstateOwned'
 import CommunicationsLog from '@/components/CommunicationsLog'
 import ConversationThread from '@/components/ConversationThread'
@@ -904,6 +905,13 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                     <option value="no">No</option>
                   </select>
                 </Field>
+                <div className="pt-1 border-t border-slate-100">
+                  <CoborrowerManager
+                    dealId={id}
+                    primaryId={form.borrower_id as string | null}
+                    onPrimaryChange={(newId) => setForm(f => f ? { ...f, borrower_id: newId } : f)}
+                  />
+                </div>
               </div>
             </Section>
 

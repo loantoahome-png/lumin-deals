@@ -5,6 +5,7 @@ import {
   pipelineGroupForStatus,
   type RowPlan,
 } from '@/lib/ariveCsv'
+import { findOrCreateContact, linkCoborrower } from '@/lib/dealContacts'
 
 // CSV imports can touch hundreds of rows + run sequential Supabase writes —
 // give the function room (Pro plans honor up to 300s).
@@ -109,18 +110,33 @@ export async function POST(req: NextRequest) {
   let updated = 0
   let created = 0
   let fieldsWritten = 0
+  let coborrowersLinked = 0
   const errors: Array<{ rowIndex: number; borrower: string; error: string }> = []
+
+  // Link a row's co-borrower (find-or-create the contact) without failing the row
+  // if it errors (e.g. deal_contacts migration not yet run).
+  const applyCoborrower = async (dealId: string, plan: RowPlan) => {
+    if (!plan.coborrower) return
+    try {
+      const contactId = await findOrCreateContact(supabase, plan.coborrower)
+      await linkCoborrower(supabase, dealId, contactId)
+      coborrowersLinked++
+    } catch (e) {
+      errors.push({ rowIndex: plan.rowIndex, borrower: plan.borrower, error: `coborrower_link: ${String(e)}` })
+    }
+  }
 
   for (const plan of plans) {
     // ── Brand-new deal (no existing match) → INSERT ─────────────────────────
     if (plan.action === 'create_new' && plan.newLoanData) {
       const insertData = { ...plan.newLoanData, borrower_id: crypto.randomUUID() }
-      const { error } = await supabase.from('deals').insert(insertData)
+      const { data: ins, error } = await supabase.from('deals').insert(insertData).select('id').single()
       if (error) {
         errors.push({ rowIndex: plan.rowIndex, borrower: plan.borrower, error: error.message })
       } else {
         created++
         fieldsWritten += Object.keys(insertData).length
+        if (ins?.id) await applyCoborrower(ins.id as string, plan)
       }
       continue
     }
@@ -137,12 +153,13 @@ export async function POST(req: NextRequest) {
         await supabase.from('deals').update({ borrower_id: borrowerId }).eq('id', plan.dealId)
       }
       const insertData = { ...plan.newLoanData, borrower_id: borrowerId ?? crypto.randomUUID() }
-      const { error } = await supabase.from('deals').insert(insertData)
+      const { data: ins, error } = await supabase.from('deals').insert(insertData).select('id').single()
       if (error) {
         errors.push({ rowIndex: plan.rowIndex, borrower: plan.borrower, error: error.message })
       } else {
         created++
         fieldsWritten += Object.keys(insertData).length
+        if (ins?.id) await applyCoborrower(ins.id as string, plan)
       }
       continue
     }
@@ -155,7 +172,11 @@ export async function POST(req: NextRequest) {
         patch[c.field] = c.next
       }
     }
-    if (Object.keys(patch).length === 0) continue
+    if (Object.keys(patch).length === 0) {
+      // No field changes, but a co-borrower may still need linking.
+      await applyCoborrower(plan.dealId, plan)
+      continue
+    }
     // When the import changes `status`, keep `pipeline_group` in lockstep — the
     // Escrows/Funded/Not-Ready tabs filter by pipeline_group, so writing status
     // alone (e.g. Disclosed → Non-Responsive when a loan is adversed in Arive)
@@ -169,6 +190,7 @@ export async function POST(req: NextRequest) {
     } else {
       updated++
       fieldsWritten += Object.keys(patch).length
+      await applyCoborrower(plan.dealId, plan)
     }
   }
 
@@ -179,6 +201,7 @@ export async function POST(req: NextRequest) {
     updated,
     created,
     fields_written: fieldsWritten,
+    coborrowers_linked: coborrowersLinked,
     errors,
     plans,           // include the per-row plan in the response for the UI to render
   })

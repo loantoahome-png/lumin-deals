@@ -1,5 +1,37 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-22] Co-borrower support (Build) — 10-task plan
+**Status:** CHANGED + build/type/logic VERIFIED — NOT deployed; SQL migration pending; live UI unverified
+**Source:** docs/specs/2026-06-22-coborrower-support-spec.md, docs/plans/2026-06-22-coborrower-support-plan.md
+**Files (new):** supabase-add-deal-contacts.sql, lib/dealContacts.ts, components/CoborrowerManager.tsx,
+app/api/deals/[id]/coborrowers/route.ts.
+**Files (modified):** lib/types.ts (DealContact types + Deal.coborrowers), lib/identityResolver.ts
+(prune guard), lib/ariveCsv.ts (co-borrower parse + plan.coborrower + dedupWarning),
+app/api/import/arive/route.ts (find-or-create + link on commit), app/deals/[id]/page.tsx (manager),
+app/deals/page.tsx (badge data), components/EscrowTracker.tsx (+N badge), app/import/arive/page.tsx
+(preview chips), app/contacts/[id]/page.tsx (co-loans section), components/DealForm.tsx (default).
+**Model:** `deal_contacts(deal_id, contact_id, role)` join; primary stays `deals.borrower_id`.
+
+**Acceptance criteria:**
+- [x] deal_contacts migration w/ FK cascades, unique(deal_id,contact_id), indexes, RLS+grant (mirrors contacts).
+- [x] Deal can hold ≥1 co-borrowers; borrower_id path unchanged.
+- [x] Manual link/remove/promote API (`/api/deals/[id]/coborrowers`) + CoborrowerManager UI on deal detail.
+- [x] Arive import parses co-borrower cols, find-or-creates the contact (reuses strong-key match, never
+      name), links role='co'; verified via script (Paul row → cob=Cynthia).
+- [x] Dedup flag when co-borrower matches a separate deal; verified via script (fires for Cynthia's
+      existing deal; "same Arive #" variant when arive_file_no matches).
+- [x] Rollups primary-only: `computeContactRows` aggregates over borrower_id (unchanged); contact profile
+      lists co-loans in a SEPARATE flagged section with a "counts toward primary" note.
+- [x] +N badge on escrow cards (EscrowTracker); deal detail lists co-borrowers w/ links + promote/remove.
+- [x] Resolver matching unchanged; prune guard keeps deal_contacts-referenced contacts from being deleted.
+- [x] `npx tsc --noEmit` = 7 (unchanged baseline); `npm run build` passes (all routes incl. new API route).
+**Verified:** type-check (7/7), production build, importer logic (throwaway tsx script: co-borrower parse +
+dedup both fire correctly).
+**NOT yet verified (needs the migration run on a live DB):** manual link/promote round-trip, badge render,
+contact-profile co-loans section in the real app. Pipeline TABLE badge intentionally not added (spec said
+"cards" → escrow card only).
+**Required before use:** run `supabase-add-deal-contacts.sql` in Supabase. Then deploy (deploy-policy: ask first).
+
 ### [2026-06-22] Adverse loans not leaving Active Escrows after import
 **Status:** VERIFIED (functional proof) — NOT yet deployed
 **Files:** lib/ariveCsv.ts (`normStage` + export `pipelineGroupForStatus`),

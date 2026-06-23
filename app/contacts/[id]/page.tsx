@@ -162,6 +162,7 @@ export default function ContactDetailPage() {
   const id = params.id
   const [contact, setContact] = useState<Contact | null>(null)
   const [deals, setDeals] = useState<Deal[]>([])
+  const [coLoans, setCoLoans] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
 
   const fetchData = useCallback(async () => {
@@ -172,6 +173,14 @@ export default function ContactDetailPage() {
     ])
     setContact((c as Contact) ?? null)
     setDeals((d as Deal[]) ?? [])
+    // Loans where this person is a CO-borrower (not the primary). Shown separately;
+    // these count toward the PRIMARY's $ rollups, not this contact's.
+    const { data: links } = await supabase.from('deal_contacts').select('deal_id').eq('contact_id', id).eq('role', 'co')
+    const coIds = ((links ?? []) as { deal_id: string }[]).map(l => l.deal_id)
+    if (coIds.length) {
+      const { data: cd } = await supabase.from('deals').select('*').in('id', coIds).order('created_at', { ascending: false })
+      setCoLoans((cd as Deal[]) ?? [])
+    } else setCoLoans([])
     setLoading(false)
   }, [id])
 
@@ -365,6 +374,31 @@ export default function ContactDetailPage() {
               </div>
             )}
           </section>
+
+          {/* Co-borrower loans — this person is a co-borrower, not the primary */}
+          {coLoans.length > 0 && (
+            <section>
+              <h2 className="text-sm font-semibold text-slate-700 mb-2">Co-borrower on ({coLoans.length})</h2>
+              <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
+                {coLoans.map(d => (
+                  <div key={d.id} className="flex items-center justify-between gap-4 px-4 py-3 border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Link href={`/deals/${d.id}`} className="font-medium text-blue-600 hover:text-blue-700">{titleCase(d.name) || d.name}</Link>
+                        <span className="text-[10px] font-medium bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded">Co-borrower</span>
+                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${STATUS_COLORS[d.status] || 'bg-gray-100 text-gray-600'}`}>{d.status}</span>
+                      </div>
+                      {d.property_address && (
+                        <div className="mt-1 text-xs text-slate-500 truncate max-w-[340px]">{d.property_address}{d.state ? `, ${d.state}` : ''}</div>
+                      )}
+                    </div>
+                    <div className="shrink-0 text-sm font-semibold text-slate-800 tabular-nums">{d.loan_amount ? formatCurrency(d.loan_amount) : '—'}</div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1.5">These loans count toward the primary borrower&apos;s totals, not this person&apos;s.</p>
+            </section>
+          )}
 
           {/* Activity timeline */}
           {timeline.length > 0 && (

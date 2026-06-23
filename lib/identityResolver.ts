@@ -351,6 +351,12 @@ export async function runIdentityResolutionPass(
   let contactsDeleted = 0
   if (contactRows.length > 0) {
     const validIds = new Set(contactRows.map(c => c.id))
+    // Keep co-borrower contacts alive even when they have no loan of their OWN —
+    // they're linked via deal_contacts (role='co') and computeContactRows (deal-
+    // derived) won't include them, so without this they'd be pruned + cascade-
+    // delete the link. Guarded: if deal_contacts doesn't exist yet, skip silently.
+    const { data: coLinks, error: coErr } = await supabase.from('deal_contacts').select('contact_id')
+    if (!coErr) for (const l of (coLinks ?? []) as { contact_id: string }[]) validIds.add(l.contact_id)
     const { data: existing } = await supabase.from('contacts').select('id')
     const orphanIds = ((existing ?? []) as { id: string }[]).map(r => r.id).filter(id => !validIds.has(id))
     for (let i = 0; i < orphanIds.length; i += 100) {

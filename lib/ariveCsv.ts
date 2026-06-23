@@ -297,6 +297,21 @@ export type AriveImportPatch = Record<string, unknown> & {
   // Carrier fields used for matching — NOT written unless field is also a real
   // dashboard column. Email/phone ARE real columns so they get written too.
   __borrower_name?: string
+  // Optional co-borrower parsed from the Arive row (linked via deal_contacts, not
+  // written to the deal). Carrier field — skipped by the field-write loops.
+  __coborrower?: { name: string | null; email: string | null; phone: string | null }
+}
+
+// First non-empty value among candidate headers (exact, case-sensitive — matches MAPPINGS).
+function pickCol(row: Row, cols: string[]): string | null {
+  for (const c of cols) {
+    if (c in row && row[c] != null && row[c] !== '') return row[c] as string
+  }
+  return null
+}
+function joinName(first: string | null, last: string | null): string | null {
+  const s = `${(first ?? '').trim()} ${(last ?? '').trim()}`.trim()
+  return s || null
 }
 
 export function rowToPatch(row: Row): AriveImportPatch {
@@ -314,6 +329,19 @@ export function rowToPatch(row: Row): AriveImportPatch {
   }
   // Stash the borrower name for matching fallback
   patch.__borrower_name = (row['Primary Borrower'] ?? '').trim()
+
+  // Optional co-borrower — header names vary across exports, so accept a candidate
+  // list (confirm the real Arive headers when that export is generated).
+  const cobName = pickCol(row, ['Co-Borrower Name', 'CoBorrower Name'])
+    ?? joinName(
+      pickCol(row, ['Co-Borrower First Name', 'CoBorrower First Name']),
+      pickCol(row, ['Co-Borrower Last Name', 'CoBorrower Last Name']),
+    )
+  const cobEmail = pickCol(row, ['Co-Borrower Email', 'CoBorrower Email'])
+  const cobPhone = pickCol(row, ['Co-Borrower Cell Phone', 'Co-Borrower Home Phone', 'CoBorrower Cell Phone'])
+  if (cobName || cobEmail || cobPhone) {
+    patch.__coborrower = { name: cobName, email: cobEmail ? cobEmail.toLowerCase() : null, phone: cobPhone }
+  }
   return patch
 }
 
@@ -448,6 +476,9 @@ export type RowPlan = {
   action: 'update' | 'create_loan' | 'create_new'
   borrowerId?: string | null   // for create_loan: the person to link the new loan to
   newLoanData?: Record<string, unknown>  // full insert payload for create_loan / create_new
+  // ── Co-borrower (deal_contacts role='co') ─────────────────────────────────
+  coborrower?: { name: string | null; email: string | null; phone: string | null }
+  dedupWarning?: string        // set when the co-borrower already has a separate deal
 }
 
 // "Arive" is our LOS, not a marketing lead source. When it shows up in the
@@ -502,6 +533,9 @@ export function buildPlan(args: {
       changes: [],
       action: 'update',
     }
+    // Surface any co-borrower on the row (applies to every action).
+    const cob = patch.__coborrower
+    if (cob && (cob.name || cob.email || cob.phone)) plan.coborrower = cob
     if (!match.matched) {
       plan.reason = match.reason
       // Only create brand-new deals for TRUE no-matches — never for ambiguous
@@ -521,6 +555,21 @@ export function buildPlan(args: {
     plan.matchedVia = match.via
 
     const deal = deals.get(match.dealId) ?? {}
+
+    // Dedup hint: does this row's co-borrower already have their OWN separate deal?
+    // (The Southerby case — the co-borrower's GHL contact spun up a second deal.)
+    if (plan.coborrower) {
+      const ce = normEmail(plan.coborrower.email)
+      const cp = normPhone(plan.coborrower.phone)
+      const otherId = (ce ? ix.byEmail.get(ce) : null) ?? (cp ? ix.byPhone.get(cp) : null) ?? null
+      if (otherId && otherId !== match.dealId) {
+        const other = deals.get(otherId)
+        const sameLoan = !!other && String(other.arive_file_no ?? '') === String(patch.arive_file_no ?? '')
+        plan.dedupWarning = sameLoan
+          ? `Co-borrower "${plan.coborrower.name ?? ''}" has a separate deal on this same Arive #${patch.arive_file_no} — likely duplicate.`
+          : `Co-borrower "${plan.coborrower.name ?? ''}" matches an existing separate deal.`
+      }
+    }
 
     // ── New-loan detection ────────────────────────────────────────────────
     // If we matched a person by name/email/phone (NOT by this Arive file #),

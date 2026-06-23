@@ -17,6 +17,7 @@ type DealFormData = Omit<Deal, 'id' | 'created_at' | 'updated_at'>
 
 const emptyDeal: DealFormData = {
   borrower_id: null,
+  coborrowers: null,
   ghl_opportunity_id: null,
   name: '',
   first_name: null,
