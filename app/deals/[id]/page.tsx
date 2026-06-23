@@ -735,9 +735,6 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                 <Field label="County">
                   <input value={(form.county as string | null) || ''} onChange={e => set('county', e.target.value)} className={inp} />
                 </Field>
-                <Field label="Adverse">
-                  <input value={(form.adverse as string | null) || ''} onChange={e => set('adverse', e.target.value)} className={inp} />
-                </Field>
                 <Field label="Rate">
                   <PercentInput value={form.rate as number | null} onChange={v => set('rate', v)} step="0.001" />
                 </Field>
@@ -959,6 +956,9 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                 </Field>
                 <Field label="Last Contact">
                   <DateInput value={form.last_contacted as string | null} onChange={v => set('last_contacted', v || null)} />
+                </Field>
+                <Field label="Adverse">
+                  <DateInput value={form.adverse as string | null} onChange={v => set('adverse', v || null)} />
                 </Field>
               </div>
               <p className="text-[11px] text-slate-400 mt-3 pt-3 border-t border-slate-100">

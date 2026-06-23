@@ -91,7 +91,7 @@ export type Deal = {
   housing_payment: number | null         // Arive "Total Housing Payment" (monthly PITI)
   pi_payment: number | null              // Arive "First Mortgage Payment" (monthly principal & interest)
   county: string | null                  // Arive "Subject County"
-  adverse: string | null                 // Arive "Adverse" flag
+  adverse: string | null                 // Arive "Adverse" = Adverse Action date (ISO YYYY-MM-DD, stored as text)
   is_military: string | null
   current_va_loan: string | null
   property_found: string | null

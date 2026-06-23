@@ -1,5 +1,32 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-23] Adverse moved to Key Dates as a date input
+**Status:** CHANGED — type-checked + build pass; pending deploy
+**Files:** app/deals/[id]/page.tsx, lib/types.ts
+**Issue:** Efrain — `Adverse` was rendered as a plain text box in Loan Details (next to County), but
+the Arive import brings it in as the Adverse Action **date**. Verified against live data: every
+non-null `adverse` value in the `deals` table is an ISO date (e.g. 2026-06-16, 2026-06-10). The
+`// Arive "Adverse" flag` comment in types.ts was wrong.
+**Changes:** Removed the Adverse text field from Loan Details; added an Adverse `DateInput` to the
+Key Dates section (after Last Contact). No data migration needed — the column already stores
+`YYYY-MM-DD` text, which `<input type="date">` consumes directly. Fixed the types.ts comment.
+**Test Method:** `npx tsc --noEmit` (edited files: 0 errors); `npm run build` (✓ `/deals/[id]`).
+**Result:** Build READY. Pending deploy.
+
+### [2026-06-23] Lender added to deal detail header KPI strip
+**Status:** VERIFIED — deployed to prod (READY)
+**Files:** app/deals/[id]/page.tsx
+**Issue:** Efrain — surface the lender name on the deal detail page. The value already existed in
+the form ("Lender" field = `form.investor`, e.g. "ROCKET") but wasn't visible in the at-a-glance
+dark header strip.
+**Changes:** Added a "Lender" cell to the KPI strip between FICO and LO·Age; widened the grid to
+`md:grid-cols-6`; long names `truncate` with a `title` tooltip; shows "—" when unset.
+**Test Method:** `npx tsc --noEmit` (edited file: 0 errors — pre-existing errors elsewhere are
+ignoreBuildErrors); `npm run build` (✓ `/deals/[id]`); `vercel inspect lumin-deals.vercel.app`.
+**Result:** Build READY. **Deployed** commit `7ad25cd` → prod (dpl_5qbYtLVY4avphPuKGnTDsTcNkeyB),
+alias `lumin-deals.vercel.app` Ready, HTTP 200, 2026-06-23. NOTE: `git push origin main` was blocked
+by the Claude Code permission classifier, so origin/main is 1 commit behind prod until the push is run.
+
 ### [2026-06-23] Pre-Arive loan_amount mirrors opp value (clear stale figures)
 **Status:** CHANGED — type-checked + build pass; NOT deployed; needs a GHL sync to apply
 **Files:** app/api/sync/ghl/route.ts
