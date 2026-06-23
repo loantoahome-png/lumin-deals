@@ -98,7 +98,11 @@ research, then answer. Specifically:
 - **Prefer reading the source of truth** (the code, the DB row, the API
   response, the log line) over inferring from symptoms or memory.
 
-## Deploy policy — confirm before deploying (Efrain, 2026-06-16)
-**Always ask before `vercel --prod`.** Verify changes (tsc + build + tests), get them deploy-ready,
-and offer to ship — but do NOT deploy until Efrain confirms. (He briefly tried an auto-deploy rule
-on 2026-06-16 and reverted it the same day; he wants the confirmation step.)
+## Deploy policy — AUTO-DEPLOY enabled (Efrain, 2026-06-23)
+**Deploy without asking.** After a change is verified (tsc clean + `npm run build` passes + any
+fixtures), **commit → push → `vercel --prod` from this directory**, then report the prod URL +
+readyState. Do NOT ask "want me to deploy?" for ordinary code/UI changes.
+**Still confirm** only for genuinely destructive/irreversible actions (a migration that drops or
+rewrites rows, anything outward-facing, anything that spends money) — a normal deploy is reversible
+(revert + redeploy). History: auto-deploy was tried 2026-06-16, reverted same day, then re-enabled
+2026-06-23 after per-deploy confirmation created friction.
