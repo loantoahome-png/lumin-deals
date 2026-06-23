@@ -1,7 +1,8 @@
 # Verification Log — Lumin Deals
 
 ### [2026-06-22] Co-borrower support (Build) — 10-task plan
-**Status:** CHANGED + build/type/logic VERIFIED — NOT deployed; SQL migration pending; live UI unverified
+**Status:** DEPLOYED 2026-06-22 (commit 77e11a9 → lumin-deals.vercel.app); migration run by Efrain.
+Build/type/importer-logic VERIFIED; route confirmed live (auth 307). Live UI round-trip pending Efrain (logged-in).
 **Source:** docs/specs/2026-06-22-coborrower-support-spec.md, docs/plans/2026-06-22-coborrower-support-plan.md
 **Files (new):** supabase-add-deal-contacts.sql, lib/dealContacts.ts, components/CoborrowerManager.tsx,
 app/api/deals/[id]/coborrowers/route.ts.
