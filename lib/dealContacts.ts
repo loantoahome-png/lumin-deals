@@ -71,6 +71,58 @@ export async function linkCoborrower(sb: SupabaseClient, dealId: string, contact
   if (error) throw new Error(`linkCoborrower failed: ${error.message}`)
 }
 
+/**
+ * Link a co-borrower discovered during an Arive import. Unlike the manual path,
+ * Arive co-borrowers are frequently NAME-ONLY (their email/phone are the primary's
+ * and were stripped upstream). Resolution order:
+ *   1. Reuse a co-borrower already on THIS deal whose name matches (idempotent re-imports).
+ *   2. Strong-key match by email/phone (when present).
+ *   3. Create a fresh contact (name-only when that's all we have).
+ * Silently SKIPS (no throw) if it resolves to the deal's own primary.
+ */
+export async function linkCoborrowerFromImport(
+  sb: SupabaseClient,
+  dealId: string,
+  person: { name?: string | null; email?: string | null; phone?: string | null },
+): Promise<'linked' | 'skipped'> {
+  const name = (person.name ?? '').trim()
+  const email = person.email ?? null
+  const phone = person.phone ?? null
+  if (!name && !email && !phone) return 'skipped'
+
+  const { data: deal } = await sb.from('deals').select('borrower_id').eq('id', dealId).maybeSingle()
+  const primaryId = (deal as { borrower_id: string | null } | null)?.borrower_id ?? null
+
+  const normName = (s: string | null) => (s ?? '').toLowerCase().replace(/[^a-z]/g, '')
+  let contactId: string | null = null
+
+  // 1. Reuse an existing co-borrower on this deal by name (idempotency).
+  if (name) {
+    const { data: links } = await sb.from('deal_contacts').select('contact_id').eq('deal_id', dealId).eq('role', 'co')
+    const ids = ((links ?? []) as { contact_id: string }[]).map(l => l.contact_id)
+    if (ids.length) {
+      const { data: cs } = await sb.from('contacts').select('id, display_name').in('id', ids)
+      const hit = ((cs ?? []) as { id: string; display_name: string | null }[])
+        .find(c => normName(c.display_name) === normName(name))
+      if (hit) contactId = hit.id
+    }
+  }
+  // 2. Strong-key match (email/phone) / 3. create.
+  if (!contactId) {
+    if (email || phone) {
+      contactId = await findOrCreateContact(sb, person)
+    } else {
+      const id = crypto.randomUUID()
+      const { error } = await sb.from('contacts').insert({ id, display_name: name || null, email: null, phone: null })
+      if (error) throw new Error(`coborrower contact insert failed: ${error.message}`)
+      contactId = id
+    }
+  }
+  if (!contactId || contactId === primaryId) return 'skipped' // the co-borrower IS the primary — skip quietly
+  await linkCoborrower(sb, dealId, contactId)
+  return 'linked'
+}
+
 /** Remove a co-borrower link. */
 export async function unlinkCoborrower(sb: SupabaseClient, dealId: string, contactId: string): Promise<void> {
   const { error } = await sb.from('deal_contacts').delete().eq('deal_id', dealId).eq('contact_id', contactId)

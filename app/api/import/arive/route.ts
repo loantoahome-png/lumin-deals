@@ -5,7 +5,7 @@ import {
   pipelineGroupForStatus,
   type RowPlan,
 } from '@/lib/ariveCsv'
-import { findOrCreateContact, linkCoborrower } from '@/lib/dealContacts'
+import { linkCoborrowerFromImport } from '@/lib/dealContacts'
 
 // CSV imports can touch hundreds of rows + run sequential Supabase writes —
 // give the function room (Pro plans honor up to 300s).
@@ -118,9 +118,8 @@ export async function POST(req: NextRequest) {
   const applyCoborrower = async (dealId: string, plan: RowPlan) => {
     if (!plan.coborrower) return
     try {
-      const contactId = await findOrCreateContact(supabase, plan.coborrower)
-      await linkCoborrower(supabase, dealId, contactId)
-      coborrowersLinked++
+      const res = await linkCoborrowerFromImport(supabase, dealId, plan.coborrower)
+      if (res === 'linked') coborrowersLinked++
     } catch (e) {
       errors.push({ rowIndex: plan.rowIndex, borrower: plan.borrower, error: `coborrower_link: ${String(e)}` })
     }

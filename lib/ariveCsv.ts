@@ -330,15 +330,21 @@ export function rowToPatch(row: Row): AriveImportPatch {
   // Stash the borrower name for matching fallback
   patch.__borrower_name = (row['Primary Borrower'] ?? '').trim()
 
-  // Optional co-borrower — header names vary across exports, so accept a candidate
-  // list (confirm the real Arive headers when that export is generated).
-  const cobName = pickCol(row, ['Co-Borrower Name', 'CoBorrower Name'])
+  // Optional co-borrower. The NAME is the reliable signal — Arive's co-borrower
+  // email/phone are frequently just COPIES of the primary's contact info. Strip
+  // co-borrower email/phone when they equal the primary's, so we don't resolve to
+  // (or collide with) the primary's own contact.
+  const cobName = pickCol(row, ['Co-Borrower', 'Co-Borrower Name', 'CoBorrower Name'])
     ?? joinName(
       pickCol(row, ['Co-Borrower First Name', 'CoBorrower First Name']),
       pickCol(row, ['Co-Borrower Last Name', 'CoBorrower Last Name']),
     )
-  const cobEmail = pickCol(row, ['Co-Borrower Email', 'CoBorrower Email'])
-  const cobPhone = pickCol(row, ['Co-Borrower Cell Phone', 'Co-Borrower Home Phone', 'CoBorrower Cell Phone'])
+  let cobEmail = pickCol(row, ['Co-Borrower Email', 'CoBorrower Email'])
+  let cobPhone = pickCol(row, ['Co-Borrower Cell Phone', 'Co-Borrower Home Phone', 'CoBorrower Cell Phone'])
+  const primEmail = pickCol(row, ['Primary Borrower Email'])
+  const primPhone = pickCol(row, ['Primary Borrower Cell Phone', 'Primary Borrower Home Phone'])
+  if (cobEmail && primEmail && cobEmail.trim().toLowerCase() === primEmail.trim().toLowerCase()) cobEmail = null
+  if (cobPhone && normPhone(cobPhone) && normPhone(cobPhone) === normPhone(primPhone)) cobPhone = null
   if (cobName || cobEmail || cobPhone) {
     patch.__coborrower = { name: cobName, email: cobEmail ? cobEmail.toLowerCase() : null, phone: cobPhone }
   }
