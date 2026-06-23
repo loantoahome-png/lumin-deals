@@ -1162,7 +1162,9 @@ function PipelinePageInner() {
         d.email?.toLowerCase().includes(q) ||
         d.phone?.toLowerCase().includes(q) ||
         d.property_address?.toLowerCase().includes(q) ||
-        d.investor?.toLowerCase().includes(q)
+        d.investor?.toLowerCase().includes(q) ||
+        d.arive_file_no?.toLowerCase().includes(q) ||      // Arive Loan ID
+        d.investor_file_no?.toLowerCase().includes(q)      // Lender Loan #
       if (!matches) return false
     }
     // Master filter
@@ -1580,7 +1582,7 @@ function PipelinePageInner() {
                 type="text"
                 value={textSearch}
                 onChange={e => setTextSearch(e.target.value)}
-                placeholder="Search name, email, address…"
+                placeholder="Search name, email, address, Arive #, Lender #…"
                 className="pl-8 pr-7 py-1.5 border border-slate-200 rounded-lg text-sm w-56 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               />
               {textSearch && (

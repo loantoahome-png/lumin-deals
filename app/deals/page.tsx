@@ -221,12 +221,15 @@ function DealsPageInner() {
   const filtered = deals.filter(d => {
     const ghlSt = (d.ghl_status ?? '').toLowerCase()
     if (ghlSt === 'lost' || ghlSt.startsWith('abandon')) return false
+    const s = search.toLowerCase()
     const matchSearch = !search ||
-      d.name.toLowerCase().includes(search.toLowerCase()) ||
-      d.property_address?.toLowerCase().includes(search.toLowerCase()) ||
-      d.investor?.toLowerCase().includes(search.toLowerCase()) ||
-      d.email?.toLowerCase().includes(search.toLowerCase()) ||
-      d.phone?.toLowerCase().includes(search.toLowerCase())
+      d.name.toLowerCase().includes(s) ||
+      d.property_address?.toLowerCase().includes(s) ||
+      d.investor?.toLowerCase().includes(s) ||
+      d.email?.toLowerCase().includes(s) ||
+      d.phone?.toLowerCase().includes(s) ||
+      d.arive_file_no?.toLowerCase().includes(s) ||       // Arive Loan ID
+      d.investor_file_no?.toLowerCase().includes(s)       // Lender Loan #
     const matchPipeline = d.pipeline_group === pipelineFilter
     const matchLO = loFilter === 'All' || d.loan_officer?.includes(loFilter)
     const matchStatus = statusFilter === 'All' || d.status === statusFilter
@@ -353,7 +356,7 @@ function DealsPageInner() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               type="text"
-              placeholder="Search by name, address, investor, email…"
+              placeholder="Search by name, address, lender, email, Arive #, Lender #…"
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm w-80 focus:outline-none focus:ring-2 focus:ring-blue-500"
