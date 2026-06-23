@@ -32,7 +32,7 @@
 **Test:** File parses as valid SQL (eyeball); `contacts` + `deals` tables exist (they do).
 **Skills:** lint-and-validate
 **Commit:** "Add deal_contacts table migration for co-borrowers"
-**Status:** [ ]
+**Status:** [x]
 
 ### Task 2: Types — `DealContact` + co-borrowers on `Deal` [P]
 **Files:** `lib/types.ts`
@@ -55,7 +55,7 @@
 **Test:** `npx tsc --noEmit` (count still 7).
 **Skills:** lint-and-validate
 **Commit:** "Add DealContact types + Deal.coborrowers"
-**Status:** [ ]
+**Status:** [x]
 (Can run parallel with Task 1)
 
 ### Task 3: Data-access lib — `deal_contacts` CRUD + find-or-create contact
@@ -79,7 +79,7 @@
 `findOrCreateContact` logic against in-memory fixtures to confirm weak email/phone are not used as keys.
 **Skills:** lint-and-validate, sanitize-pii (handles contact email/phone)
 **Commit:** "Add deal_contacts data-access helpers + find-or-create contact"
-**Status:** [ ]
+**Status:** [x]
 
 ### Task 4: API route — manual link / unlink / promote
 **Depends on:** Task 3
@@ -93,7 +93,7 @@
 **Test:** `npx tsc --noEmit`; after Efrain runs Task 1's migration, `curl` POST/DELETE against `npm run dev`.
 **Skills:** lint-and-validate, owasp-security (input validation, PII write)
 **Commit:** "Add co-borrower link/unlink/promote API route"
-**Status:** [ ]
+**Status:** [x]
 
 ### Task 5: Deal-detail UI — borrower list + link picker + remove/promote
 **Depends on:** Task 4
@@ -109,7 +109,7 @@
 remove it, promote it; confirm primary swaps.
 **Skills:** lint-and-validate, verification-workflow (visual proof)
 **Commit:** "Add co-borrower management UI to deal detail"
-**Status:** [ ]
+**Status:** [x]
 
 ### Task 6: Card `+N` co-borrower badge [P]
 **Depends on:** Task 2
@@ -122,7 +122,7 @@ remove it, promote it; confirm primary swaps.
 **Test:** Visual via preview with a deal that has ≥1 co-borrower (mock or seeded).
 **Skills:** lint-and-validate, verification-workflow
 **Commit:** "Show +N co-borrower badge on cards"
-**Status:** [ ]
+**Status:** [x]
 (Can run parallel with Task 5)
 
 ### Task 7: Contact profile + LoanHistory — co loans flagged; rollups stay primary-only
@@ -138,7 +138,7 @@ remove it, promote it; confirm primary swaps.
 that loan in history (flagged) but their funded volume/comp is unchanged.
 **Skills:** lint-and-validate, verification-workflow
 **Commit:** "Show co-borrower loans on contact profile (rollups stay primary-only)"
-**Status:** [ ]
+**Status:** [x]
 
 ### Task 8: Arive importer — co-borrower columns, find-or-create + link, dedup flag
 **Depends on:** Task 3
@@ -159,7 +159,7 @@ CSV row containing a co-borrower → assert the plan carries the co-borrower and
 on a colliding fixture. `npx tsc --noEmit`.
 **Skills:** lint-and-validate, sanitize-pii, mortgage-advisor (loan/borrower domain)
 **Commit:** "Import: parse + link Arive co-borrowers with dedup flag"
-**Status:** [ ]
+**Status:** [x]
 
 ### Task 9: Import preview UI — co-borrower + dedup warning
 **Depends on:** Task 8
@@ -170,7 +170,7 @@ on a colliding fixture. `npx tsc --noEmit`.
 **Test:** Visual via preview with a CSV containing a co-borrower row + a colliding row.
 **Skills:** lint-and-validate, verification-workflow
 **Commit:** "Show co-borrower link + dedup warning in import preview"
-**Status:** [ ]
+**Status:** [x]
 
 ### Task 10: Acceptance-criteria verification + VERIFICATION-LOG
 **Depends on:** Task 5, Task 6, Task 7, Task 9
@@ -183,7 +183,7 @@ on a colliding fixture. `npx tsc --noEmit`.
 **Test:** All acceptance criteria checked; tsc 7/7.
 **Skills:** verification-workflow
 **Commit:** "Log co-borrower support verification"
-**Status:** [ ]
+**Status:** [x]
 
 ## Dependency / parallelism summary
 - **Wave 1 (parallel):** Task 1, Task 2
