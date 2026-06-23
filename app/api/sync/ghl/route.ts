@@ -990,6 +990,13 @@ async function syncAccount(
             'current_va_loan','city','state','zip','first_name','last_name','email','phone',
             'source','lead_price','ghl_opportunity_id','dnd','dnd_settings','ghl_status',
           ].forEach(maybeSet)
+          // Pre-Arive leads: loan_amount mirrors the GHL opportunity value — write it
+          // even when the opp value is 0/empty so a stale figure (e.g. an old custom-
+          // field import that put $297,500 on a $0 opp) is cleared, not left to linger.
+          // Arive/funded deals keep the guard above (ariveOwnsAmount).
+          if (!ariveOwnsAmount) {
+            patch.loan_amount = (dealData.loan_amount as number | null) ?? null
+          }
           // borrower_id intentionally NOT synced — preserve existing grouping.
           toUpdate.push(patch)
           updated++
@@ -1120,7 +1127,7 @@ async function syncAccount(
     const liveOppIds = new Set<string>()
     // oppId → opportunity value (the loan amount). GHL is the authority for the
     // loan amount on active (non-funded) deals, so we reconcile below.
-    const oppValue = new Map<string, number>()
+    const oppValue = new Map<string, number | null>()
     // oppId → the opportunity's real contactId. The incremental sync skips
     // unchanged opps, so a deal's ghl_contact_id can go stale/wrong (e.g. an
     // opportunity id ends up stored there, breaking the "open in GHL" link).
@@ -1136,8 +1143,9 @@ async function syncAccount(
       const id = str(o.id)
       if (!id) continue
       liveOppIds.add(id)
-      const v = parseAmount(o.monetaryValue as number | null)
-      if (v != null && v > 0) oppValue.set(id, v)
+      // Store EVERY live opp's value — including 0/empty (null) — so the reconcile
+      // can CLEAR a stale loan_amount on a pre-Arive lead, not just bump it up.
+      oppValue.set(id, parseAmount(o.monetaryValue as number | null))
       const cid = str((o.contact as { id?: string } | undefined)?.id ?? o.contactId)
       if (cid) oppContact.set(id, cid)
       // Resolve stage/status exactly as the main create/update loop does.
@@ -1183,7 +1191,7 @@ async function syncAccount(
     // loan amount edited in GHL can go stale. For LIVE, non-funded deals we force
     // loan_amount to match the opportunity's value. Funded deals keep their Arive
     // amount (authoritative for closed loans).
-    const amountFixes: Array<{ id: string; loan_amount: number }> = []
+    const amountFixes: Array<{ id: string; loan_amount: number | null }> = []
     // DND reconciliation: Do-Not-Contact lives on the CONTACT. contactMap holds
     // only the contacts whose opportunity changed this run, so this fires just
     // for those people's deals (including their other loans). We write the
@@ -1218,9 +1226,14 @@ async function syncAccount(
         // Arive owns loan_amount on Arive-backed deals — only reconcile the GHL opp
         // value onto pre-Arive leads (no arive_file_no). Prevents a maintenance run
         // from overwriting the authoritative Arive figure with a GHL number.
-        const v = oppValue.get(d.ghl_opportunity_id)
-        if (!d.arive_file_no && v != null && Number(v) !== Number(d.loan_amount ?? NaN)) {
-          amountFixes.push({ id: d.id, loan_amount: v })
+        // Pre-Arive leads: loan_amount mirrors the GHL opportunity value, INCLUDING
+        // clearing it when the opp value is 0/empty (so a stale figure can't linger).
+        // `has` distinguishes "opp not fetched this run" (skip) from "value is null".
+        if (!d.arive_file_no && oppValue.has(d.ghl_opportunity_id)) {
+          const target = oppValue.get(d.ghl_opportunity_id) ?? null
+          if (Number(target ?? NaN) !== Number(d.loan_amount ?? NaN)) {
+            amountFixes.push({ id: d.id, loan_amount: target })
+          }
         }
         const resolved = oppStageInfo.get(d.ghl_opportunity_id)
         if (resolved && (resolved.status !== d.status || resolved.pipeline_group !== d.pipeline_group)) {

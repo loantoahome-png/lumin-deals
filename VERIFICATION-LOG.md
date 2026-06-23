@@ -1,5 +1,22 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-23] Pre-Arive loan_amount mirrors opp value (clear stale figures)
+**Status:** CHANGED — type-checked + build pass; NOT deployed; needs a GHL sync to apply
+**Files:** app/api/sync/ghl/route.ts
+**Issue:** Scot Gordon showed loan_amount $297,500 (verified in DB: arive_file_no null, non-funded,
+opp LIjxhQID5q4r0KnurXA2) while the GHL opportunity value is $0. The sync could only bump loan_amount
+UP, never clear it: `maybeSet` skips null, and the reconcile only stored opp values with `v > 0`. So a
+stale custom-field figure (pre-2026-06-22) lingered because GHL's $0/null couldn't overwrite it.
+**Changes:** For non-Arive, non-funded deals, loan_amount now MIRRORS the GHL opp value — written even
+when 0/empty. `oppValue` map stores every live opp (incl. null); reconcile uses `oppValue.has()` to
+distinguish "opp not fetched" from "value null"; main update loop sets loan_amount from the opp value
+for pre-Arive deals. Arive/funded guard (`ariveOwnsAmount`) unchanged.
+**Blast radius:** any pre-Arive lead with an empty GHL opp value now tracks it (a manually-typed amount
+on such a lead clears on sync — intended; opp value is the source).
+**Test Method:** `npx tsc --noEmit` (7/7), `npm run build` passes. Functional: deploy + run a full GHL
+sync, then confirm Scot Gordon's loan_amount = his $0 opp value.
+**Result:** Type-clean. NOT deployed — awaiting go-ahead; takes effect on next GHL sync.
+
 ### [2026-06-23] Import co-borrowers: read name col + strip primary's shared contact info
 **Status:** DEPLOYED 2026-06-23 (commit 3f97c70 → lumin-deals.vercel.app)
 **Files:** lib/ariveCsv.ts (rowToPatch), lib/dealContacts.ts (linkCoborrowerFromImport),
