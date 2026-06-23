@@ -586,7 +586,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
         </div>
 
         {/* KPI strip */}
-        <div className="border-t border-slate-700/70 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 divide-x divide-slate-700/70">
+        <div className="border-t border-slate-700/70 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 divide-x divide-slate-700/70">
           <div className="px-5 py-3">
             <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Loan Amount</p>
             <p className="text-lg font-bold mt-0.5">{fmtMoneyShort(form.loan_amount as number | null)}</p>
@@ -603,7 +603,13 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
             <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">FICO</p>
             <p className="text-lg font-bold mt-0.5">{form.credit_score ?? '—'}</p>
           </div>
-          <div className="px-5 py-3 col-span-2 sm:col-span-1">
+          <div className="px-5 py-3">
+            <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Lender</p>
+            <p className="text-base font-bold mt-0.5 truncate" title={form.investor ? String(form.investor) : undefined}>
+              {form.investor || <span className="text-slate-500">—</span>}
+            </p>
+          </div>
+          <div className="px-5 py-3">
             <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">LO · Age</p>
             <p className="text-sm font-semibold mt-0.5 truncate">
               {(form.loan_officer as string | null) ?? <span className="text-slate-500">No LO</span>} · <span className="text-slate-300 font-normal">{ageLabel}</span>
