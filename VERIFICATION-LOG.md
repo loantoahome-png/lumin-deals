@@ -1,5 +1,19 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-23] Import co-borrowers: read name col + strip primary's shared contact info
+**Status:** DEPLOYED 2026-06-23 (commit 3f97c70 → lumin-deals.vercel.app)
+**Files:** lib/ariveCsv.ts (rowToPatch), lib/dealContacts.ts (linkCoborrowerFromImport),
+app/api/import/arive/route.ts.
+**Issue:** First real import threw ~18 `coborrower_link: contact is already the primary borrower`
+errors. Root cause (verified in the export): Arive's `Co-Borrower Email`/`Cell Phone` are copies of
+the PRIMARY's, and the co-borrower NAME lives in a `Co-Borrower` column we weren't reading — so every
+co-borrower resolved to the primary's contact and the guard refused.
+**Changes:** read `Co-Borrower` as the name; null co-borrower email/phone when equal to the primary's;
+new `linkCoborrowerFromImport` — name-only contacts, deal-scoped name dedup (idempotent re-import),
+silent skip when it resolves to the primary.
+**Verified:** real export → Jinsub Kim / Elizabeth Asonye / Sina Dowell parse as co-borrowers (Sina's
+distinct phone kept). tsc 7/7, build passes.
+
 ### [2026-06-22] Co-borrower support (Build) — 10-task plan
 **Status:** DEPLOYED 2026-06-22 (commit 77e11a9 → lumin-deals.vercel.app); migration run by Efrain.
 Build/type/importer-logic VERIFIED; route confirmed live (auth 307). Live UI round-trip pending Efrain (logged-in).
