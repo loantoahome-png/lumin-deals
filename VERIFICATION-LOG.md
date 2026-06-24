@@ -1,7 +1,7 @@
 # Verification Log — Lumin Deals
 
 ### [2026-06-24] PDF Compressor — advanced engine (target-size, custom, grayscale)
-**Status:** BUILD READY — pending deploy.
+**Status:** DEPLOYED — prod READY (`7a70214` → `dpl_BnsuQiKAkvmX5MZrAqpxrn6RPcTs`, lumin-deals.vercel.app, 2026-06-24).
 **Files:** app/tools/pdf-compressor/page.tsx (full rewrite)
 **Issue:** Efrain — "make the PDF compressor more advanced." Prior version: 3 fixed presets that
 rasterize every page to JPEG; could hand back a file BIGGER than the source; no way to hit a size cap.
@@ -20,7 +20,9 @@ reports/underwriting/DealForm/next.config — build ignores TS per next.config).
 `/tools/pdf-compressor` prerendered static). NOT browser-verified locally — every route is auth-gated
 by middleware (redirects to /login without a Supabase session), same auth wall noted on prior entries.
 Live smoke test = drop a real loan PDF and try Target-size + Grayscale.
-**Result:** Type-clean (this file), build READY. Deploy + prod URL appended below after `vercel --prod`.
+**Result:** Type-clean (this file), build READY, **deployed** commit `7a70214` → prod READY. Route +
+worker asset both return 307→/login unauthenticated (app up, auth wall intact — same as prior entries);
+authenticated in-browser smoke test still pending Efrain (drop a real loan PDF, try Target-size + Grayscale).
 
 ### [2026-06-23] Deal page — section titles to blue-600 (color pop)
 **Status:** DEPLOYED — prod READY (`bdbd7e6` → `lumin-deals-4ext8uwoo`, HTTP 200, 2026-06-24).
