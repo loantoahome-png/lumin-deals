@@ -1,7 +1,7 @@
 # Verification Log — Lumin Deals
 
 ### [2026-06-24] BUG: multi-loan borrower — webhook marks a sibling loan funded
-**Status:** DEPLOYED — prod READY (`46c0fc0` → `dpl_HbCJardiRHUVKECVhwCyLsVSmqGQ`, lumin-deals.vercel.app, 2026-06-24). **Data corrected:** deal #16852090 (id a7384568…) set Loan Funded→Re-Submittal, Funded→Loans in Process, won→lost, funded_date cleared (verified before/after via service client, user-authorized). Header `funded_count`/`total_funded_volume` rollup self-corrects on the next identity-resolver pass.
+**Status:** DEPLOYED — prod READY (`46c0fc0` → `dpl_HbCJardiRHUVKECVhwCyLsVSmqGQ`, lumin-deals.vercel.app, 2026-06-24). **Data corrected:** deal #16852090 (id a7384568…) set Loan Funded→Re-Submittal, pipeline_group Funded→Not Ready (dead bucket — matches the sync's `effectiveGroup` for a lost loan), ghl_status won→lost, funded_date cleared (verified before/after via service client, user-authorized). NOTE: the sync ALREADY demotes lost/abandoned opps (route.ts `isDead`/`effectiveGroup` lines 826-829, used on insert+update) — no code change needed there. Header `funded_count`/`total_funded_volume` rollup self-corrects on the next identity-resolver pass.
 **Files:** lib/dealMatcher.ts (findExistingDeal); app/api/webhooks/ghl/route.ts (opportunity + main paths).
 **Symptom:** John Winn has 2 loans — #17074897 funded (GHL Won / Arive Loan Funded) and #16852090
 withdrawn (GHL Re-Submittal/**Lost** / Arive **Adverse**). Dashboard showed BOTH as "Loan Funded."
