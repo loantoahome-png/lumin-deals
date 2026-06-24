@@ -341,12 +341,6 @@ function DealsPageInner() {
             <button onClick={fetchDeals} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg">
               <RefreshCw className="w-4 h-4" />
             </button>
-            <Link
-              href="/deals/new"
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-            >
-              + New Deal
-            </Link>
           </div>
         </div>
 

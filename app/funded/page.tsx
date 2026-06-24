@@ -5,7 +5,6 @@ import { supabase } from '@/lib/supabase'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal } from '@/lib/types'
 import { pushStageToGHL } from '@/lib/pushStage'
-import Link from 'next/link'
 import { RefreshCw } from 'lucide-react'
 import FundedTracker from '@/components/FundedTracker'
 
@@ -45,9 +44,6 @@ export default function FundedPage() {
           <button onClick={fetchDeals} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg" title="Refresh">
             <RefreshCw className="w-4 h-4" />
           </button>
-          <Link href="/deals/new" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
-            + New Deal
-          </Link>
         </div>
       </div>
 

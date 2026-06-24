@@ -7,7 +7,6 @@ import {
   LayoutDashboard,
   Kanban,
   Table2,
-  PlusCircle,
   Building2,
   Wrench,
   ClipboardList,
@@ -58,7 +57,6 @@ const navGroups = [
     label: 'Actions',
     alwaysOpen: true,
     items: [
-      { href: '/deals/new', label: 'Add Deal', icon: PlusCircle },
       { href: '/tasks', label: 'Tasks', icon: ClipboardList },
       { href: '/tools', label: 'Tools', icon: Wrench },
       { href: '/notes', label: 'Notes', icon: StickyNote },

@@ -1,7 +1,22 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-23] Remove manual "Add Deal" feature entirely
+**Status:** CHANGED — type-checked + build pass; pending deploy
+**Files:** components/Sidebar.tsx, app/pipeline/page.tsx, app/deals/page.tsx, app/funded/page.tsx,
+components/Dashboard.tsx, app/deals/new/page.tsx
+**Issue:** Efrain — remove the "Add deal" entry points entirely (deals come from GHL sync + Arive
+import, not manual entry).
+**Changes:** Removed the Sidebar "Add Deal" nav item (+ now-unused `PlusCircle` import) and all four
+"+ New Deal" buttons (Pipeline, Active Escrows, Funded, Dashboard headers). `/deals/new` now
+server-redirects to `/deals` so it can't be reached directly. Removed the now-unused `Link` import in
+funded/page.tsx. DealForm is kept — still used by the Edit Deal route.
+**Test Method:** grep confirms zero remaining `/deals/new` / "Add Deal" / "+ New Deal" references;
+`npx tsc --noEmit` (no new errors); `npm run build` (✓ `/deals/new` builds as the redirect).
+**Result:** Build READY. Pending deploy. Live-confirm: sidebar has no Add Deal tab; the four buttons
+are gone; visiting /deals/new bounces to /deals.
+
 ### [2026-06-23] Audit fixes: back-nav (new/edit) + date off-by-one cluster
-**Status:** CHANGED — type-checked (no NEW errors) + build pass; pending deploy
+**Status:** DEPLOYED — prod READY (`ed3c19f` → `lumin-deals-e850ty0ob`, HTTP 200, 2026-06-23). Live-click/date confirm pending.
 **Files:** lib/utils.ts, components/DealForm.tsx, components/NotificationBell.tsx,
 app/pipeline/page.tsx, components/LoanHistory.tsx
 **Issue:** Found while auditing the dashboard at Efrain's request.
