@@ -1,5 +1,22 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-24] Contact page — show Arive/Lender loan #s + delete a loan
+**Status:** BUILD READY — pending deploy.
+**Files:** NEW app/api/deals/[id]/route.ts (DELETE handler); app/contacts/[id]/page.tsx (Loans section).
+**Issue:** Efrain — on the contact "Loans" section, display the Arive loan # and Lender loan #, and
+allow selecting a loan and deleting it (looking at a John Winn duplicate: two identical $300k HELOCs).
+**Changes:** Each loan row now shows **Arive #** (`arive_file_no`) and **Lender #** (`investor_file_no`,
+the field the Arive CSV "Lender Loan #" maps to). Added a per-row trash button → confirmation modal
+(shows loan name/type/amount/#s + a caveat that GHL sync may re-create it) → `DELETE /api/deals/{id}`.
+Endpoint uses `createServiceClient` + hard delete, **identical to the proven merge route** (line 144);
+`deal_contacts` rows cascade via FK. UI removes the row optimistically on success.
+**Test Method:** `npx tsc --noEmit` (contacts + api/deals clean). `npm run build` (✓ compiled,
+`/api/deals/[id]` registered, `/contacts/[id]` builds). **Intentionally NOT live-tested**: (1) the loan
+list needs an authed Supabase session (deals RLS blocks anon), (2) executing a real delete is
+destructive prod data — left for Efrain. Delete query mirrors the merge route already running in prod.
+**Result:** Type-clean, build READY. Deploy below. First real delete + the #-display want an
+eyeball by Efrain (logged in).
+
 ### [2026-06-24] PDF Compressor — smart-hybrid engine + MozJPEG (better quality-per-byte)
 **Status:** DEPLOYED — prod READY (`8d5dafd` → `dpl_59tcq1TX1xAcMug1gTUXAW8j7n8r`, lumin-deals.vercel.app, route 307→/login = healthy, 2026-06-24).
 **Files:** NEW app/tools/pdf-compressor/compressEngine.ts; app/tools/pdf-compressor/CompressTab.tsx

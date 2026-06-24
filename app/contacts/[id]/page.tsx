@@ -8,7 +8,7 @@ import { formatCurrency, formatDate, titleCase, dndLabel, dndSummary, cleanSourc
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { ariveUrl } from '@/lib/ariveLinks'
 import Link from 'next/link'
-import { ArrowLeft, ExternalLink, Ban, Clock } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Ban, Clock, Trash2, Loader2, AlertTriangle } from 'lucide-react'
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -164,6 +164,9 @@ export default function ContactDetailPage() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [coLoans, setCoLoans] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
+  const [pendingDelete, setPendingDelete] = useState<Deal | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -185,6 +188,24 @@ export default function ContactDetailPage() {
   }, [id])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  async function handleDelete() {
+    if (!pendingDelete) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      const res = await fetch(`/api/deals/${pendingDelete.id}`, { method: 'DELETE' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      setDeals(prev => prev.filter(x => x.id !== pendingDelete.id))
+      setCoLoans(prev => prev.filter(x => x.id !== pendingDelete.id))
+      setPendingDelete(null)
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   const subLinks = useMemo(() => subAccountLinks(deals), [deals])
   const reach = useMemo(() => reachability(deals), [deals])
@@ -350,6 +371,13 @@ export default function ContactDetailPage() {
                           {d.funded_date ? <span>· Funded {formatDate(d.funded_date)}</span> : null}
                           {d.loan_officer ? <span>· {d.loan_officer}</span> : null}
                         </div>
+                        {(d.arive_file_no || d.investor_file_no) && (
+                          <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-400 flex-wrap">
+                            {d.arive_file_no && <span>Arive #{d.arive_file_no}</span>}
+                            {d.arive_file_no && d.investor_file_no && <span>·</span>}
+                            {d.investor_file_no && <span>Lender #{d.investor_file_no}</span>}
+                          </div>
+                        )}
                       </div>
                       <div className="shrink-0 text-right">
                         <div className="text-sm font-semibold text-slate-800 tabular-nums">
@@ -366,6 +394,13 @@ export default function ContactDetailPage() {
                               Arive <ExternalLink className="w-3 h-3" />
                             </a>
                           )}
+                          <button
+                            onClick={() => { setPendingDelete(d); setDeleteError(null) }}
+                            className="text-[11px] text-slate-300 hover:text-red-600 inline-flex items-center"
+                            title="Delete this loan"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -432,6 +467,46 @@ export default function ContactDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Delete-loan confirmation */}
+      {pendingDelete && (
+        <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4" onClick={() => { if (!deleting) setPendingDelete(null) }}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-full bg-red-50 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-red-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-semibold text-slate-900">Delete this loan?</h3>
+                <p className="text-sm text-slate-600 mt-0.5">This permanently removes the loan from the dashboard and can&apos;t be undone.</p>
+              </div>
+            </div>
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="text-sm font-medium text-slate-800">{titleCase(pendingDelete.name) || pendingDelete.name}</div>
+              <div className="text-xs text-slate-500 mt-0.5">
+                {[pendingDelete.loan_type, pendingDelete.loan_amount ? formatCurrency(pendingDelete.loan_amount) : null, pendingDelete.status].filter(Boolean).join(' · ')}
+              </div>
+              {(pendingDelete.arive_file_no || pendingDelete.investor_file_no) && (
+                <div className="text-[11px] text-slate-400 mt-1">
+                  {pendingDelete.arive_file_no && <>Arive #{pendingDelete.arive_file_no}</>}
+                  {pendingDelete.arive_file_no && pendingDelete.investor_file_no && ' · '}
+                  {pendingDelete.investor_file_no && <>Lender #{pendingDelete.investor_file_no}</>}
+                </div>
+              )}
+            </div>
+            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-2 mt-3">
+              If this loan still exists in GHL, a future sync may re-create it. Best for clearing duplicates or bad rows.
+            </p>
+            {deleteError && <p className="text-xs text-red-600 mt-2">{deleteError}</p>}
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setPendingDelete(null)} disabled={deleting} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-50">Cancel</button>
+              <button onClick={handleDelete} disabled={deleting} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50">
+                {deleting ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Deleting…</> : <><Trash2 className="w-3.5 h-3.5" /> Delete loan</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
