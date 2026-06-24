@@ -1,7 +1,19 @@
 # Verification Log — Lumin Deals
 
-### [2026-06-23] Deal page visual hierarchy — titles pop, inputs more defined
+### [2026-06-23] Deal page — more pop + section separation (follow-up)
 **Status:** CHANGED — build pass; pending deploy
+**Files:** app/deals/[id]/page.tsx
+**Issue:** Efrain wanted more pop + clearer section separation after the first hierarchy pass.
+**Changes:** Inputs now have a `bg-slate-50` resting fill that turns white on focus (fields read as
+distinct fillable boxes; the stronger slate-300 border still distinguishes them from the lighter
+read-only "(auto)" fields). Section titles bumped `text-[13px]` → `text-sm`. Each section header now
+has a bottom divider (`pb-2.5 border-b border-slate-200`) so it reads as a titled block, on top of
+the existing between-section `divide-y`.
+**Test Method:** `npm run build` (✓ compiled). Visual — eyeball live.
+**Result:** Build READY. Pending deploy.
+
+### [2026-06-23] Deal page visual hierarchy — titles pop, inputs more defined
+**Status:** DEPLOYED — prod READY (`ea27358` → `lumin-deals-dvonzvuyc`, HTTP 200, 2026-06-23).
 **Files:** app/deals/[id]/page.tsx (shared Section/Field/input style constants)
 **Issue:** Efrain — on the deal "loan cards" everything blended: section titles, field labels, and
 inputs were all the same gray (titles + labels both `text-slate-500`; inputs `border-slate-200` on
