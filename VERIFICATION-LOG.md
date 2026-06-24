@@ -1,7 +1,29 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-24] PDF Compressor — advanced engine (target-size, custom, grayscale)
+**Status:** BUILD READY — pending deploy.
+**Files:** app/tools/pdf-compressor/page.tsx (full rewrite)
+**Issue:** Efrain — "make the PDF compressor more advanced." Prior version: 3 fixed presets that
+rasterize every page to JPEG; could hand back a file BIGGER than the source; no way to hit a size cap.
+**Changes:** Three modes via a segmented control — (1) **Presets** (unchanged Aggressive/Recommended/
+High Quality); (2) **Target size** — enter an MB cap (chips 2/5/10/15/25), engine renders each page
+once per resolution and encodes at 6 candidate qualities, then picks the highest global quality that
+fits under the cap (steps resolution down if even the lowest quality overshoots); (3) **Custom** —
+resolution (DPI) + JPEG quality sliders. Global **grayscale** toggle (Rec.601 luma pass — big savings
+on scanned color docs). **Never-bigger guarantee**: if the rebuild ≥ source, the original bytes are
+kept and flagged "no change." Plus: page-1 preview thumbnails, per-file page counts, **Download all**
+(no zip dep — sequential blob clicks), **Cancel** mid-run (cooperative, keeps finished files),
+append-don't-replace file picking with dedupe, drag highlight, and clean output metadata
+(fresh pdf-lib doc drops the source's author/producer/etc.). Still 100% client-side.
+**Test Method:** `npx tsc --noEmit` (pdf-compressor clean; the 4–5 errors are all pre-existing in
+reports/underwriting/DealForm/next.config — build ignores TS per next.config). `npm run build` (✓
+`/tools/pdf-compressor` prerendered static). NOT browser-verified locally — every route is auth-gated
+by middleware (redirects to /login without a Supabase session), same auth wall noted on prior entries.
+Live smoke test = drop a real loan PDF and try Target-size + Grayscale.
+**Result:** Type-clean (this file), build READY. Deploy + prod URL appended below after `vercel --prod`.
+
 ### [2026-06-23] Deal page — section titles to blue-600 (color pop)
-**Status:** CHANGED — build pass; pending deploy
+**Status:** DEPLOYED — prod READY (`bdbd7e6` → `lumin-deals-4ext8uwoo`, HTTP 200, 2026-06-24).
 **Files:** app/deals/[id]/page.tsx (Section component)
 **Issue:** Efrain wanted more pop on the section titles; picked the blue option from a mockup
 (options shown: current slate / blue / blue-bar / indigo).
