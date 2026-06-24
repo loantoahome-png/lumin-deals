@@ -65,8 +65,8 @@ function Section({ title, icon, children }: { title: string; icon?: React.ReactN
   return (
     <div className="p-5">
       <div className="flex items-center gap-2 mb-4 pb-2.5 border-b border-slate-200">
-        {icon && <span className="text-blue-500 shrink-0">{icon}</span>}
-        <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">{title}</h2>
+        {icon && <span className="text-blue-600 shrink-0">{icon}</span>}
+        <h2 className="text-sm font-bold text-blue-600 uppercase tracking-wider">{title}</h2>
       </div>
       {children}
     </div>

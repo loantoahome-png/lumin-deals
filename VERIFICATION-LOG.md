@@ -1,7 +1,17 @@
 # Verification Log — Lumin Deals
 
-### [2026-06-23] Deal page — more pop + section separation (follow-up)
+### [2026-06-23] Deal page — section titles to blue-600 (color pop)
 **Status:** CHANGED — build pass; pending deploy
+**Files:** app/deals/[id]/page.tsx (Section component)
+**Issue:** Efrain wanted more pop on the section titles; picked the blue option from a mockup
+(options shown: current slate / blue / blue-bar / indigo).
+**Changes:** Section titles + icons `text-slate-800`/`text-blue-500` → unified `text-blue-600`
+(matches the app's blue accent). Underline divider + larger size from the prior pass stay.
+**Test Method:** `npm run build` (✓ compiled).
+**Result:** Build READY. Pending deploy.
+
+### [2026-06-23] Deal page — more pop + section separation (follow-up)
+**Status:** DEPLOYED — prod READY (`b2f3339` → `lumin-deals-1t6ckl4ej`, HTTP 200, 2026-06-23).
 **Files:** app/deals/[id]/page.tsx
 **Issue:** Efrain wanted more pop + clearer section separation after the first hierarchy pass.
 **Changes:** Inputs now have a `bg-slate-50` resting fill that turns white on focus (fields read as
