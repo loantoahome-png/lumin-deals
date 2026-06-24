@@ -1,7 +1,23 @@
 # Verification Log — Lumin Deals
 
-### [2026-06-23] Remove manual "Add Deal" feature entirely
+### [2026-06-23] Remove Communications Log + Document Checklist from deal page
 **Status:** CHANGED — type-checked + build pass; pending deploy
+**Files:** app/deals/[id]/page.tsx; deleted components/CommunicationsLog.tsx,
+components/DocumentChecklist.tsx, lib/documentTemplates.ts
+**Issue:** Efrain — remove the Communications Log and Document Checklist sections from the deal
+detail page entirely.
+**Changes:** Removed both `<Section>` blocks from the deal page and their imports; dropped the
+now-unused `Phone`/`FileText` icons and `Communication`/`DealDocument` type imports. Deleted the two
+orphaned component files plus their only dependency, `lib/documentTemplates.ts` (verified no other
+importers). No API routes existed for these. Left the `deals.communications` / `deals.documents` DB
+columns intact (data preserved, just no UI).
+**Test Method:** grep confirms zero remaining `CommunicationsLog` / `DocumentChecklist` /
+`documentTemplates` references; `npx tsc --noEmit` (deal page: 0 errors); `npm run build` (✓ compiled).
+**Result:** Build READY. Pending deploy. Live-confirm: deal page shows Conversation → Tasks → Notes
+with no Communications Log or Document Checklist between them.
+
+### [2026-06-23] Remove manual "Add Deal" feature entirely
+**Status:** DEPLOYED — prod READY (`3cb367f` → `lumin-deals-7gp9sxudn`, /deals/new now 307-redirects, 2026-06-23).
 **Files:** components/Sidebar.tsx, app/pipeline/page.tsx, app/deals/page.tsx, app/funded/page.tsx,
 components/Dashboard.tsx, app/deals/new/page.tsx
 **Issue:** Efrain — remove the "Add deal" entry points entirely (deals come from GHL sync + Arive

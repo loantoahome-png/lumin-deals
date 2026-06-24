@@ -12,20 +12,18 @@ import { use } from 'react'
 import {
   ArrowLeft, Check, Trash2, X, ExternalLink,
   DollarSign, Home, Lock, Hash, User, Users,
-  Calendar, MessageSquare, Building2, Phone, AlertOctagon, ClipboardList, FileText,
+  Calendar, MessageSquare, Building2, AlertOctagon, ClipboardList,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import LoanHistory from '@/components/LoanHistory'
 import CoborrowerManager from '@/components/CoborrowerManager'
 import RealEstateOwned from '@/components/RealEstateOwned'
-import CommunicationsLog from '@/components/CommunicationsLog'
 import ConversationThread from '@/components/ConversationThread'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { isChannelBlocked, dndLabel } from '@/lib/utils'
 import DealTasks from '@/components/DealTasks'
-import DocumentChecklist from '@/components/DocumentChecklist'
 import { WAITING_ON_OPTIONS, PROCESSORS } from '@/lib/types'
-import type { REOProperty, Communication, DealDocument } from '@/lib/types'
+import type { REOProperty } from '@/lib/types'
 
 // ── Format helpers ──────────────────────────────────────────────────────────
 function fmtMoneyShort(n: number | null | undefined): string {
@@ -849,23 +847,6 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                 />
               </Section>
             )}
-
-            {/* Communications log */}
-            <Section title="Communications Log" icon={<Phone className="w-4 h-4" />}>
-              <CommunicationsLog
-                value={(form.communications as Communication[] | null) || []}
-                onChange={v => set('communications', v)}
-              />
-            </Section>
-
-            {/* Document checklist — needs-list per loan type */}
-            <Section title="Document Checklist" icon={<FileText className="w-4 h-4" />}>
-              <DocumentChecklist
-                value={(form.documents as DealDocument[] | null) || []}
-                onChange={v => set('documents', v)}
-                loanType={form.loan_type ?? null}
-              />
-            </Section>
 
             {/* Tasks — tied to this deal, also visible on /tasks */}
             <Section title="Tasks" icon={<ClipboardList className="w-4 h-4" />}>
