@@ -1,7 +1,21 @@
 # Verification Log — Lumin Deals
 
-### [2026-06-23] Adverse moved to Key Dates as a date input
+### [2026-06-23] Fix: deal-detail back arrow always went to Active Escrows
 **Status:** CHANGED — type-checked + build pass; pending deploy
+**Files:** app/deals/[id]/page.tsx
+**Issue:** Efrain — editing a lead from Hot Leads then clicking the "← All Deals" back arrow landed
+on Active Escrows instead of returning to Hot Leads. Root cause: the back link was hardcoded
+`<Link href="/deals">`, and `/deals` renders `EscrowTracker` (the Active Escrows view). It ignored
+the originating page regardless of where you came from.
+**Changes:** Replaced the hardcoded link with a `<button>` that calls `router.back()` (returns to the
+previous page — Hot Leads, Pipeline, etc., with scroll restored), falling back to `router.push('/deals')`
+when there's no in-app history (direct load / refresh). Relabeled "All Deals" → "Back" to match.
+**Test Method:** `npx tsc --noEmit` (edited file: 0 errors); `npm run build` (✓ `/deals/[id]`).
+**Result:** Build READY. Pending deploy. Live behavior to confirm after deploy: Hot Leads → open lead
+→ Back → returns to Hot Leads.
+
+### [2026-06-23] Adverse moved to Key Dates as a date input
+**Status:** VERIFIED — deployed to prod (READY)
 **Files:** app/deals/[id]/page.tsx, lib/types.ts
 **Issue:** Efrain — `Adverse` was rendered as a plain text box in Loan Details (next to County), but
 the Arive import brings it in as the Adverse Action **date**. Verified against live data: every
@@ -11,7 +25,8 @@ non-null `adverse` value in the `deals` table is an ISO date (e.g. 2026-06-16, 2
 Key Dates section (after Last Contact). No data migration needed — the column already stores
 `YYYY-MM-DD` text, which `<input type="date">` consumes directly. Fixed the types.ts comment.
 **Test Method:** `npx tsc --noEmit` (edited files: 0 errors); `npm run build` (✓ `/deals/[id]`).
-**Result:** Build READY. Pending deploy.
+**Result:** Build READY. **Deployed** commit `f0bd359` → prod, alias `lumin-deals.vercel.app`
+(`lumin-deals-au4eje33u`) Ready, HTTP 200, 2026-06-23. origin/main in sync (pushed).
 
 ### [2026-06-23] Lender added to deal detail header KPI strip
 **Status:** VERIFIED — deployed to prod (READY)

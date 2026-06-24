@@ -464,9 +464,17 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
     <div className="p-6 max-w-6xl mx-auto">
 
       {/* ── Back link ─────────────────────────────────────────────── */}
-      <Link href="/deals" className="flex items-center gap-1 text-slate-500 hover:text-slate-700 text-sm mb-3 transition-colors w-fit">
-        <ArrowLeft className="w-3.5 h-3.5" /> All Deals
-      </Link>
+      {/* Return to wherever the user came from (Hot Leads, Pipeline, etc.),
+          not a hardcoded page. Fall back to /deals on a direct load/refresh. */}
+      <button
+        onClick={() => {
+          if (window.history.length > 1) router.back()
+          else router.push('/deals')
+        }}
+        className="flex items-center gap-1 text-slate-500 hover:text-slate-700 text-sm mb-3 transition-colors w-fit"
+      >
+        <ArrowLeft className="w-3.5 h-3.5" /> Back
+      </button>
 
       {/* ── Hero card ─────────────────────────────────────────────── */}
       <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 rounded-2xl shadow-sm overflow-hidden text-white mb-5">
