@@ -8,7 +8,7 @@ import { formatCurrency, formatDate, titleCase, dndLabel, dndSummary, cleanSourc
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { ariveUrl } from '@/lib/ariveLinks'
 import Link from 'next/link'
-import { ArrowLeft, ExternalLink, Ban, Clock, Trash2, Loader2, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Ban, Clock, Trash2, Loader2, AlertTriangle, Layers } from 'lucide-react'
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -164,9 +164,11 @@ export default function ContactDetailPage() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [coLoans, setCoLoans] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
-  const [pendingDelete, setPendingDelete] = useState<Deal | null>(null)
-  const [deleting, setDeleting] = useState(false)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [confirmMode, setConfirmMode] = useState<'delete' | 'merge' | null>(null)
+  const [primaryId, setPrimaryId] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -189,21 +191,74 @@ export default function ContactDetailPage() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  const selectedDeals = deals.filter(d => selected.has(d.id))
+
+  function toggleSelect(dealId: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(dealId)) next.delete(dealId)
+      else next.add(dealId)
+      return next
+    })
+  }
+  function clearSelection() {
+    setSelected(new Set())
+    setConfirmMode(null)
+    setPrimaryId(null)
+    setActionError(null)
+  }
+  function openMerge() {
+    // Default primary: a funded loan, else the largest, else the first selected.
+    const funded = selectedDeals.find(d => d.funded_date)
+    const byAmount = [...selectedDeals].sort((a, b) => (b.loan_amount ?? 0) - (a.loan_amount ?? 0))
+    setPrimaryId(funded?.id ?? byAmount[0]?.id ?? selectedDeals[0]?.id ?? null)
+    setActionError(null)
+    setConfirmMode('merge')
+  }
+  function openDelete() {
+    setActionError(null)
+    setConfirmMode('delete')
+  }
+
   async function handleDelete() {
-    if (!pendingDelete) return
-    setDeleting(true)
-    setDeleteError(null)
+    if (!selectedDeals.length) return
+    setBusy(true)
+    setActionError(null)
     try {
-      const res = await fetch(`/api/deals/${pendingDelete.id}`, { method: 'DELETE' })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`)
-      setDeals(prev => prev.filter(x => x.id !== pendingDelete.id))
-      setCoLoans(prev => prev.filter(x => x.id !== pendingDelete.id))
-      setPendingDelete(null)
+      for (const dealId of selectedDeals.map(d => d.id)) {
+        const res = await fetch(`/api/deals/${dealId}`, { method: 'DELETE' })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      }
+      setDeals(prev => prev.filter(x => !selected.has(x.id)))
+      setCoLoans(prev => prev.filter(x => !selected.has(x.id)))
+      clearSelection()
     } catch (e) {
-      setDeleteError(e instanceof Error ? e.message : String(e))
+      setActionError(e instanceof Error ? e.message : String(e))
     } finally {
-      setDeleting(false)
+      setBusy(false)
+    }
+  }
+
+  async function handleMerge() {
+    if (!primaryId || selectedDeals.length < 2) return
+    setBusy(true)
+    setActionError(null)
+    try {
+      const secondaryIds = selectedDeals.filter(d => d.id !== primaryId).map(d => d.id)
+      const res = await fetch('/api/deals/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ primaryId, secondaryIds }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!data.success) throw new Error(data.error || `HTTP ${res.status}`)
+      clearSelection()
+      await fetchData()
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -339,7 +394,23 @@ export default function ContactDetailPage() {
 
           {/* Loans */}
           <section>
-            <h2 className="text-sm font-semibold text-slate-700 mb-2">Loans ({deals.length})</h2>
+            <div className="flex items-center justify-between gap-2 mb-2 min-h-[28px]">
+              <h2 className="text-sm font-semibold text-slate-700">Loans ({deals.length})</h2>
+              {selected.size > 0 && (
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-slate-500">{selected.size} selected</span>
+                  {selected.size >= 2 && (
+                    <button onClick={openMerge} className="inline-flex items-center gap-1 px-2.5 py-1 font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">
+                      <Layers className="w-3.5 h-3.5" /> Merge
+                    </button>
+                  )}
+                  <button onClick={openDelete} className="inline-flex items-center gap-1 px-2.5 py-1 font-medium text-red-600 border border-red-200 rounded-md hover:bg-red-50">
+                    <Trash2 className="w-3.5 h-3.5" /> Delete
+                  </button>
+                  <button onClick={clearSelection} className="text-slate-400 hover:text-slate-700">Clear</button>
+                </div>
+              )}
+            </div>
             {deals.length === 0 ? (
               <p className="text-sm text-slate-400">No loans on this person.</p>
             ) : (
@@ -347,8 +418,17 @@ export default function ContactDetailPage() {
                 {deals.map(d => {
                   const ghl = ghlContactUrl(d)
                   const arive = ariveUrl(d.arive_file_no)
+                  const source = cleanSource(d.source)
+                  const isSel = selected.has(d.id)
                   return (
-                    <div key={d.id} className="flex items-start gap-4 px-4 py-3 border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
+                    <div key={d.id} className={`flex items-start gap-3 px-4 py-3 border-b border-slate-100 last:border-b-0 ${isSel ? 'bg-blue-50/60' : 'hover:bg-slate-50'}`}>
+                      <input
+                        type="checkbox"
+                        checked={isSel}
+                        onChange={() => toggleSelect(d.id)}
+                        className="mt-1 w-4 h-4 accent-blue-600 shrink-0"
+                        title="Select loan"
+                      />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <Link href={`/deals/${d.id}`} className="font-medium text-blue-600 hover:text-blue-700">
@@ -370,6 +450,7 @@ export default function ContactDetailPage() {
                           {d.rate ? <span>· {d.rate}%</span> : null}
                           {d.funded_date ? <span>· Funded {formatDate(d.funded_date)}</span> : null}
                           {d.loan_officer ? <span>· {d.loan_officer}</span> : null}
+                          {source ? <span>· {source}</span> : null}
                         </div>
                         {(d.arive_file_no || d.investor_file_no) && (
                           <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-400 flex-wrap">
@@ -394,13 +475,6 @@ export default function ContactDetailPage() {
                               Arive <ExternalLink className="w-3 h-3" />
                             </a>
                           )}
-                          <button
-                            onClick={() => { setPendingDelete(d); setDeleteError(null) }}
-                            className="text-[11px] text-slate-300 hover:text-red-600 inline-flex items-center"
-                            title="Delete this loan"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
                         </div>
                       </div>
                     </div>
@@ -468,41 +542,81 @@ export default function ContactDetailPage() {
         </div>
       </div>
 
-      {/* Delete-loan confirmation */}
-      {pendingDelete && (
-        <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4" onClick={() => { if (!deleting) setPendingDelete(null) }}>
+      {/* Delete / Merge confirmation */}
+      {confirmMode && selectedDeals.length > 0 && (
+        <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4" onClick={() => { if (!busy) { setConfirmMode(null); setActionError(null) } }}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
-            <div className="flex items-start gap-3">
-              <div className="w-9 h-9 rounded-full bg-red-50 flex items-center justify-center shrink-0">
-                <AlertTriangle className="w-5 h-5 text-red-600" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-slate-900">Delete this loan?</h3>
-                <p className="text-sm text-slate-600 mt-0.5">This permanently removes the loan from the dashboard and can&apos;t be undone.</p>
-              </div>
-            </div>
-            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div className="text-sm font-medium text-slate-800">{titleCase(pendingDelete.name) || pendingDelete.name}</div>
-              <div className="text-xs text-slate-500 mt-0.5">
-                {[pendingDelete.loan_type, pendingDelete.loan_amount ? formatCurrency(pendingDelete.loan_amount) : null, pendingDelete.status].filter(Boolean).join(' · ')}
-              </div>
-              {(pendingDelete.arive_file_no || pendingDelete.investor_file_no) && (
-                <div className="text-[11px] text-slate-400 mt-1">
-                  {pendingDelete.arive_file_no && <>Arive #{pendingDelete.arive_file_no}</>}
-                  {pendingDelete.arive_file_no && pendingDelete.investor_file_no && ' · '}
-                  {pendingDelete.investor_file_no && <>Lender #{pendingDelete.investor_file_no}</>}
+            {confirmMode === 'delete' ? (
+              <>
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-full bg-red-50 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-5 h-5 text-red-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-slate-900">Delete {selectedDeals.length === 1 ? 'this loan' : `${selectedDeals.length} loans`}?</h3>
+                    <p className="text-sm text-slate-600 mt-0.5">This permanently removes {selectedDeals.length === 1 ? 'it' : 'them'} from the dashboard and can&apos;t be undone.</p>
+                  </div>
                 </div>
-              )}
-            </div>
-            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-2 mt-3">
-              If this loan still exists in GHL, a future sync may re-create it. Best for clearing duplicates or bad rows.
-            </p>
-            {deleteError && <p className="text-xs text-red-600 mt-2">{deleteError}</p>}
+                <div className="mt-3 space-y-1.5 max-h-52 overflow-auto">
+                  {selectedDeals.map(d => (
+                    <div key={d.id} className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                      <div className="text-sm font-medium text-slate-800">{titleCase(d.name) || d.name}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">{[d.loan_type, d.loan_amount ? formatCurrency(d.loan_amount) : null, d.status].filter(Boolean).join(' · ')}</div>
+                      {(d.arive_file_no || d.investor_file_no) && (
+                        <div className="text-[11px] text-slate-400 mt-0.5">{[d.arive_file_no ? `Arive #${d.arive_file_no}` : null, d.investor_file_no ? `Lender #${d.investor_file_no}` : null].filter(Boolean).join(' · ')}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-2 mt-3">
+                  If a loan still exists in GHL, a future sync may re-create it. Best for clearing duplicates or bad rows.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-full bg-blue-50 flex items-center justify-center shrink-0">
+                    <Layers className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-slate-900">Merge {selectedDeals.length} loans?</h3>
+                    <p className="text-sm text-slate-600 mt-0.5">Pick the loan to keep. Blank fields fill from the others, notes &amp; tags combine, then the rest are deleted.</p>
+                  </div>
+                </div>
+                <div className="mt-3 space-y-1.5 max-h-60 overflow-auto">
+                  {selectedDeals.map(d => {
+                    const isPrimary = primaryId === d.id
+                    return (
+                      <label key={d.id} className={`flex items-start gap-2.5 rounded-lg border p-2.5 cursor-pointer ${isPrimary ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200' : 'border-slate-200 hover:border-slate-300'}`}>
+                        <input type="radio" name="merge-primary" checked={isPrimary} onChange={() => setPrimaryId(d.id)} className="mt-0.5 w-4 h-4 accent-blue-600 shrink-0" />
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-slate-800">
+                            {titleCase(d.name) || d.name}
+                            {isPrimary && <span className="ml-1.5 text-[10px] font-semibold text-blue-700">KEEP</span>}
+                          </div>
+                          <div className="text-xs text-slate-500 mt-0.5">{[d.loan_type, d.loan_amount ? formatCurrency(d.loan_amount) : null, d.status, d.funded_date ? `Funded ${formatDate(d.funded_date)}` : null].filter(Boolean).join(' · ')}</div>
+                          {(d.arive_file_no || d.investor_file_no) && (
+                            <div className="text-[11px] text-slate-400 mt-0.5">{[d.arive_file_no ? `Arive #${d.arive_file_no}` : null, d.investor_file_no ? `Lender #${d.investor_file_no}` : null].filter(Boolean).join(' · ')}</div>
+                          )}
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+            {actionError && <p className="text-xs text-red-600 mt-2">{actionError}</p>}
             <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => setPendingDelete(null)} disabled={deleting} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-50">Cancel</button>
-              <button onClick={handleDelete} disabled={deleting} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50">
-                {deleting ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Deleting…</> : <><Trash2 className="w-3.5 h-3.5" /> Delete loan</>}
-              </button>
+              <button onClick={() => { setConfirmMode(null); setActionError(null) }} disabled={busy} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-50">Cancel</button>
+              {confirmMode === 'delete' ? (
+                <button onClick={handleDelete} disabled={busy} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50">
+                  {busy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Deleting…</> : <><Trash2 className="w-3.5 h-3.5" /> Delete {selectedDeals.length > 1 ? `${selectedDeals.length} loans` : 'loan'}</>}
+                </button>
+              ) : (
+                <button onClick={handleMerge} disabled={busy || !primaryId} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                  {busy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Merging…</> : <><Layers className="w-3.5 h-3.5" /> Merge into selected</>}
+                </button>
+              )}
             </div>
           </div>
         </div>

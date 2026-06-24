@@ -1,5 +1,23 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-24] Contact page — merge loans + show lead source
+**Status:** BUILD READY — pending deploy.
+**Files:** app/contacts/[id]/page.tsx (Loans section).
+**Issue:** Efrain — add a merge function (combine duplicate loans from the contact page) and show the
+lead source on each loan card.
+**Changes:** (1) **Lead source** (`cleanSource(d.source)`) now shown in each loan row's meta line.
+(2) Replaced the per-row trash button with **checkbox selection + an action bar**: select loans →
+**Merge** (2+) or **Delete** (1+). Merge opens a modal to pick the primary (radio; default = a funded
+loan, else largest, else first) and calls the EXISTING **`POST /api/deals/merge`** `{primaryId,
+secondaryIds}` — same call the `/duplicates` page uses (fills blanks from secondaries, combines
+notes/tags, deletes the rest); refetches on success. Delete is now multi-select (loops the
+`DELETE /api/deals/[id]` route from the prior change).
+**Test Method:** `npx tsc --noEmit` (contacts clean, no stale refs). `npm run build` (✓ compiled,
+`/contacts/[id]` builds). **Not live-tested** (loan list needs an authed session; merge/delete are
+destructive prod data — Efrain's to run). Merge endpoint is already proven in prod via `/duplicates`.
+**Result:** Type-clean, build READY. Deploy below; first real merge/delete + lead-source display want
+an eyeball by Efrain (logged in).
+
 ### [2026-06-24] Contact page — show Arive/Lender loan #s + delete a loan
 **Status:** DEPLOYED — prod READY (`37c6da6` → `dpl_6QUHVqYYxVBut66BpSRyxDkocEX3`, lumin-deals.vercel.app, route 307→/login = healthy, 2026-06-24).
 **Files:** NEW app/api/deals/[id]/route.ts (DELETE handler); app/contacts/[id]/page.tsx (Loans section).
