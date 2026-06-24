@@ -56,17 +56,17 @@ function ariveUrl(fileNo: string | null | undefined): string | null {
   return `${ARIVE_BASE}/${id}/loan-center`
 }
 
-const inp = 'w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white hover:border-slate-300 transition-colors'
+const inp = 'w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white hover:border-slate-400 transition-colors'
 const sel = inp
-const inpCurrency = 'w-full pl-7 pr-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white hover:border-slate-300 transition-colors tabular-nums'
-const inpPercent = 'w-full pl-3 pr-7 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white hover:border-slate-300 transition-colors tabular-nums'
+const inpCurrency = 'w-full pl-7 pr-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white hover:border-slate-400 transition-colors tabular-nums'
+const inpPercent = 'w-full pl-3 pr-7 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white hover:border-slate-400 transition-colors tabular-nums'
 
 function Section({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="p-5">
       <div className="flex items-center gap-2 mb-4">
-        {icon && <span className="text-slate-400 shrink-0">{icon}</span>}
-        <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{title}</h2>
+        {icon && <span className="text-blue-500 shrink-0">{icon}</span>}
+        <h2 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider">{title}</h2>
       </div>
       {children}
     </div>
@@ -76,7 +76,7 @@ function Section({ title, icon, children }: { title: string; icon?: React.ReactN
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-slate-500 mb-1.5">{label}</label>
+      <label className="block text-xs font-medium text-slate-600 mb-1.5">{label}</label>
       {children}
       {hint && <p className="text-[10px] text-slate-400 mt-1">{hint}</p>}
     </div>
@@ -279,7 +279,7 @@ function DealNotes({ dealId, initialNotes }: { dealId: string; initialNotes: str
           onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSaveNote() }}
           rows={3}
           placeholder="Write a note…"
-          className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white hover:border-slate-300 transition-colors resize-none placeholder:text-slate-400"
+          className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 bg-white hover:border-slate-400 transition-colors resize-none placeholder:text-slate-400"
         />
         <div className="flex items-center justify-between mt-2">
           <span className="text-[11px] text-slate-400">⌘+Enter to save</span>

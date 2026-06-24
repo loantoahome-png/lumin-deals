@@ -1,7 +1,24 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-23] Deal page visual hierarchy — titles pop, inputs more defined
+**Status:** CHANGED — build pass; pending deploy
+**Files:** app/deals/[id]/page.tsx (shared Section/Field/input style constants)
+**Issue:** Efrain — on the deal "loan cards" everything blended: section titles, field labels, and
+inputs were all the same gray (titles + labels both `text-slate-500`; inputs `border-slate-200` on
+white = nearly invisible).
+**Changes (establish a 3-level hierarchy):**
+  - Section titles: `text-slate-500 font-semibold text-xs` → `text-slate-800 font-bold text-[13px]`
+    (darker, bolder, slightly larger). Section icons `text-slate-400` → `text-blue-500` (accent).
+  - Field labels: `text-slate-500` → `text-slate-600` (readable, clearly subordinate to titles).
+  - Inputs/selects/date/currency/percent (all flow through `inp`): border `slate-200` → `slate-300`,
+    hover `slate-300` → `slate-400` — defined field boundaries against the white card.
+**Test Method:** Confirmed every field label routes through the `Field` component and every section
+through `Section` (changes apply card-wide); `npm run build` (✓ compiled).
+**Result:** Build READY. Pending deploy. Visual change — to be eyeballed live (authed page can't be
+screenshotted from here).
+
 ### [2026-06-23] Remove Communications Log + Document Checklist from deal page
-**Status:** CHANGED — type-checked + build pass; pending deploy
+**Status:** DEPLOYED — prod READY (`a1cbd10` → `lumin-deals-b76ty8o51`, HTTP 200, 2026-06-23).
 **Files:** app/deals/[id]/page.tsx; deleted components/CommunicationsLog.tsx,
 components/DocumentChecklist.tsx, lib/documentTemplates.ts
 **Issue:** Efrain — remove the Communications Log and Document Checklist sections from the deal
