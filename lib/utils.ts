@@ -32,7 +32,14 @@ export function formatCurrency(value: number | null | undefined): string {
 
 export function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '—'
-  return new Date(dateStr).toLocaleDateString('en-US', {
+  // Date-only strings ("YYYY-MM-DD") must be parsed as LOCAL time. `new Date("2026-06-16")`
+  // parses as UTC midnight, which renders as the *previous day* in negative-offset zones
+  // (e.g. Pacific). Build a local Date from the parts; fall through to normal parsing for
+  // full timestamps (which are real instants and already correct).
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.trim())
+  const d = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(dateStr)
+  if (isNaN(d.getTime())) return '—'
+  return d.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',

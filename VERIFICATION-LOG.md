@@ -1,7 +1,31 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-23] Audit fixes: back-nav (new/edit) + date off-by-one cluster
+**Status:** CHANGED — type-checked (no NEW errors) + build pass; pending deploy
+**Files:** lib/utils.ts, components/DealForm.tsx, components/NotificationBell.tsx,
+app/pipeline/page.tsx, components/LoanHistory.tsx
+**Issue:** Found while auditing the dashboard at Efrain's request.
+  (1) NAV: `DealForm` (New Deal + Edit Deal pages) had the same hardcoded `<Link href="/deals">`
+      back button as the deal-detail page — landed on Active Escrows instead of the previous page.
+  (2) TIMEZONE: date-only columns (`funded_date`, `signing_date`, `paid_date`, `last_contacted`,
+      `lock_expiration`, `adverse`) were parsed via `new Date("YYYY-MM-DD")` = UTC midnight, then
+      shown in Pacific → displayed ONE DAY EARLY. Hit `formatDate` (Pipeline/Contacts/Radar),
+      `LoanHistory` funded date, `NotificationBell` lock display, and the Pipeline CSV export. The
+      lock-days countdown math (`getLockDaysLeft`, `daysUntil`) had the same bug → a lock could read
+      "EXPIRED"/wrong "Nd" a day early, shifting the red/amber alert threshold.
+**Changes:**
+  - `DealForm` back button → `router.back()` with `/deals` fallback (type="button", it's in a form);
+    removed the now-unused `Link` import.
+  - `formatDate` parses date-only strings as LOCAL midnight (regex), full timestamps unchanged.
+  - `getLockDaysLeft` + `daysUntil` → local-midnight-to-local-midnight calendar diff (Math.round).
+  - `NotificationBell` lock-display + Pipeline CSV dates routed through the corrected path.
+**Test Method:** `npx tsc --noEmit` (no NEW errors; the one DealForm error is pre-existing, shifted a
+line by the import removal); `npm run build` (✓ compiled). Live-confirm after deploy: funded/signing
+dates show the correct day; new/edit deal Back returns to the previous page.
+**Result:** Build READY. Pending deploy.
+
 ### [2026-06-23] Fix: deal-detail back arrow always went to Active Escrows
-**Status:** CHANGED — type-checked + build pass; pending deploy
+**Status:** DEPLOYED — prod READY (`322b46a` → `lumin-deals-9rn9h4k2s`, HTTP 200, 2026-06-23). Live-click confirm still pending.
 **Files:** app/deals/[id]/page.tsx
 **Issue:** Efrain — editing a lead from Hot Leads then clicking the "← All Deals" back arrow landed
 on Active Escrows instead of returning to Hot Leads. Root cause: the back link was hardcoded

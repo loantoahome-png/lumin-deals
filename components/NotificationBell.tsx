@@ -46,9 +46,13 @@ function daysSince(iso: string | null | undefined): number | null {
 }
 function daysUntil(iso: string | null | undefined): number | null {
   if (!iso) return null
-  const t = new Date(iso).getTime()
-  if (isNaN(t)) return null
-  return Math.floor((t - Date.now()) / MS_PER_DAY)
+  // Parse a date-only string ("YYYY-MM-DD") as LOCAL midnight (not UTC) and compare to
+  // local midnight today, so the count is an accurate calendar-day diff in any timezone.
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim())
+  const target = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(iso)
+  if (isNaN(target.getTime())) return null
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  return Math.round((target.getTime() - today.getTime()) / MS_PER_DAY)
 }
 
 function loadSet(key: string): Set<string> {
@@ -82,7 +86,7 @@ function computeNotifs(deals: Deal[], tasks: TaskRow[]): Notif[] {
       title: left <= 0 ? `Lock EXPIRED — ${d.name}` : `Lock expires in ${left}d — ${d.name}`,
       detail: left <= 0
         ? `Rate lock expired ${Math.abs(left)}d ago. Needs extension or re-lock.`
-        : `${d.status} · lock expires ${new Date(d.lock_expiration).toLocaleDateString()}`,
+        : `${d.status} · lock expires ${new Date(d.lock_expiration + 'T00:00:00').toLocaleDateString()}`,
       href: `/deals/${d.id}`,
       severity: left <= 2 ? 'red' : 'amber',
       rank: left, // most-expired first

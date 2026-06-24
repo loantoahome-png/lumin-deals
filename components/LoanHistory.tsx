@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { Deal, STATUS_COLORS } from '@/lib/types'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatDate } from '@/lib/utils'
 import { History, ExternalLink, DollarSign, Calendar, Loader2 } from 'lucide-react'
 
 type Props = {
@@ -125,8 +125,8 @@ export default function LoanHistory({ currentDealId, borrowerId, email, phone, f
         {related.map(d => {
           const statusClass = STATUS_COLORS[d.status] || 'bg-gray-100 text-gray-600'
           const dateLabel = d.funded_date
-            ? `Funded ${new Date(d.funded_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-            : `Added ${new Date(d.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+            ? `Funded ${formatDate(d.funded_date)}`
+            : `Added ${formatDate(d.created_at)}`
           return (
             <Link
               key={d.id}

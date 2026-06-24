@@ -140,7 +140,13 @@ function getDealAge(deal: Deal): number {
 
 function getLockDaysLeft(deal: Deal): number | null {
   if (!deal.lock_expiration || deal.locked !== 'Yes') return null
-  return Math.floor((new Date(deal.lock_expiration).getTime() - Date.now()) / 86400000)
+  // lock_expiration is a date-only string; parse it as LOCAL midnight and compare to local
+  // midnight today so the countdown is an accurate calendar diff (not off-by-one in Pacific).
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(deal.lock_expiration.trim())
+  const exp = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(deal.lock_expiration)
+  if (isNaN(exp.getTime())) return null
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  return Math.round((exp.getTime() - today.getTime()) / 86400000)
 }
 
 // ── Droppable Stage Column ────────────────────────────────────────────────────
@@ -1252,10 +1258,10 @@ function PipelinePageInner() {
       { header: 'Lead Source Agg',  get: d => d.lead_source_agg },
       { header: 'Arive File #',     get: d => d.arive_file_no },
       { header: 'Lender Loan #',    get: d => d.investor_file_no },
-      { header: 'Lock Expiration',  get: d => d.lock_expiration ? new Date(d.lock_expiration).toLocaleDateString() : null },
-      { header: 'Signing Date',     get: d => d.signing_date ? new Date(d.signing_date).toLocaleDateString() : null },
-      { header: 'Funded Date',      get: d => d.funded_date ? new Date(d.funded_date).toLocaleDateString() : null },
-      { header: 'Last Contacted',   get: d => d.last_contacted ? new Date(d.last_contacted).toLocaleDateString() : null },
+      { header: 'Lock Expiration',  get: d => d.lock_expiration ? formatDate(d.lock_expiration) : null },
+      { header: 'Signing Date',     get: d => d.signing_date ? formatDate(d.signing_date) : null },
+      { header: 'Funded Date',      get: d => d.funded_date ? formatDate(d.funded_date) : null },
+      { header: 'Last Contacted',   get: d => d.last_contacted ? formatDate(d.last_contacted) : null },
       { header: 'Next Action',      get: d => d.next_action },
       { header: 'Next Action Due',  get: d => d.next_action_due ? new Date(d.next_action_due).toLocaleString() : null },
       { header: 'Next Action Assignee', get: d => d.next_action_assignee },

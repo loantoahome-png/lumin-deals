@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import {
   Deal, PIPELINE_GROUPS, PIPELINE_STATUSES, LOAN_OFFICERS, PROCESSORS,
@@ -249,10 +248,18 @@ export default function DealForm({ deal }: { deal?: Deal }) {
 
   return (
     <form onSubmit={handleSubmit} className="p-6 max-w-5xl mx-auto">
-      {/* Back link */}
-      <Link href="/deals" className="flex items-center gap-1 text-slate-500 hover:text-slate-700 text-sm mb-3 transition-colors w-fit">
-        <ArrowLeft className="w-3.5 h-3.5" /> All Deals
-      </Link>
+      {/* Back link — return to wherever the user came from, not a hardcoded page.
+          Falls back to /deals on a direct load/refresh with no in-app history. */}
+      <button
+        type="button"
+        onClick={() => {
+          if (window.history.length > 1) router.back()
+          else router.push('/deals')
+        }}
+        className="flex items-center gap-1 text-slate-500 hover:text-slate-700 text-sm mb-3 transition-colors w-fit"
+      >
+        <ArrowLeft className="w-3.5 h-3.5" /> Back
+      </button>
 
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
