@@ -1,7 +1,7 @@
 # Verification Log — Lumin Deals
 
 ### [2026-06-24] Contact page — merge loans + show lead source
-**Status:** BUILD READY — pending deploy.
+**Status:** DEPLOYED — prod READY (`27b7bb6` → `dpl_5B5BasfQuohAxbpnZNQHL7qrzhsJ`, lumin-deals.vercel.app, route 307→/login = healthy, 2026-06-24).
 **Files:** app/contacts/[id]/page.tsx (Loans section).
 **Issue:** Efrain — add a merge function (combine duplicate loans from the contact page) and show the
 lead source on each loan card.
