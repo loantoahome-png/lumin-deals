@@ -1,5 +1,30 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-24] PDF Compressor — smart-hybrid engine + MozJPEG (better quality-per-byte)
+**Status:** BUILD READY + browser-verified locally — pending deploy.
+**Files:** NEW app/tools/pdf-compressor/compressEngine.ts; app/tools/pdf-compressor/CompressTab.tsx
+(now UI-only, imports the engine); package.json + package-lock.json (+ `@jsquash/jpeg` WASM MozJPEG).
+**Issue:** Efrain — "better quality while compressing more." Old engine rasterized EVERY page to JPEG
+(blurred crisp text, killed selectability, sometimes grew the file). WebP/AVIF can't be embedded in a
+PDF, so the real levers are: don't rasterize text pages + a better JPEG encoder.
+**Changes:** Per-page **smart hybrid** — classify each page via pdfjs operator list: text/vector pages
+are KEPT as-is (pdf-lib `copyPages` → crisp, still selectable, smaller); only image/scanned pages are
+rendered + re-encoded. Rasterized pages now use **MozJPEG** (`@jsquash/jpeg` WASM, ~10–20% better
+quality-per-byte) with the browser's native JPEG as a graceful fallback if the WASM can't load. Keeps
+a per-page keep-vs-raster size check (RASTER_GAIN 0.9, biased to keep), the whole-file never-bigger
+fallback, and grayscale (now true 1-channel via MozJPEG color_space). Resolution presets bumped (old
+"Recommended" was ~108 DPI → now 144). Result note surfaces what happened ("N text pages kept sharp ·
+M image pages recompressed (MozJPEG)"). Works across preset/target/custom; target search now sums
+fixed kept-page bytes + per-quality image bytes.
+**Test Method:** `npx tsc --noEmit` (all pdf-compressor files clean). `npm run build` (✓ compiled WITH
+the WASM dep bundled, `/tools/pdf-compressor` prerendered). **Browser-verified locally** (temp
+middleware allowlist, reverted; drove the live page with 3 real fixtures): (1) born-digital text report
+3pp → "All pages kept sharp & selectable", 294→217 KB (−26%); (2) vector flyer → kept, −31%;
+(3) generated raster-image PDF 1.97 MB → 132 KB (−93%), note "1 page recompressed **with MozJPEG**"
+(that label only shows when the WASM encoder actually runs, not the fallback); (4) target-size mode
+hit its cap with valid output. All outputs valid `%PDF-`, zero console errors.
+**Result:** Type-clean, build READY, engine browser-verified incl. MozJPEG engaging. Deploy below.
+
 ### [2026-06-24] PDF Tools — Merge / Split / Rotate added (tabbed hub)
 **Status:** DEPLOYED — prod READY (`adfaab5` → `dpl_9xz1UmEj6JxrzfRjoNCLXQVBFscd`, lumin-deals.vercel.app, route 307→/login = healthy, 2026-06-24).
 **Files:** app/tools/pdf-compressor/page.tsx (now a tabbed hub), + new shared.tsx, CompressTab.tsx,

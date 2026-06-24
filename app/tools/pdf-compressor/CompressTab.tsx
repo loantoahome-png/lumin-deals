@@ -1,231 +1,30 @@
 'use client'
 
 /**
- * Compress tab — 100% client-side, lossy (pages are rasterized to JPEG).
- *
- *   • PDF parsed in-browser via pdfjs-dist
- *   • Each page rendered to canvas (optionally desaturated to grayscale)
- *   • Canvas re-encoded as JPEG at a chosen / auto-tuned quality
- *   • New PDF rebuilt with pdf-lib embedding the JPEGs (original metadata dropped)
- *   • If the rebuild ends up LARGER than the source, the original is kept instead
+ * Compress tab — smart-hybrid, 100% client-side.
+ * Engine lives in ./compressEngine (keeps text pages crisp, recompresses image
+ * pages with MozJPEG). This file is the UI + orchestration only.
  */
 
 import { useRef, useState } from 'react'
 import {
   Download, Loader2, FileText, X, Gauge, Target, SlidersHorizontal,
-  Contrast, DownloadCloud, CheckCircle2, Info,
+  Contrast, DownloadCloud, CheckCircle2, Info, Sparkles,
 } from 'lucide-react'
 import {
   CancelledError, Dropzone, formatBytes, loadPdfLib, loadPdfjs, downloadUrl,
 } from './shared'
-
-type Preset = { id: string; label: string; scale: number; quality: number; hint: string }
-type Mode = 'preset' | 'target' | 'custom'
-
-const PRESETS: Preset[] = [
-  { id: 'aggressive', label: 'Aggressive',   scale: 1.0, quality: 0.50, hint: 'Smallest file — text still readable, images softer' },
-  { id: 'balanced',   label: 'Recommended',  scale: 1.5, quality: 0.70, hint: 'Best size/quality balance — works for most loan docs' },
-  { id: 'high',       label: 'High Quality', scale: 2.0, quality: 0.85, hint: 'Larger file — looks nearly identical to original' },
-]
-
-// Target-size search space. Quality is searched high→low; if even the lowest
-// quality overshoots, resolution steps down and the search repeats.
-const TARGET_QUALITIES = [0.32, 0.42, 0.52, 0.62, 0.74, 0.86]
-const TARGET_SCALES = [1.5, 1.25, 1.0, 0.85]
-const TARGET_CHIPS = [2, 5, 10, 15, 25] // common lender upload caps (MB)
-
-type Status = 'idle' | 'compressing' | 'done' | 'error'
-
-type ResultFile = {
-  name: string
-  originalSize: number
-  newSize: number
-  blobUrl: string
-  pages: number
-  thumb?: string
-  note?: string
-  optimal: boolean
-}
-
-type EngineOpts =
-  | { mode: 'preset' | 'custom'; scale: number; quality: number; grayscale: boolean }
-  | { mode: 'target'; targetBytes: number; grayscale: boolean }
-
-type Libs = { pdfjsLib: any; PDFDocument: any } // eslint-disable-line @typescript-eslint/no-explicit-any
-
-function scaleToDpi(scale: number): number {
-  return Math.round(72 * scale)
-}
-
-function dpiLabel(scale: number): string {
-  const dpi = scaleToDpi(scale)
-  if (scale <= 1.0) return `${dpi} DPI · screen`
-  if (scale < 1.75) return `${dpi} DPI · standard`
-  if (scale < 2.25) return `${dpi} DPI · print`
-  return `${dpi} DPI · high detail`
-}
-
-function toGrayscale(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  const img = ctx.getImageData(0, 0, w, h)
-  const d = img.data
-  for (let i = 0; i < d.length; i += 4) {
-    const y = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) | 0
-    d[i] = d[i + 1] = d[i + 2] = y
-  }
-  ctx.putImageData(img, 0, 0)
-}
-
-function makeThumb(src: HTMLCanvasElement): string {
-  const maxW = 150
-  const w = Math.min(maxW, src.width || maxW)
-  const h = Math.max(1, Math.round(w * ((src.height || 1) / (src.width || 1))))
-  const t = document.createElement('canvas')
-  t.width = w
-  t.height = h
-  const tctx = t.getContext('2d')!
-  tctx.fillStyle = '#ffffff'
-  tctx.fillRect(0, 0, w, h)
-  tctx.drawImage(src, 0, 0, w, h)
-  return t.toDataURL('image/jpeg', 0.7)
-}
-
-async function compressFile(
-  file: File,
-  opts: EngineOpts,
-  libs: Libs,
-  onProgress: (page: number, pages: number, note?: string) => void,
-  shouldCancel: () => boolean,
-): Promise<ResultFile> {
-  const { pdfjsLib, PDFDocument } = libs
-
-  const arrayBuf = await file.arrayBuffer()
-  // Copy source bytes BEFORE handing the buffer to pdfjs (it may detach it),
-  // so the keep-original fallback always has clean bytes.
-  const originalBytes = new Uint8Array(arrayBuf.slice(0))
-
-  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuf) }).promise
-  const numPages: number = pdf.numPages
-
-  async function renderCanvas(pageNum: number, scale: number) {
-    const page = await pdf.getPage(pageNum)
-    const viewport = page.getViewport({ scale })
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.max(1, Math.floor(viewport.width))
-    canvas.height = Math.max(1, Math.floor(viewport.height))
-    const ctx = canvas.getContext('2d', { alpha: false })!
-    ctx.fillStyle = '#ffffff'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await page.render({ canvasContext: ctx as any, viewport, canvas } as any).promise
-    if (opts.grayscale) toGrayscale(ctx, canvas.width, canvas.height)
-    return { canvas, wPt: viewport.width / scale, hPt: viewport.height / scale }
-  }
-
-  function encode(canvas: HTMLCanvasElement, q: number): Promise<Uint8Array> {
-    return new Promise((resolve, reject) => {
-      canvas.toBlob(
-        async b => b ? resolve(new Uint8Array(await b.arrayBuffer())) : reject(new Error('Canvas toBlob returned null')),
-        'image/jpeg',
-        q,
-      )
-    })
-  }
-
-  type PageImage = { bytes: Uint8Array; wPt: number; hPt: number }
-  let pageImages: PageImage[] = []
-  let thumb: string | undefined
-  let note: string | undefined
-
-  if (opts.mode === 'target') {
-    const overhead = 1.04
-    let fitted = false
-
-    for (let si = 0; si < TARGET_SCALES.length && !fitted; si++) {
-      const scale = TARGET_SCALES[si]
-      const perQ: Uint8Array[][] = TARGET_QUALITIES.map(() => [])
-      const dims: { wPt: number; hPt: number }[] = []
-
-      for (let p = 1; p <= numPages; p++) {
-        if (shouldCancel()) throw new CancelledError()
-        onProgress(p, numPages, `Targeting ${formatBytes(opts.targetBytes)} — analyzing page ${p}/${numPages}`)
-        const { canvas, wPt, hPt } = await renderCanvas(p, scale)
-        dims.push({ wPt, hPt })
-        if (p === 1 && si === 0) thumb = makeThumb(canvas)
-        for (let qi = 0; qi < TARGET_QUALITIES.length; qi++) {
-          perQ[qi].push(await encode(canvas, TARGET_QUALITIES[qi]))
-        }
-        canvas.width = 0
-        canvas.height = 0
-      }
-
-      let chosenQi = -1
-      for (let qi = TARGET_QUALITIES.length - 1; qi >= 0; qi--) {
-        const total = perQ[qi].reduce((s, b) => s + b.byteLength, 0) * overhead
-        if (total <= opts.targetBytes) { chosenQi = qi; break }
-      }
-
-      if (chosenQi >= 0) {
-        pageImages = perQ[chosenQi].map((bytes, i) => ({ bytes, wPt: dims[i].wPt, hPt: dims[i].hPt }))
-        note = `Hit target — ${Math.round(TARGET_QUALITIES[chosenQi] * 100)}% quality` + (scale < 1.5 ? `, ${scaleToDpi(scale)} DPI` : '')
-        fitted = true
-      } else if (si === TARGET_SCALES.length - 1) {
-        pageImages = perQ[0].map((bytes, i) => ({ bytes, wPt: dims[i].wPt, hPt: dims[i].hPt }))
-        note = `Couldn't reach ${formatBytes(opts.targetBytes)} — this is the smallest at readable quality`
-      }
-    }
-  } else {
-    for (let p = 1; p <= numPages; p++) {
-      if (shouldCancel()) throw new CancelledError()
-      onProgress(p, numPages)
-      const { canvas, wPt, hPt } = await renderCanvas(p, opts.scale)
-      if (p === 1) thumb = makeThumb(canvas)
-      const bytes = await encode(canvas, opts.quality)
-      pageImages.push({ bytes, wPt, hPt })
-      canvas.width = 0
-      canvas.height = 0
-    }
-  }
-
-  const newPdf = await PDFDocument.create()
-  newPdf.setProducer('Lumin Tools — PDF Compressor')
-  newPdf.setCreator('Lumin Tools')
-  for (const pg of pageImages) {
-    const jpg = await newPdf.embedJpg(pg.bytes)
-    const np = newPdf.addPage([pg.wPt, pg.hPt])
-    np.drawImage(jpg, { x: 0, y: 0, width: pg.wPt, height: pg.hPt })
-  }
-  const newBytes: Uint8Array = await newPdf.save({ useObjectStreams: true })
-
-  let finalBytes = newBytes
-  let optimal = false
-  if (newBytes.byteLength >= file.size) {
-    finalBytes = originalBytes
-    optimal = true
-    note = 'Already well-compressed — kept your original (smaller) file'
-  }
-
-  const buf = new ArrayBuffer(finalBytes.byteLength)
-  new Uint8Array(buf).set(finalBytes)
-  const blob = new Blob([buf], { type: 'application/pdf' })
-
-  return {
-    name: file.name.replace(/\.pdf$/i, '') + (optimal ? '.pdf' : '-compressed.pdf'),
-    originalSize: file.size,
-    newSize: optimal ? file.size : blob.size,
-    blobUrl: URL.createObjectURL(blob),
-    pages: numPages,
-    thumb,
-    note,
-    optimal,
-  }
-}
+import {
+  compressFile, PRESETS, TARGET_CHIPS, dpiLabel,
+  type Preset, type Mode, type Status, type EngineOpts, type ResultFile, type Libs,
+} from './compressEngine'
 
 export default function CompressTab() {
   const [files, setFiles] = useState<File[]>([])
   const [mode, setMode] = useState<Mode>('preset')
   const [preset, setPreset] = useState<Preset>(PRESETS[1])
-  const [customScale, setCustomScale] = useState(1.5)
-  const [customQuality, setCustomQuality] = useState(0.7)
+  const [customScale, setCustomScale] = useState(2.0)
+  const [customQuality, setCustomQuality] = useState(0.72)
   const [targetMB, setTargetMB] = useState(5)
   const [grayscale, setGrayscale] = useState(false)
   const [status, setStatus] = useState<Status>('idle')
@@ -432,7 +231,7 @@ export default function CompressTab() {
                 <span className="text-xs font-medium text-slate-700">{dpiLabel(customScale)}</span>
               </div>
               <input
-                type="range" min={0.75} max={2.5} step={0.05}
+                type="range" min={0.75} max={3} step={0.05}
                 value={customScale}
                 disabled={busy}
                 onChange={e => setCustomScale(Number(e.target.value))}
@@ -465,9 +264,12 @@ export default function CompressTab() {
         </label>
       </div>
 
+      {/* Smart-hybrid explainer */}
       <div className="flex items-start gap-2 text-[11px] text-slate-500 px-1">
-        <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-slate-400" />
-        <span>Compression flattens pages to images, so the output isn&apos;t text-selectable. Ideal for uploading and sharing — keep the original if you need to copy text or edit it. (Merge, Split &amp; Rotate are lossless and keep the text.)</span>
+        <Sparkles className="w-3.5 h-3.5 shrink-0 mt-0.5 text-blue-500" />
+        <span>
+          <strong className="text-slate-600">Smart compression:</strong> text pages stay sharp &amp; selectable — only scanned/image pages are recompressed (with MozJPEG for better quality at a smaller size). Keep the original if you need to edit those image pages.
+        </span>
       </div>
 
       <Dropzone onFiles={addFiles} multiple disabled={busy} hint="Multiple files OK — drop more to add to the list" />
@@ -580,7 +382,7 @@ export default function CompressTab() {
                     </div>
                     {r.note && (
                       <div className="flex items-center gap-1 text-[11px] text-slate-400 mt-0.5">
-                        {r.optimal && <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
+                        {r.optimal ? <CheckCircle2 className="w-3 h-3 text-emerald-500" /> : <Sparkles className="w-3 h-3 text-blue-400" />}
                         {r.note}
                       </div>
                     )}
