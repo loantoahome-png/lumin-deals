@@ -17,9 +17,15 @@ helpers). No new deps (pdf-lib + pdfjs already present); zip-free Download-all (
 only). `npm run build` (✓ compiled, `/tools/pdf-compressor` prerendered). **Headless engine check**
 (`node`, pure pdf-lib, real generated PDFs): 14/14 PASS — merge page totals, parsePageRanges edge
 cases (reversed/out-of-range/dedup), each/range/every-N split counts, relative rotation + wraparound,
-rotation surviving save→load. NOT browser-verified (auth wall) — UI interactions + the compressor's
-canvas path want a logged-in smoke test.
-**Result:** Type-clean, build READY, engine logic runtime-verified. Deploy + prod URL appended below.
+rotation surviving save→load. **Browser-verified locally** (2026-06-24): ran `next dev` with a
+TEMPORARY middleware allowlist for this one fully-client-side route (reverted via `git checkout`,
+never committed/deployed), drove it in the preview browser with a real 2-page PDF fixture —
+Compress 490.6 KB→154.6 KB (−68%, valid `%PDF-`, thumbnail rendered), Rotate (2 pages, valid PDF),
+Split each-page (→ 2 valid PDFs p1/p2); all 4 tabs render with **zero console errors**. Merge not
+click-tested (same Node-verified `copyPages` + the now-proven shared Dropzone/load plumbing).
+**Result:** Type-clean, build READY, engine + UI runtime-verified (headless + in-browser). DEPLOYED
+(`adfaab5`, prod READY). Temp local auth bypass + test fixture used only for verification — both fully
+reverted, working tree clean.
 
 ### [2026-06-24] PDF Compressor — advanced engine (target-size, custom, grayscale)
 **Status:** DEPLOYED — prod READY (`7a70214` → `dpl_BnsuQiKAkvmX5MZrAqpxrn6RPcTs`, lumin-deals.vercel.app, 2026-06-24).
