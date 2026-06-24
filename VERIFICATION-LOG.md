@@ -1,5 +1,26 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-24] PDF Tools — Merge / Split / Rotate added (tabbed hub)
+**Status:** BUILD READY + engine unit-verified — pending deploy.
+**Files:** app/tools/pdf-compressor/page.tsx (now a tabbed hub), + new shared.tsx, CompressTab.tsx,
+MergeTab.tsx, SplitTab.tsx, RotateTab.tsx; app/tools/page.tsx (tile renamed "PDF Tools").
+**Issue:** Efrain — expand the compressor into a fuller PDF toolset. Chose the tabbed-hub layout.
+**Changes:** `/tools/pdf-compressor` is now **PDF Tools** with 4 tabs (route kept so saved tiles still
+resolve). Compress = the existing lossy rasterize engine (moved into CompressTab, unchanged logic).
+**Merge** = multi-file, reorder (up/down arrows — not drag, for reliability) + remove, pdf-lib
+`copyPages` into one doc. **Split** = each-page / custom-range ("1-3,5,8-10") / every-N pages →
+multiple outputs + Download all. **Rotate** = 90/180/270°, all-pages or a page range, relative to
+existing `/Rotate`. Merge/Split/Rotate are **lossless** (pdf-lib copies page objects — text kept),
+vs Compress which rasterizes. Shared `shared.tsx` (Dropzone, loaders, parsePageRanges, blob/download
+helpers). No new deps (pdf-lib + pdfjs already present); zip-free Download-all (sequential blobs).
+**Test Method:** `npx tsc --noEmit` (all 6 pdf-compressor files clean; pre-existing errors elsewhere
+only). `npm run build` (✓ compiled, `/tools/pdf-compressor` prerendered). **Headless engine check**
+(`node`, pure pdf-lib, real generated PDFs): 14/14 PASS — merge page totals, parsePageRanges edge
+cases (reversed/out-of-range/dedup), each/range/every-N split counts, relative rotation + wraparound,
+rotation surviving save→load. NOT browser-verified (auth wall) — UI interactions + the compressor's
+canvas path want a logged-in smoke test.
+**Result:** Type-clean, build READY, engine logic runtime-verified. Deploy + prod URL appended below.
+
 ### [2026-06-24] PDF Compressor — advanced engine (target-size, custom, grayscale)
 **Status:** DEPLOYED — prod READY (`7a70214` → `dpl_BnsuQiKAkvmX5MZrAqpxrn6RPcTs`, lumin-deals.vercel.app, 2026-06-24).
 **Files:** app/tools/pdf-compressor/page.tsx (full rewrite)

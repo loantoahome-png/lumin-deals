@@ -9,7 +9,7 @@ import {
 // ── Default tools (industry-standard mortgage tooling, pre-populated for first-time users) ───
 const DEFAULT_TOOLS: Tool[] = [
   // Built-in (in-app, fully private)
-  { id: 'pdf-compressor', name: 'PDF Compressor', url: '/tools/pdf-compressor', category: 'Built-in', description: '100% private — shrink loan docs in your browser. No upload.' },
+  { id: 'pdf-compressor', name: 'PDF Tools', url: '/tools/pdf-compressor', category: 'Built-in', description: 'Compress, merge, split & rotate — 100% private, in your browser.' },
   // Lenders / Wholesale
   { id: 'rocket',     name: 'Rocket Pro TPO',         url: 'https://www.rocketprotpo.com',                category: 'Lenders',     description: 'Rocket Navigate, pricing, lock, submit' },
   { id: 'uwm',        name: 'UWM (Eagle Pro)',        url: 'https://eaglepro.uwm.com',                    category: 'Lenders',     description: 'United Wholesale Mortgage portal' },
