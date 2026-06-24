@@ -1,7 +1,7 @@
 # Verification Log — Lumin Deals
 
 ### [2026-06-24] PDF Compressor — smart-hybrid engine + MozJPEG (better quality-per-byte)
-**Status:** BUILD READY + browser-verified locally — pending deploy.
+**Status:** DEPLOYED — prod READY (`8d5dafd` → `dpl_59tcq1TX1xAcMug1gTUXAW8j7n8r`, lumin-deals.vercel.app, route 307→/login = healthy, 2026-06-24).
 **Files:** NEW app/tools/pdf-compressor/compressEngine.ts; app/tools/pdf-compressor/CompressTab.tsx
 (now UI-only, imports the engine); package.json + package-lock.json (+ `@jsquash/jpeg` WASM MozJPEG).
 **Issue:** Efrain — "better quality while compressing more." Old engine rasterized EVERY page to JPEG
