@@ -1,7 +1,7 @@
 # Verification Log — Lumin Deals
 
 ### [2026-06-24] PDF Tools — Merge / Split / Rotate added (tabbed hub)
-**Status:** BUILD READY + engine unit-verified — pending deploy.
+**Status:** DEPLOYED — prod READY (`adfaab5` → `dpl_9xz1UmEj6JxrzfRjoNCLXQVBFscd`, lumin-deals.vercel.app, route 307→/login = healthy, 2026-06-24).
 **Files:** app/tools/pdf-compressor/page.tsx (now a tabbed hub), + new shared.tsx, CompressTab.tsx,
 MergeTab.tsx, SplitTab.tsx, RotateTab.tsx; app/tools/page.tsx (tile renamed "PDF Tools").
 **Issue:** Efrain — expand the compressor into a fuller PDF toolset. Chose the tabbed-hub layout.
