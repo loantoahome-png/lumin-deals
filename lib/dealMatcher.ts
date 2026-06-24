@@ -15,46 +15,60 @@ export function normEmail(s: string | null | undefined): string | null {
 }
 
 /**
- * Find an existing dashboard deal that matches an incoming contact, falling back
- * through identifiers in order of confidence:
- *   1. ghl_contact_id (highest signal — exact GHL contact match)
- *   2. email (case-insensitive)
- *   3. phone (normalized to last 10 digits)
+ * Find an existing dashboard deal that matches an incoming GHL event.
  *
- * This handles the case where GHL gives the same person multiple contact IDs
- * over time (deletes + re-adds, merges, manual data entry) — we'll catch the
- * duplicate via email/phone and update the existing dashboard record instead
- * of creating a new one.
+ *   0. opportunity_id  — the ONLY identifier that pins the exact loan
+ *   1. ghl_contact_id  — only when it resolves to a single deal
+ *   2. email           — only when it resolves to a single deal
+ *   3. phone           — only when it resolves to a single deal
+ *
+ * Why opportunity id must win, and why the others must be single-deal-only:
+ * one GHL contact can hold several opportunities (a person with multiple loans).
+ * Matching an opportunity webhook by contact/email/phone can land on a SIBLING
+ * loan and overwrite its stage/status — e.g. a funded loan's "Loan Funded"
+ * webhook marking the borrower's *withdrawn* loan as funded. So we match by
+ * opportunity id first, and never guess which sibling a contact-level identifier
+ * belongs to: if it points at more than one deal, we return no match and let the
+ * 3-min sync (which keys by opportunity id) handle it.
  */
 export async function findExistingDeal(
   supabase: SupabaseClient,
-  { ghlContactId, email, phone }: {
+  { opportunityId, ghlContactId, email, phone }: {
+    opportunityId?: string | null
     ghlContactId?: string | null
     email?: string | null
     phone?: string | null
   },
-): Promise<{ id: string; matchedBy: 'ghl_contact_id' | 'email' | 'phone' } | null> {
-  // 1. By GHL contact ID
+): Promise<{ id: string; matchedBy: 'opportunity_id' | 'ghl_contact_id' | 'email' | 'phone' } | null> {
+  // 0. By opportunity ID — exact loan match, wins over everything.
+  if (opportunityId) {
+    const { data } = await supabase
+      .from('deals')
+      .select('id')
+      .eq('ghl_opportunity_id', opportunityId)
+      .maybeSingle()
+    if (data) return { id: data.id as string, matchedBy: 'opportunity_id' }
+  }
+  // 1. By GHL contact ID — accept only if it identifies exactly one deal.
   if (ghlContactId) {
     const { data } = await supabase
       .from('deals')
       .select('id')
       .eq('ghl_contact_id', ghlContactId)
-      .maybeSingle()
-    if (data) return { id: data.id as string, matchedBy: 'ghl_contact_id' }
+      .limit(2)
+    if (data && data.length === 1) return { id: data[0].id as string, matchedBy: 'ghl_contact_id' }
   }
-  // 2. By email
+  // 2. By email — single deal only.
   const e = normEmail(email)
   if (e) {
     const { data } = await supabase
       .from('deals')
       .select('id')
       .ilike('email', e)
-      .limit(1)
-      .maybeSingle()
-    if (data) return { id: data.id as string, matchedBy: 'email' }
+      .limit(2)
+    if (data && data.length === 1) return { id: data[0].id as string, matchedBy: 'email' }
   }
-  // 3. By phone (full table scan — webhook is per-request so this is fine for one call)
+  // 3. By phone (last-10-digit match) — single deal only.
   const p = normPhone(phone)
   if (p) {
     const { data } = await supabase
@@ -62,10 +76,9 @@ export async function findExistingDeal(
       .select('id, phone')
       .not('phone', 'is', null)
       .limit(5000)
-    const match = (data as Array<{ id: string; phone: string | null }> | null)?.find(
-      d => normPhone(d.phone) === p,
-    )
-    if (match) return { id: match.id, matchedBy: 'phone' }
+    const matches = ((data as Array<{ id: string; phone: string | null }> | null) ?? [])
+      .filter(d => normPhone(d.phone) === p)
+    if (matches.length === 1) return { id: matches[0].id, matchedBy: 'phone' }
   }
   return null
 }

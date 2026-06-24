@@ -1,5 +1,27 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-24] BUG: multi-loan borrower — webhook marks a sibling loan funded
+**Status:** BUILD READY — pending deploy. (Code fix; data correction tracked separately below.)
+**Files:** lib/dealMatcher.ts (findExistingDeal); app/api/webhooks/ghl/route.ts (opportunity + main paths).
+**Symptom:** John Winn has 2 loans — #17074897 funded (GHL Won / Arive Loan Funded) and #16852090
+withdrawn (GHL Re-Submittal/**Lost** / Arive **Adverse**). Dashboard showed BOTH as "Loan Funded."
+**Root cause (verified from data + code, not guessed):** the GHL webhook handler matched an incoming
+opportunity to a deal via `findExistingDeal({ghlContactId, email, phone})` — **by contact, never by
+opportunity id**. A GHL contact can hold multiple opportunities (loans). When the FUNDED opp's workflow
+webhook fired, it matched the *adverse* deal (same contact/email) and the stage-apply set it to Loan
+Funded (the `.neq('pipeline_group','Funded')` guard didn't block because the deal wasn't funded *yet*).
+Proof in the row: #16852090 has its own `ghl_opportunity_id` (`izuou…`) but its `raw_ghl_data.id` is
+the FUNDED opp (`obU6…`) in webhook-payload shape — the funded webhook overwrote it.
+**Fix:** `findExistingDeal` now matches **by opportunity id first**, and the contact/email/phone
+fallbacks only return a match when they resolve to **exactly one** deal (never guess a sibling). Webhook
+passes the opportunity id (from payload `id` on opportunity events) on both the stage-change branch and
+the main path.
+**Test Method:** `npx tsc --noEmit` (clean). `npm run build` (✓). **Verified against live data**
+(read-only): opp `izuou…`→1 deal (#16852090), opp `obU6…`→1 deal (#17074897), John's contact_id→2
+deals (so the fallback now defers instead of clobbering). The sync already keys by opportunity id, so
+it was never the culprit.
+**Result:** Type-clean, build READY, fix verified against the real rows. Deploy below.
+
 ### [2026-06-24] Contact page — merge loans + show lead source
 **Status:** DEPLOYED — prod READY (`27b7bb6` → `dpl_5B5BasfQuohAxbpnZNQHL7qrzhsJ`, lumin-deals.vercel.app, route 307→/login = healthy, 2026-06-24).
 **Files:** app/contacts/[id]/page.tsx (Loans section).

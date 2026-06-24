@@ -387,13 +387,15 @@ export async function POST(req: NextRequest) {
 
       const stage = resolveGHLStage(stageName, pipelineName)
 
-      if (oppContactId && stage) {
-        const { data: existing } = await supabase
-          .from('deals').select('id, name').eq('ghl_contact_id', oppContactId).single()
-
+      if (stage) {
+        // Match by opportunity id first; the contact fallback only applies when it
+        // resolves to a single deal (findExistingDeal enforces this) — so a stage
+        // change can't land on a sibling loan of a multi-loan borrower.
+        const oppId = pick(body, 'id', 'opportunity_id', 'opportunityId')
+        const existing = await findExistingDeal(supabase, { opportunityId: oppId, ghlContactId: oppContactId })
         if (existing) {
           await supabase.from('deals').update(stage).eq('id', existing.id)
-          console.log('[GHL Webhook] Stage updated:', existing.id, '→', stage)
+          console.log('[GHL Webhook] Stage updated:', existing.id, '→', stage, `(by ${existing.matchedBy})`)
           return NextResponse.json({ success: true, action: 'stage_updated', dealId: existing.id, newStage: stage })
         }
       }
@@ -417,7 +419,16 @@ export async function POST(req: NextRequest) {
     // Try contact_id → email → phone so that if GHL assigns this person a NEW
     // contact ID (delete+re-add, merges, etc.), we still find the existing
     // dashboard record and update it instead of creating a duplicate.
-    const match = await findExistingDeal(supabase, { ghlContactId, email, phone })
+    // Opportunity webhooks carry the opportunity id in `id`; pass it so the update
+    // lands on the EXACT loan, not an arbitrary sibling on the same contact. (This
+    // is what caused a funded loan's webhook to mark a borrower's withdrawn loan as
+    // funded — contact/email/phone can't tell two loans of one person apart.)
+    const isOppPayload = !!(
+      pick(body, 'opportunity_name', 'opportunityName') ||
+      pick(body, 'pipleline_stage', 'pipeline_stage', 'pipelineStageName', 'pipelineStageId', 'pipelineStage')
+    )
+    const opportunityId = isOppPayload ? pick(body, 'id', 'opportunity_id', 'opportunityId') : null
+    const match = await findExistingDeal(supabase, { opportunityId, ghlContactId, email, phone })
     if (match) {
       const patch: Record<string, unknown> = {
         last_contacted: new Date().toISOString().split('T')[0],
