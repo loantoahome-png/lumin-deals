@@ -1,7 +1,7 @@
 # Verification Log — Lumin Deals
 
 ### [2026-06-24] Contact page — show Arive/Lender loan #s + delete a loan
-**Status:** BUILD READY — pending deploy.
+**Status:** DEPLOYED — prod READY (`37c6da6` → `dpl_6QUHVqYYxVBut66BpSRyxDkocEX3`, lumin-deals.vercel.app, route 307→/login = healthy, 2026-06-24).
 **Files:** NEW app/api/deals/[id]/route.ts (DELETE handler); app/contacts/[id]/page.tsx (Loans section).
 **Issue:** Efrain — on the contact "Loans" section, display the Arive loan # and Lender loan #, and
 allow selecting a loan and deleting it (looking at a John Winn duplicate: two identical $300k HELOCs).
