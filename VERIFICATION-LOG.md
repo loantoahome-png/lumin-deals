@@ -14,8 +14,9 @@ the key is a no-op (so notes/messages/contact webhooks can't wipe loan_amount); 
 stale figure (matches the sync mirror). Updated the stale "loan_amount NOT written from webhook" comment.
 **Test Method:** `npx tsc --noEmit` (changed file clean) + `npm run build`. Standalone node check of the
 presence-detection across 8 payload shapes (absent→SKIP, number/string-$/nested→WRITE, empty/null/0→clear).
-**Result:** Type-clean, build READY, logic verified. Activates once Efrain adds the opp Monetary Value token
-to the GHL workflow's custom-webhook body (no-op until then). DEPLOYED below.
+**Result:** Type-clean, build READY, logic verified. Deployed `a6f83b3` → `dpl_HQcybCBEC76VAujBCA71XkXLh62f`
+(prod READY). Activates once Efrain adds the opp Monetary Value token to the GHL workflow's custom-webhook
+body (no-op until then).
 
 ### [2026-06-25] Loan amount: GHL opp value drives in-process loans (incl. Arive-backed)
 **Status:** CHANGED — pending tsc + build, then deploy.
