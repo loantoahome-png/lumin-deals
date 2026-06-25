@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
 import {
-  StickyNote, Plus, Trash2, Check, Loader2, Pin, Search, GripVertical, X,
+  StickyNote, Plus, Trash2, Check, Loader2, Pin, Search, GripVertical, X, Pencil,
   Bold, Highlighter, List, Heading1, Heading2, Heading3,
 } from 'lucide-react'
 import {
@@ -14,6 +14,7 @@ import {
 import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { markdownToHtml, htmlToMarkdown, looksLikeHtml } from '@/lib/noteMarkdown'
+import NoteMarkdown from '@/components/NoteMarkdown'
 
 type Note = {
   id: string
@@ -352,12 +353,17 @@ function NoteEditorModal({
   onDelete: (id: string) => void
   onClose: () => void
 }) {
-  // Legacy notes hold contentEditable HTML — convert to markdown for edit/seed.
-  const md0 = useMemo(
+  // Legacy notes hold contentEditable HTML — convert to markdown for view/seed.
+  const initialMd = useMemo(
     () => (looksLikeHtml(note.content) ? htmlToMarkdown(note.content) : (note.content ?? '')),
     [note.content],
   )
+  const [viewMd, setViewMd] = useState(initialMd)
   const [title, setTitle] = useState(note.title ?? '')
+  // Open in VIEW (read-only) by default; a brand-new empty note jumps to edit.
+  const [mode, setMode] = useState<'view' | 'edit'>(
+    () => (initialMd.trim() === '' && !(note.title ?? '').trim()) ? 'edit' : 'view',
+  )
   const [fontSize, setFontSizeState] = useState(FONT_DEFAULT)
   const edRef = useRef<HTMLDivElement | null>(null)
 
@@ -374,27 +380,44 @@ function NoteEditorModal({
     try { localStorage.setItem(fontKey(note.id), String(clamped)) } catch { /* ignore */ }
   }
 
-  // Seed the WYSIWYG from stored markdown, then focus & place caret at the end.
+  // Seed the WYSIWYG from markdown whenever we ENTER edit mode; focus + caret-to-end.
   useEffect(() => {
+    if (mode !== 'edit') return
     const ed = edRef.current
     if (!ed) return
-    ed.innerHTML = markdownToHtml(md0)
+    ed.innerHTML = markdownToHtml(viewMd)
     try { document.execCommand('styleWithCSS', false, 'false') } catch { /* ignore */ }
     ed.focus()
     const sel = window.getSelection()
     if (sel) { const r = document.createRange(); r.selectNodeContents(ed); r.collapse(false); sel.removeAllRanges(); sel.addRange(r) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [mode])
 
-  // Save (if changed) and close. Reads the draft synchronously before unmount.
-  const close = useCallback(() => {
-    const draft = edRef.current ? htmlToMarkdown(edRef.current.innerHTML) : md0
+  const readDraft = () => (edRef.current ? htmlToMarkdown(edRef.current.innerHTML) : viewMd)
+  const enterEdit = () => setMode('edit')
+
+  // Done editing → save (if changed) and drop back to VIEW.
+  function done() {
+    const draft = readDraft()
     const nextTitle = title.trim() || null
-    if (nextTitle !== (note.title || null) || draft !== md0) {
+    if (draft !== viewMd || nextTitle !== (note.title || null)) {
       void onPatch(note.id, { title: nextTitle, content: draft })
     }
+    setViewMd(draft)
+    setMode('view')
+  }
+
+  // Close the modal. If mid-edit, save the draft first.
+  const close = useCallback(() => {
+    if (mode === 'edit') {
+      const draft = edRef.current ? htmlToMarkdown(edRef.current.innerHTML) : viewMd
+      const nextTitle = title.trim() || null
+      if (draft !== viewMd || nextTitle !== (note.title || null)) {
+        void onPatch(note.id, { title: nextTitle, content: draft })
+      }
+    }
     onClose()
-  }, [title, md0, note.id, note.title, onPatch, onClose])
+  }, [mode, viewMd, title, note.id, note.title, onPatch, onClose])
 
   // Esc closes (and saves).
   useEffect(() => {
@@ -467,17 +490,19 @@ function NoteEditorModal({
       onMouseDown={e => { if (e.target === e.currentTarget) close() }}
     >
       <div className={`w-full max-w-2xl max-h-[88vh] flex flex-col bg-white border border-slate-200 border-l-4 ${accentOf(note.color)} rounded-2xl shadow-2xl overflow-hidden`}>
-        {/* Header: colors + delete + close */}
+        {/* Header: colors (edit) / "Viewing" (view) + delete + close */}
         <div className="flex items-center justify-between gap-2 px-5 pt-3.5 pb-2.5 border-b border-slate-100">
           <div className="flex items-center gap-1.5">
-            {COLOR_KEYS.map(key => (
+            {mode === 'edit' ? COLOR_KEYS.map(key => (
               <button
                 key={key}
                 onClick={() => onPatch(note.id, { color: key })}
                 title={key}
                 className={`w-4 h-4 rounded-full ${DOT[key]} ring-offset-1 ${note.color === key || (!note.color && key === 'amber') ? 'ring-2 ring-slate-400' : 'hover:ring-2 hover:ring-slate-300'}`}
               />
-            ))}
+            )) : (
+              <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Viewing</span>
+            )}
           </div>
           <div className="flex items-center gap-1">
             <button
@@ -494,14 +519,19 @@ function NoteEditorModal({
         </div>
 
         {/* Title */}
-        <input
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          placeholder="Title"
-          className="px-5 pt-3 pb-1 bg-transparent text-xl font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none shrink-0"
-        />
+        {mode === 'edit' ? (
+          <input
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            placeholder="Title"
+            className="px-5 pt-3 pb-1 bg-transparent text-xl font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none shrink-0"
+          />
+        ) : (
+          <h2 className="px-5 pt-3 pb-1 text-xl font-bold text-slate-900 break-words shrink-0">{title.trim() || 'Untitled note'}</h2>
+        )}
 
-        {/* Toolbar */}
+        {/* Toolbar — edit mode only */}
+        {mode === 'edit' && (
         <div className="flex flex-wrap items-center gap-0.5 mx-5 my-2 border border-slate-200 rounded-lg p-1 bg-slate-50 shrink-0">
           <button {...tb(() => exec('formatBlock', '<h1>'))} title="Heading 1" className={btn}><Heading1 className="w-4 h-4" /></button>
           <button {...tb(() => exec('formatBlock', '<h2>'))} title="Heading 2" className={btn}><Heading2 className="w-4 h-4" /></button>
@@ -518,35 +548,54 @@ function NoteEditorModal({
               className={`${btn} disabled:opacity-30`}><span className="text-sm font-bold leading-none">A+</span></button>
           </div>
         </div>
+        )}
 
-        {/* Body editor — grows to fill, scrolls when long */}
+        {/* Body — view renders the note; edit shows the WYSIWYG */}
         <div className="flex-1 min-h-0 px-5 pb-4">
-          <div
-            ref={edRef}
-            contentEditable
-            suppressContentEditableWarning
-            data-placeholder="Write your note…"
-            style={{ fontSize: `${fontSize}px` }}
-            className="w-full h-full min-h-[40vh] bg-white text-slate-800 border border-slate-200 rounded-lg p-3 leading-relaxed overflow-y-auto focus:outline-none focus:ring-2 focus:ring-blue-400 break-words
-              [&_h1]:text-[1.5em] [&_h1]:font-bold [&_h1]:my-1
-              [&_h2]:text-[1.25em] [&_h2]:font-semibold [&_h2]:my-1
-              [&_h3]:text-[1.1em] [&_h3]:font-semibold [&_h3]:my-1
-              [&_b]:font-bold [&_strong]:font-bold
-              [&_mark]:bg-yellow-200 [&_mark]:rounded [&_mark]:px-0.5
-              [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1
-              [&:empty]:before:content-[attr(data-placeholder)] [&:empty]:before:text-slate-300"
-          />
+          {mode === 'edit' ? (
+            <div
+              key="note-edit"
+              ref={edRef}
+              contentEditable
+              suppressContentEditableWarning
+              data-placeholder="Write your note…"
+              style={{ fontSize: `${fontSize}px` }}
+              className="w-full h-full min-h-[40vh] bg-white text-slate-800 border border-slate-200 rounded-lg p-3 leading-relaxed overflow-y-auto focus:outline-none focus:ring-2 focus:ring-blue-400 break-words
+                [&_h1]:text-[1.5em] [&_h1]:font-bold [&_h1]:my-1
+                [&_h2]:text-[1.25em] [&_h2]:font-semibold [&_h2]:my-1
+                [&_h3]:text-[1.1em] [&_h3]:font-semibold [&_h3]:my-1
+                [&_b]:font-bold [&_strong]:font-bold
+                [&_mark]:bg-yellow-200 [&_mark]:rounded [&_mark]:px-0.5
+                [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1
+                [&:empty]:before:content-[attr(data-placeholder)] [&:empty]:before:text-slate-300"
+            />
+          ) : (
+            <div key="note-view" className="w-full h-full min-h-[40vh] overflow-y-auto pr-1 text-slate-800" style={{ fontSize: `${fontSize}px` }}>
+              {viewMd.trim()
+                ? <NoteMarkdown md={viewMd} />
+                : <span className="italic text-slate-300">Empty — click Edit to write.</span>}
+            </div>
+          )}
         </div>
 
-        {/* Footer */}
+        {/* Footer — Edit (view) / Done (edit) */}
         <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 shrink-0">
           <span className="text-[11px] text-slate-400">{updated ? `Updated ${updated}` : 'New note'}</span>
-          <button
-            onClick={close}
-            className="flex items-center gap-1.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg px-4 py-1.5"
-          >
-            <Check className="w-4 h-4" /> Done
-          </button>
+          {mode === 'edit' ? (
+            <button
+              onClick={done}
+              className="flex items-center gap-1.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg px-4 py-1.5"
+            >
+              <Check className="w-4 h-4" /> Done
+            </button>
+          ) : (
+            <button
+              onClick={enterEdit}
+              className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 bg-white border border-slate-300 hover:border-blue-400 hover:text-blue-700 rounded-lg px-4 py-1.5"
+            >
+              <Pencil className="w-4 h-4" /> Edit
+            </button>
+          )}
         </div>
       </div>
     </div>,

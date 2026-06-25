@@ -1,5 +1,27 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-25] Notes modal: open in VIEW mode + Edit button (and fix a content-doubling bug)
+**Status:** VERIFIED (browser) — tsc clean, build READY, deployed.
+**Files:** components/NotesBoard.tsx.
+**Issue:** Efrain — don't drop straight into edit when opening a note; open read-only and add an Edit button.
+**Changes:** `NoteEditorModal` gained a `view`/`edit` mode (default VIEW; a brand-new empty note still opens
+in edit). VIEW renders the note read-only via `NoteMarkdown` with a "VIEWING" label + footer **Edit** button;
+EDIT shows the toolbar/color picker/contentEditable + footer **Done** (saves & returns to VIEW). Seed-on-mount
+became seed-on-enter-edit (effect keyed on `mode`). Close/Esc/backdrop save only if mid-edit.
+**BUG caught during verification (would have hit prod):** the view `<div>` and edit `<div>` were the same
+element type at the same position with NO `key`, so React reused the DOM node; the editor's imperatively-set
+`innerHTML` (untracked by React) lingered when switching back to view, so `NoteMarkdown`'s children rendered
+ALONGSIDE it → note content appeared DOUBLED after an Edit→Done cycle. NOTE: data was never affected
+(updated_at unchanged — the round-trip is idempotent so no save fired; purely a DOM-reuse glitch). The old
+NoteCard had `key="note-editor"/"note-view"` for exactly this; the rewrite dropped them. Fix: re-add distinct
+`key`s on the two branches → clean unmount/remount.
+**Test Method:** `npx tsc --noEmit` (0 in NotesBoard; total 7 pre-existing) + `npm run build` READY.
+**Browser-verified** (temp middleware allowlist, reverted): open Licensing → VIEW (read-only, "VIEWING", Edit
+button, no editor/toolbar); click Edit → editor seeded + focused, toolbar/Done; Done → back to VIEW. After the
+key fix, Abraham's-States count = 1 on open, 1 after one Edit→Done, 1 after TWO cycles (was 2 before fix);
+updated_at stayed Jun 18 (no spurious save). Screenshot confirmed.
+**Result:** Type-clean, build READY, browser-verified incl. the doubling fix. Allowlist reverted. DEPLOYED below.
+
 ### [2026-06-25] Notes/Bulletin: card grid → list rows + pop-out modal editor
 **Status:** VERIFIED (browser) — tsc clean, build READY, deployed.
 **Files:** components/NotesBoard.tsx.
