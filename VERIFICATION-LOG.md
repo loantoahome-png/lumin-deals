@@ -1,7 +1,7 @@
 # Verification Log — Lumin Deals
 
 ### [2026-06-25] Combine Tasks + Notes → "Bulletin/Tasks"; drop top nav header
-**Status:** BUILD READY + browser-verified locally — pending deploy.
+**Status:** DEPLOYED — prod READY (`cbae929` → `dpl_4rTYZWeYiLZqZMbbTVsRg7T9QimS`, lumin-deals.vercel.app, 2026-06-25).
 **Files:** components/Sidebar.tsx, app/tasks/page.tsx, components/NotesBoard.tsx, app/notes/page.tsx.
 **Issue:** Efrain — drop the top nav section header entirely; combine the Tasks + Notes pages into one
 page (tasks on top, notes below) renamed "Bulletin/Tasks".
