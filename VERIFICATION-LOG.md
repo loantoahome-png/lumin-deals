@@ -1,5 +1,24 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-25] Dashboard: remove the date-range filter (All Time / MTD / QTD / YTD / Custom)
+**Status:** VERIFIED (browser) — tsc clean, build READY, deployed.
+**Files:** components/Dashboard.tsx.
+**Issue:** Efrain — the Dashboard is "Active Escrow Overview" (a present-state snapshot of what's currently in
+escrow); a date-range filter doesn't apply. Remove it.
+**Changes:** Removed the preset bar + custom-range popover + the "· <range>" header label, and the whole
+date-filter machinery: `DatePreset` type, `getPresetRange`, `dealDate`, `inRange`, the `datePreset/customFrom/
+customTo/showCustom/customRef` state, the outside-click effect, `PRESETS`, `rangeLabel`, `handlePreset`. KPIs
+now derive straight from `escrowDeals = deals.filter(pipeline_group === 'Loans in Process')` (was the
+date-filtered list; default was already 'all', so the numbers are unchanged). Dropped now-unused imports
+(`useRef`, `Calendar`, `X`).
+**Test Method:** `npx tsc --noEmit` (0 in Dashboard; no leftover refs to any removed identifier; total 7
+pre-existing) + `npm run build` READY. **Browser-verified** (temp middleware allowlist for `/`, reverted):
+dashboard renders, header subtitle is just "Active Escrow Overview" (no range label), and All Time/MTD/QTD/
+YTD/Custom are all gone (DOM eval). NOTE: a flood of NotesBoard parse errors in the dev console were STALE
+HMR-buffer entries from earlier rapid edits (referenced old line text); a fresh dev server showed zero errors
+and `next build` passed — build is authoritative.
+**Result:** Type-clean, build READY, browser-verified (toggle removed, renders). Allowlist reverted. DEPLOYED below.
+
 ### [2026-06-25] Notes modal: open in VIEW mode + Edit button (and fix a content-doubling bug)
 **Status:** VERIFIED (browser) — tsc clean, build READY, deployed.
 **Files:** components/NotesBoard.tsx.
