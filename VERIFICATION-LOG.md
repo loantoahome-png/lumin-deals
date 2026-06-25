@@ -1,5 +1,21 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-24] Sidebar search → master search (contacts + loans)
+**Status:** BUILD READY — pending deploy.
+**Files:** components/GlobalSearch.tsx.
+**Issue:** Efrain — the sidebar "Search deals" bar should search BOTH contacts and loans, grouped with
+contacts at the top, then loans.
+**Changes:** GlobalSearch now queries `contacts` (display_name/email/phone) and `deals`
+(name/address/email/investor + arive_file_no/investor_file_no) in parallel. Dropdown renders a
+**Contacts** section first (→ `/contacts/[id]`, shows email/phone + loan count) then a **Loans** section
+(→ `/deals/[id]`, existing status/amount/address row). Placeholder → "Search contacts & loans…";
+scrollable dropdown; `.or` input sanitized (strip `,()` so a stray char can't break the PostgREST filter).
+**Test Method:** `npx tsc --noEmit` (clean). `npm run build` (✓). Not browser-tested — results need an
+authed session (contacts/deals RLS block anon); reuses the contact page's contacts query + the existing
+deals search pattern, both proven in prod.
+**Result:** Type-clean, build READY. Deploy below; live eyeball by Efrain (try a borrower name → contact
+on top, their loans below).
+
 ### [2026-06-24] BUG: multi-loan borrower — webhook marks a sibling loan funded
 **Status:** DEPLOYED — prod READY (`46c0fc0` → `dpl_HbCJardiRHUVKECVhwCyLsVSmqGQ`, lumin-deals.vercel.app, 2026-06-24). **Data corrected:** deal #16852090 (id a7384568…) set Loan Funded→Re-Submittal, pipeline_group Funded→Not Ready (dead bucket — matches the sync's `effectiveGroup` for a lost loan), ghl_status won→lost, funded_date cleared (verified before/after via service client, user-authorized). NOTE: the sync ALREADY demotes lost/abandoned opps (route.ts `isDead`/`effectiveGroup` lines 826-829, used on insert+update) — no code change needed there. Header `funded_count`/`total_funded_volume` rollup self-corrects on the next identity-resolver pass.
 **Files:** lib/dealMatcher.ts (findExistingDeal); app/api/webhooks/ghl/route.ts (opportunity + main paths).
