@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { createHmac } from 'crypto'
 import { findExistingDeal } from '@/lib/dealMatcher'
 import { titleCase } from '@/lib/utils'
+import { resolveLO } from '@/lib/loanOfficer'
 
 // ── Signature validation ──────────────────────────────────────────────────────
 async function validateGHLSignature(req: NextRequest, rawBody: string): Promise<boolean> {
@@ -103,25 +104,7 @@ function buildNameFromObj(obj: Record<string, unknown> | null | undefined): stri
   return `${first} ${last}`.trim() || null
 }
 
-const LO_MAP: Record<string, string> = {
-  // Moe variants
-  'moe sefati': 'Moe Sefati', 'sefati': 'Moe Sefati', 'moe': 'Moe Sefati',
-  // Matt variants
-  'matthew park': 'Matt Park', 'matthew': 'Matt Park', 'matt park': 'Matt Park',
-  'matt': 'Matt Park', 'park': 'Matt Park',
-}
-
-function resolveLO(ownerName: string | null | undefined): string | null {
-  if (!ownerName) return null
-  const trimmed = ownerName.trim()
-  if (!trimmed) return null
-  const lower = trimmed.toLowerCase()
-  for (const [key, value] of Object.entries(LO_MAP)) {
-    if (lower.includes(key)) return value
-  }
-  // No match — return the raw name so we don't lose the assignment
-  return trimmed
-}
+// resolveLO + LO_MAP moved to lib/loanOfficer.ts (shared with the GHL sync + Arive importer).
 
 // GHL stage name → { status, pipeline_group }  (exact match = GHL stage names)
 const GHL_STAGE_MAP: Record<string, { status: string; pipeline_group: string }> = {

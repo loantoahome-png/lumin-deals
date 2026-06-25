@@ -4,6 +4,7 @@
 // pass through, and matching falls back from arive_file_no → email → phone → name.
 
 import { normEmail, normPhone } from './dealMatcher'
+import { resolveLO } from './loanOfficer'
 
 // ── CSV parsing (RFC 4180-aware, no external dep) ───────────────────────────
 export function parseCsv(text: string): { header: string[]; rows: string[][] } {
@@ -247,7 +248,7 @@ const MAPPINGS: Mapping[] = [
   { ariveCols: ['Stage Name'],               field: 'status',            normalize: r => normStage(r) },
   { ariveCols: ['Total Loan Amount'],        field: 'loan_amount',       normalize: r => num(r) },
   { ariveCols: ['Loan Purpose'],             field: 'loan_purpose',      normalize: r => normLoanPurpose(r) },
-  { ariveCols: ['Primary Loan Officer Name'], field: 'loan_officer',     normalize: r => trimStr(r) },
+  { ariveCols: ['Primary Loan Officer Name'], field: 'loan_officer',     normalize: r => resolveLO(r) },
   { ariveCols: ['Lender'],                   field: 'investor',          normalize: r => trimStr(r) },
   { ariveCols: ['Lien Position'],            field: 'lien_position',     normalize: r => normLienPosition(r) },
   { ariveCols: ['Lead Source'],              field: 'lead_source_agg',   normalize: r => trimStr(r) },

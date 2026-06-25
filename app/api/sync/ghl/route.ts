@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { normPhone, normEmail } from '@/lib/dealMatcher'
 import { titleCase } from '@/lib/utils'
+import { resolveLO } from '@/lib/loanOfficer'
 
 const GHL_BASE = 'https://services.leadconnectorhq.com'
 
@@ -79,25 +80,7 @@ const GHL_STAGE_MAP: Record<string, { status: string; pipeline_group: string }> 
   'stop':                        { status: 'STOP',                       pipeline_group: 'Not Ready' },
 }
 
-const LO_MAP: Record<string, string> = {
-  // Moe variants
-  'moe sefati': 'Moe Sefati', 'sefati': 'Moe Sefati', 'moe': 'Moe Sefati',
-  // Matt variants
-  'matthew park': 'Matt Park', 'matthew': 'Matt Park', 'matt park': 'Matt Park',
-  'matt': 'Matt Park', 'park': 'Matt Park',
-}
-
-function resolveLO(name: string | null | undefined): string | null {
-  if (!name) return null
-  const trimmed = name.trim()
-  if (!trimmed) return null
-  const lower = trimmed.toLowerCase()
-  for (const [key, value] of Object.entries(LO_MAP)) {
-    if (lower.includes(key)) return value
-  }
-  // No match — return the raw name so we don't lose the assignment
-  return trimmed
-}
+// resolveLO + LO_MAP moved to lib/loanOfficer.ts (shared with the GHL webhook + Arive importer).
 
 // Funded override — these statuses always land in Funded regardless of GHL pipeline
 const FUNDED_STATUSES = new Set(['Loan Funded', 'Broker Check Received', 'Loan Finalized'])

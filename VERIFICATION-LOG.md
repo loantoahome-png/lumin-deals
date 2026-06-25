@@ -1,5 +1,21 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-25] LO follow-up: normalize 94 legacy rows + share resolveLO (3 surfaces)
+**Status:** CHANGED (code) + DONE (data) — tsc clean, build READY, deployed.
+**Files:** lib/loanOfficer.ts (NEW), app/api/sync/ghl/route.ts, app/api/webhooks/ghl/route.ts, lib/ariveCsv.ts.
+**Data fix (prod write, authorized "do what you think is best"):** one-time `UPDATE deals SET
+loan_officer='Matt Park' WHERE loan_officer='Matthew Park'` → **94 rows** (verified: 'Matthew Park' now 0,
+'Matt Park' total 805 = 711+94). These were legacy un-normalized rows that still rendered blank in the LO
+dropdown after the enum fix.
+**Code (prevent recurrence):** `resolveLO` + `LO_MAP` were DUPLICATED byte-for-byte in the sync and webhook.
+Extracted to a single `lib/loanOfficer.ts` (unknown names pass through, so no LO is ever wiped); both routes
+now import it (dedup), and the **Arive importer** (`lib/ariveCsv.ts:251`) now normalizes loan_officer through
+it (`trimStr` → `resolveLO`) so a future Arive export can't reintroduce "Matthew Park"/variants. One source
+of truth for LO normalization across sync + webhook + import.
+**Test Method:** `npx tsc --noEmit` — 0 errors in the 4 touched files; total error count unchanged at 7
+(pre-existing build-ignored set). `npm run build` READY.
+**Result:** Type-clean, build READY, 94-row data fix verified live. DEPLOYED below.
+
 ### [2026-06-25] Fix: LO dropdowns blank on Matt's deals (enum 'Matt' → 'Matt Park')
 **Status:** CHANGED — tsc clean (changed file), build READY, deployed.
 **Files:** lib/types.ts.
