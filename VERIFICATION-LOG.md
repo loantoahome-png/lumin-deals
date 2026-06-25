@@ -1,7 +1,7 @@
 # Verification Log — Lumin Deals
 
 ### [2026-06-24] Sidebar search → master search (contacts + loans)
-**Status:** BUILD READY — pending deploy.
+**Status:** DEPLOYED — prod READY (`7ee19c4` → `dpl_EmvzzYJK85EdmaJEEFPkBCf5D6dW`, lumin-deals.vercel.app, 2026-06-24).
 **Files:** components/GlobalSearch.tsx.
 **Issue:** Efrain — the sidebar "Search deals" bar should search BOTH contacts and loans, grouped with
 contacts at the top, then loans.
