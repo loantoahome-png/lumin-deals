@@ -63,7 +63,7 @@ async function saveOrder(ids: string[]) {
   } catch { /* non-fatal — order re-saves on the next reorder */ }
 }
 
-export default function NotesBoard() {
+export default function NotesBoard({ embedded = false }: { embedded?: boolean } = {}) {
   const [notes, setNotes] = useState<Note[]>([])
   const [order, setOrder] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
@@ -170,11 +170,11 @@ export default function NotesBoard() {
   )
 
   return (
-    <div className="flex flex-col h-full">
+    <div className={embedded ? 'max-w-6xl mx-auto w-full' : 'flex flex-col h-full'}>
       {/* Header */}
       <div className="px-6 py-4 bg-white border-b border-slate-200 shrink-0 flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-          <StickyNote className="w-5 h-5 text-amber-500" /> Notes
+          <StickyNote className="w-5 h-5 text-amber-500" /> {embedded ? 'Bulletin' : 'Notes'}
         </h1>
         <div className="flex items-center gap-3 flex-wrap">
           <div className="relative">
@@ -198,7 +198,7 @@ export default function NotesBoard() {
       </div>
 
       {/* Board */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className={embedded ? 'p-6' : 'flex-1 overflow-auto p-6'}>
         {loading ? (
           <div className="flex items-center justify-center py-16 text-slate-400">
             <Loader2 className="w-6 h-6 animate-spin" />

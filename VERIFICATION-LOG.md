@@ -1,5 +1,23 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-25] Combine Tasks + Notes → "Bulletin/Tasks"; drop top nav header
+**Status:** BUILD READY + browser-verified locally — pending deploy.
+**Files:** components/Sidebar.tsx, app/tasks/page.tsx, components/NotesBoard.tsx, app/notes/page.tsx.
+**Issue:** Efrain — drop the top nav section header entirely; combine the Tasks + Notes pages into one
+page (tasks on top, notes below) renamed "Bulletin/Tasks".
+**Changes:** (1) Sidebar top group renders with **no header** (`noHeader` flag → skip the toggle button,
+always open); the relocated item is now **Bulletin/Tasks → /tasks** (was Notes); removed the duplicate
+**Tasks** item from Actions. (2) Combined page at **/tasks**: the Tasks page's component became
+`TasksSection`; a new default export renders `<TasksSection />` then `<NotesBoard embedded />`.
+(3) **NotesBoard** gained an `embedded` prop — flow layout (drops `h-full` + internal `overflow-auto`
+so it stacks in the page's single scroll) and labels its header "Bulletin". (4) **/notes redirects to
+/tasks** (notes now live on the combined page).
+**Test Method:** `npx tsc --noEmit` (clean). `npm run build` (✓ both /tasks + /notes). **Browser-verified
+locally** (temp middleware allowlist, reverted): /tasks shows Tasks on top + Bulletin board below as one
+scroll; sidebar has no top header, Bulletin/Tasks active at position 2, Actions collapsible; /notes → /tasks
+redirect confirmed.
+**Result:** Type-clean, build READY, browser-verified. Deploy below.
+
 ### [2026-06-24] Sidebar — reorder nav + collapsible Actions
 **Status:** DEPLOYED — prod READY (`5edf13c` → `dpl_3jByJyacef7QyqMGv75mE1hvGTq6`, lumin-deals.vercel.app, 2026-06-24).
 **Files:** components/Sidebar.tsx.

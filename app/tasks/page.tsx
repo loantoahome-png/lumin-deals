@@ -12,6 +12,7 @@ import {
   ClipboardList, Plus, X, Search, CheckCircle2, Circle,
   Calendar, User, Flame, ExternalLink, Trash2,
 } from 'lucide-react'
+import NotesBoard from '@/components/NotesBoard'
 
 type FilterMode = 'open' | 'today' | 'overdue' | 'week' | 'completed' | 'all'
 
@@ -79,7 +80,7 @@ const PRIORITY_STYLES: Record<string, string> = {
   low:    'bg-blue-50 text-blue-600 border-blue-200',
 }
 
-export default function TasksPage() {
+function TasksSection() {
   const [tasks, setTasks] = useState<DealTask[]>([])
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
@@ -601,5 +602,15 @@ function NewTaskForm({ deals, initialTask, onSubmit, onCancel }: {
         </button>
       </div>
     </form>
+  )
+}
+
+// Combined "Bulletin/Tasks" page — tasks on top, the notes board (bulletin) below.
+export default function BulletinTasksPage() {
+  return (
+    <div>
+      <TasksSection />
+      <NotesBoard embedded />
+    </div>
   )
 }

@@ -15,7 +15,6 @@ import {
   DollarSign,
   BarChart3,
   Target,
-  StickyNote,
   Users,
   Radar,
   FileUp,
@@ -33,9 +32,10 @@ const navGroups = [
   {
     key: 'pipeline',
     label: 'Pipeline',
+    noHeader: true,
     items: [
       { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-      { href: '/notes', label: 'Notes', icon: StickyNote },
+      { href: '/tasks', label: 'Bulletin/Tasks', icon: ClipboardList },
       { href: '/contacts', label: 'Contacts', icon: Users },
       { href: '/pipeline', label: 'Pipeline', icon: Kanban },
       { href: '/deals', label: 'Active Escrows', icon: Table2 },
@@ -57,7 +57,6 @@ const navGroups = [
     key: 'actions',
     label: 'Actions',
     items: [
-      { href: '/tasks', label: 'Tasks', icon: ClipboardList },
       { href: '/tools', label: 'Tools', icon: Wrench },
       { href: '/compliance', label: 'Compliance', icon: ShieldCheck },
     ],
@@ -145,18 +144,21 @@ export default function Sidebar() {
       {/* Nav */}
       <nav className="flex-1 px-3 py-2 space-y-2 overflow-y-auto">
         {navGroups.map(group => {
+          const noHeader = 'noHeader' in group && group.noHeader
           const hasActive = group.items.some(it => pathname === it.href)
           // Always show the group that contains the current page, even if collapsed.
-          const open = !collapsed[group.key] || hasActive
+          const open = noHeader || !collapsed[group.key] || hasActive
           return (
             <div key={group.key}>
-              <button
-                onClick={() => toggleGroup(group.key)}
-                className="flex items-center justify-between w-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300 transition-colors"
-              >
-                <span>{group.label}</span>
-                <ChevronDown className={`w-3 h-3 transition-transform ${open ? '' : '-rotate-90'}`} />
-              </button>
+              {!noHeader && (
+                <button
+                  onClick={() => toggleGroup(group.key)}
+                  className="flex items-center justify-between w-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  <span>{group.label}</span>
+                  <ChevronDown className={`w-3 h-3 transition-transform ${open ? '' : '-rotate-90'}`} />
+                </button>
+              )}
               {open && (
                 <div className="mt-0.5 space-y-0.5">
                   {group.items.map(({ href, label, icon: Icon }) => {
