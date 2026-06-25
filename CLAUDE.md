@@ -75,8 +75,8 @@ The dashboard owns the **unified person** (`contacts` table) that no upstream sy
 - `/reports` — Charts and analytics
 - `/lead-spend` — Cost per lead source
 - `/deals/new` — Manual deal creation
-- `/tasks` — Team task management
-- `/tools` — Utilities including PDF compressor
+- `/tasks` — **Bulletin/Tasks**: team task management on top + the Notes/Bulletin board below (one page; `/notes` redirects here)
+- `/tools` — Utilities incl. the **PDF Tools** hub (compress/merge/split/rotate, 100% in-browser)
 - `/import/arive` — Import from Arive LOS
 - `/health` — Data quality dashboard
 - `/duplicates` — Detect and merge duplicate deals
