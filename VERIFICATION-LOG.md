@@ -1,5 +1,24 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-25] Notes/Bulletin: card grid → list rows + pop-out modal editor
+**Status:** VERIFIED (browser) — tsc clean, build READY, deployed.
+**Files:** components/NotesBoard.tsx.
+**Issue:** Efrain — lay notes out like Tasks (a long list showing title + description in smaller text), and
+open the full editor as a POP-OUT (modal) when a note is clicked.
+**Changes:** Replaced the masonry card grid with a vertical list of `NoteRow`s (title + 2-line plain-text
+snippet via new `plainSnippet()`, drag handle, pin, delete, color accent, updated time). Extracted the
+WYSIWYG editor into `NoteEditorModal` — a `createPortal` overlay (`fixed inset-0`, backdrop blur) that's
+always in edit mode: title, toolbar (H1/H2/H3, Bold, Highlight, List, per-note A−/A+ font), contentEditable
+body. Click a row → modal; Add note → creates + opens the modal. Save-and-close on Done / X / backdrop / Esc.
+PRESERVED: markdown storage (markdownToHtml/htmlToMarkdown), per-note localStorage font, color, pin, and DnD
+reorder (now `verticalListSortingStrategy`). Funded note: legacy HTML notes still convert on load.
+**Test Method:** `npx tsc --noEmit` (0 errors in NotesBoard; total unchanged at 7 pre-existing) + `npm run
+build` READY. **Browser-verified** via temp middleware allowlist (reverted): /tasks Bulletin renders as a
+list of rows; clicking "Licensing" opened the pop-out modal with the editor seeded from the note content,
+toolbar + Done present, backdrop overlay present (confirmed via DOM eval + screenshot).
+**Result:** Type-clean, build READY, browser-verified (list + modal). Temp allowlist reverted (tree clean).
+DEPLOYED below.
+
 ### [2026-06-25] LO follow-up: normalize 94 legacy rows + share resolveLO (3 surfaces)
 **Status:** CHANGED (code) + DONE (data) — tsc clean, build READY, deployed.
 **Files:** lib/loanOfficer.ts (NEW), app/api/sync/ghl/route.ts, app/api/webhooks/ghl/route.ts, lib/ariveCsv.ts.

@@ -1,18 +1,18 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
 import {
-  StickyNote, Plus, Trash2, Check, Loader2, Pin, Pencil, Search, GripVertical,
+  StickyNote, Plus, Trash2, Check, Loader2, Pin, Search, GripVertical, X,
   Bold, Highlighter, List, Heading1, Heading2, Heading3,
 } from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors,
   type DragEndEvent,
 } from '@dnd-kit/core'
-import { SortableContext, useSortable, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
+import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import NoteMarkdown from '@/components/NoteMarkdown'
 import { markdownToHtml, htmlToMarkdown, looksLikeHtml } from '@/lib/noteMarkdown'
 
 type Note = {
@@ -45,13 +45,27 @@ const DOT: Record<string, string> = {
 const COLOR_KEYS = Object.keys(ACCENT)
 const accentOf = (c: string | null) => ACCENT[c ?? 'amber'] ?? ACCENT.amber
 
-// Text size is PER-NOTE (px), adjustable 12–26 from each note's editor toolbar,
+// Text size is PER-NOTE (px), adjustable 12–26 from the editor toolbar,
 // persisted per browser keyed by note id (font size was never a DB value).
 const FONT_MIN = 12
 const FONT_MAX = 26
 const FONT_DEFAULT = 15
 const fontKey = (id: string) => `lumin:notes-fontsize:${id}`
 const clampFont = (v: number) => Math.min(FONT_MAX, Math.max(FONT_MIN, Math.round(v)))
+
+// Strip markdown → plain text for the one-line list snippet.
+function plainSnippet(md: string): string {
+  return (md || '')
+    .replace(/```[\s\S]*?```/g, ' ')          // code fences
+    .replace(/`([^`]+)`/g, '$1')              // inline code
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')    // images
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')  // links → text
+    .replace(/^#{1,6}\s+/gm, '')              // headings
+    .replace(/^\s*[-*+]\s+/gm, '')            // bullets
+    .replace(/[*_~`#>]+/g, '')                // leftover emphasis/symbols
+    .replace(/\s+/g, ' ')                     // collapse whitespace
+    .trim()
+}
 
 async function saveOrder(ids: string[]) {
   try {
@@ -69,6 +83,7 @@ export default function NotesBoard({ embedded = false }: { embedded?: boolean } 
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
   const [search, setSearch] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)   // note open in the pop-out editor
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -104,6 +119,8 @@ export default function NotesBoard({ embedded = false }: { embedded?: boolean } 
     return canonical.filter(n => ((n.title ?? '') + ' ' + (n.content ?? '')).toLowerCase().includes(q))
   }, [canonical, search])
 
+  const editingNote = editingId ? (notes.find(n => n.id === editingId) ?? null) : null
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -133,6 +150,7 @@ export default function NotesBoard({ embedded = false }: { embedded?: boolean } 
       const n = data as Note
       setNotes(prev => [...prev, n])
       setOrder(prev => { const next = [...prev, n.id]; void saveOrder(next); return next })
+      setEditingId(n.id)   // open the pop-out editor on the new note right away
     }
     setAdding(false)
   }
@@ -144,7 +162,7 @@ export default function NotesBoard({ embedded = false }: { embedded?: boolean } 
   }
 
   async function patchNote(id: string, fields: Partial<Note>) {
-    setNotes(prev => prev.map(n => n.id === id ? { ...n, ...fields } : n))
+    setNotes(prev => prev.map(n => n.id === id ? { ...n, ...fields, updated_at: new Date().toISOString() } : n))
     await supabase.from('dashboard_notes')
       .update({ ...fields, updated_at: new Date().toISOString() })
       .eq('id', id)
@@ -159,12 +177,12 @@ export default function NotesBoard({ embedded = false }: { embedded?: boolean } 
 
   const canReorder = !search.trim()
 
-  const grid = (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+  const list = (
+    <div className="space-y-1.5">
       {display.map(n =>
         canReorder
-          ? <SortableNote key={n.id} note={n} onPatch={patchNote} onDelete={deleteNote} onPin={togglePin} />
-          : <NoteCard key={n.id} note={n} onPatch={patchNote} onDelete={deleteNote} onPin={togglePin} />,
+          ? <SortableNoteRow key={n.id} note={n} onOpen={setEditingId} onDelete={deleteNote} onPin={togglePin} />
+          : <NoteRow key={n.id} note={n} onOpen={setEditingId} onDelete={deleteNote} onPin={togglePin} />,
       )}
     </div>
   )
@@ -197,7 +215,7 @@ export default function NotesBoard({ embedded = false }: { embedded?: boolean } 
         </div>
       </div>
 
-      {/* Board */}
+      {/* Board — a long list (title + snippet); click a row to pop out the editor */}
       <div className={embedded ? 'p-6' : 'flex-1 overflow-auto p-6'}>
         {loading ? (
           <div className="flex items-center justify-center py-16 text-slate-400">
@@ -214,19 +232,30 @@ export default function NotesBoard({ embedded = false }: { embedded?: boolean } 
           <p className="text-sm text-slate-400 px-1">No notes match “{search}”.</p>
         ) : canReorder ? (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={display.map(n => n.id)} strategy={rectSortingStrategy}>
-              {grid}
+            <SortableContext items={display.map(n => n.id)} strategy={verticalListSortingStrategy}>
+              {list}
             </SortableContext>
           </DndContext>
-        ) : grid}
+        ) : list}
       </div>
+
+      {/* Pop-out editor */}
+      {editingNote && (
+        <NoteEditorModal
+          key={editingNote.id}
+          note={editingNote}
+          onPatch={patchNote}
+          onDelete={deleteNote}
+          onClose={() => setEditingId(null)}
+        />
+      )}
     </div>
   )
 }
 
-function SortableNote(props: {
+function SortableNoteRow(props: {
   note: Note
-  onPatch: (id: string, fields: Partial<Note>) => Promise<void>
+  onOpen: (id: string) => void
   onDelete: (id: string) => void
   onPin: (note: Note) => void
 }) {
@@ -242,37 +271,93 @@ function SortableNote(props: {
       {...attributes}
       {...listeners}
       title="Drag to reorder"
-      className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 touch-none"
+      className="shrink-0 mt-0.5 cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 touch-none"
     >
       <GripVertical className="w-4 h-4" />
     </button>
   )
   return (
     <div ref={setNodeRef} style={style}>
-      <NoteCard {...props} handle={handle} />
+      <NoteRow {...props} handle={handle} />
     </div>
   )
 }
 
-function NoteCard({
-  note, onPatch, onDelete, onPin, handle,
+function NoteRow({
+  note, onOpen, onDelete, onPin, handle,
 }: {
   note: Note
-  onPatch: (id: string, fields: Partial<Note>) => Promise<void>
+  onOpen: (id: string) => void
   onDelete: (id: string) => void
   onPin: (note: Note) => void
   handle?: React.ReactNode
 }) {
-  // Legacy notes hold contentEditable HTML — convert to markdown for display/edit.
-  // Non-destructive: the DB only changes to markdown when the user next saves.
   const md = useMemo(
     () => (looksLikeHtml(note.content) ? htmlToMarkdown(note.content) : (note.content ?? '')),
     [note.content],
   )
+  const snippet = useMemo(() => plainSnippet(md), [md])
+  const updated = note.updated_at
+    ? new Date(note.updated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : ''
 
+  return (
+    <div className={`group flex items-start gap-2.5 px-3.5 py-3 rounded-lg border bg-white border-slate-200 border-l-4 ${accentOf(note.color)} hover:border-blue-300 hover:shadow-sm transition`}>
+      {handle}
+      <button
+        onClick={() => onPin(note)}
+        title={note.pinned ? 'Unpin' : 'Pin to top'}
+        className={`shrink-0 mt-0.5 transition-colors ${note.pinned ? 'text-amber-600' : 'text-slate-300 hover:text-slate-500'}`}
+      >
+        <Pin className={`w-3.5 h-3.5 ${note.pinned ? 'fill-amber-500' : ''}`} />
+      </button>
+
+      {/* Whole info area is click-to-open (pops out the editor) */}
+      <button
+        type="button"
+        onClick={() => onOpen(note.id)}
+        className="flex-1 min-w-0 text-left cursor-pointer"
+        title="Click to open & edit"
+      >
+        <div className="text-sm font-semibold text-slate-900 truncate">
+          {note.title?.trim() || 'Untitled note'}
+        </div>
+        <div className="text-xs text-slate-500 mt-0.5 line-clamp-2 break-words">
+          {snippet || <span className="italic text-slate-300">Empty — click to write</span>}
+        </div>
+        {updated && <div className="text-[10px] text-slate-400 mt-1">Updated {updated}</div>}
+      </button>
+
+      <div className="shrink-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={() => { if (confirm('Delete this note?')) onDelete(note.id) }}
+          className="p-1 text-slate-300 hover:text-red-500"
+          title="Delete note"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Pop-out editor (modal) ───────────────────────────────────────────────────
+// Always in edit mode — the whole WYSIWYG opens when a row is clicked. Storage
+// stays markdown (seed from markdownToHtml, read back via htmlToMarkdown).
+function NoteEditorModal({
+  note, onPatch, onDelete, onClose,
+}: {
+  note: Note
+  onPatch: (id: string, fields: Partial<Note>) => Promise<void>
+  onDelete: (id: string) => void
+  onClose: () => void
+}) {
+  // Legacy notes hold contentEditable HTML — convert to markdown for edit/seed.
+  const md0 = useMemo(
+    () => (looksLikeHtml(note.content) ? htmlToMarkdown(note.content) : (note.content ?? '')),
+    [note.content],
+  )
   const [title, setTitle] = useState(note.title ?? '')
-  const [editing, setEditing] = useState(false)
-  const [savedFlash, setSavedFlash] = useState(false)
   const [fontSize, setFontSizeState] = useState(FONT_DEFAULT)
   const edRef = useRef<HTMLDivElement | null>(null)
 
@@ -289,43 +374,41 @@ function NoteCard({
     try { localStorage.setItem(fontKey(note.id), String(clamped)) } catch { /* ignore */ }
   }
 
-  // Read the editor's HTML back as markdown (storage format stays markdown).
-  const readDraft = () => (edRef.current ? htmlToMarkdown(edRef.current.innerHTML) : md)
+  // Seed the WYSIWYG from stored markdown, then focus & place caret at the end.
+  useEffect(() => {
+    const ed = edRef.current
+    if (!ed) return
+    ed.innerHTML = markdownToHtml(md0)
+    try { document.execCommand('styleWithCSS', false, 'false') } catch { /* ignore */ }
+    ed.focus()
+    const sel = window.getSelection()
+    if (sel) { const r = document.createRange(); r.selectNodeContents(ed); r.collapse(false); sel.removeAllRanges(); sel.addRange(r) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  async function save(nextDraft: string, nextTitle = title) {
-    if (nextTitle === (note.title ?? '') && nextDraft === md) return
-    await onPatch(note.id, { title: nextTitle.trim() || null, content: nextDraft })
-    setSavedFlash(true)
-    setTimeout(() => setSavedFlash(false), 1500)
-  }
+  // Save (if changed) and close. Reads the draft synchronously before unmount.
+  const close = useCallback(() => {
+    const draft = edRef.current ? htmlToMarkdown(edRef.current.innerHTML) : md0
+    const nextTitle = title.trim() || null
+    if (nextTitle !== (note.title || null) || draft !== md0) {
+      void onPatch(note.id, { title: nextTitle, content: draft })
+    }
+    onClose()
+  }, [title, md0, note.id, note.title, onPatch, onClose])
 
-  function enterEdit() {
-    setEditing(true)
-    requestAnimationFrame(() => {
-      const ed = edRef.current
-      if (!ed) return
-      ed.innerHTML = markdownToHtml(md)             // seed WYSIWYG from stored markdown
-      try { document.execCommand('styleWithCSS', false, 'false') } catch { /* ignore */ }
-      ed.focus()
-      // place caret at the end
-      const sel = window.getSelection()
-      if (sel) { const r = document.createRange(); r.selectNodeContents(ed); r.collapse(false); sel.removeAllRanges(); sel.addRange(r) }
-    })
-  }
-  function done() {
-    const next = readDraft()
-    setEditing(false)
-    void save(next)
-  }
+  // Esc closes (and saves).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); close() } }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [close])
 
   // execCommand acts on the focused editor; keep the editor selection by preventing
   // the button's default focus-steal (onMouseDown preventDefault).
   const exec = (cmd: string, val?: string) => { try { document.execCommand(cmd, false, val) } catch { /* ignore */ }; edRef.current?.focus() }
   const tb = (fn: () => void) => ({ onMouseDown: (e: React.MouseEvent) => { e.preventDefault(); fn() } })
 
-  // Highlight is a TOGGLE (execCommand hiliteColor can't un-highlight). Apply wraps the
-  // selection in <mark>; clicking again on highlighted text (or with the caret inside it)
-  // unwraps it. Also clears legacy highlights stored as background-color spans/fonts.
+  // Highlight TOGGLE — wraps the selection in <mark>; clicking again unwraps it.
   function toggleHighlight() {
     const ed = edRef.current
     const sel = window.getSelection()
@@ -348,7 +431,6 @@ function NoteCard({
       }
       return null
     }
-    // Caret inside a highlight (nothing selected) → remove that highlight.
     if (range.collapsed) {
       const h = ancestorHilite(sel.anchorNode)
       if (h) { unwrap(h); ed.normalize() }
@@ -377,70 +459,50 @@ function NoteCard({
     ? new Date(note.updated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
     : ''
 
-  // Uniform fixed height — long notes scroll internally rather than growing the card.
-  return (
-    <div className={`group relative flex flex-col h-[360px] bg-white border border-slate-200 border-l-4 ${accentOf(note.color)} rounded-xl shadow-sm overflow-hidden`}>
-      {/* Header strip — title section, greyed to separate it from the white body */}
-      <div className="bg-slate-50 border-b border-slate-200 px-4 pt-2.5 pb-2 shrink-0">
-        {/* Top row: grip + pin + (hover) colors / edit / delete */}
-        <div className="flex items-center justify-between mb-1.5">
-        <div className="flex items-center gap-1">
-          {handle}
-          <button
-            onClick={() => onPin(note)}
-            title={note.pinned ? 'Unpin' : 'Pin to top'}
-            className={`transition-colors ${note.pinned ? 'text-amber-600' : 'text-slate-300 hover:text-slate-500'}`}
-          >
-            <Pin className={`w-3.5 h-3.5 ${note.pinned ? 'fill-amber-500' : ''}`} />
-          </button>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+  if (typeof document === 'undefined') return null
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm"
+      onMouseDown={e => { if (e.target === e.currentTarget) close() }}
+    >
+      <div className={`w-full max-w-2xl max-h-[88vh] flex flex-col bg-white border border-slate-200 border-l-4 ${accentOf(note.color)} rounded-2xl shadow-2xl overflow-hidden`}>
+        {/* Header: colors + delete + close */}
+        <div className="flex items-center justify-between gap-2 px-5 pt-3.5 pb-2.5 border-b border-slate-100">
+          <div className="flex items-center gap-1.5">
             {COLOR_KEYS.map(key => (
               <button
                 key={key}
                 onClick={() => onPatch(note.id, { color: key })}
                 title={key}
-                className={`w-3.5 h-3.5 rounded-full ${DOT[key]} ring-offset-1 ${note.color === key || (!note.color && key === 'amber') ? 'ring-2 ring-slate-400' : 'hover:ring-2 hover:ring-slate-300'}`}
+                className={`w-4 h-4 rounded-full ${DOT[key]} ring-offset-1 ${note.color === key || (!note.color && key === 'amber') ? 'ring-2 ring-slate-400' : 'hover:ring-2 hover:ring-slate-300'}`}
               />
             ))}
           </div>
-          {editing ? (
-            <button {...tb(done)} title="Done editing"
-              className="flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md px-2 py-0.5">
-              <Check className="w-3 h-3" /> Done
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => { if (confirm('Delete this note?')) { onDelete(note.id); onClose() } }}
+              className="p-1.5 text-slate-400 hover:text-red-600 rounded-md hover:bg-red-50"
+              title="Delete note"
+            >
+              <Trash2 className="w-4 h-4" />
             </button>
-          ) : (
-            <button onClick={enterEdit} title="Edit note"
-              className="text-slate-300 hover:text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Pencil className="w-3.5 h-3.5" />
+            <button onClick={close} className="p-1.5 text-slate-400 hover:text-slate-700 rounded-md hover:bg-slate-100" title="Close (saves)">
+              <X className="w-4 h-4" />
             </button>
-          )}
-          <button
-            onClick={() => { if (confirm('Delete this note?')) onDelete(note.id) }}
-            className="text-slate-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-            title="Delete note"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+          </div>
         </div>
-      </div>
 
         {/* Title */}
         <input
           value={title}
           onChange={e => setTitle(e.target.value)}
-          onBlur={() => save(editing ? readDraft() : md, title)}
           placeholder="Title"
-          className="w-full bg-transparent text-base font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none"
+          className="px-5 pt-3 pb-1 bg-transparent text-xl font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none shrink-0"
         />
-      </div>
 
-      {/* Body (white) */}
-      <div className="flex-1 min-h-0 flex flex-col px-4 py-3">
-        {/* Toolbar (edit mode) */}
-        {editing && (
-        <div className="flex flex-wrap items-center gap-0.5 mb-2 border border-slate-200 rounded-lg p-1 bg-slate-50 shrink-0">
+        {/* Toolbar */}
+        <div className="flex flex-wrap items-center gap-0.5 mx-5 my-2 border border-slate-200 rounded-lg p-1 bg-slate-50 shrink-0">
           <button {...tb(() => exec('formatBlock', '<h1>'))} title="Heading 1" className={btn}><Heading1 className="w-4 h-4" /></button>
           <button {...tb(() => exec('formatBlock', '<h2>'))} title="Heading 2" className={btn}><Heading2 className="w-4 h-4" /></button>
           <button {...tb(() => exec('formatBlock', '<h3>'))} title="Heading 3" className={btn}><Heading3 className="w-4 h-4" /></button>
@@ -448,7 +510,6 @@ function NoteCard({
           <button {...tb(() => exec('bold'))} title="Bold" className={btn}><Bold className="w-4 h-4" /></button>
           <button {...tb(toggleHighlight)} title="Highlight / remove highlight" className="w-7 h-7 flex items-center justify-center rounded text-slate-500 hover:bg-yellow-100 hover:text-slate-800"><Highlighter className="w-4 h-4" /></button>
           <button {...tb(() => exec('insertUnorderedList'))} title="Bullet list" className={btn}><List className="w-4 h-4" /></button>
-          {/* Per-note text size (12–26) */}
           <div className="flex items-center gap-0.5 ml-auto pl-1" title="Text size for this note">
             <button {...tb(() => setFontSize(fontSize - 1))} disabled={fontSize <= FONT_MIN}
               className={`${btn} disabled:opacity-30`}><span className="text-xs font-bold leading-none">A−</span></button>
@@ -457,20 +518,16 @@ function NoteCard({
               className={`${btn} disabled:opacity-30`}><span className="text-sm font-bold leading-none">A+</span></button>
           </div>
         </div>
-      )}
 
-      {/* Body — fixed-height card, this region scrolls. */}
-      <div className="flex-1 min-h-0">
-        {editing ? (
+        {/* Body editor — grows to fill, scrolls when long */}
+        <div className="flex-1 min-h-0 px-5 pb-4">
           <div
-            key="note-editor"
             ref={edRef}
             contentEditable
             suppressContentEditableWarning
-            onBlur={done}
             data-placeholder="Write your note…"
             style={{ fontSize: `${fontSize}px` }}
-            className="w-full h-full bg-white text-slate-800 border border-slate-200 rounded-lg p-2.5 leading-relaxed overflow-y-auto focus:outline-none focus:ring-2 focus:ring-blue-400 break-words
+            className="w-full h-full min-h-[40vh] bg-white text-slate-800 border border-slate-200 rounded-lg p-3 leading-relaxed overflow-y-auto focus:outline-none focus:ring-2 focus:ring-blue-400 break-words
               [&_h1]:text-[1.5em] [&_h1]:font-bold [&_h1]:my-1
               [&_h2]:text-[1.25em] [&_h2]:font-semibold [&_h2]:my-1
               [&_h3]:text-[1.1em] [&_h3]:font-semibold [&_h3]:my-1
@@ -479,23 +536,20 @@ function NoteCard({
               [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1
               [&:empty]:before:content-[attr(data-placeholder)] [&:empty]:before:text-slate-300"
           />
-        ) : (
-          <div key="note-view" className="h-full overflow-y-auto pr-1" style={{ fontSize: `${fontSize}px` }}>
-            {md.trim()
-              ? <NoteMarkdown md={md} />
-              : <span className="text-slate-300">Empty — click the pencil to edit</span>}
-          </div>
-        )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 shrink-0">
+          <span className="text-[11px] text-slate-400">{updated ? `Updated ${updated}` : 'New note'}</span>
+          <button
+            onClick={close}
+            className="flex items-center gap-1.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg px-4 py-1.5"
+          >
+            <Check className="w-4 h-4" /> Done
+          </button>
         </div>
       </div>
-
-      <div className="flex items-center justify-between px-4 py-2 border-t border-slate-100 shrink-0">
-        <span className="text-[10px] text-slate-400">
-          {savedFlash
-            ? <span className="text-emerald-600 flex items-center gap-0.5"><Check className="w-3 h-3" /> Saved</span>
-            : updated ? `Updated ${updated}` : ''}
-        </span>
-      </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
