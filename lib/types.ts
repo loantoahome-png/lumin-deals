@@ -281,7 +281,12 @@ export const PIPELINE_GROUPS = [
   'Funded',
 ] as const
 
-export const LOAN_OFFICERS = ['Matt', 'Moe Sefati'] as const
+// Canonical loan_officer values — MUST equal what resolveLO() produces and what the
+// Arive import stores: the FULL name "Matt Park" (NOT "Matt"). The data holds "Matt
+// Park" (711 deals); a short "Matt" option matches nothing, so every LO <select> across
+// the app (deal detail, pipeline, deals, hot-leads, FundedTracker, DealForm) renders
+// blank on Matt's deals. Keep these in lockstep with the resolveLO map.
+export const LOAN_OFFICERS = ['Matt Park', 'Moe Sefati'] as const
 
 // Processor options (stored on `processor_status`). Surfaced in the Active Escrows
 // card, the deal detail panel, the new-deal form, and the pipeline table.

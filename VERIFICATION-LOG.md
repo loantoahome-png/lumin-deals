@@ -1,5 +1,25 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-25] Fix: LO dropdowns blank on Matt's deals (enum 'Matt' → 'Matt Park')
+**Status:** CHANGED — tsc clean (changed file), build READY, deployed.
+**Files:** lib/types.ts.
+**Issue:** Efrain (post-Arive-import) — John Winn's funded loan showed no Loan Officer in the TEAM dropdown,
+though it should be Matt Park. **Root cause (verified via service-role query):** the data is correct —
+`loan_officer = "Matt Park"` (header renders it fine). The TEAM `<select>` (and every other LO dropdown:
+pipeline, deals, hot-leads, FundedTracker, DealForm) builds options from `LOAN_OFFICERS = ['Matt','Moe
+Sefati']`. The canonical stored value is "Matt Park" (resolveLO normalizes to it; Arive stores the full
+name) — 711 deals are "Matt Park", 94 "Matthew Park", 194 "Moe Sefati". A `<select value="Matt Park">` with
+`<option>Matt</option>` has no match → blank. Moe's render fine ("Moe Sefati" matches). Pre-existing; the
+import just surfaced it.
+**Changes:** `LOAN_OFFICERS` → `['Matt Park','Moe Sefati']` so options match the canonical value across all
+6 dropdown surfaces. Verified leadReport.ts uses its OWN `LO='Matt'|'Moe'` filter type with tolerant
+substring matching — unaffected. No stored short-"Matt" values exist, so nothing is orphaned.
+**Test Method:** `npx tsc --noEmit` (clean on changed file; the DealForm error is pre-existing/build-ignored)
++ `npm run build`. Visual: reload John Winn → TEAM Loan Officer shows "Matt Park".
+**Result:** Type-clean, build READY. DEPLOYED below. Follow-up (not done): 94 "Matthew Park" rows still won't
+match — one-time normalize to "Matt Park" (data write, Efrain's call); + route Arive loan_officer through a
+shared normalizer to prevent future drift.
+
 ### [2026-06-25] Webhook: real-time loan_amount from opportunity monetaryValue
 **Status:** CHANGED — tsc clean on changed file, build READY, deployed.
 **Files:** app/api/webhooks/ghl/route.ts.
