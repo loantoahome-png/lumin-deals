@@ -1,7 +1,7 @@
 # Verification Log — Lumin Deals
 
 ### [2026-06-24] Sidebar — reorder nav + collapsible Actions
-**Status:** BUILD READY — pending deploy.
+**Status:** DEPLOYED — prod READY (`5edf13c` → `dpl_3jByJyacef7QyqMGv75mE1hvGTq6`, lumin-deals.vercel.app, 2026-06-24).
 **Files:** components/Sidebar.tsx.
 **Issue:** Efrain — reorder the nav to Dashboard, Notes, Contacts, Pipeline, Active Escrows, Hot Leads,
 Funded; add a collapse toggle to the Actions section.
