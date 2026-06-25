@@ -1,5 +1,22 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-25] Webhook: real-time loan_amount from opportunity monetaryValue
+**Status:** CHANGED — tsc clean on changed file, build READY, deployed.
+**Files:** app/api/webhooks/ghl/route.ts.
+**Issue:** loan_amount only corrected on the ≤3h maintenance reconcile because the workflow webhook payload
+carries no monetaryValue (Juliet #17098748 stored `monetaryValue`=null). Make in-process amounts update in
+real time when the payload DOES carry the opp value, mirroring the sync's fundedOwnsAmount rule.
+**Changes:** In the opp-update branch, after the stage block, added a guarded write: detect PRESENCE of a
+monetary-value key (`monetaryValue`/`monetary_value`/`opportunityValue`/`Monetary Value`/… at top level or
+nested under `opportunity`) via hasOwnProperty; if present, `UPDATE deals SET loan_amount=<parsed> WHERE
+id=match AND pipeline_group != 'Funded'`. Funded deals never overwritten (Arive-authoritative); absence of
+the key is a no-op (so notes/messages/contact webhooks can't wipe loan_amount); explicit empty/0 clears a
+stale figure (matches the sync mirror). Updated the stale "loan_amount NOT written from webhook" comment.
+**Test Method:** `npx tsc --noEmit` (changed file clean) + `npm run build`. Standalone node check of the
+presence-detection across 8 payload shapes (absent→SKIP, number/string-$/nested→WRITE, empty/null/0→clear).
+**Result:** Type-clean, build READY, logic verified. Activates once Efrain adds the opp Monetary Value token
+to the GHL workflow's custom-webhook body (no-op until then). DEPLOYED below.
+
 ### [2026-06-25] Loan amount: GHL opp value drives in-process loans (incl. Arive-backed)
 **Status:** CHANGED — pending tsc + build, then deploy.
 **Files:** app/api/sync/ghl/route.ts.

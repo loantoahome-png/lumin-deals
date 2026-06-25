@@ -440,12 +440,11 @@ export async function POST(req: NextRequest) {
       }
       const maybeSet = (key: string, val: unknown) => { if (val !== null && val !== undefined) patch[key] = val }
 
-      // loan_amount is NOT written from the webhook. The only amount this payload
-      // carries is the GHL "Loan Amount" CUSTOM FIELD — an unreliable lead-intake
-      // number (it once put $610k on a $150k loan), NOT the opportunity monetaryValue.
-      // The dashboard amount = the opp value, which the full/maintenance sync reads
-      // straight from the opportunities API and reconciles (incl. in-process Arive
-      // loans); funded loans stay Arive-authoritative. So defer loan_amount to the sync.
+      // loan_amount is NOT taken from the GHL "Loan Amount" CUSTOM FIELD — that's an
+      // unreliable lead-intake number (it once put $610k on a $150k loan). It IS set,
+      // in real time, from the opportunity monetaryValue further down (non-funded only,
+      // mirroring the sync's fundedOwnsAmount rule) IF this payload carries it; the
+      // full/maintenance sync stays the backstop that reconciles every deal.
       maybeSet('estimated_value',   fields.estimatedValue)
       maybeSet('loan_type',         fields.loanType)
       maybeSet('loan_purpose',      fields.loanPurpose)
@@ -500,6 +499,34 @@ export async function POST(req: NextRequest) {
           .neq('status', whStage.status)
         if (stErr) console.error('[GHL Webhook] stage apply error:', stErr.message)
         else console.log(`[GHL Webhook] Stage applied from workflow payload → ${whStage.status} (${newGroup})`)
+      }
+
+      // ── Real-time loan amount from the OPPORTUNITY monetary value ───────────
+      // Mirrors the sync's fundedOwnsAmount rule (app/api/sync/ghl/route.ts): the opp
+      // value drives loan_amount on IN-PROCESS loans; FUNDED stays Arive-authoritative.
+      // The `.neq('pipeline_group','Funded')` guard enforces that at the DB, so a deal
+      // the stage block above just moved to Funded is correctly skipped.
+      // CRITICAL: only act when the payload actually CARRIES a monetary-value key — a
+      // mere ABSENCE must never wipe loan_amount (notes/messages/contact webhooks don't
+      // carry it). We detect key PRESENCE (hasOwnProperty), not truthiness, so an
+      // explicit empty value still clears a stale figure, exactly like the sync's mirror.
+      const mvContainers: Record<string, unknown>[] = [body]
+      if (body.opportunity && typeof body.opportunity === 'object') {
+        mvContainers.push(body.opportunity as Record<string, unknown>)
+      }
+      const MV_KEYS = ['monetaryValue', 'monetary_value', 'opportunityValue', 'opportunity_value', 'Monetary Value', 'Opportunity Value']
+      let mvFound: { value: number | null } | null = null
+      for (const c of mvContainers) {
+        const k = MV_KEYS.find(key => Object.prototype.hasOwnProperty.call(c, key))
+        if (k) { mvFound = { value: parseAmount(c[k] as string | number | null) }; break }
+      }
+      if (mvFound) {
+        const { error: amtErr } = await supabase.from('deals')
+          .update({ loan_amount: mvFound.value })
+          .eq('id', match.id)
+          .neq('pipeline_group', 'Funded')   // Arive owns funded amounts — never overwrite
+        if (amtErr) console.error('[GHL Webhook] loan_amount apply error:', amtErr.message)
+        else console.log(`[GHL Webhook] loan_amount ← opp monetaryValue ${mvFound.value} (non-funded only) on deal ${match.id}`)
       }
 
       console.log(`[GHL Webhook] Updated deal ${match.id} (matched by ${match.matchedBy})`)
