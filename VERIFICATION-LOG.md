@@ -1,5 +1,18 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-24] Sidebar — reorder nav + collapsible Actions
+**Status:** BUILD READY — pending deploy.
+**Files:** components/Sidebar.tsx.
+**Issue:** Efrain — reorder the nav to Dashboard, Notes, Contacts, Pipeline, Active Escrows, Hot Leads,
+Funded; add a collapse toggle to the Actions section.
+**Changes:** Top group reordered to that exact sequence; **Notes** pulled up out of Actions (no dup);
+Refi Radar kept at the end of the top group (wasn't named, not dropped). Removed `alwaysOpen` from the
+Actions group + the matching render branch, so Actions is now collapsible like the other sections
+(chevron toggle, expanded by default, preference persisted in localStorage). Actions = Tasks/Tools/Compliance.
+**Test Method:** `npx tsc --noEmit` (clean). `npm run build` (✓). Pure nav reorder — not browser-tested
+(app shell is auth-gated); eyeball live.
+**Result:** Type-clean, build READY. Deploy below.
+
 ### [2026-06-24] Sidebar search → master search (contacts + loans)
 **Status:** DEPLOYED — prod READY (`7ee19c4` → `dpl_EmvzzYJK85EdmaJEEFPkBCf5D6dW`, lumin-deals.vercel.app, 2026-06-24).
 **Files:** components/GlobalSearch.tsx.
