@@ -440,9 +440,12 @@ export async function POST(req: NextRequest) {
       }
       const maybeSet = (key: string, val: unknown) => { if (val !== null && val !== undefined) patch[key] = val }
 
-      // loan_amount is Arive-authoritative — never written from GHL here. The GHL
-      // "Loan Amount" custom field is an unreliable lead-intake number (it once put
-      // $610k on a $150k loan). Arive (the LOS) owns the loan amount; see the sync.
+      // loan_amount is NOT written from the webhook. The only amount this payload
+      // carries is the GHL "Loan Amount" CUSTOM FIELD — an unreliable lead-intake
+      // number (it once put $610k on a $150k loan), NOT the opportunity monetaryValue.
+      // The dashboard amount = the opp value, which the full/maintenance sync reads
+      // straight from the opportunities API and reconciles (incl. in-process Arive
+      // loans); funded loans stay Arive-authoritative. So defer loan_amount to the sync.
       maybeSet('estimated_value',   fields.estimatedValue)
       maybeSet('loan_type',         fields.loanType)
       maybeSet('loan_purpose',      fields.loanPurpose)

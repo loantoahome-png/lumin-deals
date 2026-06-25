@@ -1,5 +1,27 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-25] Loan amount: GHL opp value drives in-process loans (incl. Arive-backed)
+**Status:** CHANGED — pending tsc + build, then deploy.
+**Files:** app/api/sync/ghl/route.ts.
+**Issue:** In-process Arive-backed loans rendered "—"/$0 (e.g. Juliet Flores #17098748, Clear to Close).
+The `loan_amount` guard locked out GHL on ANY deal with an `arive_file_no`, so the live opp value never
+populated. Efrain (2026-06-25) confirmed the boundary: **funded = `pipeline_group === 'Funded'` is the only
+Arive-authoritative line**; every in-process loan (Arive-backed or not) shows the GHL OPPORTUNITY value
+(`monetaryValue`). When both an Arive import figure and an opp value exist on a non-funded loan, **the opp
+value wins** ("Opp value always").
+**Changes:** Two guard sites in the GHL sync. (1) Live upsert path: `ariveOwnsAmount = existingIsFunded ||
+arive_file_no != null` → renamed `fundedOwnsAmount = existingIsFunded` (drop the Arive term); the
+`!fundedOwnsAmount` mirror now writes the opp value (incl. 0/null) onto Arive-backed in-process loans too.
+(2) Maintenance reconcile: removed the `!d.arive_file_no &&` condition so the reconcile mirrors the opp
+value onto in-process Arive deals as well (`pipeline_group !== 'Funded'` already excludes funded). Updated
+the loan_amount provenance comments. Arive remains authoritative for FUNDED amounts (unchanged).
+**Test Method:** `npx tsc --noEmit` (changed file clean) + `npm run build`. Functional proof = after a GHL
+sync, Juliet Flores #17098748 shows the opp value instead of "—" (Efrain to confirm in prod, or
+service-role query of the row post-sync).
+**Result:** Type-clean on both changed files (the ~7 tsc errors are the pre-existing build-ignored set:
+reports/underwriting/DealForm/next.config — none in the sync or webhook route). `npm run build` READY
+(full route table emitted). DEPLOYED below. Data fix lands on the next full/maintenance GHL sync.
+
 ### [2026-06-25] Combine Tasks + Notes → "Bulletin/Tasks"; drop top nav header
 **Status:** DEPLOYED — prod READY (`cbae929` → `dpl_4rTYZWeYiLZqZMbbTVsRg7T9QimS`, lumin-deals.vercel.app, 2026-06-25).
 **Files:** components/Sidebar.tsx, app/tasks/page.tsx, components/NotesBoard.tsx, app/notes/page.tsx.

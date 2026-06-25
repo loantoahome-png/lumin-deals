@@ -926,10 +926,10 @@ async function syncAccount(
           dnd:              typeof fullContact.dnd === 'boolean' ? fullContact.dnd : null,
           dnd_settings:     (fullContact.dndSettings && typeof fullContact.dndSettings === 'object') ? fullContact.dndSettings : null,
           // Loan fields from custom fields
-          // loan_amount: GHL is only a placeholder for pre-Arive leads. Use the opp
-          // Value (monetaryValue) ONLY — NEVER the "Loan Amount" custom field, an
-          // unreliable lead-intake number (it put $610k on a $150k loan). Arive owns
-          // this once the deal has an arive_file_no (see the update guard below).
+          // loan_amount: ALWAYS the GHL opportunity Value (monetaryValue) — NEVER the
+          // "Loan Amount" custom field, an unreliable lead-intake number (it put $610k
+          // on a $150k loan). The opp value drives the amount on every IN-PROCESS loan;
+          // Arive becomes authoritative only once the loan is FUNDED (see update guard).
           loan_amount:      parseAmount(opp.monetaryValue as number | null),
           estimated_value:  parseAmount(getCustomField(customFields, 'estimated_value', 'property_value', 'home_value', 'Property Value')),
           credit_score:     parseAmount(getCustomField(customFields, 'credit_score', 'credit score', 'fico')),
@@ -974,14 +974,15 @@ async function syncAccount(
           // below. Without this, any later opp change clobbers funded volume back
           // to the GHL number.
           const existingIsFunded = existing.pipeline_group === 'Funded'
-          // Arive is authoritative for loan_amount. Once a deal has an Arive loan #
-          // (arive_file_no), GHL must NEVER touch loan_amount — Arive's import owns
-          // it. Funded deals are likewise Arive-authoritative. This stops GHL from
-          // clobbering the correct Arive figure with a stale/wrong opp value.
-          const ariveOwnsAmount = existingIsFunded || dealData.arive_file_no != null
+          // loan_amount provenance (Efrain, 2026-06-25): the dashboard AMOUNT shows the
+          // GHL OPPORTUNITY value (monetaryValue) for every IN-PROCESS loan — Arive-backed
+          // or not. Arive is authoritative ONLY for FUNDED loans (closed-loan dollars must
+          // not be clobbered by a later/stale opp edit). So the guard is funded-only: an
+          // arive_file_no no longer locks loan_amount while the loan is still in process.
+          const fundedOwnsAmount = existingIsFunded
           const maybeSet = (k: string) => {
             if (dealData[k] == null) return
-            if (k === 'loan_amount' && ariveOwnsAmount) return
+            if (k === 'loan_amount' && fundedOwnsAmount) return
             patch[k] = dealData[k]
           }
           ;['loan_officer','loan_amount','estimated_value','credit_score','loan_type','loan_purpose',
@@ -990,11 +991,12 @@ async function syncAccount(
             'current_va_loan','city','state','zip','first_name','last_name','email','phone',
             'source','lead_price','ghl_opportunity_id','dnd','dnd_settings','ghl_status',
           ].forEach(maybeSet)
-          // Pre-Arive leads: loan_amount mirrors the GHL opportunity value — write it
-          // even when the opp value is 0/empty so a stale figure (e.g. an old custom-
-          // field import that put $297,500 on a $0 opp) is cleared, not left to linger.
-          // Arive/funded deals keep the guard above (ariveOwnsAmount).
-          if (!ariveOwnsAmount) {
+          // In-process loans (Arive-backed or not): loan_amount mirrors the GHL
+          // opportunity value — write it even when the opp value is 0/empty so a stale
+          // figure (e.g. an old custom-field import that put $297,500 on a $0 opp) is
+          // cleared, not left to linger. Only FUNDED deals keep their Arive figure
+          // (fundedOwnsAmount).
+          if (!fundedOwnsAmount) {
             patch.loan_amount = (dealData.loan_amount as number | null) ?? null
           }
           // borrower_id intentionally NOT synced — preserve existing grouping.
@@ -1223,13 +1225,12 @@ async function syncAccount(
       }
       // Opportunity still exists → reconcile loan amount + stage (non-funded only).
       if (d.pipeline_group !== 'Funded') {
-        // Arive owns loan_amount on Arive-backed deals — only reconcile the GHL opp
-        // value onto pre-Arive leads (no arive_file_no). Prevents a maintenance run
-        // from overwriting the authoritative Arive figure with a GHL number.
-        // Pre-Arive leads: loan_amount mirrors the GHL opportunity value, INCLUDING
-        // clearing it when the opp value is 0/empty (so a stale figure can't linger).
-        // `has` distinguishes "opp not fetched this run" (skip) from "value is null".
-        if (!d.arive_file_no && oppValue.has(d.ghl_opportunity_id)) {
+        // loan_amount mirrors the GHL opportunity value on EVERY in-process loan —
+        // Arive-backed or not (Efrain, 2026-06-25). Arive is authoritative only for
+        // FUNDED loans, already excluded by the `!== 'Funded'` guard above. Write the
+        // opp value INCLUDING 0/empty (so a stale figure can't linger); `has`
+        // distinguishes "opp not fetched this run" (skip) from "value is null".
+        if (oppValue.has(d.ghl_opportunity_id)) {
           const target = oppValue.get(d.ghl_opportunity_id) ?? null
           if (Number(target ?? NaN) !== Number(d.loan_amount ?? NaN)) {
             amountFixes.push({ id: d.id, loan_amount: target })
