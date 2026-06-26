@@ -38,3 +38,25 @@ input[type="date"].date-empty::-webkit-calendar-picker-indicator {
   color: rgb(148 163 184 / 0.6);
   pointer-events: none;
 }
+
+/* Rich-text note content — shared by the TipTap editor (.note-prose on the
+   editable area) and the read-only render (components/NoteContent.tsx). */
+.note-prose { color: #334155; line-height: 1.6; word-break: break-word; }
+.note-prose:focus { outline: none; }
+.note-prose h1 { font-size: 1.5em; font-weight: 700; color: #0f172a; margin: 0.5em 0 0.25em; }
+.note-prose h2 { font-size: 1.25em; font-weight: 600; color: #0f172a; margin: 0.5em 0 0.2em; }
+.note-prose h3 { font-size: 1.1em; font-weight: 600; color: #1e293b; margin: 0.4em 0 0.2em; }
+.note-prose h1:first-child, .note-prose h2:first-child,
+.note-prose h3:first-child, .note-prose p:first-child { margin-top: 0; }
+.note-prose p { margin: 0.25em 0; }
+.note-prose ul { list-style: disc; padding-left: 1.4em; margin: 0.3em 0; }
+.note-prose ol { list-style: decimal; padding-left: 1.5em; margin: 0.3em 0; }
+.note-prose li { margin: 0.1em 0; }
+.note-prose li > p { margin: 0; }
+.note-prose a { color: #2563eb; text-decoration: underline; }
+.note-prose mark { background: #fde047; border-radius: 2px; padding: 0 1px; }
+.note-prose strong { font-weight: 700; }
+.note-prose u { text-decoration: underline; }
+.note-prose s { text-decoration: line-through; }
+.note-prose blockquote { border-left: 3px solid #cbd5e1; padding-left: 0.75em; color: #64748b; margin: 0.4em 0; }
+.note-prose img { max-width: 100%; height: auto; border-radius: 6px; margin: 0.3em 0; }

@@ -5,7 +5,6 @@ import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
 import {
   StickyNote, Plus, Trash2, Check, Loader2, Pin, Search, GripVertical, X, Pencil,
-  Bold, Highlighter, List, Heading1, Heading2, Heading3,
 } from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors,
@@ -13,8 +12,9 @@ import {
 } from '@dnd-kit/core'
 import { SortableContext, useSortable, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { markdownToHtml, htmlToMarkdown, looksLikeHtml } from '@/lib/noteMarkdown'
-import NoteMarkdown from '@/components/NoteMarkdown'
+import { markdownToHtml, looksLikeHtml } from '@/lib/noteMarkdown'
+import NoteContent from '@/components/NoteContent'
+import RichTextEditor from '@/components/RichTextEditor'
 
 type Note = {
   id: string
@@ -25,14 +25,6 @@ type Note = {
   updated_at: string
   created_at: string
 }
-
-// Text size is PER-NOTE (px), adjustable 12–26 from the editor toolbar,
-// persisted per browser keyed by note id (font size was never a DB value).
-const FONT_MIN = 12
-const FONT_MAX = 26
-const FONT_DEFAULT = 15
-const fontKey = (id: string) => `lumin:notes-fontsize:${id}`
-const clampFont = (v: number) => Math.min(FONT_MAX, Math.max(FONT_MIN, Math.round(v)))
 
 async function saveOrder(ids: string[]) {
   try {
@@ -260,11 +252,7 @@ function NoteRow({
   onPin: (note: Note) => void
   handle?: React.ReactNode
 }) {
-  const md = useMemo(
-    () => (looksLikeHtml(note.content) ? htmlToMarkdown(note.content) : (note.content ?? '')),
-    [note.content],
-  )
-  const hasBody = md.trim().length > 0
+  const hasBody = !!note.content && note.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim().length > 0
   const updated = note.updated_at
     ? new Date(note.updated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
     : ''
@@ -293,8 +281,8 @@ function NoteRow({
       {/* Body */}
       <div className="flex flex-col gap-1.5 px-4 py-3 min-h-0">
         {hasBody ? (
-          <div className="pointer-events-none text-[13px] leading-relaxed text-slate-600 max-h-[8.5rem] overflow-hidden break-words">
-            <NoteMarkdown md={md} />
+          <div className="pointer-events-none text-[13px] max-h-[8.5rem] overflow-hidden break-words">
+            <NoteContent content={note.content} />
           </div>
         ) : (
           <div className="text-[13px] italic text-slate-300">Empty — click to write</div>
@@ -325,8 +313,8 @@ function NoteRow({
 }
 
 // ── Pop-out editor (modal) ───────────────────────────────────────────────────
-// Always in edit mode — the whole WYSIWYG opens when a row is clicked. Storage
-// stays markdown (seed from markdownToHtml, read back via htmlToMarkdown).
+// View (read-only) by default with an Edit button; edit mode mounts the TipTap
+// rich-text editor. Notes store HTML; legacy markdown notes convert on seed.
 function NoteEditorModal({
   note, onPatch, onDelete, onClose,
 }: {
@@ -335,71 +323,42 @@ function NoteEditorModal({
   onDelete: (id: string) => void
   onClose: () => void
 }) {
-  // Legacy notes hold contentEditable HTML — convert to markdown for view/seed.
-  const initialMd = useMemo(
-    () => (looksLikeHtml(note.content) ? htmlToMarkdown(note.content) : (note.content ?? '')),
+  const initialHtml = useMemo(
+    () => (looksLikeHtml(note.content) ? note.content : markdownToHtml(note.content ?? '')),
     [note.content],
   )
-  const [viewMd, setViewMd] = useState(initialMd)
+  const isEmptyHtml = (h: string) => h.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim() === ''
+  const [savedHtml, setSavedHtml] = useState(initialHtml)
   const [title, setTitle] = useState(note.title ?? '')
-  // Open in VIEW (read-only) by default; a brand-new empty note jumps to edit.
+  const draftRef = useRef(initialHtml)
+  // Open in VIEW by default; a brand-new empty note jumps straight to edit.
   const [mode, setMode] = useState<'view' | 'edit'>(
-    () => (initialMd.trim() === '' && !(note.title ?? '').trim()) ? 'edit' : 'view',
+    () => (isEmptyHtml(initialHtml) && !(note.title ?? '').trim()) ? 'edit' : 'view',
   )
-  const [fontSize, setFontSizeState] = useState(FONT_DEFAULT)
-  const edRef = useRef<HTMLDivElement | null>(null)
 
-  // Per-note font size — read once on mount, persisted per browser by note id.
-  useEffect(() => {
-    try {
-      const v = Number(localStorage.getItem(fontKey(note.id)))
-      if (v >= FONT_MIN && v <= FONT_MAX) setFontSizeState(v)
-    } catch { /* ignore */ }
-  }, [note.id])
-  const setFontSize = (v: number) => {
-    const clamped = clampFont(v)
-    setFontSizeState(clamped)
-    try { localStorage.setItem(fontKey(note.id), String(clamped)) } catch { /* ignore */ }
-  }
+  const enterEdit = () => { draftRef.current = savedHtml; setMode('edit') }
 
-  // Seed the WYSIWYG from markdown whenever we ENTER edit mode; focus + caret-to-end.
-  useEffect(() => {
-    if (mode !== 'edit') return
-    const ed = edRef.current
-    if (!ed) return
-    ed.innerHTML = markdownToHtml(viewMd)
-    try { document.execCommand('styleWithCSS', false, 'false') } catch { /* ignore */ }
-    ed.focus()
-    const sel = window.getSelection()
-    if (sel) { const r = document.createRange(); r.selectNodeContents(ed); r.collapse(false); sel.removeAllRanges(); sel.addRange(r) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode])
-
-  const readDraft = () => (edRef.current ? htmlToMarkdown(edRef.current.innerHTML) : viewMd)
-  const enterEdit = () => setMode('edit')
+  const saveIfChanged = useCallback(() => {
+    const draft = draftRef.current
+    const nextTitle = title.trim() || null
+    if (draft !== savedHtml || nextTitle !== (note.title || null)) {
+      void onPatch(note.id, { title: nextTitle, content: draft })
+    }
+    return draft
+  }, [savedHtml, title, note.id, note.title, onPatch])
 
   // Done editing → save (if changed) and drop back to VIEW.
   function done() {
-    const draft = readDraft()
-    const nextTitle = title.trim() || null
-    if (draft !== viewMd || nextTitle !== (note.title || null)) {
-      void onPatch(note.id, { title: nextTitle, content: draft })
-    }
-    setViewMd(draft)
+    const draft = saveIfChanged()
+    setSavedHtml(draft)
     setMode('view')
   }
 
   // Close the modal. If mid-edit, save the draft first.
   const close = useCallback(() => {
-    if (mode === 'edit') {
-      const draft = edRef.current ? htmlToMarkdown(edRef.current.innerHTML) : viewMd
-      const nextTitle = title.trim() || null
-      if (draft !== viewMd || nextTitle !== (note.title || null)) {
-        void onPatch(note.id, { title: nextTitle, content: draft })
-      }
-    }
+    if (mode === 'edit') saveIfChanged()
     onClose()
-  }, [mode, viewMd, title, note.id, note.title, onPatch, onClose])
+  }, [mode, saveIfChanged, onClose])
 
   // Esc closes (and saves).
   useEffect(() => {
@@ -407,58 +366,6 @@ function NoteEditorModal({
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [close])
-
-  // execCommand acts on the focused editor; keep the editor selection by preventing
-  // the button's default focus-steal (onMouseDown preventDefault).
-  const exec = (cmd: string, val?: string) => { try { document.execCommand(cmd, false, val) } catch { /* ignore */ }; edRef.current?.focus() }
-  const tb = (fn: () => void) => ({ onMouseDown: (e: React.MouseEvent) => { e.preventDefault(); fn() } })
-
-  // Highlight TOGGLE — wraps the selection in <mark>; clicking again unwraps it.
-  function toggleHighlight() {
-    const ed = edRef.current
-    const sel = window.getSelection()
-    if (!ed || !sel || sel.rangeCount === 0) return
-    const range = sel.getRangeAt(0)
-    const unwrap = (el: Element) => {
-      const p = el.parentNode
-      if (!p) return
-      while (el.firstChild) p.insertBefore(el.firstChild, el)
-      p.removeChild(el)
-    }
-    const ancestorHilite = (node: Node | null): Element | null => {
-      let n: Node | null = node
-      while (n && n !== ed) {
-        if (n.nodeType === 1) {
-          const el = n as Element
-          if (el.tagName === 'MARK' || /background/i.test(el.getAttribute('style') || '')) return el
-        }
-        n = n.parentNode
-      }
-      return null
-    }
-    if (range.collapsed) {
-      const h = ancestorHilite(sel.anchorNode)
-      if (h) { unwrap(h); ed.normalize() }
-      ed.focus()
-      return
-    }
-    const hits = Array.from(ed.querySelectorAll('mark, span[style*="background"], font[style*="background"]'))
-      .filter(el => range.intersectsNode(el))
-    if (hits.length) {
-      hits.forEach(unwrap)
-      ed.normalize()
-    } else {
-      const mark = document.createElement('mark')
-      try { range.surroundContents(mark) }
-      catch { mark.appendChild(range.extractContents()); range.insertNode(mark) }
-      sel.removeAllRanges()
-      const r = document.createRange()
-      r.selectNodeContents(mark)
-      sel.addRange(r)
-    }
-    ed.focus()
-  }
-  const btn = 'w-7 h-7 flex items-center justify-center rounded text-slate-500 hover:bg-white hover:text-slate-800'
 
   const updated = note.updated_at
     ? new Date(note.updated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -503,50 +410,15 @@ function NoteEditorModal({
           <h2 className="px-5 pt-3 pb-1 text-xl font-bold text-slate-900 break-words shrink-0">{title.trim() || 'Untitled note'}</h2>
         )}
 
-        {/* Toolbar — edit mode only */}
-        {mode === 'edit' && (
-        <div className="flex flex-wrap items-center gap-0.5 mx-5 my-2 border border-slate-200 rounded-lg p-1 bg-slate-50 shrink-0">
-          <button {...tb(() => exec('formatBlock', '<h1>'))} title="Heading 1" className={btn}><Heading1 className="w-4 h-4" /></button>
-          <button {...tb(() => exec('formatBlock', '<h2>'))} title="Heading 2" className={btn}><Heading2 className="w-4 h-4" /></button>
-          <button {...tb(() => exec('formatBlock', '<h3>'))} title="Heading 3" className={btn}><Heading3 className="w-4 h-4" /></button>
-          <span className="w-px h-4 bg-slate-200 mx-1" />
-          <button {...tb(() => exec('bold'))} title="Bold" className={btn}><Bold className="w-4 h-4" /></button>
-          <button {...tb(toggleHighlight)} title="Highlight / remove highlight" className="w-7 h-7 flex items-center justify-center rounded text-slate-500 hover:bg-yellow-100 hover:text-slate-800"><Highlighter className="w-4 h-4" /></button>
-          <button {...tb(() => exec('insertUnorderedList'))} title="Bullet list" className={btn}><List className="w-4 h-4" /></button>
-          <div className="flex items-center gap-0.5 ml-auto pl-1" title="Text size for this note">
-            <button {...tb(() => setFontSize(fontSize - 1))} disabled={fontSize <= FONT_MIN}
-              className={`${btn} disabled:opacity-30`}><span className="text-xs font-bold leading-none">A−</span></button>
-            <span className="text-[11px] text-slate-500 tabular-nums w-6 text-center">{fontSize}</span>
-            <button {...tb(() => setFontSize(fontSize + 1))} disabled={fontSize >= FONT_MAX}
-              className={`${btn} disabled:opacity-30`}><span className="text-sm font-bold leading-none">A+</span></button>
-          </div>
-        </div>
-        )}
-
-        {/* Body — view renders the note; edit shows the WYSIWYG */}
-        <div className="flex-1 min-h-0 px-5 pb-4">
+        {/* Body — view renders the note; edit shows the TipTap editor */}
+        <div className="flex-1 min-h-0 px-5 pb-4 flex flex-col">
           {mode === 'edit' ? (
-            <div
-              key="note-edit"
-              ref={edRef}
-              contentEditable
-              suppressContentEditableWarning
-              data-placeholder="Write your note…"
-              style={{ fontSize: `${fontSize}px` }}
-              className="w-full h-full min-h-[40vh] bg-white text-slate-800 border border-slate-200 rounded-lg p-3 leading-relaxed overflow-y-auto focus:outline-none focus:ring-2 focus:ring-blue-400 break-words
-                [&_h1]:text-[1.5em] [&_h1]:font-bold [&_h1]:my-1
-                [&_h2]:text-[1.25em] [&_h2]:font-semibold [&_h2]:my-1
-                [&_h3]:text-[1.1em] [&_h3]:font-semibold [&_h3]:my-1
-                [&_b]:font-bold [&_strong]:font-bold
-                [&_mark]:bg-yellow-200 [&_mark]:rounded [&_mark]:px-0.5
-                [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1
-                [&:empty]:before:content-[attr(data-placeholder)] [&:empty]:before:text-slate-300"
-            />
+            <RichTextEditor initialHtml={savedHtml} autofocus onChange={html => { draftRef.current = html }} />
           ) : (
-            <div key="note-view" className="w-full h-full min-h-[40vh] overflow-y-auto pr-1 text-slate-800" style={{ fontSize: `${fontSize}px` }}>
-              {viewMd.trim()
-                ? <NoteMarkdown md={viewMd} />
-                : <span className="italic text-slate-300">Empty — click Edit to write.</span>}
+            <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+              {isEmptyHtml(savedHtml)
+                ? <span className="text-[15px] italic text-slate-300">Empty — click Edit to write.</span>
+                : <NoteContent content={savedHtml} className="text-[15px]" />}
             </div>
           )}
         </div>

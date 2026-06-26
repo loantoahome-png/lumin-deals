@@ -1,5 +1,28 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-26] Bulletin notes: full email-grade editor (TipTap v3) — markdown → HTML
+**Status:** VERIFIED (local browser render) — tsc clean, build READY. Rendered the editor + read-only sanitizer
+on a temp throwaway route (temp middleware allowlist, BOTH reverted): full toolbar (font, size, B/I/U/strike,
+color, highlight, H1-3, bullet + numbered lists, align, link, image, clear) and correct rendering of every format
+in BOTH the editor and the DOMPurify read-only view; console clean (no errors). Live editing on real notes is
+Efrain's final check (note data is auth-gated).
+**Files:** components/RichTextEditor.tsx (NEW — TipTap editor + toolbar), components/NoteContent.tsx (NEW —
+DOMPurify read-only HTML render), components/NotesBoard.tsx (modal edit→RichTextEditor; view+cards→NoteContent;
+dropped execCommand/per-note-font/markdown-save), app/globals.css (.note-prose), package.json/-lock (+@tiptap/*
+3.27.1, dompurify 3.4.11).
+**Why:** Efrain wanted email/Word-grade editing. The old editor stored markdown (only headings/bold/highlight/
+bullets) — couldn't hold fonts/colors/underline/alignment/numbered-lists/images. Chose TipTap (full path) over a
+hand-rolled execCommand toolbar.
+**Design:** Storage markdown → HTML. NO DB migration — legacy markdown converts on the fly via the existing
+markdownToHtml (looksLikeHtml branch) for both editor seed + read-only render; new saves write editor.getHTML().
+DOMPurify-sanitized on every read (the XSS surface the markdown design had avoided). StarterKit v3 bundles bold/
+italic/underline/strike/headings/lists/links; extras: TextStyleKit (font family/size/color), TextAlign, Highlight,
+Image. immediatelyRender:false for Next SSR.
+**Test Method:** `npx tsc --noEmit` (clean) + `npm run build` (READY) + LOCAL render of a temp route (screenshot +
+DOM probe: .ProseMirror present, 16 toolbar buttons + 2 selects, all formats parsed; console clean).
+**Result:** VERIFIED render + sanitized read-only; deployed. Efrain to confirm the save/persist flow on real notes
+(open a note on /tasks → edit → reopen should persist; legacy markdown notes still display).
+
 ### [2026-06-26] Bulletin (NotesBoard): single-column list → responsive board
 **Status:** CHANGED (NotesBoard tsc clean, build READY), deployed — visual confirmation pending on Efrain's authed
 dashboard. Local screenshot NOT possible: `dashboard_notes` needs Supabase creds the sandbox blocks (`.env.local`),
