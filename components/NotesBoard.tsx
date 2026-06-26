@@ -11,7 +11,7 @@ import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors,
   type DragEndEvent,
 } from '@dnd-kit/core'
-import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
+import { SortableContext, useSortable, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { markdownToHtml, htmlToMarkdown, looksLikeHtml } from '@/lib/noteMarkdown'
 import NoteMarkdown from '@/components/NoteMarkdown'
@@ -53,20 +53,6 @@ const FONT_MAX = 26
 const FONT_DEFAULT = 15
 const fontKey = (id: string) => `lumin:notes-fontsize:${id}`
 const clampFont = (v: number) => Math.min(FONT_MAX, Math.max(FONT_MIN, Math.round(v)))
-
-// Strip markdown → plain text for the one-line list snippet.
-function plainSnippet(md: string): string {
-  return (md || '')
-    .replace(/```[\s\S]*?```/g, ' ')          // code fences
-    .replace(/`([^`]+)`/g, '$1')              // inline code
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')    // images
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')  // links → text
-    .replace(/^#{1,6}\s+/gm, '')              // headings
-    .replace(/^\s*[-*+]\s+/gm, '')            // bullets
-    .replace(/[*_~`#>]+/g, '')                // leftover emphasis/symbols
-    .replace(/\s+/g, ' ')                     // collapse whitespace
-    .trim()
-}
 
 async function saveOrder(ids: string[]) {
   try {
@@ -179,7 +165,7 @@ export default function NotesBoard({ embedded = false }: { embedded?: boolean } 
   const canReorder = !search.trim()
 
   const list = (
-    <div className="space-y-1.5">
+    <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(15rem,1fr))]">
       {display.map(n =>
         canReorder
           ? <SortableNoteRow key={n.id} note={n} onOpen={setEditingId} onDelete={deleteNote} onPin={togglePin} />
@@ -233,7 +219,7 @@ export default function NotesBoard({ embedded = false }: { embedded?: boolean } 
           <p className="text-sm text-slate-400 px-1">No notes match “{search}”.</p>
         ) : canReorder ? (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={display.map(n => n.id)} strategy={verticalListSortingStrategy}>
+            <SortableContext items={display.map(n => n.id)} strategy={rectSortingStrategy}>
               {list}
             </SortableContext>
           </DndContext>
@@ -271,14 +257,15 @@ function SortableNoteRow(props: {
     <button
       {...attributes}
       {...listeners}
+      onClick={e => e.stopPropagation()}
       title="Drag to reorder"
-      className="shrink-0 mt-0.5 cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 touch-none"
+      className="shrink-0 cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 touch-none"
     >
       <GripVertical className="w-4 h-4" />
     </button>
   )
   return (
-    <div ref={setNodeRef} style={style}>
+    <div ref={setNodeRef} style={style} className="h-full">
       <NoteRow {...props} handle={handle} />
     </div>
   )
@@ -297,46 +284,64 @@ function NoteRow({
     () => (looksLikeHtml(note.content) ? htmlToMarkdown(note.content) : (note.content ?? '')),
     [note.content],
   )
-  const snippet = useMemo(() => plainSnippet(md), [md])
+  const hasBody = md.trim().length > 0
   const updated = note.updated_at
     ? new Date(note.updated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
     : ''
+  const open = () => onOpen(note.id)
 
+  // The whole card is the click target (opens the editor). Inner buttons
+  // stopPropagation; the rendered preview is pointer-events-none so its links
+  // don't swallow the click.
   return (
-    <div className={`group flex items-start gap-2.5 px-3.5 py-3 rounded-lg border bg-white border-slate-200 border-l-4 ${accentOf(note.color)} hover:border-blue-300 hover:shadow-sm transition`}>
-      {handle}
-      <button
-        onClick={() => onPin(note)}
-        title={note.pinned ? 'Unpin' : 'Pin to top'}
-        className={`shrink-0 mt-0.5 transition-colors ${note.pinned ? 'text-amber-600' : 'text-slate-300 hover:text-slate-500'}`}
-      >
-        <Pin className={`w-3.5 h-3.5 ${note.pinned ? 'fill-amber-500' : ''}`} />
-      </button>
+    <div
+      onClick={open}
+      role="button"
+      tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); open() } }}
+      title="Click to open & edit"
+      className={`group h-full flex flex-col rounded-xl border bg-white overflow-hidden cursor-pointer transition hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${note.pinned ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-200 hover:border-blue-300'}`}
+    >
+      {/* Color bar — the at-a-glance signal (replaces the old thin left edge) */}
+      <div className={`h-1.5 w-full shrink-0 ${DOT[note.color ?? 'amber'] ?? DOT.amber}`} />
 
-      {/* Whole info area is click-to-open (pops out the editor) */}
-      <button
-        type="button"
-        onClick={() => onOpen(note.id)}
-        className="flex-1 min-w-0 text-left cursor-pointer"
-        title="Click to open & edit"
-      >
-        <div className="text-sm font-semibold text-slate-900 truncate">
-          {note.title?.trim() || 'Untitled note'}
+      <div className="flex flex-col gap-1.5 p-3.5 flex-1 min-h-0">
+        {/* Pin state + hover actions */}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={e => { e.stopPropagation(); onPin(note) }}
+            title={note.pinned ? 'Unpin' : 'Pin to top'}
+            className={`shrink-0 transition-colors ${note.pinned ? 'text-amber-600' : 'text-slate-300 hover:text-slate-500'}`}
+          >
+            <Pin className={`w-3.5 h-3.5 ${note.pinned ? 'fill-amber-500' : ''}`} />
+          </button>
+          {note.pinned && <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">Pinned</span>}
+          <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            {handle}
+            <button
+              onClick={e => { e.stopPropagation(); if (confirm('Delete this note?')) onDelete(note.id) }}
+              className="p-1 text-slate-300 hover:text-red-500"
+              title="Delete note"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
-        <div className="text-xs text-slate-500 mt-0.5 line-clamp-2 break-words">
-          {snippet || <span className="italic text-slate-300">Empty — click to write</span>}
-        </div>
-        {updated && <div className="text-[10px] text-slate-400 mt-1">Updated {updated}</div>}
-      </button>
 
-      <div className="shrink-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          onClick={() => { if (confirm('Delete this note?')) onDelete(note.id) }}
-          className="p-1 text-slate-300 hover:text-red-500"
-          title="Delete note"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        {/* Title + inline content preview (rendered markdown, clipped) */}
+        <div className="flex flex-col gap-1 min-h-0">
+          <div className="text-sm font-semibold text-slate-900 line-clamp-2 break-words">
+            {note.title?.trim() || 'Untitled note'}
+          </div>
+          {hasBody ? (
+            <div className="pointer-events-none text-xs leading-relaxed text-slate-600 max-h-[8.5rem] overflow-hidden break-words">
+              <NoteMarkdown md={md} />
+            </div>
+          ) : (
+            <div className="text-xs italic text-slate-300">Empty — click to write</div>
+          )}
+          {updated && <div className="text-[10px] text-slate-400 mt-0.5">Updated {updated}</div>}
+        </div>
       </div>
     </div>
   )

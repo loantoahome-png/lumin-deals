@@ -1,5 +1,23 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-26] Bulletin (NotesBoard): single-column list → responsive board
+**Status:** CHANGED (NotesBoard tsc clean, build READY), deployed — visual confirmation pending on Efrain's authed
+dashboard. Local screenshot NOT possible: `dashboard_notes` needs Supabase creds the sandbox blocks (`.env.local`),
+so a local dev server renders an empty board (no cards) — no useful proof.
+**Files:** components/NotesBoard.tsx.
+**Issue:** Efrain wasn't happy with the bulletin formatting — single-column inbox-style list, content hidden behind
+a click, wasted dashboard width, weak color signal. Approved the "board" direction from a mockup.
+**Changes:** (1) list `space-y-1.5` → responsive grid `repeat(auto-fill,minmax(15rem,1fr))` — fills the width.
+(2) DnD `verticalListSortingStrategy` → `rectSortingStrategy` (2-D grid reorder). (3) NoteRow rebuilt as a card:
+a top color bar (`DOT[color]`) replaces the 4px left edge; renders the note inline via `NoteMarkdown` (clamped
+`max-h-[8.5rem] overflow-hidden`) instead of the flattened `plainSnippet`; pinned cards get amber border + ring +
+"Pinned" label and still sort first. (4) Whole card is the click target (`role=button` + onClick); pin/delete/
+drag-handle `stopPropagation`; preview is `pointer-events-none` so its links don't swallow the click. Removed the
+now-unused `plainSnippet`. Modal editor, markdown storage, per-note font, DnD, pin all preserved.
+**Test Method:** `npx tsc --noEmit` (NotesBoard clean) + `npm run build` (READY). Visual/interaction: Efrain to
+confirm on the live Tasks page — board layout, click-to-open, drag-reorder, pinned styling.
+**Result:** Type-clean, build READY, deployed. Awaiting Efrain's live visual confirmation.
+
 ### [2026-06-26] Arive import: signing_date/paid_date mappings — ADDED then REVERTED same day
 **Status:** REVERTED — Efrain confirmed he doesn't need signing_date/paid_date. NET: zero change to MAPPINGS.
 **Files:** lib/ariveCsv.ts (MAPPINGS) — added two entries, then removed them (back to funded_date as last mapping).
