@@ -300,18 +300,18 @@ function NoteRow({
       tabIndex={0}
       onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); open() } }}
       title="Click to open & edit"
-      className={`group relative flex gap-3 rounded-xl border bg-white p-4 cursor-pointer transition hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${note.pinned ? 'border-amber-200' : 'border-slate-200 hover:border-slate-300'}`}
+      className={`group relative flex flex-col rounded-xl border bg-white overflow-hidden cursor-pointer transition hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${note.pinned ? 'border-amber-200' : 'border-slate-200 hover:border-slate-300'}`}
     >
-      {/* Colored side rail — the at-a-glance accent (amber when pinned) */}
-      <div className={`w-1 shrink-0 self-stretch rounded-full ${note.pinned ? 'bg-amber-400' : (DOT[note.color ?? 'amber'] ?? DOT.amber)}`} />
+      {/* Header — title pops in its own band, divided from the body */}
+      <div className={`flex items-start gap-1.5 px-4 py-2.5 border-b ${note.pinned ? 'bg-amber-50 border-amber-100' : 'bg-slate-50 border-slate-100'}`}>
+        {note.pinned && <Pin className="w-3.5 h-3.5 mt-[3px] shrink-0 fill-amber-500 text-amber-500" />}
+        <h3 className="text-[15px] font-semibold text-blue-700 leading-snug line-clamp-2 break-words">
+          {note.title?.trim() || 'Untitled note'}
+        </h3>
+      </div>
 
-      <div className="flex-1 min-w-0 flex flex-col gap-1">
-        <div className="flex items-start gap-1.5">
-          {note.pinned && <Pin className="w-3.5 h-3.5 mt-0.5 shrink-0 fill-amber-500 text-amber-500" />}
-          <div className="text-[15px] font-semibold text-slate-900 leading-snug line-clamp-2 break-words">
-            {note.title?.trim() || 'Untitled note'}
-          </div>
-        </div>
+      {/* Body */}
+      <div className="flex flex-col gap-1.5 px-4 py-3 min-h-0">
         {hasBody ? (
           <div className="pointer-events-none text-[13px] leading-relaxed text-slate-600 max-h-[8.5rem] overflow-hidden break-words">
             <NoteMarkdown md={md} />
@@ -319,11 +319,11 @@ function NoteRow({
         ) : (
           <div className="text-[13px] italic text-slate-300">Empty — click to write</div>
         )}
-        {updated && <div className="text-[11px] text-slate-400 mt-1">Updated {updated}</div>}
+        {updated && <div className="text-[11px] text-slate-400">Updated {updated}</div>}
       </div>
 
-      {/* Hover actions — float top-right so the card body stays clean */}
-      <div className="absolute top-2.5 right-2.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-white/95 rounded-lg p-0.5">
+      {/* Hover actions — float top-right so the body stays clean */}
+      <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-white/95 rounded-lg p-0.5 shadow-sm">
         <button
           onClick={e => { e.stopPropagation(); onPin(note) }}
           title={note.pinned ? 'Unpin' : 'Pin to top'}
