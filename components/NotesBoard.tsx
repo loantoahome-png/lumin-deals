@@ -165,7 +165,7 @@ export default function NotesBoard({ embedded = false }: { embedded?: boolean } 
   const canReorder = !search.trim()
 
   const list = (
-    <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(15rem,1fr))]">
+    <div className="grid gap-4 items-start [grid-template-columns:repeat(auto-fill,minmax(16rem,1fr))]">
       {display.map(n =>
         canReorder
           ? <SortableNoteRow key={n.id} note={n} onOpen={setEditingId} onDelete={deleteNote} onPin={togglePin} />
@@ -265,7 +265,7 @@ function SortableNoteRow(props: {
     </button>
   )
   return (
-    <div ref={setNodeRef} style={style} className="h-full">
+    <div ref={setNodeRef} style={style}>
       <NoteRow {...props} handle={handle} />
     </div>
   )
@@ -300,48 +300,45 @@ function NoteRow({
       tabIndex={0}
       onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); open() } }}
       title="Click to open & edit"
-      className={`group h-full flex flex-col rounded-xl border bg-white overflow-hidden cursor-pointer transition hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${note.pinned ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-200 hover:border-blue-300'}`}
+      className={`group relative flex gap-3 rounded-xl border bg-white p-4 cursor-pointer transition hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${note.pinned ? 'border-amber-200' : 'border-slate-200 hover:border-slate-300'}`}
     >
-      {/* Color bar — the at-a-glance signal (replaces the old thin left edge) */}
-      <div className={`h-1.5 w-full shrink-0 ${DOT[note.color ?? 'amber'] ?? DOT.amber}`} />
+      {/* Colored side rail — the at-a-glance accent (amber when pinned) */}
+      <div className={`w-1 shrink-0 self-stretch rounded-full ${note.pinned ? 'bg-amber-400' : (DOT[note.color ?? 'amber'] ?? DOT.amber)}`} />
 
-      <div className="flex flex-col gap-1.5 p-3.5 flex-1 min-h-0">
-        {/* Pin state + hover actions */}
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={e => { e.stopPropagation(); onPin(note) }}
-            title={note.pinned ? 'Unpin' : 'Pin to top'}
-            className={`shrink-0 transition-colors ${note.pinned ? 'text-amber-600' : 'text-slate-300 hover:text-slate-500'}`}
-          >
-            <Pin className={`w-3.5 h-3.5 ${note.pinned ? 'fill-amber-500' : ''}`} />
-          </button>
-          {note.pinned && <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">Pinned</span>}
-          <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-            {handle}
-            <button
-              onClick={e => { e.stopPropagation(); if (confirm('Delete this note?')) onDelete(note.id) }}
-              className="p-1 text-slate-300 hover:text-red-500"
-              title="Delete note"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Title + inline content preview (rendered markdown, clipped) */}
-        <div className="flex flex-col gap-1 min-h-0">
-          <div className="text-sm font-semibold text-slate-900 line-clamp-2 break-words">
+      <div className="flex-1 min-w-0 flex flex-col gap-1">
+        <div className="flex items-start gap-1.5">
+          {note.pinned && <Pin className="w-3.5 h-3.5 mt-0.5 shrink-0 fill-amber-500 text-amber-500" />}
+          <div className="text-[15px] font-semibold text-slate-900 leading-snug line-clamp-2 break-words">
             {note.title?.trim() || 'Untitled note'}
           </div>
-          {hasBody ? (
-            <div className="pointer-events-none text-xs leading-relaxed text-slate-600 max-h-[8.5rem] overflow-hidden break-words">
-              <NoteMarkdown md={md} />
-            </div>
-          ) : (
-            <div className="text-xs italic text-slate-300">Empty — click to write</div>
-          )}
-          {updated && <div className="text-[10px] text-slate-400 mt-0.5">Updated {updated}</div>}
         </div>
+        {hasBody ? (
+          <div className="pointer-events-none text-[13px] leading-relaxed text-slate-600 max-h-[8.5rem] overflow-hidden break-words">
+            <NoteMarkdown md={md} />
+          </div>
+        ) : (
+          <div className="text-[13px] italic text-slate-300">Empty — click to write</div>
+        )}
+        {updated && <div className="text-[11px] text-slate-400 mt-1">Updated {updated}</div>}
+      </div>
+
+      {/* Hover actions — float top-right so the card body stays clean */}
+      <div className="absolute top-2.5 right-2.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-white/95 rounded-lg p-0.5">
+        <button
+          onClick={e => { e.stopPropagation(); onPin(note) }}
+          title={note.pinned ? 'Unpin' : 'Pin to top'}
+          className="p-1 rounded hover:bg-slate-100"
+        >
+          <Pin className={`w-3.5 h-3.5 ${note.pinned ? 'fill-amber-500 text-amber-600' : 'text-slate-400'}`} />
+        </button>
+        {handle}
+        <button
+          onClick={e => { e.stopPropagation(); if (confirm('Delete this note?')) onDelete(note.id) }}
+          title="Delete note"
+          className="p-1 rounded text-slate-400 hover:text-red-500 hover:bg-red-50"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
       </div>
     </div>
   )

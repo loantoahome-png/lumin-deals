@@ -16,7 +16,10 @@ drag-handle `stopPropagation`; preview is `pointer-events-none` so its links don
 now-unused `plainSnippet`. Modal editor, markdown storage, per-note font, DnD, pin all preserved.
 **Test Method:** `npx tsc --noEmit` (NotesBoard clean) + `npm run build` (READY). Visual/interaction: Efrain to
 confirm on the live Tasks page — board layout, click-to-open, drag-reorder, pinned styling.
-**Result:** Type-clean, build READY, deployed. Awaiting Efrain's live visual confirmation.
+**Restyle (Efrain chose "clean accent" from a mockup):** top color bar → colored LEFT side rail; white cards with
+more air (p-4, gap-4, 16rem cols); natural heights (grid `items-start`, dropped h-full); actions floated to a
+top-right hover cluster; larger title (15px). DnD + modal editor + markdown storage still intact.
+**Result:** Type-clean, build READY, deployed (board, then the clean-accent restyle). Awaiting Efrain's live look.
 
 ### [2026-06-26] Arive import: signing_date/paid_date mappings — ADDED then REVERTED same day
 **Status:** REVERTED — Efrain confirmed he doesn't need signing_date/paid_date. NET: zero change to MAPPINGS.
