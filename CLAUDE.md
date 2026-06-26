@@ -7,19 +7,28 @@
 ## What It Is
 An internal mortgage pipeline management dashboard for **Lumin Lending** (two LOs: Moe Sefati and Matt Park). It syncs from GoHighLevel (GHL), stores data in Supabase, and adds deal tracking, team tooling, and automated alerts on top. GHL drives stage/contact/messaging; **Arive (the LOS) is the source of truth for the loan AMOUNT** (and funded $).
 
-## Loan amount source — clarification (Efrain, 2026-06-25)
-The dashboard AMOUNT comes from the **GHL opportunity value** — the opportunity's `monetaryValue`, i.e.
-the dollar figure shown ON the opportunity card in GHL — **NOT** the GHL stored "Loan Amount" custom
-field (the custom field is the unreliable one that was dropped). In Efrain's words: *"we are NOT using
-the stored value from GHL, we are using the OPPORTUNITY value, which already shows in GHL."* This refines
-the 2026-06-22 "Arive-authoritative" note below.
+## Loan amount source — GHL opportunity value (SHIPPED 2026-06-26)
+The dashboard AMOUNT = the **GHL opportunity value** (`monetaryValue` — the figure shown ON the opp card in
+GHL) for every **in-process** loan; NOT the unreliable GHL stored "Loan Amount" custom field. **Funded**
+(`pipeline_group === 'Funded'`) is the ONLY Arive-authoritative line. Efrain's rule: opp value always for
+in-process, Arive for funded.
 
-**Open issue this surfaced (for next session):** in-process Arive-backed loans show a blank/$0 amount
-because the sync's `ariveOwnsAmount` guard (`app/api/sync/ghl/route.ts`, ~L977) blocks GHL from writing
-`loan_amount` on ANY deal that has an `arive_file_no` — including the reliable opportunity value. Example:
-Juliet Flores #17098748 — GHL opportunity value present, DB `loan_amount` = 0 → renders "—". Fix direction:
-let the GHL **opportunity value** populate `loan_amount` for non-funded loans; keep Arive authoritative for
-**funded** amounts (confirm the funded-vs-in-process boundary with Efrain before coding).
+**Shipped 2026-06-26:** both sync guard sites dropped the Arive lock (upsert `fundedOwnsAmount =
+existingIsFunded`; maintenance reconcile dropped the `!d.arive_file_no` condition). The **webhook** now also
+writes `loan_amount` from the opp `monetaryValue` in real time (presence-gated, non-funded only — fed by the
+GHL "LD stage" workflow's `monetaryValue → {{opportunity.lead_value}}` custom field). Full provenance in the
+`loan-amount-provenance` memory + `~/.claude/handoffs/lumin-deals.md`. NOTE: visible on the next "Sync GHL";
+the opp value may not always equal the loan amount (GHL data quality — watch the in-process volume).
+
+## Recent Changes (2026-06-26)
+- **Loan amount = GHL opp value for in-process loans** (see section above); the **webhook** now writes it in
+  real time too.
+- **Loan Officer:** `LOAN_OFFICERS` enum is the canonical `'Matt Park'` (was `'Matt'` → blank dropdowns on
+  711 deals); `resolveLO` shared in `lib/loanOfficer.ts` (sync + webhook + Arive importer); 94 `Matthew Park`
+  rows normalized to `Matt Park`.
+- **Notes/Bulletin** (`/tasks`): card grid → vertical list rows + a pop-out modal that opens in VIEW mode with
+  an Edit button (`components/NotesBoard.tsx`).
+- **Dashboard:** removed the date-range filter (All Time/MTD/QTD/YTD/Custom) — it's a current-escrow snapshot.
 
 ## Recent Changes (2026-06-22)
 - **`loan_amount` is Arive-authoritative.** GHL no longer writes/overwrites `loan_amount` on any Arive-backed (`arive_file_no`) or funded deal — only fills pre-Arive leads from the opp value. Dropped the unreliable GHL `customField('Loan Amount')` source (it once put $610k on a $150k loan).
