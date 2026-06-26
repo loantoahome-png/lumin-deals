@@ -302,10 +302,10 @@ function NoteRow({
       title="Click to open & edit"
       className={`group relative flex flex-col rounded-xl border bg-white overflow-hidden cursor-pointer transition hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${note.pinned ? 'border-amber-200' : 'border-slate-200 hover:border-slate-300'}`}
     >
-      {/* Header — title pops in its own band, divided from the body */}
-      <div className={`flex items-start gap-1.5 px-4 py-2.5 border-b ${note.pinned ? 'bg-amber-50 border-amber-100' : 'bg-slate-50 border-slate-100'}`}>
-        {note.pinned && <Pin className="w-3.5 h-3.5 mt-[3px] shrink-0 fill-amber-500 text-amber-500" />}
-        <h3 className="text-[15px] font-semibold text-blue-700 leading-snug line-clamp-2 break-words">
+      {/* Header — title in a colored band so it clearly stands out */}
+      <div className={`flex items-start gap-2 px-4 py-3 border-b ${note.pinned ? 'bg-amber-50 border-amber-100' : 'bg-blue-50 border-blue-100'}`}>
+        {note.pinned && <Pin className="w-4 h-4 mt-0.5 shrink-0 fill-amber-500 text-amber-600" />}
+        <h3 className={`text-[16px] font-bold leading-snug line-clamp-2 break-words ${note.pinned ? 'text-amber-800' : 'text-blue-800'}`}>
           {note.title?.trim() || 'Untitled note'}
         </h3>
       </div>
