@@ -26,26 +26,6 @@ type Note = {
   created_at: string
 }
 
-// Color is an accent only — the note background stays white.
-const ACCENT: Record<string, string> = {
-  amber:  'border-l-amber-400',
-  blue:   'border-l-blue-400',
-  green:  'border-l-emerald-400',
-  pink:   'border-l-pink-400',
-  purple: 'border-l-purple-400',
-  slate:  'border-l-slate-300',
-}
-const DOT: Record<string, string> = {
-  amber:  'bg-amber-400',
-  blue:   'bg-blue-400',
-  green:  'bg-emerald-400',
-  pink:   'bg-pink-400',
-  purple: 'bg-purple-400',
-  slate:  'bg-slate-400',
-}
-const COLOR_KEYS = Object.keys(ACCENT)
-const accentOf = (c: string | null) => ACCENT[c ?? 'amber'] ?? ACCENT.amber
-
 // Text size is PER-NOTE (px), adjustable 12–26 from the editor toolbar,
 // persisted per browser keyed by note id (font size was never a DB value).
 const FONT_MIN = 12
@@ -491,21 +471,12 @@ function NoteEditorModal({
       className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm"
       onMouseDown={e => { if (e.target === e.currentTarget) close() }}
     >
-      <div className={`w-full max-w-2xl max-h-[88vh] flex flex-col bg-white border border-slate-200 border-l-4 ${accentOf(note.color)} rounded-2xl shadow-2xl overflow-hidden`}>
-        {/* Header: colors (edit) / "Viewing" (view) + delete + close */}
+      <div className="w-full max-w-2xl max-h-[88vh] flex flex-col bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden">
+        {/* Header: mode label + delete + close */}
         <div className="flex items-center justify-between gap-2 px-5 pt-3.5 pb-2.5 border-b border-slate-100">
-          <div className="flex items-center gap-1.5">
-            {mode === 'edit' ? COLOR_KEYS.map(key => (
-              <button
-                key={key}
-                onClick={() => onPatch(note.id, { color: key })}
-                title={key}
-                className={`w-4 h-4 rounded-full ${DOT[key]} ring-offset-1 ${note.color === key || (!note.color && key === 'amber') ? 'ring-2 ring-slate-400' : 'hover:ring-2 hover:ring-slate-300'}`}
-              />
-            )) : (
-              <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Viewing</span>
-            )}
-          </div>
+          <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+            {mode === 'edit' ? 'Editing' : 'Viewing'}
+          </span>
           <div className="flex items-center gap-1">
             <button
               onClick={() => { if (confirm('Delete this note?')) { onDelete(note.id); onClose() } }}
