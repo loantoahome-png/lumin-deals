@@ -1,5 +1,25 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-26] Arive import: add signing_date + paid_date field mappings (item ② — partial)
+**Status:** CHANGED (tsc clean, build READY) — NOT end-to-end verified: inert until the Arive export carries the
+columns, and the exact header strings are unconfirmed by Efrain.
+**Files:** lib/ariveCsv.ts (MAPPINGS, after funded_date).
+**Issue:** Handoff item ② — add post-CTC Arive fields. Wired the two UNAMBIGUOUS date fields now.
+**Changes:** Two additive MAPPINGS entries: `signing_date` and `paid_date`, both `dateOnly()`, with conservative
+multi-aliases (likely Arive labels only — deliberately NOT aliasing `signing_date` to a bare "Closing Date",
+which is `close_of_escrow_date`, to avoid a false-positive cross-mapping). No migration (columns pre-exist in
+lib/types.ts). fill_blanks is the default-safe write mode (route.ts:39 → preview; non-blank existing values are
+'unchanged'), so this can't clobber manual edits.
+**Deferred (need Efrain):** (a) `locked` — handoff called it a "rate lock date" but it's a Yes/No/NA `<select>`
+flag (pipeline/page.tsx:1390; gates the lock-alerts cron at lock-alerts/route.ts:216). NO lock-date column
+exists. (b) `appraisal_status` — Lumin-specific 5-state enum (APPRAISAL_STATUSES); unknown if Arive exports it
+or if it's dashboard-maintained; needs a real value sample to write a safe normalize fn.
+**Test Method:** `npx tsc --noEmit` (no errors referencing ariveCsv/signing_date/paid_date) + `npm run build`
+(READY, full route tree). End-to-end: requires Efrain to add the 4 columns to the Arive export + a preview
+import to confirm the headers match.
+**Result:** Type-clean, build READY. NOT committed/deployed — holding to confirm real headers + the locked/
+appraisal decisions, then ship item ② as one commit.
+
 ### [2026-06-25] Dashboard: remove the date-range filter (All Time / MTD / QTD / YTD / Custom)
 **Status:** VERIFIED (browser) — tsc clean, build READY, deployed.
 **Files:** components/Dashboard.tsx.

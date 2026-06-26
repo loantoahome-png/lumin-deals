@@ -290,6 +290,17 @@ const MAPPINGS: Mapping[] = [
   // "Loan Funded"; older exports used "Funded Date"/"Est. Funding Date".
   { ariveCols: ['Loan Funded', 'Loan Funded Date', 'Funded Date', 'Funding Date', 'Actual Funding Date', 'Est. Funding Date'],
                                              field: 'funded_date',       normalize: r => dateOnly(r) },
+  // Post-CTC milestone dates. Arive's exact export headers are unconfirmed, so
+  // these use the most likely labels ONLY — deliberately conservative to avoid a
+  // false-positive match against a different-meaning column (e.g. we do NOT
+  // alias signing_date to a bare "Closing Date", which is close_of_escrow_date).
+  // The multi-alias array absorbs naming variants; confirm the real headers and
+  // add them here. signing_date = when docs are signed (≠ close_of_escrow_date);
+  // paid_date = LO compensation paid.
+  { ariveCols: ['Signing Date', 'Doc Signing Date', 'Document Signing Date'],
+                                             field: 'signing_date',      normalize: r => dateOnly(r) },
+  { ariveCols: ['Paid Date', 'Loan Paid Date', 'Paid In Full Date'],
+                                             field: 'paid_date',         normalize: r => dateOnly(r) },
 ]
 
 // ── Build a row → patch (only fields the CSV actually has data for) ─────────
