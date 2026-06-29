@@ -1,5 +1,31 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-29] Lender List — new /lenders directory tab (from approved-lenders sheet)
+**Status:** VERIFIED (local browser render) — tsc clean (no new errors; 7 pre-existing remain), build READY,
+`/lenders` prerenders as a static route (○). Rendered locally via preview_start (temp middleware `/lenders`
+allowlist — REVERTED, confirmed gone from middleware.ts) + DOM probe: path `/lenders`, h1 "Lender List", 10 section
+banners with correct counts (Agency/Jumbo·9, 500-580 Govie·9, Non-QM·20, …), 82 lender rows, subtitle "82 shown ·
+25 in Arive"; console clean (no logs/warnings/errors). Screenshots confirm blue category bands, green/gray In-Arive
+badges, blue mailto links, product badges.
+**Files:** app/lenders/page.tsx (NEW — single 'use client' page: search + section/product chips + "In Arive only"
+toggle + one continuous sticky-header table, blue banner row per section), lib/lenders.ts (NEW — 82 typed records,
+AUTO-GENERATED from the CSV via scratchpad/parse_lenders.py), components/Sidebar.tsx (+Landmark import, +Lender List
+nav item in the Actions group).
+**Why:** Efrain wanted the "Approved Lumin Lenders" Google Sheet as an in-dashboard contact list — everything from
+one view, matching the app framework — so LOs can look up the right lender/AE/contact + product eligibility while
+structuring a loan, instead of hunting through a sprawling multi-tab sheet.
+**Design:** Source CSV is ISO-8859-1 with several stacked tables (different column schemas) + NBSP mojibake (\xa0)
++ trailing junk. Parser (cp1252 decode, NBSP→space, newline→' / ') normalizes all sections into one record shape:
+products[] badges (CONV/VA/FHA/<580/Jumbo for 1sts; Agency/Non-QM 2nd/HELOAN/Piggyback for 2nds), minFico, comp,
+notes. Static import (no fetch/DB/auth) so it renders instantly and was verifiable locally.
+**Known data caveats (source, not code):** orphan continuation-note rows (blank lender name) are appended to the
+preceding lender tagged "[Additional notes (verify owner)…]" (e.g. under NFTY in 2nds) — Efrain should confirm
+owners. Stray product cells like NewRez Govie CONV "tin" / Cake "bu" are source typos → not badged.
+**Test Method:** `npx tsc --noEmit` (clean for new files) + `npm run build` (READY, /lenders ○ static) + local
+preview render (DOM probe + screenshot, console clean).
+**Result:** VERIFIED + deploying. Efrain's live check: open the **Lender List** tab on the authed dashboard →
+search/filter, confirm contact info + product matrix read correctly against the sheet.
+
 ### [2026-06-29] Bulletin notes: full email-grade editor (TipTap v3) — markdown → HTML
 **Status:** VERIFIED (local browser render) — tsc clean, build READY. Rendered the editor + read-only sanitizer
 on a temp throwaway route (temp middleware allowlist, BOTH reverted): full toolbar (font, size, B/I/U/strike,

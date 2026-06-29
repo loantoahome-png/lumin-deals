@@ -22,6 +22,7 @@ import {
   RefreshCw,
   ChevronDown,
   ShieldCheck,
+  Landmark,
 } from 'lucide-react'
 import GlobalSearch from './GlobalSearch'
 import NotificationBell from './NotificationBell'
@@ -58,6 +59,7 @@ const navGroups = [
     label: 'Actions',
     items: [
       { href: '/tools', label: 'Tools', icon: Wrench },
+      { href: '/lenders', label: 'Lender List', icon: Landmark },
       { href: '/compliance', label: 'Compliance', icon: ShieldCheck },
     ],
   },
