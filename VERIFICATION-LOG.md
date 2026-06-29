@@ -1,5 +1,20 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-29] Removed Past-SLA notifications (kept lock-expiry + task alerts)
+**Status:** CHANGED — tsc clean (7 pre-existing), build READY. Efrain's live check: the "Past SLA — …" items
+disappear from the Notifications panel; lock-expiry + overdue/due-today task alerts remain.
+**Why:** Efrain asked "why do I still get these? I thought we got rid of these." Verified across code + git +
+transcripts: the SLA-breach alerts were ADDED 2026-05-14 (commit 24a85bb) and were NEVER removed/disabled — no
+flag, no removal commit, no prior conversation. They recompute live every 5 min, and "Clear all"/dismiss only
+hides a specific one until the deal changes, so they kept reappearing. Efrain chose to turn them off entirely.
+**Changes:** components/NotificationBell.tsx — removed section 2 (the `pipeline_group==='Loans in Process'` +
+`STAGE_SLA_DAYS` breach loop) from `computeNotifs`; dropped the now-unused `'sla'` NotifType, `Hourglass` icon,
+`STAGE_SLA_DAYS` import, `daysSince` helper, and the `pipeline_group/stage_changed_at/created_at` columns from the
+deals select; updated the empty-state + doc copy. Lock (section 1) + tasks (section 2) untouched.
+**Not-fixed (moot now):** the old "days in stage" count fell back to `created_at` when `stage_changed_at` was
+missing, inflating overages — irrelevant once the alerts are gone.
+**Test Method:** tsc + build (the panel only shows real data with auth, so live confirmation is Efrain's).
+
 ### [2026-06-29] Lender List is now EDITABLE (per-lender modal, add/delete, team-shared)
 **Status:** VERIFIED (local browser, full-bypass render). tsc clean (7 pre-existing), build READY.
 **Changes:** app/api/lenders/route.ts (NEW — sync_state `lenders_list` JSON blob, same pattern as /api/tools;

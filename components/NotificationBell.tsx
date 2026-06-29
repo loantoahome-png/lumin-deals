@@ -5,8 +5,8 @@
  *
  * Computes signals client-side from deals + deal_tasks — no new tables:
  *   • Lock expiring within 7 days (or expired)
- *   • Escrow deal past its stage SLA
  *   • Tasks overdue / due today
+ * (Stage-SLA breach alerts were removed 2026-06-29 at Efrain's request — too noisy.)
  *
  * "Seen" + "dismissed" state lives in localStorage (no auth identity to key
  * off server-side). Each notification has a stable id so dismiss/seen persist
@@ -17,16 +17,16 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
-import { Deal, STAGE_SLA_DAYS } from '@/lib/types'
+import { Deal } from '@/lib/types'
 import {
-  Bell, Lock, Hourglass, CheckSquare, X, Clock,
+  Bell, Lock, CheckSquare, X, Clock,
 } from 'lucide-react'
 
 const MS_PER_DAY = 86_400_000
 const DISMISSED_KEY = 'lumin_notifs_dismissed'
 const SEEN_KEY = 'lumin_notifs_seen'
 
-type NotifType = 'lock' | 'sla' | 'task'
+type NotifType = 'lock' | 'task'
 type Notif = {
   id: string
   type: NotifType
@@ -38,12 +38,6 @@ type Notif = {
   rank: number
 }
 
-function daysSince(iso: string | null | undefined): number | null {
-  if (!iso) return null
-  const t = new Date(iso).getTime()
-  if (isNaN(t)) return null
-  return Math.floor((Date.now() - t) / MS_PER_DAY)
-}
 function daysUntil(iso: string | null | undefined): number | null {
   if (!iso) return null
   // Parse a date-only string ("YYYY-MM-DD") as LOCAL midnight (not UTC) and compare to
@@ -93,26 +87,7 @@ function computeNotifs(deals: Deal[], tasks: TaskRow[]): Notif[] {
     })
   }
 
-  // 2. SLA breach — escrow deals sitting in a stage longer than its SLA
-  for (const d of deals) {
-    if (d.pipeline_group !== 'Loans in Process') continue
-    const sla = STAGE_SLA_DAYS[d.status]
-    if (!sla) continue
-    const inStage = daysSince(d.stage_changed_at) ?? daysSince(d.created_at)
-    if (inStage === null || inStage <= sla) continue
-    const over = inStage - sla
-    out.push({
-      id: `sla-${d.id}-${d.status}`,
-      type: 'sla',
-      title: `Past SLA — ${d.name}`,
-      detail: `${d.status}: ${inStage}d in stage (SLA ${sla}d, +${over}d over)`,
-      href: `/deals/${d.id}`,
-      severity: over >= sla ? 'red' : 'amber', // double the SLA = red
-      rank: 100 - over, // most-over first
-    })
-  }
-
-  // 3. Tasks overdue / due today
+  // 2. Tasks overdue / due today
   const now = Date.now()
   const endOfToday = new Date(); endOfToday.setHours(23, 59, 59, 999)
   for (const t of tasks) {
@@ -141,7 +116,6 @@ function computeNotifs(deals: Deal[], tasks: TaskRow[]): Notif[] {
 
 const TYPE_ICON: Record<NotifType, React.ReactNode> = {
   lock: <Lock className="w-4 h-4" />,
-  sla:  <Hourglass className="w-4 h-4" />,
   task: <CheckSquare className="w-4 h-4" />,
 }
 
@@ -157,7 +131,7 @@ export default function NotificationBell() {
     // Paginate the deals past PostgREST's 1000-row cap — without it, lock-expiry
     // and stale-stage notifications silently skipped the oldest deals.
     const [deals, { data: tasks }] = await Promise.all([
-      fetchAllDeals(undefined, 'id, name, status, pipeline_group, locked, lock_expiration, stage_changed_at, created_at'),
+      fetchAllDeals(undefined, 'id, name, status, locked, lock_expiration'),
       supabase.from('deal_tasks').select('id, title, due_at, completed_at, deal_id, assignee'),
     ])
     const computed = computeNotifs(deals, (tasks as TaskRow[]) || [])
@@ -308,7 +282,7 @@ export default function NotificationBell() {
                   </div>
                   <p className="text-sm font-medium text-slate-700">All clear</p>
                   <p className="text-xs text-slate-400 mt-1">
-                    No expiring locks, SLA breaches, or overdue tasks right now.
+                    No expiring locks or overdue tasks right now.
                   </p>
                 </div>
               ) : (
