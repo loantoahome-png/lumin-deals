@@ -1,5 +1,22 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-29] Lender List is now EDITABLE (per-lender modal, add/delete, team-shared)
+**Status:** VERIFIED (local browser, full-bypass render). tsc clean (7 pre-existing), build READY.
+**Changes:** app/api/lenders/route.ts (NEW — sync_state `lenders_list` JSON blob, same pattern as /api/tools;
+GET returns the list or null, POST sanitizes + upserts). components/LenderEditModal.tsx (NEW — all fields editable:
+name, section, In Arive, contact, phone, email, product chips, min FICO, comp, notes + Delete). app/lenders/page.tsx
+(loads /api/lenders with the static lib/lenders.ts as instant SEED; per-row ✏️ edit; "Add lender"; optimistic
+write-through to the DB).
+**Source of truth shift:** lib/lenders.ts is now only the SEED. Once anyone saves, the live list is the
+team-shared `sync_state` copy (authoritative). The monthly `parse_lenders.py` regen updates the SEED only — it no
+longer changes the live list once published (so in-app edits are NOT overwritten by a regen).
+**Test Method:** local render with a TEMP full middleware bypass (reverted; middleware diff confirmed empty). DOM
+probe: 82 ✏️ pencils + Add button; clicked edit → modal opened with ALL fields populated (Rocket: name/Geoff
+Samet/phone/email/620/2.0%-3.0%, section Agency-Jumbo, Arive Yes, products CONV/VA/FHA/Jumbo, notes). Clicked Save
+→ modal closed → `GET /api/lenders` returned the 82-lender list persisted to sync_state. Screenshot captured.
+**Note:** the Save during testing seeded prod `sync_state.lenders_list` with the current 82 (= the static seed),
+which is the intended initial state.
+
 ### [2026-06-29] Espinoza borrower (Judith→Jesus) — RESOLVED via full sync
 **Status:** VERIFIED. The deal showed "Judith" but the GHL contact of record (`t2BK…`) was already renamed to
 **Jesus Espinoza** (confirmed via live GHL contact fetch). Root cause was NOT Arive and NOT a GHL ownership issue

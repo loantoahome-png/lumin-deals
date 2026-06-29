@@ -1,21 +1,22 @@
 'use client'
 
 /**
- * Lender List — the approved-lenders directory as a one-view contact list.
+ * Lender List — the approved-lenders directory as a one-view, EDITABLE contact list.
  *
- * Mirrors the "Approved Lumin Lenders" Google Sheet (banner-grouped sections +
- * a product-eligibility matrix) but as a searchable, filterable directory:
  *   • Search across lender / contact / notes / email / phone.
  *   • Filter by section, by product, or to just the lenders set up in Arive.
  *   • Every column visible at once — contact info is click-to-call / click-to-email.
+ *   • Edit any lender (pencil) → modal with all fields; add/delete lenders.
  *
- * Data is static (lib/lenders.ts, generated from the sheet export) — no fetch,
- * so it renders instantly and needs no DB/auth.
+ * Data: lib/lenders.ts is the SEED. The live, editable list is team-shared in
+ * sync_state via /api/lenders (same pattern as /api/tools) — once anyone saves an
+ * edit, that DB copy is authoritative for everyone. No DB migration.
  */
 
-import { useMemo, useState } from 'react'
-import { LENDERS, LENDER_SECTIONS, type Lender } from '@/lib/lenders'
-import { Landmark, Search, Phone, Mail, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { LENDERS, LENDER_SECTIONS } from '@/lib/lenders'
+import LenderEditModal, { type EditableLender } from '@/components/LenderEditModal'
+import { Landmark, Search, Phone, Mail, X, Pencil, Plus } from 'lucide-react'
 
 const PRODUCT_FILTERS = ['CONV', 'VA', 'FHA', '<580', 'Jumbo'] as const
 
@@ -43,11 +44,58 @@ function ariveBadge(v: string) {
 const telHref = (p: string) => 'tel:' + p.replace(/[^\d+]/g, '')
 const firstEmail = (e: string) => e.split('/')[0].trim()
 
+// Seed from the static export, with stable ids for editing.
+const SEED: EditableLender[] = LENDERS.map((l, i) => ({ ...l, id: `seed-${i}` }))
+const withIds = (rows: EditableLender[]): EditableLender[] =>
+  rows.map((l, i) => ({ ...l, id: l.id || `l-${i}` }))
+
 export default function LenderListPage() {
+  const [lenders, setLenders] = useState<EditableLender[]>(SEED)
+  const [editing, setEditing] = useState<EditableLender | null>(null)
   const [q, setQ] = useState('')
   const [section, setSection] = useState<string>('All')
   const [products, setProducts] = useState<string[]>([])
   const [ariveOnly, setAriveOnly] = useState(false)
+
+  // Prefer the shared team list (DB). If it isn't published yet, the SEED stands.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/lenders', { cache: 'no-store' })
+        const data = await res.json() as { ok: boolean; lenders: EditableLender[] | null }
+        if (data.ok && Array.isArray(data.lenders) && data.lenders.length > 0) {
+          setLenders(withIds(data.lenders))
+        }
+      } catch { /* keep the seed */ }
+    })()
+  }, [])
+
+  // Write-through to the shared DB list (optimistic).
+  async function persistAndUpdate(next: EditableLender[]) {
+    setLenders(next)
+    try {
+      await fetch('/api/lenders', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lenders: next }),
+      })
+    } catch { /* optimistic UI already updated; next save retries */ }
+  }
+
+  function handleSave(l: EditableLender) {
+    const exists = lenders.some(x => x.id === l.id)
+    persistAndUpdate(exists ? lenders.map(x => (x.id === l.id ? l : x)) : [...lenders, l])
+    setEditing(null)
+  }
+  function handleDelete(l: EditableLender) {
+    persistAndUpdate(lenders.filter(x => x.id !== l.id))
+    setEditing(null)
+  }
+  function handleAdd() {
+    const first = LENDER_SECTIONS[0]
+    setEditing({
+      id: `l_${Date.now()}`, category: first.key, categoryLabel: first.label,
+      lender: '', inArive: '', contact: '', phone: '', email: '', products: [], minFico: '', comp: '', notes: '',
+    })
+  }
 
   function toggleProduct(p: string) {
     setProducts(prev => (prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]))
@@ -55,7 +103,7 @@ export default function LenderListPage() {
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
-    return LENDERS.filter(l => {
+    return lenders.filter(l => {
       if (section !== 'All' && l.category !== section) return false
       if (ariveOnly && l.inArive.trim().toLowerCase() !== 'yes') return false
       if (products.length && !products.every(p => l.products.includes(p))) return false
@@ -65,7 +113,7 @@ export default function LenderListPage() {
       }
       return true
     })
-  }, [q, section, products, ariveOnly])
+  }, [lenders, q, section, products, ariveOnly])
 
   // Group the filtered rows by section, preserving the sheet's section order.
   const groups = useMemo(() => {
@@ -75,7 +123,7 @@ export default function LenderListPage() {
   }, [filtered])
 
   const ariveCount = useMemo(() => filtered.filter(l => l.inArive.trim().toLowerCase() === 'yes').length, [filtered])
-  const sectionsWithData = LENDER_SECTIONS.filter(s => LENDERS.some(l => l.category === s.key))
+  const sectionsWithData = LENDER_SECTIONS.filter(s => lenders.some(l => l.category === s.key))
 
   return (
     <div className="flex flex-col h-full">
@@ -92,19 +140,27 @@ export default function LenderListPage() {
               <span className="text-emerald-600 font-medium">{ariveCount} in Arive</span>
             </p>
           </div>
-          <div className="relative">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              value={q}
-              onChange={e => setQ(e.target.value)}
-              placeholder="Search lender, contact, notes…"
-              className="w-72 pl-9 pr-8 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400"
-            />
-            {q && (
-              <button onClick={() => setQ('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
-              </button>
-            )}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleAdd}
+              className="flex items-center gap-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg px-3 py-2 hover:bg-blue-700"
+            >
+              <Plus className="w-4 h-4" /> Add lender
+            </button>
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                value={q}
+                onChange={e => setQ(e.target.value)}
+                placeholder="Search lender, contact, notes…"
+                className="w-72 pl-9 pr-8 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400"
+              />
+              {q && (
+                <button onClick={() => setQ('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -150,26 +206,35 @@ export default function LenderListPage() {
           <table className="w-full text-sm border-separate border-spacing-0">
             <thead className="sticky top-0 z-10">
               <tr className="text-[11px] uppercase tracking-wide text-slate-500 bg-slate-50">
-                {['Lender', 'Arive', 'Contact', 'Phone', 'Email', 'Products', 'Min FICO', 'Comp', 'Notes'].map(h => (
-                  <th key={h} className="px-3 py-2 text-left font-semibold border-b border-slate-200 whitespace-nowrap">{h}</th>
+                {['Lender', 'Arive', 'Contact', 'Phone', 'Email', 'Products', 'Min FICO', 'Comp', 'Notes', ''].map((h, i) => (
+                  <th key={i} className="px-3 py-2 text-left font-semibold border-b border-slate-200 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             {groups.map(g => (
               <tbody key={g.key}>
                 <tr>
-                  <td colSpan={9} className="bg-blue-600 text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 sticky left-0">
+                  <td colSpan={10} className="bg-blue-600 text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 sticky left-0">
                     {g.label} <span className="font-normal text-blue-100 normal-case">· {g.rows.length}</span>
                   </td>
                 </tr>
-                {g.rows.map((l, i) => (
-                  <LenderRow key={`${g.key}-${i}-${l.lender}`} l={l} />
+                {g.rows.map(l => (
+                  <LenderRow key={l.id} l={l} onEdit={() => setEditing(l)} />
                 ))}
               </tbody>
             ))}
           </table>
         )}
       </div>
+
+      {editing && (
+        <LenderEditModal
+          lender={editing}
+          onSave={handleSave}
+          onDelete={handleDelete}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   )
 }
@@ -188,10 +253,10 @@ function Chip({ children, active, onClick, accent }: {
   )
 }
 
-function LenderRow({ l }: { l: Lender }) {
+function LenderRow({ l, onEdit }: { l: EditableLender; onEdit: () => void }) {
   const arive = ariveBadge(l.inArive)
   return (
-    <tr className="border-b border-slate-100 hover:bg-slate-50 align-top">
+    <tr className="border-b border-slate-100 hover:bg-slate-50 align-top group">
       <td className="px-3 py-2 font-medium text-slate-800 border-b border-slate-100 min-w-[180px]">{l.lender}</td>
       <td className="px-3 py-2 border-b border-slate-100">
         <span className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-semibold ${arive.cls}`}>{arive.label}</span>
@@ -220,6 +285,15 @@ function LenderRow({ l }: { l: Lender }) {
       <td className="px-3 py-2 text-slate-600 border-b border-slate-100 whitespace-nowrap tabular-nums">{l.comp || <span className="text-slate-300">—</span>}</td>
       <td className="px-3 py-2 text-slate-500 border-b border-slate-100 text-[13px] leading-snug max-w-md whitespace-pre-wrap break-words">
         {l.notes || <span className="text-slate-300">—</span>}
+      </td>
+      <td className="px-2 py-2 border-b border-slate-100 text-right">
+        <button
+          onClick={onEdit}
+          title="Edit lender"
+          className="text-slate-400 hover:text-blue-600 opacity-60 group-hover:opacity-100 transition"
+        >
+          <Pencil className="w-3.5 h-3.5" />
+        </button>
       </td>
     </tr>
   )
