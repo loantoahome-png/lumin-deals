@@ -1,20 +1,16 @@
 # Verification Log — Lumin Deals
 
-### [2026-06-29] Espinoza borrower (Judith→Jesus) — RESOLVED via full sync; borrower-override REVERTED
+### [2026-06-29] Espinoza borrower (Judith→Jesus) — RESOLVED via full sync
 **Status:** VERIFIED. The deal showed "Judith" but the GHL contact of record (`t2BK…`) was already renamed to
 **Jesus Espinoza** (confirmed via live GHL contact fetch). Root cause was NOT Arive and NOT a GHL ownership issue
-(my first diagnosis was wrong — corrected by fetching GHL): the incremental sync never re-pulls a renamed contact
+(first diagnosis was wrong — corrected by fetching GHL): the incremental sync never re-pulls a renamed contact
 (only contacts of *changed opportunities*), so the rename never reached the dashboard. See GOTCHAS 2026-06-29.
-**Fix applied:** forced a full GHL sync (`runGhlSync({ full: true })`) → re-pulled all contacts → deal
-`f7a22e85` flipped to **name/first/last = Jesus Espinoza**, phone +1 310-702-0878. Verified by reading the row
-back post-sync (synced 1670, 0 errors). Prod was never running the override code, so prod sync stayed healthy.
-**Reverted:** the borrower_locked "manual override" feature (commit 40b4794) was REVERTED (commit 5b12711) — Efrain
-chose to fix at the GHL source instead. Confirmed unnecessary here: GHL already says Jesus, so a normal sync sticks
-(no lock needed). The revert removed the `borrower_locked` column SELECT, migration SQL, promote-stamps-identity,
-sync skip-when-locked, the "Manual borrower" badge, and the diagnosis doc.
-**Residual (known, not fixed — Efrain chose "nothing else"):** (1) contact renames still need a manual `?full=1`
-to propagate (incremental won't); (2) `deals.borrower_id` still points at the dashboard contact named "Judith"
-(sync never touches borrower_id) so "View Contact" may read Judith until the identity resolver reconciles.
+**Fix applied:** forced a full GHL sync (`?full=1`) → re-pulled all contacts → deal `f7a22e85` flipped to
+**name/first/last = Jesus Espinoza**, phone +1 310-702-0878. Verified by reading the row back post-sync (synced
+1670, 0 errors). Added a self-serve **Full Sync** button to the sidebar so this is one click going forward.
+**Residual (known):** (1) contact renames still need a full sync to propagate (the 3-min incremental won't);
+(2) `deals.borrower_id` still points at the dashboard contact named "Judith" (sync never touches borrower_id) so
+"View Contact" may read Judith until the identity resolver reconciles.
 
 ### [2026-06-29] Lender List — new /lenders directory tab (from approved-lenders sheet)
 **Status:** VERIFIED (local browser render) — tsc clean (no new errors; 7 pre-existing remain), build READY,

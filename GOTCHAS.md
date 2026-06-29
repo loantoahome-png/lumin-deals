@@ -13,10 +13,8 @@ propagates on a real full sync (`isFullSync` → `fetchAllContacts`).
 contacts and `deals.name` updates from `fullContact.name` (here → "Jesus Espinoza"). Verified 2026-06-29: full
 sync = 1670 synced, the deal flipped to Jesus. NOTE: this does NOT touch `borrower_id` (sync never syncs it), so
 the linked CONTACT record / "View Contact" can still read the old name until the identity resolver reconciles.
-**Also (deploy-order trap, same session):** a half-built "borrower_locked" override that SELECTed a not-yet-created
-column made the sync's dedup index throw `column deals.borrower_locked does not exist` → `byOppId` empty → every
-opp looked new → batch INSERTs that the `deals_ghl_opportunity_id_uniq` constraint rejected (no dupes created, but
-0 names written). Lesson: never ship a sync SELECT for a column before its migration runs.
+**Self-serve:** the sidebar has a **Full Sync** button (the small link under "Sync GHL") that hits
+`?full=1` — use it after renaming a contact in GHL.
 **Project:** lumin-deals
 **Date:** 2026-06-29
 

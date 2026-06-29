@@ -81,6 +81,7 @@ export default function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const [syncing, setSyncing] = useState(false)
+  const [fullSyncing, setFullSyncing] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(DEFAULT_COLLAPSED)
 
   // Restore the user's collapse preferences across sessions.
@@ -109,6 +110,28 @@ export default function Sidebar() {
       console.error('Manual GHL sync failed:', e)
     } finally {
       setSyncing(false)
+    }
+  }
+
+  // Full sync — re-pulls ALL contacts + opportunities from GHL. The normal sync is
+  // incremental (only re-fetches contacts whose OPPORTUNITY changed), so a change that
+  // doesn't move an opportunity — e.g. RENAMING a contact in GHL — never propagates.
+  // A full sync catches it. Heavier (~20–40s), so it's a deliberate, confirmed action.
+  async function handleFullSync() {
+    if (fullSyncing || syncing) return
+    if (!confirm(
+      'Full sync re-pulls EVERYTHING from GHL (all contacts + opportunities).\n\n' +
+      'Use it after renaming a contact in GHL, or if the dashboard looks out of date. ' +
+      'Takes ~20–40 seconds. Continue?'
+    )) return
+    setFullSyncing(true)
+    try {
+      await fetch('/api/sync/ghl?full=1', { method: 'POST' })
+      router.refresh()   // re-pull data + update the LastSyncBadge
+    } catch (e) {
+      console.error('Full GHL sync failed:', e)
+    } finally {
+      setFullSyncing(false)
     }
   }
 
@@ -200,6 +223,15 @@ export default function Sidebar() {
         >
           <RefreshCw className={`w-4 h-4 shrink-0 ${syncing ? 'animate-spin' : ''}`} />
           {syncing ? 'Syncing…' : 'Sync GHL'}
+        </button>
+        <button
+          onClick={handleFullSync}
+          disabled={fullSyncing || syncing}
+          title="Re-pull EVERYTHING from GHL (~20–40s) — use after renaming a contact in GHL"
+          className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+        >
+          <RefreshCw className={`w-3 h-3 shrink-0 ${fullSyncing ? 'animate-spin' : ''}`} />
+          {fullSyncing ? 'Full syncing…' : 'Full sync'}
         </button>
         <button
           onClick={handleLogout}
