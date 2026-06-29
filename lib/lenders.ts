@@ -1,6 +1,5 @@
-// AUTO-GENERATED from "Approved Lumin Lenders 9.4.csv".
-// Do not edit by hand — regenerate with scratchpad/parse_lenders.py when the
-// approved-lenders Google Sheet changes, then paste the new export here.
+// AUTO-GENERATED from an "Approved Lumin Lenders" CSV export.
+// Do not edit by hand — regenerate with: python3 scripts/parse_lenders.py <csv>
 
 export interface Lender {
   /** Raw section key from the sheet (stable identifier). */
