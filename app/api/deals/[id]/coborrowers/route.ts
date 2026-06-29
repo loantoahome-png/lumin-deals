@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import {
   listCoborrowers, linkCoborrower, unlinkCoborrower, promoteToPrimary, findOrCreateContact,
+  type BorrowerIdentity,
 } from '@/lib/dealContacts'
 
 /**
@@ -41,9 +42,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
   const sb = createServiceClient()
   try {
+    let promoted: BorrowerIdentity | null = null
     if (body.action === 'promote') {
       if (!body.contactId) return NextResponse.json({ ok: false, error: 'missing_contactId' }, { status: 400 })
-      await promoteToPrimary(sb, id, body.contactId)
+      promoted = await promoteToPrimary(sb, id, body.contactId)
     } else if (body.action === 'link') {
       let contactId = body.contactId
       if (!contactId && body.newContact) contactId = await findOrCreateContact(sb, body.newContact)
@@ -52,7 +54,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     } else {
       return NextResponse.json({ ok: false, error: 'unknown_action' }, { status: 400 })
     }
-    return NextResponse.json({ ok: true, coborrowers: await listCoborrowers(sb, id) })
+    // `deal` carries the stamped borrower identity so the UI can update the hero in place.
+    return NextResponse.json({ ok: true, coborrowers: await listCoborrowers(sb, id), deal: promoted ?? undefined })
   } catch (e) {
     return NextResponse.json({ ok: false, error: String(e) }, { status: 500 })
   }

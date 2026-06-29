@@ -491,6 +491,14 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                 placeholder="Borrower Name"
               />
               <div className="flex items-center gap-2 mt-2 flex-wrap">
+                {form.borrower_locked && (
+                  <span
+                    title="Borrower set manually — the GHL sync won't overwrite the name, email, or phone on this deal."
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                  >
+                    <Lock className="w-3 h-3" /> Manual borrower
+                  </span>
+                )}
                 <select
                   value={form.status || ''}
                   onChange={e => set('status', e.target.value)}
@@ -901,7 +909,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                   <CoborrowerManager
                     dealId={id}
                     primaryId={form.borrower_id as string | null}
-                    onPrimaryChange={(newId) => setForm(f => f ? { ...f, borrower_id: newId } : f)}
+                    onPrimaryChange={(u) => setForm(f => f ? { ...f, ...u } : f)}
                   />
                 </div>
               </div>
