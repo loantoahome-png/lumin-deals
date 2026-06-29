@@ -40,7 +40,6 @@ export type CoborrowerLite = {
 export type Deal = {
   id: string
   borrower_id: string | null              // groups multiple loans for the same person (Option A model)
-  borrower_locked: boolean | null         // true = borrower identity set manually (promote-to-primary); GHL sync must NOT overwrite name/first/last/email/phone
   coborrowers: CoborrowerLite[] | null    // role='co' links, loaded join (null when not loaded)
   ghl_opportunity_id: string | null       // the GHL opportunity (loan) ID — distinct per loan
   name: string

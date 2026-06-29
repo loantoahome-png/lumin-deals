@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { UserPlus, X, Star, Loader2 } from 'lucide-react'
 import type { CoborrowerLite } from '@/lib/types'
-import type { BorrowerIdentity } from '@/lib/dealContacts'
 
 type ContactHit = { id: string; display_name: string | null; email: string | null; phone: string | null }
 
@@ -17,7 +16,7 @@ export default function CoborrowerManager({
 }: {
   dealId: string
   primaryId: string | null
-  onPrimaryChange?: (identity: BorrowerIdentity) => void
+  onPrimaryChange?: (newPrimaryId: string) => void
 }) {
   const [list, setList] = useState<CoborrowerLite[]>([])
   const [loading, setLoading] = useState(true)
@@ -76,25 +75,8 @@ export default function CoborrowerManager({
     if (await send('POST', { action: 'link', newContact: nc })) resetAdd()
   }
   async function promote(contactId: string) {
-    if (!confirm(
-      'Make this person the PRIMARY borrower?\n\n' +
-      'They replace the current borrower (name, email, phone) on the loan, the old primary ' +
-      'becomes a co-borrower, and the GHL sync will STOP overwriting the borrower on this deal.'
-    )) return
-    setBusy(true)
-    try {
-      const res = await fetch(`/api/deals/${dealId}/coborrowers`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'promote', contactId }),
-      })
-      const data = await res.json()
-      if (data.ok) {
-        setList(data.coborrowers as CoborrowerLite[])
-        if (data.deal) onPrimaryChange?.(data.deal as BorrowerIdentity)
-      } else {
-        alert(data.error || 'failed')
-      }
-    } finally { setBusy(false) }
+    if (!confirm('Make this co-borrower the PRIMARY? The current primary becomes a co-borrower.')) return
+    if (await send('POST', { action: 'promote', contactId })) onPrimaryChange?.(contactId)
   }
   function resetAdd() { setAdding(false); setQ(''); setResults([]); setNc({ name: '', email: '', phone: '' }) }
 

@@ -689,15 +689,15 @@ async function syncAccount(
   //   FULL sync: page through every deal (cap 1 000/page from PostgREST).
   //   INCREMENTAL: scoped query — only deals matching the changed opps' ids
   //   or their contact_ids. Cuts a multi-thousand-row scan to a few dozen.
-  type DealKey = { id: string; pipeline_group: string | null; borrower_locked: boolean | null }
+  type DealKey = { id: string; pipeline_group: string | null }
   const byOppId = new Map<string, DealKey>()
   const contactToBorrower = new Map<string, string>()
   const emailToBorrower = new Map<string, string>()
   const phoneToBorrower = new Map<string, string>()
 
-  type DedupRow = { id: string; ghl_contact_id: string | null; ghl_opportunity_id: string | null; email: string | null; phone: string | null; borrower_id: string | null; pipeline_group: string | null; borrower_locked: boolean | null }
+  type DedupRow = { id: string; ghl_contact_id: string | null; ghl_opportunity_id: string | null; email: string | null; phone: string | null; borrower_id: string | null; pipeline_group: string | null }
   const ingestDedupRow = (d: DedupRow) => {
-    if (d.ghl_opportunity_id && !byOppId.has(d.ghl_opportunity_id)) byOppId.set(d.ghl_opportunity_id, { id: d.id, pipeline_group: d.pipeline_group, borrower_locked: d.borrower_locked })
+    if (d.ghl_opportunity_id && !byOppId.has(d.ghl_opportunity_id)) byOppId.set(d.ghl_opportunity_id, { id: d.id, pipeline_group: d.pipeline_group })
     if (d.borrower_id) {
       if (d.ghl_contact_id && !contactToBorrower.has(d.ghl_contact_id)) contactToBorrower.set(d.ghl_contact_id, d.borrower_id)
       const e = normEmail(d.email); if (e && !emailToBorrower.has(e)) emailToBorrower.set(e, d.borrower_id)
@@ -711,7 +711,7 @@ async function syncAccount(
     for (;;) {
       const { data: pageRows, error: pageErr } = await supabase
         .from('deals')
-        .select('id, ghl_contact_id, ghl_opportunity_id, email, phone, borrower_id, pipeline_group, borrower_locked')
+        .select('id, ghl_contact_id, ghl_opportunity_id, email, phone, borrower_id, pipeline_group')
         .order('id', { ascending: true })
         .range(offset, offset + DEDUP_PAGE - 1)
       if (pageErr) {
@@ -743,7 +743,7 @@ async function syncAccount(
         const chunk = arr.slice(i, i + CHUNK)
         const { data, error } = await supabase
           .from('deals')
-          .select('id, ghl_contact_id, ghl_opportunity_id, email, phone, borrower_id, pipeline_group, borrower_locked')
+          .select('id, ghl_contact_id, ghl_opportunity_id, email, phone, borrower_id, pipeline_group')
           .in(col, chunk)
         if (error) {
           console.error(`[GHL Sync:${label}] Scoped dedup query (${col}) failed:`, error.message)
@@ -941,13 +941,9 @@ async function syncAccount(
         if (existing) {
           // Update the loan. Sync status/pipeline always; other fields only when
           // GHL has a value (never erase manual/Monday/Arive data).
-          // Borrower identity (name/first/last/email/phone) is GHL-owned UNLESS this deal
-          // was manually overridden (borrower_locked) — e.g. a co-borrower promoted to
-          // primary. When locked we leave those 5 fields to the dashboard so the manual
-          // borrower isn't reverted to the opp's GHL contact every sync.
-          const borrowerLocked = existing.borrower_locked === true
           const patch: Record<string, unknown> = {
             id:               existing.id,
+            name:             dealData.name,   // NOT NULL — required even on update via upsert path
             status:           dealData.status,
             pipeline_group:   dealData.pipeline_group,
             ghl_tags:         dealData.ghl_tags,
@@ -955,7 +951,6 @@ async function syncAccount(
             ghl_location_id:  dealData.ghl_location_id,
             ghl_contact_id:   contactId,
           }
-          if (!borrowerLocked) patch.name = dealData.name   // name is NOT NULL — only re-stamp when GHL owns the borrower
           // A funded deal carries Arive-authoritative dollars. GHL's opportunity
           // value (often a stale lead estimate, sometimes 0) must NOT overwrite the
           // closed-loan amount — mirrors the funded guard in the reconcile block
@@ -973,14 +968,12 @@ async function syncAccount(
             if (k === 'loan_amount' && fundedOwnsAmount) return
             patch[k] = dealData[k]
           }
-          // When borrower_locked, skip the borrower-identity fields (everything else still syncs).
-          const BORROWER_IDENTITY = ['first_name', 'last_name', 'email', 'phone']
           ;['loan_officer','loan_amount','estimated_value','credit_score','loan_type','loan_purpose',
             'occupancy','property_type','property_address','current_balance','ltv',
             'cash_out','down_payment','rate','investor','credit_rating','is_military',
             'current_va_loan','city','state','zip','first_name','last_name','email','phone',
             'source','lead_price','ghl_opportunity_id','dnd','dnd_settings','ghl_status',
-          ].filter(k => !(borrowerLocked && BORROWER_IDENTITY.includes(k))).forEach(maybeSet)
+          ].forEach(maybeSet)
           // In-process loans (Arive-backed or not): loan_amount mirrors the GHL
           // opportunity value — write it even when the opp value is 0/empty so a stale
           // figure (e.g. an old custom-field import that put $297,500 on a $0 opp) is

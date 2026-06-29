@@ -1,31 +1,5 @@
 # Verification Log — Lumin Deals
 
-### [2026-06-29] Borrower override — promote-to-primary now stamps identity + locks it from GHL sync
-**Status:** CHANGED — tsc clean for touched files (total errors still 7, all pre-existing/build-ignored),
-`npm run build` READY. **NOT yet deployed — requires the migration first (see below).** Runtime behavior to be
-verified live by Efrain (promote on the real Espinoza deal, then confirm the next GHL sync doesn't revert it).
-**Issue:** Diagnosed 2026-06-29 (docs/diagnoses/2026-06-29-espinoza-borrower-swap-diagnosis.md): a deal's borrower
-name/email/phone is owned by the GHL contact on the opportunity and re-stamped every 3-min sync, so neither an
-Arive re-import (no name mapping) nor a manual edit could swap Judith → Jesus. The ★ promote button only changed
-`borrower_id`, not the displayed identity, and the sync reverted it.
-**Changes:**
-- `supabase-add-borrower-locked.sql` (NEW) — `alter table deals add column borrower_locked boolean not null default false`.
-- `lib/dealContacts.ts` — `promoteToPrimary` now stamps the promoted contact's name/first/last/email/phone onto the
-  deal AND sets `borrower_locked=true`; returns the new `BorrowerIdentity`. Added `splitName` + `titleCase` import.
-- `app/api/sync/ghl/route.ts` — carries `borrower_locked` through the dedup index (DealKey/DedupRow + both SELECTs +
-  ingest); in the update path, when locked, skips `name` and the `first_name/last_name/email/phone` writes
-  (everything else still syncs). Reconcile/prune block + webhook verified to NOT write identity → no lock leak.
-- `app/api/deals/[id]/coborrowers/route.ts` — promote returns the stamped `deal` identity.
-- `components/CoborrowerManager.tsx` — promote reads the returned deal; clearer confirm copy.
-- `app/deals/[id]/page.tsx` — `onPrimaryChange` merges identity into the form (hero updates in place); amber
-  "Manual borrower" lock badge when `borrower_locked`.
-- `lib/types.ts` (+`borrower_locked`), `components/DealForm.tsx` (emptyDeal default false).
-**Blast radius:** `borrower_locked` defaults false → every existing deal behaves identically; only an explicitly
-promoted deal changes. **Deploy ordering:** run the SQL in Supabase BEFORE deploying (sync SELECTs the new column).
-**Test Method:** Efrain — on the Espinoza deal (`f7a22e85`, Arive 16900148): ★ promote Jesus → hero shows Jesus +
-"Manual borrower" badge; remove Judith if she should be off the loan; wait one GHL sync (~3 min) and confirm it
-stays Jesus (no revert).
-
 ### [2026-06-29] Lender List — new /lenders directory tab (from approved-lenders sheet)
 **Status:** VERIFIED (local browser render) — tsc clean (no new errors; 7 pre-existing remain), build READY,
 `/lenders` prerenders as a static route (○). Rendered locally via preview_start (temp middleware `/lenders`

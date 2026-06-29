@@ -1,23 +1,5 @@
 # GOTCHAS — Lumin Deals
 
-### Borrower identity is GHL-owned — Arive import & manual edits can't swap the primary borrower
-**Tried:** To make Jesus the sole borrower (was Judith), Efrain changed the borrower in **Arive** and re-imported
-the Arive CSV, expecting the dashboard to swap Judith → Jesus. Nothing changed.
-**Failed because:** the borrower name/email/phone are NOT driven by Arive. (1) The Arive importer (`lib/ariveCsv.ts`)
-has **no mapping for the borrower name** — `__borrower_name` is a carrier field used only for matching and is
-skipped by every write loop; `borrower_id` is never written on update; co-borrower linking only ever *adds* a
-`role='co'` row (never promotes). (2) The GHL sync (`app/api/sync/ghl/route.ts`) matches by `ghl_opportunity_id`
-and **unconditionally re-writes `deals.name`** (line ~946) + `first/last/email/phone` from the **GHL contact on the
-opportunity** every 3 min. So the displayed borrower = the GHL contact on the opp. A manual edit to the hero name
-input (`deals.name`) is reverted within ~3 min by the next sync. `borrower_id` is the one identity field NOT synced.
-**What works:** fix the borrower at the **GHL source** (the opportunity's contact). The dashboard's
-`promoteToPrimary` (★ in CoborrowerManager) swaps `borrower_id` only — it does NOT update `deals.name/email/phone`,
-so it's cosmetically ineffective on GHL-synced deals unless we also (a) copy the promoted contact's name/email/phone
-onto the deal and (b) mark them "manual" so the sync's `name`/`maybeSet` writes respect a lock. That override
-doesn't exist yet — co-borrower→primary swaps will keep reverting until it's built.
-**Project:** lumin-deals
-**Date:** 2026-06-29
-
 ### React reuses a DOM node across two ternary branches of the same type → contentEditable leftover doubles
 **Tried:** A modal body rendered `{mode === 'edit' ? <div ref contentEditable/> : <div><NoteMarkdown/></div>}`
 with NO `key` on either branch. The editor's content is set imperatively (`ed.innerHTML = markdownToHtml(...)`),
