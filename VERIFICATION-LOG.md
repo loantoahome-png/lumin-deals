@@ -1,6 +1,6 @@
 # Verification Log — Lumin Deals
 
-### [2026-06-26] Bulletin notes: full email-grade editor (TipTap v3) — markdown → HTML
+### [2026-06-29] Bulletin notes: full email-grade editor (TipTap v3) — markdown → HTML
 **Status:** VERIFIED (local browser render) — tsc clean, build READY. Rendered the editor + read-only sanitizer
 on a temp throwaway route (temp middleware allowlist, BOTH reverted): full toolbar (font, size, B/I/U/strike,
 color, highlight, H1-3, bullet + numbered lists, align, link, image, clear) and correct rendering of every format
@@ -23,7 +23,7 @@ DOM probe: .ProseMirror present, 16 toolbar buttons + 2 selects, all formats par
 **Result:** VERIFIED render + sanitized read-only; deployed. Efrain to confirm the save/persist flow on real notes
 (open a note on /tasks → edit → reopen should persist; legacy markdown notes still display).
 
-### [2026-06-26] Bulletin (NotesBoard): single-column list → responsive board
+### [2026-06-29] Bulletin (NotesBoard): single-column list → responsive board
 **Status:** CHANGED (NotesBoard tsc clean, build READY), deployed — visual confirmation pending on Efrain's authed
 dashboard. Local screenshot NOT possible: `dashboard_notes` needs Supabase creds the sandbox blocks (`.env.local`),
 so a local dev server renders an empty board (no cards) — no useful proof.
@@ -44,13 +44,13 @@ more air (p-4, gap-4, 16rem cols); natural heights (grid `items-start`, dropped 
 top-right hover cluster; larger title (15px). DnD + modal editor + markdown storage still intact.
 **Result:** Type-clean, build READY, deployed (board, then the clean-accent restyle). Awaiting Efrain's live look.
 
-### [2026-06-26] Arive import: signing_date/paid_date mappings — ADDED then REVERTED same day
+### [2026-06-29] Arive import: signing_date/paid_date mappings — ADDED then REVERTED same day
 **Status:** REVERTED — Efrain confirmed he doesn't need signing_date/paid_date. NET: zero change to MAPPINGS.
 **Files:** lib/ariveCsv.ts (MAPPINGS) — added two entries, then removed them (back to funded_date as last mapping).
 **Arc:** Added `signing_date`+`paid_date` (`dateOnly`, conservative aliases) → committed `155501a` → deployed
 `lumin-deals-ad65zyxd9`. Efrain then said he doesn't need them → reverted both entries. tsc + build re-verified
 clean on the revert.
-**Item ② final dispositions (all confirmed with Efrain 2026-06-26):**
+**Item ② final dispositions (all confirmed with Efrain 2026-06-29):**
 - `signing_date`, `paid_date` → NOT needed → not mapped.
 - `locked` → handoff mislabeled it a "rate-lock date"; actually a manual Yes/No/NA `<select>` (pipeline/page.tsx:1390),
   no lock-date column exists. Feeds the lock-alert cron — VERIFIED it already fires ONLY for in-process/not-funded
