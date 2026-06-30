@@ -1,6 +1,15 @@
 # Verification Log — Lumin Deals
 
-### [2026-06-30] Deal form — drop "Waiting On", rename "Broker / Correspondent" → "Broker / Non-Del"
+### [2026-06-30] Escrow card — add Channel (Broker/Non-Del) to the stats block, split into 2 rows
+**Status:** VERIFIED (browser, mock data). tsc 7 baseline, build READY.
+**Why:** Efrain — surface the new broker_corr channel on the Active Escrows card; the old single-row Lender·Amount·LO
+block had no room, so split it.
+**Changes:** `components/EscrowTracker.tsx` quick-stats block — was a 1-row 3-col grid (Lender | Amount-hero | LO); now
+2 rows: Amount hero centered on top, then a 3-col row Lender · **Channel** (`deal.broker_corr || '—'`) · LO below.
+**Test Method:** temp `app/carddemo/page.tsx` rendering `<EscrowTracker>` with 3 mock deals + middleware bypass (both
+reverted; `.next` cleared to avoid the stale-route validator error). Verified all 3 channel states: Non-Del, Broker,
+and null→"—"; layout balanced, no overflow; no console errors. NOTE: temp route must NOT use a leading underscore
+(`app/_carddemo` = private/non-routable → 404); used `app/carddemo`.
 **Status:** VERIFIED (tsc 7 baseline, build READY).
 **Why:** Efrain — removed the "Waiting On" field from the deal detail TEAM section; added an Arive "channel" column
 (broker vs Non-Del) and wants the dashboard field relabeled "Broker / Non-Del" ahead of the next import.
