@@ -18,6 +18,9 @@ clean, middleware git diff empty) because the `deals` table rejects anon reads i
 loans/$3.95M, Locked 1/3, Past-SLA 1; Matt → 2 loans/$547,268, Locked 2/2, Expired 1; all four lock states render
 (not-locked, amber ≤7d, red EXPIRED, green far-out); stage order correct; print isolation present; no console errors.
 **Efrain's live check:** `/reports/escrows` (or the Report button on Active Escrows) → toggle Moe/Matt → Print/Save as PDF.
+**Rev (2026-06-30, Efrain feedback):** stage headers now full-width color bands (bg = `STATUS_COLORS[stage]`);
+removed the days-in-stage / SLA line per deal AND the "Past SLA" KPI; processor now labeled "Processor: {value}";
+also rounded the LTV/rate display (a raw float `66.4864…%` was showing). Re-verified via demo+bypass (reverted).
 
 ### [2026-06-30] Lender List — BCC email picker (checkbox-select lenders → copy emails for Outlook BCC)
 **Status:** VERIFIED (local). tsc clean (7 pre-existing baseline), build READY.

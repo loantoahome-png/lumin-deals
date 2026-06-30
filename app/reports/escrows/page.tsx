@@ -5,7 +5,7 @@
  * pipeline. Same data + active-escrow filter as /deals (pipeline_group =
  * 'Loans in Process', excluding lost/abandoned), grouped by stage.
  *
- * Each deal shows: stage + days-in-stage (SLA-flagged), the current next step,
+ * Each deal shows: stage, the current next step,
  * rate-lock status + expiration (countdown, color-coded), the assigned processor,
  * and the loan details. LO toggle = "two reports" (Moe / Matt) off one page; the
  * Print button isolates #escrow-report so Cmd/Ctrl+P → Save as PDF gives a clean doc.
@@ -15,21 +15,19 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
-import { Deal, LOAN_OFFICERS, STATUS_COLORS, STAGE_SLA_DAYS, PIPELINE_STATUSES } from '@/lib/types'
+import { Deal, LOAN_OFFICERS, STATUS_COLORS, PIPELINE_STATUSES } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { Printer, RefreshCw, ArrowLeft, Lock, AlertTriangle, Clock, UserCog, Flag, Ban } from 'lucide-react'
+import { Printer, RefreshCw, ArrowLeft, Lock, AlertTriangle, UserCog, Flag, Ban } from 'lucide-react'
 
 const MS_PER_DAY = 86_400_000
-const daysSince = (iso: string | null | undefined): number | null => {
-  if (!iso) return null
-  const t = new Date(iso).getTime()
-  return isNaN(t) ? null : Math.floor((Date.now() - t) / MS_PER_DAY)
-}
 const daysUntil = (iso: string | null | undefined): number | null => {
   if (!iso) return null
   const t = new Date(iso).getTime()
   return isNaN(t) ? null : Math.floor((t - Date.now()) / MS_PER_DAY)
 }
+
+// Trim float noise for display (LTV like 66.4864… → 66.5; rates keep their eighths).
+const round = (v: number, n: number) => Math.round(v * 10 ** n) / 10 ** n
 
 const STAGE_ORDER = PIPELINE_STATUSES['Loans in Process']
 type LOChoice = 'Moe Sefati' | 'Matt Park' | 'All'
@@ -109,20 +107,15 @@ function ReportInner() {
   }, [forLO])
 
   const kpis = useMemo(() => {
-    let locked = 0, expiring = 0, expired = 0, pastSLA = 0, blocked = 0, noStep = 0
+    let locked = 0, expiring = 0, expired = 0
     for (const d of forLO) {
       const li = lockInfo(d)
       if (li.locked) locked++
       if (li.expiring) expiring++
       if (li.expired) expired++
-      const dis = daysSince(d.stage_changed_at)
-      const sla = STAGE_SLA_DAYS[d.status]
-      if (dis != null && sla != null && dis > sla) pastSLA++
-      if (d.waiting_on && d.waiting_on !== 'No one') blocked++
-      if (!nextStep(d)) noStep++
     }
     const volume = forLO.reduce((s, d) => s + (d.loan_amount || 0), 0)
-    return { count: forLO.length, volume, locked, expiring, expired, pastSLA, blocked, noStep }
+    return { count: forLO.length, volume, locked, expiring, expired }
   }, [forLO])
 
   const generatedAt = new Date().toLocaleString('en-US', {
@@ -199,13 +192,12 @@ function ReportInner() {
             </div>
 
             {/* KPI band */}
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-6">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-6">
               <Kpi label="Loans" value={String(kpis.count)} />
               <Kpi label="Volume" value={formatCurrency(kpis.volume)} />
               <Kpi label="Locked" value={`${kpis.locked}/${kpis.count}`} tone={kpis.locked ? 'green' : 'gray'} />
               <Kpi label="Lock ≤7d" value={String(kpis.expiring)} tone={kpis.expiring ? 'amber' : 'gray'} />
               <Kpi label="Expired" value={String(kpis.expired)} tone={kpis.expired ? 'red' : 'gray'} />
-              <Kpi label="Past SLA" value={String(kpis.pastSLA)} tone={kpis.pastSLA ? 'amber' : 'gray'} />
             </div>
 
             {groups.length === 0 ? (
@@ -216,9 +208,9 @@ function ReportInner() {
                 const badge = STATUS_COLORS[g.stage] || 'bg-slate-100 text-slate-600'
                 return (
                   <section key={g.stage} className="mb-6">
-                    <div className="stage-head flex items-center gap-2 mb-2 pb-1 border-b border-slate-200">
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded ${badge}`}>{g.stage}</span>
-                      <span className="text-xs text-slate-400">{g.deals.length} · {formatCurrency(stageVol)}</span>
+                    <div className={`stage-head flex items-center justify-between px-3 py-2 rounded-md mb-2 ${badge}`}>
+                      <span className="text-sm font-bold uppercase tracking-wide">{g.stage}</span>
+                      <span className="text-xs font-semibold opacity-75">{g.deals.length} · {formatCurrency(stageVol)}</span>
                     </div>
                     <div className="space-y-2">
                       {g.deals.map(d => <DealRow key={d.id} deal={d} />)}
@@ -248,9 +240,6 @@ function Kpi({ label, value, tone = 'gray' }: { label: string; value: string; to
 function DealRow({ deal }: { deal: Deal }) {
   const li = lockInfo(deal)
   const step = nextStep(deal)
-  const daysInStage = daysSince(deal.stage_changed_at)
-  const sla = STAGE_SLA_DAYS[deal.status]
-  const overSLA = daysInStage != null && sla != null && daysInStage > sla
   const processor = deal.processor_status || deal.processor || null
   const blocked = deal.waiting_on && deal.waiting_on !== 'No one' ? deal.waiting_on : null
   const priority = deal.escrow_priority && deal.escrow_priority !== 'normal' ? deal.escrow_priority : null
@@ -279,21 +268,17 @@ function DealRow({ deal }: { deal: Deal }) {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs text-slate-600">
         {deal.loan_type && <Chip>{deal.loan_type}</Chip>}
         {deal.loan_purpose && <Chip>{deal.loan_purpose}{deal.refinance_type ? ` · ${deal.refinance_type}` : ''}</Chip>}
-        {deal.rate != null && <Detail label="Rate">{deal.rate}%</Detail>}
-        {deal.ltv != null && <Detail label="LTV">{deal.ltv}%</Detail>}
+        {deal.rate != null && <Detail label="Rate">{round(deal.rate, 3)}%</Detail>}
+        {deal.ltv != null && <Detail label="LTV">{round(deal.ltv, 1)}%</Detail>}
         {deal.credit_score != null && <Detail label="FICO">{deal.credit_score}</Detail>}
         {deal.investor && <Detail label="Lender">{deal.investor}</Detail>}
       </div>
 
-      {/* Row 3: ops — stage age, processor, priority, blocker */}
+      {/* Row 3: ops — processor, priority, blocker */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs">
-        <span className={`inline-flex items-center gap-1 ${overSLA ? 'text-amber-700 font-semibold' : 'text-slate-500'}`}>
-          <Clock className="w-3 h-3" />
-          {daysInStage != null ? `${daysInStage}d in stage` : 'new'}{sla != null ? ` / ${sla}d SLA` : ''}{overSLA ? ' ⚠' : ''}
-        </span>
         <span className="inline-flex items-center gap-1 text-slate-500">
           <UserCog className="w-3 h-3" />
-          {processor || 'No processor'}{deal.processor_handoff ? ' · handed off' : ''}
+          <span><span className="text-slate-400">Processor:</span> <span className="font-semibold text-slate-700">{processor || '—'}</span>{deal.processor_handoff ? ' · handed off' : ''}</span>
         </span>
         {priority && (
           <span className={`inline-flex items-center gap-1 font-semibold ${priority === 'high' ? 'text-red-600' : 'text-slate-500'}`}>
