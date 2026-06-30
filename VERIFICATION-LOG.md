@@ -27,6 +27,9 @@ flag as the Lock ≤7d KPI. Verified with demo (Lucy Ramsay Jul 3 + Clara An Jul
 **Rev 3 (2026-06-30, Efrain feedback):** MOVED that section from the bottom to a top callout (amber box between the
 KPI band and the first stage); now only renders when ≥1 lock is expiring (the Lock ≤7d KPI covers the zero case).
 Verified DOM order (KPI → callout → stages) + screenshot; scaffolding reverted.
+**Rev 4 (2026-06-30, Efrain feedback):** removed the "Expired" KPI tile ("we can't let any lock expire") — KPI band
+is now 4 tiles (`sm:grid-cols-4`). The per-deal red "Lock EXPIRED" badge stays (still flags an actually-expired
+lock on its card). Deterministic tile removal — verified via tsc (7 baseline) + build READY (no browser re-run).
 
 ### [2026-06-30] Lender List — BCC email picker (checkbox-select lenders → copy emails for Outlook BCC)
 **Status:** VERIFIED (local). tsc clean (7 pre-existing baseline), build READY.

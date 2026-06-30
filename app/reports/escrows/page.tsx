@@ -107,15 +107,14 @@ function ReportInner() {
   }, [forLO])
 
   const kpis = useMemo(() => {
-    let locked = 0, expiring = 0, expired = 0
+    let locked = 0, expiring = 0
     for (const d of forLO) {
       const li = lockInfo(d)
       if (li.locked) locked++
       if (li.expiring) expiring++
-      if (li.expired) expired++
     }
     const volume = forLO.reduce((s, d) => s + (d.loan_amount || 0), 0)
-    return { count: forLO.length, volume, locked, expiring, expired }
+    return { count: forLO.length, volume, locked, expiring }
   }, [forLO])
 
   // Loans whose rate lock expires within the next 7 days (soonest first).
@@ -199,12 +198,11 @@ function ReportInner() {
             </div>
 
             {/* KPI band */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-6">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-6">
               <Kpi label="Loans" value={String(kpis.count)} />
               <Kpi label="Volume" value={formatCurrency(kpis.volume)} />
               <Kpi label="Locked" value={`${kpis.locked}/${kpis.count}`} tone={kpis.locked ? 'green' : 'gray'} />
               <Kpi label="Lock ≤7d" value={String(kpis.expiring)} tone={kpis.expiring ? 'amber' : 'gray'} />
-              <Kpi label="Expired" value={String(kpis.expired)} tone={kpis.expired ? 'red' : 'gray'} />
             </div>
 
             {/* Locks expiring within the next 7 days — top callout (only when any apply) */}
