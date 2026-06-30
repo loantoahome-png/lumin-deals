@@ -48,8 +48,12 @@ export async function middleware(request: NextRequest) {
   return response
 }
 
+// `/api/sync-status` is intentionally excluded from the matcher — it's polled by
+// the LastSyncBadge and returns only a sync timestamp (no auth-gated data), so it
+// skips middleware entirely to avoid paying the per-request auth (`getUser`) cost
+// on a frequent poll. Edge/middleware is ~52% of this project's Fluid Active CPU.
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/sync-status|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

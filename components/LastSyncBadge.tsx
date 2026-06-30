@@ -5,12 +5,17 @@ import { Activity } from 'lucide-react'
 
 /**
  * Tiny chip that shows when the GHL sync cron last ran, color-coded by age:
- *   green   — under 5 min ago (healthy)
- *   amber   — 5–30 min       (within normal window — could be off-hours)
- *   red     — over 30 min    (cron likely stalled)
+ *   green   — under 16 min ago (synced within the current ~15-min cron cycle)
+ *   amber   — 16–35 min        (a cycle looks missed — running late)
+ *   red     — over 35 min       (2+ cycles missed — cron likely stalled)
  *
  * Reads from the `sync_state` table the cron writes to on each successful run.
- * Refreshes every 30 seconds.
+ *
+ * Polling is matched to the cron cadence to avoid burning Vercel CPU:
+ *   • Server fetch every 15 min, paused while the tab is hidden, with an instant
+ *     catch-up fetch when the tab regains focus.
+ *   • The "X min ago" label re-renders every 60s client-side only (no network),
+ *     so it stays smooth and still trips to red on a stall without polling.
  */
 export default function LastSyncBadge() {
   const [lastSync, setLastSync] = useState<Date | null>(null)
@@ -32,10 +37,37 @@ export default function LastSyncBadge() {
       }
     }
 
-    load()
-    const refresh = setInterval(load, 30_000)         // re-fetch every 30s
-    const recount = setInterval(() => forceTick(t => t + 1), 30_000) // re-render the "X min ago" label
-    return () => { cancelled = true; clearInterval(refresh); clearInterval(recount) }
+    // Server fetch — matched to the ~15-min cron cadence, and only while the tab
+    // is visible. A backgrounded or forgotten tab stops hitting the server
+    // entirely (this is what was quietly burning Vercel CPU on nights/weekends).
+    let fetchTimer: ReturnType<typeof setInterval> | null = null
+    function startFetching() {
+      if (fetchTimer) return
+      load()                                       // immediate catch-up
+      fetchTimer = setInterval(load, 15 * 60_000)  // every 15 min
+    }
+    function stopFetching() {
+      if (fetchTimer) { clearInterval(fetchTimer); fetchTimer = null }
+    }
+    function onVisibility() {
+      if (document.visibilityState === 'visible') startFetching()
+      else stopFetching()
+    }
+
+    // Re-render the "X min ago" label every 60s from the timestamp already in
+    // memory — purely client-side, no server hit. Keeps the age + stall color
+    // current even between the 15-min fetches.
+    const recount = setInterval(() => forceTick(t => t + 1), 60_000)
+
+    if (document.visibilityState === 'visible') startFetching()
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      cancelled = true
+      stopFetching()
+      clearInterval(recount)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [])
 
   // Don't show anything until the first fetch completes — prevents a flash of "—"
@@ -50,10 +82,10 @@ export default function LastSyncBadge() {
   }
 
   const min = Math.floor((Date.now() - lastSync.getTime()) / 60_000)
-  // Color by recency
+  // Color by recency, tuned to the ~15-min cron cadence
   const color =
-    min < 5  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' :
-    min < 30 ? 'bg-amber-500/15  text-amber-300  border-amber-500/30'    :
+    min < 16 ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' :
+    min < 35 ? 'bg-amber-500/15  text-amber-300  border-amber-500/30'    :
                'bg-red-500/15    text-red-300    border-red-500/30'
 
   let label: string

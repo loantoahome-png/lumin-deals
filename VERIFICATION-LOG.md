@@ -1,5 +1,13 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-30] Fluid CPU — match LastSyncBadge polling to cron cadence + skip middleware on /api/sync-status
+**Status:** CHANGED (pending tsc + build verify, then deploy). Targets idle Vercel Active CPU.
+**Why:** Efrain — Fluid Active CPU breakdown showed middleware (edge) ≈ 52% and node functions ≈ 48%, both running 24/7 regardless of real usage. Root drivers: `LastSyncBadge` polled `/api/sync-status` every 30s per open tab (each poll *also* paid the middleware `getUser()` auth cost), and a forgotten tab kept that up all night/weekend. The sync itself only runs ~every 15 min (cron-job.org), so 30s polling was 30× more often than the data changes.
+**Changes:**
+- `components/LastSyncBadge.tsx` — server fetch now every **15 min** (matched to the cron cadence) instead of 30s, **paused while the tab is hidden** (Page Visibility API) with an instant catch-up fetch on regaining focus. The "X min ago" label re-renders every 60s client-side only (no network) so it stays smooth and still trips red on a stall. Color thresholds retuned to the 15-min reality: green <16m, amber 16–35m, red >35m (was 5/30). Effect: ~2,880 pings/day/tab → ~96/day/tab, → 0 while hidden.
+- `middleware.ts` — excluded `/api/sync-status` from the matcher so those polls no longer instantiate the auth middleware. Endpoint returns only a sync timestamp (no auth-gated data), so skipping middleware leaks nothing.
+**Test Method:** `npx tsc --noEmit` holds the 7-error baseline (no new errors); `npm run build` → READY; badge still renders + counts up. CPU reduction is to be observed on the Vercel Fluid chart over the coming days (can't be proven at commit time).
+
 ### [2026-06-30] Escrow card — add Channel (Broker/Non-Del) to the stats block, split into 2 rows
 **Status:** VERIFIED (browser, mock data). tsc 7 baseline, build READY.
 **Why:** Efrain — surface the new broker_corr channel on the Active Escrows card; the old single-row Lender·Amount·LO
@@ -10,6 +18,9 @@ block had no room, so split it.
 reverted; `.next` cleared to avoid the stale-route validator error). Verified all 3 channel states: Non-Del, Broker,
 and null→"—"; layout balanced, no overflow; no console errors. NOTE: temp route must NOT use a leading underscore
 (`app/_carddemo` = private/non-routable → 404); used `app/carddemo`.
+**Rev (2026-06-30, Efrain feedback):** moved Channel up to the TOP row, left of the Amount hero → row 1 is now
+Channel · Amount · LO; Lender dropped to its own row below (handles long lender names). Re-verified via demo route
+(Non-Del / Broker / null + "Change Mortgage Wholesale" on its own row); reverted.
 **Status:** VERIFIED (tsc 7 baseline, build READY).
 **Why:** Efrain — removed the "Waiting On" field from the deal detail TEAM section; added an Arive "channel" column
 (broker vs Non-Del) and wants the dashboard field relabeled "Broker / Non-Del" ahead of the next import.
