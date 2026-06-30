@@ -1,5 +1,18 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-29] Southerby duplicate escrow — RESOLVED (data fix, no code change)
+**Status:** VERIFIED. One loan (Arive #16895210, $1.22M) showed as two Active-Escrow cards: Paul (worked card
+`7c1d0095`, Arive-created, no GHL opp) + Cynthia (bare card `e8e2d699` carrying GHL opp `ffkS…`, created by today's
+full sync). Verified via GHL: the opp was under Cynthia's contact; Paul's only opp was the $122k LOST one. See
+GOTCHAS 2026-06-29 ("Southerby case").
+**Fix (service-role data ops, prod DB — no deploy):** Efrain reassigned the GHL opp's primary contact to Paul (I
+confirmed via `GET /opportunities/ffkS…` → contactId now Paul, Cynthia 0 opps). Then: deleted the bare duplicate
+`e8e2d699` (no notes/worked data lost — guarded), set `7c1d0095.ghl_opportunity_id = ffkS…` (+ ghl_contact_id =
+Paul's) so the worked card owns the opp (durable — sync matches it, never recreates), and removed the stray
+Paul-as-his-own-`co` `deal_contacts` link. Verified after: single "Paul Southerby" card, In Process, $1,220,480,
+co-borrowers = ["Cynthia Southerby"].
+**No code committed** — temp diagnostic route + middleware bypass were used and reverted (git diff clean).
+
 ### [2026-06-29] Removed Past-SLA notifications (kept lock-expiry + task alerts)
 **Status:** CHANGED — tsc clean (7 pre-existing), build READY. Efrain's live check: the "Past SLA — …" items
 disappear from the Notifications panel; lock-expiry + overdue/due-today task alerts remain.

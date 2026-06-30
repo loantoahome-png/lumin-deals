@@ -1,5 +1,27 @@
 # GOTCHAS — Lumin Deals
 
+### Co-borrowers split into separate GHL contacts → duplicate escrow cards for ONE loan (the "Southerby case")
+**Tried:** Paul + Cynthia Southerby (one $1.22M loan, Arive #16895210) both showed on Active Escrows. Paul's card
+was the worked one (lender/processor/lock/notes) but Arive-created with `ghl_opportunity_id = null`; Cynthia's was
+a bare card carrying the real GHL opportunity (`ffkS…`).
+**Failed because (two compounding things):** (1) The loan's borrowers each have their OWN GHL contact, and the GHL
+*opportunity* was created under the CO-borrower's contact (Cynthia), not the main borrower's (Paul). The dashboard
+builds a deal per opportunity and derives identity from the opp's contact → a second card. (2) **A FULL SYNC
+surfaced it.** The incremental 3-min sync only processes CHANGED opps, so Cynthia's opp sat in GHL ~18 days with no
+dashboard deal; the manual `?full=1` sync (run for an unrelated fix) processed ALL opps and CREATED the card. So
+running a full sync can spawn "new" duplicate cards from long-dormant opps — expect it.
+**What works:** fix at the GHL source, then consolidate the dashboard. (a) In GHL you CAN reassign an
+opportunity's primary contact (contradicting the earlier assumption) — Efrain moved the opp to Paul's contact;
+verified via `GET /opportunities/{id}` that `contactId` flipped to Paul and Cynthia's contact had 0 opps. (b) Then
+attach the now-correct opp to the WORKED card (`ghl_opportunity_id = ffkS…`), DELETE the bare duplicate, and clean
+co-borrowers. Keeping the worked card (vs. merging into the bare one) avoids losing fields the merge route doesn't
+carry (it has no `deal_contacts`/`ghl_opportunity_id` handling and a fixed MERGEABLE_FIELDS list). Durable because
+the survivor now owns the opp (sync matches it, never recreates) and the co-borrower's contact has no opps.
+**Side note found:** a deal can end up with its OWN primary listed as a `role='co'` in `deal_contacts` (inflates
+the "+N" co-borrower badge) — `linkCoborrower` guards against it but old data had it; delete the self-link.
+**Project:** lumin-deals
+**Date:** 2026-06-29
+
 ### A GHL contact RENAME doesn't reach the dashboard via the 3-min sync — only a FULL sync re-pulls it
 **Tried:** A borrower was renamed in GHL (Espinoza opp: the contact `t2BK…` was changed Judith → Jesus). The
 dashboard kept showing "Judith" for days, through many 3-min syncs and manual "Sync GHL" clicks.
