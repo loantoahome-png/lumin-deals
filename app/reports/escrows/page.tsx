@@ -118,6 +118,13 @@ function ReportInner() {
     return { count: forLO.length, volume, locked, expiring, expired }
   }, [forLO])
 
+  // Loans whose rate lock expires within the next 7 days (soonest first).
+  const expiringDeals = useMemo(
+    () => forLO.filter(d => lockInfo(d).expiring)
+      .sort((a, b) => (a.lock_expiration || '').localeCompare(b.lock_expiration || '')),
+    [forLO],
+  )
+
   const generatedAt = new Date().toLocaleString('en-US', {
     weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
   })
@@ -219,6 +226,33 @@ function ReportInner() {
                 )
               })
             )}
+
+            {/* Locks expiring within the next 7 days */}
+            <section className="mt-8 break-inside-avoid">
+              <div className="flex items-center gap-2 mb-2 pb-1 border-b-2 border-amber-300">
+                <Lock className="w-4 h-4 text-amber-600" />
+                <h2 className="text-sm font-bold uppercase tracking-wide text-amber-700">Locks expiring within the next 7 days</h2>
+                <span className="text-xs text-slate-400">{expiringDeals.length}</span>
+              </div>
+              {expiringDeals.length === 0 ? (
+                <p className="text-sm text-slate-400 italic">No locks expiring in the next 7 days.</p>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {expiringDeals.map(d => {
+                    const dleft = daysUntil(d.lock_expiration)
+                    return (
+                      <div key={d.id} className="flex items-center justify-between py-1.5 text-sm">
+                        <span className="font-semibold text-slate-800">{d.name}</span>
+                        <span className="text-slate-600">
+                          {formatDate(d.lock_expiration)}
+                          {dleft != null && <span className="text-amber-600 font-medium ml-2">{dleft === 0 ? 'today' : `${dleft}d`}</span>}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </section>
           </div>
         )}
       </div>

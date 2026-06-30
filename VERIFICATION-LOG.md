@@ -21,6 +21,9 @@ loans/$3.95M, Locked 1/3, Past-SLA 1; Matt → 2 loans/$547,268, Locked 2/2, Exp
 **Rev (2026-06-30, Efrain feedback):** stage headers now full-width color bands (bg = `STATUS_COLORS[stage]`);
 removed the days-in-stage / SLA line per deal AND the "Past SLA" KPI; processor now labeled "Processor: {value}";
 also rounded the LTV/rate display (a raw float `66.4864…%` was showing). Re-verified via demo+bypass (reverted).
+**Rev 2 (2026-06-30, Efrain feedback):** added a bottom section "Locks expiring within the next 7 days" listing each
+applicable loan's name + exact `lock_expiration` date (soonest first), driven by the same `lockInfo().expiring`
+flag as the Lock ≤7d KPI. Verified with demo (Lucy Ramsay Jul 3 + Clara An Jul 6, sorted); scaffolding reverted.
 
 ### [2026-06-30] Lender List — BCC email picker (checkbox-select lenders → copy emails for Outlook BCC)
 **Status:** VERIFIED (local). tsc clean (7 pre-existing baseline), build READY.
