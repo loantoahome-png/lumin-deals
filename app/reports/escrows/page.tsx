@@ -207,6 +207,31 @@ function ReportInner() {
               <Kpi label="Expired" value={String(kpis.expired)} tone={kpis.expired ? 'red' : 'gray'} />
             </div>
 
+            {/* Locks expiring within the next 7 days — top callout (only when any apply) */}
+            {expiringDeals.length > 0 && (
+              <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 break-inside-avoid">
+                <div className="flex items-center gap-2 mb-2">
+                  <Lock className="w-4 h-4 text-amber-600" />
+                  <h2 className="text-sm font-bold uppercase tracking-wide text-amber-700">Locks expiring within the next 7 days</h2>
+                  <span className="text-xs font-semibold text-amber-600">{expiringDeals.length}</span>
+                </div>
+                <div className="divide-y divide-amber-100">
+                  {expiringDeals.map(d => {
+                    const dleft = daysUntil(d.lock_expiration)
+                    return (
+                      <div key={d.id} className="flex items-center justify-between py-1.5 text-sm">
+                        <span className="font-semibold text-slate-800">{d.name}</span>
+                        <span className="text-slate-700">
+                          {formatDate(d.lock_expiration)}
+                          {dleft != null && <span className="text-amber-600 font-medium ml-2">{dleft === 0 ? 'today' : `${dleft}d`}</span>}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             {groups.length === 0 ? (
               <p className="text-sm text-slate-400 py-12 text-center">No active escrows for {lo === 'All' ? 'any LO' : lo}.</p>
             ) : (
@@ -226,33 +251,6 @@ function ReportInner() {
                 )
               })
             )}
-
-            {/* Locks expiring within the next 7 days */}
-            <section className="mt-8 break-inside-avoid">
-              <div className="flex items-center gap-2 mb-2 pb-1 border-b-2 border-amber-300">
-                <Lock className="w-4 h-4 text-amber-600" />
-                <h2 className="text-sm font-bold uppercase tracking-wide text-amber-700">Locks expiring within the next 7 days</h2>
-                <span className="text-xs text-slate-400">{expiringDeals.length}</span>
-              </div>
-              {expiringDeals.length === 0 ? (
-                <p className="text-sm text-slate-400 italic">No locks expiring in the next 7 days.</p>
-              ) : (
-                <div className="divide-y divide-slate-100">
-                  {expiringDeals.map(d => {
-                    const dleft = daysUntil(d.lock_expiration)
-                    return (
-                      <div key={d.id} className="flex items-center justify-between py-1.5 text-sm">
-                        <span className="font-semibold text-slate-800">{d.name}</span>
-                        <span className="text-slate-600">
-                          {formatDate(d.lock_expiration)}
-                          {dleft != null && <span className="text-amber-600 font-medium ml-2">{dleft === 0 ? 'today' : `${dleft}d`}</span>}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </section>
           </div>
         )}
       </div>

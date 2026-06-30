@@ -24,6 +24,9 @@ also rounded the LTV/rate display (a raw float `66.4864…%` was showing). Re-ve
 **Rev 2 (2026-06-30, Efrain feedback):** added a bottom section "Locks expiring within the next 7 days" listing each
 applicable loan's name + exact `lock_expiration` date (soonest first), driven by the same `lockInfo().expiring`
 flag as the Lock ≤7d KPI. Verified with demo (Lucy Ramsay Jul 3 + Clara An Jul 6, sorted); scaffolding reverted.
+**Rev 3 (2026-06-30, Efrain feedback):** MOVED that section from the bottom to a top callout (amber box between the
+KPI band and the first stage); now only renders when ≥1 lock is expiring (the Lock ≤7d KPI covers the zero case).
+Verified DOM order (KPI → callout → stages) + screenshot; scaffolding reverted.
 
 ### [2026-06-30] Lender List — BCC email picker (checkbox-select lenders → copy emails for Outlook BCC)
 **Status:** VERIFIED (local). tsc clean (7 pre-existing baseline), build READY.
