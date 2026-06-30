@@ -22,7 +22,7 @@ import ConversationThread from '@/components/ConversationThread'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { isChannelBlocked, dndLabel } from '@/lib/utils'
 import DealTasks from '@/components/DealTasks'
-import { WAITING_ON_OPTIONS, PROCESSORS } from '@/lib/types'
+import { PROCESSORS } from '@/lib/types'
 import type { REOProperty } from '@/lib/types'
 
 // ── Format helpers ──────────────────────────────────────────────────────────
@@ -747,11 +747,11 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                 <Field label="Lender">
                   <input value={form.investor || ''} onChange={e => set('investor', e.target.value)} className={inp} />
                 </Field>
-                <Field label="Broker / Correspondent">
+                <Field label="Broker / Non-Del">
                   <select value={form.broker_corr || ''} onChange={e => set('broker_corr', e.target.value)} className={sel}>
                     <option value="">—</option>
                     <option value="Broker">Broker</option>
-                    <option value="Correspondent">Correspondent</option>
+                    <option value="Non-Del">Non-Del</option>
                   </select>
                 </Field>
                 <Field label="Source">
@@ -920,12 +920,6 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                   <select value={form.processor_status || ''} onChange={e => set('processor_status', e.target.value)} className={sel}>
                     <option value="">—</option>
                     {PROCESSORS.map(p => <option key={p} value={p}>{p}</option>)}
-                  </select>
-                </Field>
-                <Field label="Waiting On">
-                  <select value={form.waiting_on || ''} onChange={e => set('waiting_on', e.target.value || null)} className={`${sel} ${form.waiting_on && form.waiting_on !== 'No one' ? 'bg-amber-50 border-amber-200 text-amber-800 font-semibold' : ''}`}>
-                    <option value="">— Not blocked —</option>
-                    {WAITING_ON_OPTIONS.map(w => <option key={w} value={w}>{w}</option>)}
                   </select>
                 </Field>
               </div>

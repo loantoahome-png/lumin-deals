@@ -415,11 +415,11 @@ export default function DealForm({ deal }: { deal?: Deal }) {
                 <Field label="Lender">
                   <input value={form.investor || ''} onChange={e => set('investor', e.target.value)} className={inp} />
                 </Field>
-                <Field label="Broker / Correspondent">
+                <Field label="Broker / Non-Del">
                   <select value={form.broker_corr || ''} onChange={e => set('broker_corr', e.target.value)} className={sel}>
                     <option value="">—</option>
                     <option value="Broker">Broker</option>
-                    <option value="Correspondent">Correspondent</option>
+                    <option value="Non-Del">Non-Del</option>
                   </select>
                 </Field>
                 <Field label="Source">

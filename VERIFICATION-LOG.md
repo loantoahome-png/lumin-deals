@@ -1,6 +1,16 @@
 # Verification Log — Lumin Deals
 
-### [2026-06-30] Active Escrows — printable per-LO report (/reports/escrows)
+### [2026-06-30] Deal form — drop "Waiting On", rename "Broker / Correspondent" → "Broker / Non-Del"
+**Status:** VERIFIED (tsc 7 baseline, build READY).
+**Why:** Efrain — removed the "Waiting On" field from the deal detail TEAM section; added an Arive "channel" column
+(broker vs Non-Del) and wants the dashboard field relabeled "Broker / Non-Del" ahead of the next import.
+**Changes:** `app/deals/[id]/page.tsx` — removed the `waiting_on` `<Field>` from the Team section + dropped the now-
+unused `WAITING_ON_OPTIONS` import; relabeled `broker_corr` field "Broker / Non-Del" and its 2nd option
+"Correspondent" → "Non-Del". `components/DealForm.tsx` — same broker relabel for consistency.
+**IMPORTANT (verified):** `broker_corr` is NOT mapped anywhere in the Arive importer (`app/api/import/arive/route.ts`,
+`app/import/arive/page.tsx`) — grep for broker_corr/channel/correspondent = 0 hits. So the next Arive import will NOT
+auto-populate this field; it stays manual-only until the importer is wired to the new channel column (needs the exact
+Arive header + values from Efrain). `waiting_on` column kept (still used by /pipeline + the escrow report blocker).
 **Status:** VERIFIED (local, mock data). tsc clean (7 pre-existing baseline), build READY.
 **Why:** Efrain wanted a visual report off Active Escrows — separately for Moe and for Matt — showing stage, next
 steps, rate-lock + expiration, assigned processor, and loan details.
