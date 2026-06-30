@@ -23,6 +23,7 @@ import {
   ChevronDown,
   ShieldCheck,
   Landmark,
+  FileText,
 } from 'lucide-react'
 import GlobalSearch from './GlobalSearch'
 import NotificationBell from './NotificationBell'
@@ -50,6 +51,7 @@ const navGroups = [
     label: 'Insights',
     items: [
       { href: '/reports', label: 'Reports', icon: BarChart3 },
+      { href: '/reports/escrows', label: 'Escrow Report', icon: FileText },
       { href: '/lead-performance', label: 'Lead Performance', icon: Target },
       { href: '/lead-spend', label: 'Lead Spend', icon: DollarSign },
     ],

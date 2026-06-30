@@ -7,7 +7,7 @@ import { Deal, CoborrowerLite, LOAN_OFFICERS, LOAN_TYPES, PIPELINE_GROUPS, PIPEL
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { pushStageToGHL } from '@/lib/pushStage'
 import Link from 'next/link'
-import { Search, RefreshCw, ExternalLink, Download, X, CheckSquare, Pencil, LayoutGrid, Table2 } from 'lucide-react'
+import { Search, RefreshCw, ExternalLink, Download, X, CheckSquare, Pencil, LayoutGrid, Table2, FileText } from 'lucide-react'
 import EscrowTracker from '@/components/EscrowTracker'
 import { ariveUrl } from '@/lib/ariveLinks'
 import { useSearchParams } from 'next/navigation'
@@ -330,6 +330,14 @@ function DealsPageInner() {
                 <Table2 className="w-3.5 h-3.5" /> Table
               </button>
             </div>
+            <Link
+              href={`/reports/escrows${loFilter !== 'All' ? `?lo=${encodeURIComponent(loFilter)}` : ''}`}
+              title="Open a printable escrow report (per LO)"
+              className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+            >
+              <FileText className="w-4 h-4" />
+              Report
+            </Link>
             <button
               onClick={() => exportToCSV(filtered)}
               title="Export to CSV"

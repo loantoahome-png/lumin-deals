@@ -1,5 +1,24 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-30] Active Escrows — printable per-LO report (/reports/escrows)
+**Status:** VERIFIED (local, mock data). tsc clean (7 pre-existing baseline), build READY.
+**Why:** Efrain wanted a visual report off Active Escrows — separately for Moe and for Matt — showing stage, next
+steps, rate-lock + expiration, assigned processor, and loan details.
+**Changes:** `app/reports/escrows/page.tsx` (NEW — loads active escrows via `fetchAllDeals` with the same filter as
+/deals [`pipeline_group='Loans in Process'`, not lost/abandoned]; LO toggle Moe/Matt/All = the "two reports";
+groups by stage in `PIPELINE_STATUSES['Loans in Process']` order; per-deal card = stage badge + days-in-stage vs
+`STAGE_SLA_DAYS`, current next step [`next_action_log[0]`/`next_action` + due + assignee], rate lock from `locked`
+('Yes'/'No') + `lock_expiration` with a color-coded countdown [green/amber≤7d/red=expired], processor from
+`processor_status` + handoff, loan details [amount, rate, LTV, FICO, type, purpose, lender=`investor`, address],
+priority + `waiting_on` blocker; KPI band [count, volume, locked, lock≤7d, expired, past-SLA]; `window.print()` with
+an `@media print` block that isolates `#escrow-report`). `app/deals/page.tsx` (+"Report" button → `/reports/escrows?lo=`).
+`components/Sidebar.tsx` (+Insights "Escrow Report" link). No DB/API/migration change.
+**Test Method:** temp middleware bypass + a temp `?demo=1` mock branch (BOTH reverted — `grep TEMP-DEMO/MOCK_DEALS`
+clean, middleware git diff empty) because the `deals` table rejects anon reads in the preview. Verified: Moe → 3
+loans/$3.95M, Locked 1/3, Past-SLA 1; Matt → 2 loans/$547,268, Locked 2/2, Expired 1; all four lock states render
+(not-locked, amber ≤7d, red EXPIRED, green far-out); stage order correct; print isolation present; no console errors.
+**Efrain's live check:** `/reports/escrows` (or the Report button on Active Escrows) → toggle Moe/Matt → Print/Save as PDF.
+
 ### [2026-06-30] Lender List — BCC email picker (checkbox-select lenders → copy emails for Outlook BCC)
 **Status:** VERIFIED (local). tsc clean (7 pre-existing baseline), build READY.
 **Why:** Efrain wanted to blast a batch of lenders. Asked for a checkbox per lender, an "Email" button at the top,
