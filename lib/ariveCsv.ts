@@ -290,6 +290,8 @@ const MAPPINGS: Mapping[] = [
   // "Loan Funded"; older exports used "Funded Date"/"Est. Funding Date".
   { ariveCols: ['Loan Funded', 'Loan Funded Date', 'Funded Date', 'Funding Date', 'Actual Funding Date', 'Est. Funding Date'],
                                              field: 'funded_date',       normalize: r => dateOnly(r) },
+  // Origination channel — Arive "Channel" column; values "Broker" / "Non-Del" → the Broker / Non-Del field.
+  { ariveCols: ['Channel'],                  field: 'broker_corr',       normalize: r => trimStr(r) },
 ]
 
 // ── Build a row → patch (only fields the CSV actually has data for) ─────────

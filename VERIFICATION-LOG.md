@@ -7,10 +7,12 @@
 **Changes:** `app/deals/[id]/page.tsx` — removed the `waiting_on` `<Field>` from the Team section + dropped the now-
 unused `WAITING_ON_OPTIONS` import; relabeled `broker_corr` field "Broker / Non-Del" and its 2nd option
 "Correspondent" → "Non-Del". `components/DealForm.tsx` — same broker relabel for consistency.
-**IMPORTANT (verified):** `broker_corr` is NOT mapped anywhere in the Arive importer (`app/api/import/arive/route.ts`,
-`app/import/arive/page.tsx`) — grep for broker_corr/channel/correspondent = 0 hits. So the next Arive import will NOT
-auto-populate this field; it stays manual-only until the importer is wired to the new channel column (needs the exact
-Arive header + values from Efrain). `waiting_on` column kept (still used by /pipeline + the escrow report blocker).
+**Importer (initially unmapped, now WIRED):** `broker_corr` was not mapped in the Arive importer. Efrain confirmed
+the new column is **"Channel"** with values **"Broker" / "Non-Del"**, so added
+`{ ariveCols: ['Channel'], field: 'broker_corr', normalize: r => trimStr(r) }` to `lib/ariveCsv.ts` MAPPINGS. Values
+pass through verbatim (match the dropdown options); blank Channel leaves the field untouched (`rowToPatch` skips empty
+values). Functionally tested via `tsx` — Broker→Broker, Non-Del→Non-Del, ''→unset. The next Arive import now populates
+the Broker / Non-Del field. `waiting_on` column kept (still used by /pipeline + the escrow report blocker).
 **Status:** VERIFIED (local, mock data). tsc clean (7 pre-existing baseline), build READY.
 **Why:** Efrain wanted a visual report off Active Escrows — separately for Moe and for Matt — showing stage, next
 steps, rate-lock + expiration, assigned processor, and loan details.
