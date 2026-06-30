@@ -1,6 +1,21 @@
 # Verification Log — Lumin Deals
 
-### [2026-06-30] Escrow report — show Channel next to the loan amount ("Broker - $680,000")
+### [2026-06-30] New rule — Clear-to-Close + Non-Del → funding-coordination email (cron)
+**Status:** CHANGED — VERIFIED logic via dry-run (tsc 7 baseline, build READY). **Not active until Efrain does 2
+manual steps** (migration + cron registration).
+**Why:** Efrain — when a loan hits "Clear to Close" AND channel = "Non-Del", email the LO + Efrain with the loan info
+and an alert to contact the lender's funding team to coordinate funding. (Resolved "the loan and myself" = LO + Efrain.)
+**Changes (NEW):** `app/api/cron/ctc-nondel-alerts/route.ts` — modeled on the proven `lock-alerts` cron. Queries
+deals `status='Clear to Close' AND broker_corr='Non-Del'`, emails To=LO / Cc=Efrain (Brevo, same env vars as the
+other alert crons: BREVO_API_KEY, ADMIN_EMAIL_EFRAIN, LO_EMAIL_MOE/MATT), once per loan, deduped via a new
+`ctc_nondel_alerted_at` timestamp column. Green CTC-themed email w/ loan info table + "contact the funding team"
+CTA + deal link. `?dryRun=1` previews matches/recipients without sending. `supabase-add-ctc-nondel-alert.sql` (NEW).
+**Fail-safe:** the dedup column is explicitly selected, so if the migration hasn't run the query errors → returns
+`migration_needed` and sends NOTHING (no spam). **Verified via live dry-run:** hit `/api/cron/ctc-nondel-alerts?dryRun=1`
+(temp CRON_SECRET skip, reverted) → HTTP 200 `{ok:false, error:"migration_needed", hint:"ALTER TABLE..."}` — route
+runs, query targets correctly, zero emails sent before migration.
+**ACTIVATION (Efrain):** 1) run `supabase-add-ctc-nondel-alert.sql` in Supabase; 2) register a cron-job.org GET to
+`/api/cron/ctc-nondel-alerts` with the `Authorization: Bearer <CRON_SECRET>` header (every 15 min recommended).
 **Status:** VERIFIED (browser, mock). tsc 7 baseline, build READY.
 **Why:** Efrain wants the broker/Non-Del channel inline with the amount on each report card.
 **Changes:** `app/reports/escrows/page.tsx` DealRow amount line — prefixes `{broker_corr} - ` (muted) before the bold
