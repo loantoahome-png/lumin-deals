@@ -1,5 +1,25 @@
 # GOTCHAS — Lumin Deals
 
+### The GHL sync is triggered by cron-job.org (free), which has a hard 30s timeout → heavy runs were cut off
+**Tried:** A loan marked "Lost" in GHL stayed on Active Escrows for ~3h. The sync DOES demote lost opps
+(`effectiveGroup → 'Not Ready'`), so why didn't it apply?
+**Failed because:** the GHL sync is NOT a Vercel cron (vercel.json only has the 2 daily alert crons). It's pinged
+by **cron-job.org**, whose request timeout maxes at **30 seconds** (free tier). Light incremental runs finish in
+~6s (200 OK), but the periodic heavy runs (maintenance reconcile + identity resolver, which catch status drift
+like lost/won) exceed 30s → cron-job.org logs "Failed (timeout)" and cuts the connection, so the heavy reconcile
+never completes. Net: status changes that depend on the heavy pass linger until a manual "Sync GHL".
+**What works (2026-06-29):** decouple the HTTP response from the work. `app/api/cron/ghl-sync/route.ts` now
+acquires the lock, returns a sub-second `{ok:true, queued:true}`, and runs the whole sync + sub-tasks in
+**`after()`** (`next/server`, stable in Next 16). cron-job.org always sees a fast 200 (never times out); the sync
+runs to completion in the background up to `maxDuration=300`. SAME trigger + SAME work → **no new Vercel cron, no
+added usage** (rejected a `*/5` Vercel cron because it adds ~288 metered runs/day). Verified locally: response 68ms,
+and the background run completed (`synced 1, 1 updated, 794ms` in the logs). The lock self-heals via its 5-min TTL
+if `after()` ever fails, and the manual Sync buttons (`/api/sync/ghl`) are unchanged as a fallback.
+**Trade-off:** cron-job.org now reports success even if the background sync errors (its 200 is just the ack) —
+sync health is in the server logs + LastSyncBadge, not cron-job.org's pass/fail.
+**Project:** lumin-deals
+**Date:** 2026-06-29
+
 ### Co-borrowers split into separate GHL contacts → duplicate escrow cards for ONE loan (the "Southerby case")
 **Tried:** Paul + Cynthia Southerby (one $1.22M loan, Arive #16895210) both showed on Active Escrows. Paul's card
 was the worked one (lender/processor/lock/notes) but Arive-created with `ghl_opportunity_id = null`; Cynthia's was

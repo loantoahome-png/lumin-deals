@@ -1,5 +1,22 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-29] Cron GHL sync: return fast + run in after() (fix cron-job.org 30s timeouts)
+**Status:** VERIFIED (local) — tsc clean (7 pre-existing), build READY. Deploying.
+**Why:** A "Lost" loan (Mayra Sinohui) lingered ~3h on Active Escrows. Root cause (see GOTCHAS 2026-06-29):
+the sync is pinged by **cron-job.org** (30s timeout cap, free), and the heavy maintenance/identity runs exceed 30s
+→ cron-job.org "Failed (timeout)" cut them off mid-reconcile. (Mayra's own deal was separately fixed by a manual
+sync → `pipeline_group: Not Ready, ghl_status: lost`.)
+**Change:** `app/api/cron/ghl-sync/route.ts` only — acquire lock, return `{ok:true, queued:true}` immediately, run
+`runGhlSync` + identity/conversations/2nd-callback sub-tasks in `after()` (next/server). Rejected a `*/5` Vercel
+cron (Efrain: adds metered usage). No new cron; same trigger + work, so no usage increase. Manual `/api/sync/ghl`
+buttons untouched (fallback). vercel.json reverted to original.
+**Test Method:** `npx tsc --noEmit` (after import resolves on Next 16.2.4) + `npm run build` (READY) + local: cron
+endpoint returned in **68ms** with `queued`/`skipped:in_progress`, and server logs show the background run
+COMPLETED (`incremental — synced 1 (1 updated, 0 errors, 794ms)` + 2nd-callback sub-task ran). Lock self-heals via
+5-min TTL.
+**Efrain's live check:** in cron-job.org, the ghl-sync job should now show all 200 OK (no more "Failed (timeout)"),
+and GHL status changes (lost/won/stage) should reflect on the dashboard within a ping cycle.
+
 ### [2026-06-29] Southerby duplicate escrow — RESOLVED (data fix, no code change)
 **Status:** VERIFIED. One loan (Arive #16895210, $1.22M) showed as two Active-Escrow cards: Paul (worked card
 `7c1d0095`, Arive-created, no GHL opp) + Cynthia (bare card `e8e2d699` carrying GHL opp `ffkS…`, created by today's

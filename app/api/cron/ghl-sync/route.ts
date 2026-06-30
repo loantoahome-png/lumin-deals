@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { runGhlSync } from '@/app/api/sync/ghl/route'
 import { refreshConversations } from '@/app/api/sync/conversations/route'
@@ -113,76 +113,72 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, skipped: 'in_progress', startedAt })
   }
 
-  try {
-    // Prune/reconcile (all-deals scan) is CPU-heavy and doesn't need to run on
-    // every ping — gate it to ~15 min. New-lead create/update still runs each ping.
-    const maintenance = full || await isDue(supabase, MAINTENANCE_KEY, MAINTENANCE_INTERVAL_MS)
-    const result = await runGhlSync({ full, maintenance })
-    if (maintenance) await markRan(supabase, MAINTENANCE_KEY)
-    console.log(
-      `[Cron GHL Sync] ${startedAt} — ${full ? 'FULL' : 'incremental'}${maintenance ? ' +maint' : ''} — ` +
-      `synced ${result.synced} (${result.created} new, ${result.updated} updated, ` +
-      `${result.skipped} skipped, ${result.errors.length} errors, ${result.duration_ms}ms)`
-    )
+  // ── Respond to the pinger IMMEDIATELY, run the sync in the background ──────────
+  // cron-job.org (our free trigger) has a hard 30s request timeout, and the heavy
+  // maintenance/identity passes can exceed that — so the pinger was marking healthy
+  // runs as "failed (timeout)" and cutting them off mid-reconcile (that's why a
+  // "Lost" status could linger). Decoupling the HTTP response from the work via
+  // after() means the pinger always gets a sub-second 200 and the sync runs to
+  // completion (up to maxDuration). SAME trigger + SAME work → no new cron, no added
+  // Vercel usage (just the existing run finishing instead of being killed at 30s).
+  after(async () => {
+    try {
+      // Prune/reconcile (all-deals scan) is CPU-heavy and doesn't need to run on
+      // every ping — gate it to ~15 min. New-lead create/update still runs each ping.
+      const maintenance = full || await isDue(supabase, MAINTENANCE_KEY, MAINTENANCE_INTERVAL_MS)
+      const result = await runGhlSync({ full, maintenance })
+      if (maintenance) await markRan(supabase, MAINTENANCE_KEY)
+      console.log(
+        `[Cron GHL Sync] ${startedAt} — ${full ? 'FULL' : 'incremental'}${maintenance ? ' +maint' : ''} — ` +
+        `synced ${result.synced} (${result.created} new, ${result.updated} updated, ` +
+        `${result.skipped} skipped, ${result.errors.length} errors, ${result.duration_ms}ms)`
+      )
 
-    // Identity resolver — recompute the canonical borrower_id across ALL deals so a
-    // person's separate loans stop surfacing as duplicates. Runs on its OWN 30-min
-    // timer, independent of the maintenance pass. Non-fatal: a resolver hiccup must
-    // never fail the sync. ?full=1 forces it.
-    if (full || await isDue(supabase, IDENTITY_RESOLVE_KEY, IDENTITY_RESOLVE_INTERVAL_MS)) {
-      try {
-        const idr = await runIdentityResolutionPass(supabase, { apply: true })
-        await markRan(supabase, IDENTITY_RESOLVE_KEY)
-        console.log(
-          `[Cron GHL Sync] identity resolve: ` +
-          (idr.aborted ? `ABORTED — ${idr.reason}` : `${idr.dealsRewritten} borrower_id(s) rewritten`)
-        )
-      } catch (e) {
-        console.error('[Cron GHL Sync] identity resolve failed (non-fatal):', e)
+      // Identity resolver — recompute the canonical borrower_id across ALL deals so a
+      // person's separate loans stop surfacing as duplicates. Non-fatal.
+      if (full || await isDue(supabase, IDENTITY_RESOLVE_KEY, IDENTITY_RESOLVE_INTERVAL_MS)) {
+        try {
+          const idr = await runIdentityResolutionPass(supabase, { apply: true })
+          await markRan(supabase, IDENTITY_RESOLVE_KEY)
+          console.log(
+            `[Cron GHL Sync] identity resolve: ` +
+            (idr.aborted ? `ABORTED — ${idr.reason}` : `${idr.dealsRewritten} borrower_id(s) rewritten`)
+          )
+        } catch (e) {
+          console.error('[Cron GHL Sync] identity resolve failed (non-fatal):', e)
+        }
       }
-    }
 
-    // Refresh "last communication" data for the hot stages — throttled to
-    // every 15 min (the cron may ping much more often). Forced on ?full=1.
-    // Wrapped so a conversations-API hiccup can never fail the main sync.
-    let conversations: unknown = null
-    if (full || await isDue(supabase, CONV_REFRESH_KEY, CONV_REFRESH_INTERVAL_MS)) {
-      try {
-        conversations = await refreshConversations()
-        await markRan(supabase, CONV_REFRESH_KEY)
-        console.log(`[Cron GHL Sync] conversations refresh:`, JSON.stringify(conversations))
-      } catch (e) {
-        console.error('[Cron GHL Sync] conversations refresh failed (non-fatal):', e)
+      // Refresh "last communication" for hot stages — throttled to every 15 min. Non-fatal.
+      if (full || await isDue(supabase, CONV_REFRESH_KEY, CONV_REFRESH_INTERVAL_MS)) {
+        try {
+          const conversations = await refreshConversations()
+          await markRan(supabase, CONV_REFRESH_KEY)
+          console.log(`[Cron GHL Sync] conversations refresh:`, JSON.stringify(conversations))
+        } catch (e) {
+          console.error('[Cron GHL Sync] conversations refresh failed (non-fatal):', e)
+        }
       }
-    } else {
-      console.log('[Cron GHL Sync] conversations refresh skipped (throttled, runs every 15 min)')
-    }
 
-    // 45-minute 2nd-call-back rule — create Brianne's task for stalled new
-    // leads. Throttled to every 5 min (the 45-min rule has plenty of slack).
-    let secondCallback: unknown = null
-    if (full || await isDue(supabase, CALLBACK_CHECK_KEY, CALLBACK_CHECK_INTERVAL_MS)) {
-      try {
-        secondCallback = await runSecondCallbackCheck()
-        await markRan(supabase, CALLBACK_CHECK_KEY)
-        console.log(`[Cron GHL Sync] 2nd-callback check:`, JSON.stringify(secondCallback))
-      } catch (e) {
-        console.error('[Cron GHL Sync] 2nd-callback check failed (non-fatal):', e)
+      // 45-minute 2nd-call-back rule — throttled to every 5 min. Non-fatal.
+      if (full || await isDue(supabase, CALLBACK_CHECK_KEY, CALLBACK_CHECK_INTERVAL_MS)) {
+        try {
+          const secondCallback = await runSecondCallbackCheck()
+          await markRan(supabase, CALLBACK_CHECK_KEY)
+          console.log(`[Cron GHL Sync] 2nd-callback check:`, JSON.stringify(secondCallback))
+        } catch (e) {
+          console.error('[Cron GHL Sync] 2nd-callback check failed (non-fatal):', e)
+        }
       }
-    } else {
-      console.log('[Cron GHL Sync] 2nd-callback check skipped (throttled, runs every 5 min)')
+    } catch (err) {
+      console.error('[Cron GHL Sync] background run failed:', err)
+    } finally {
+      // Always release so the next ping can run immediately (the TTL is just a
+      // backstop for a hard crash that skips this finally).
+      await releaseLock(supabase)
     }
+  })
 
-    return NextResponse.json({ ok: true, startedAt, finishedAt: new Date().toISOString(), ...result, conversations, secondCallback })
-  } catch (err) {
-    console.error('[Cron GHL Sync] Failed:', err)
-    return NextResponse.json(
-      { ok: false, startedAt, error: String(err) },
-      { status: 500 }
-    )
-  } finally {
-    // Always release so the next ping can run immediately (the TTL is just a
-    // backstop for a hard crash that skips this finally).
-    await releaseLock(supabase)
-  }
+  // Sub-second 200 → cron-job.org never hits its 30s timeout.
+  return NextResponse.json({ ok: true, startedAt, queued: true })
 }
