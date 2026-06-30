@@ -1,5 +1,15 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-30] Escrow report — show Channel next to the loan amount ("Broker - $680,000")
+**Status:** VERIFIED (browser, mock). tsc 7 baseline, build READY.
+**Why:** Efrain wants the broker/Non-Del channel inline with the amount on each report card.
+**Changes:** `app/reports/escrows/page.tsx` DealRow amount line — prefixes `{broker_corr} - ` (muted) before the bold
+amount when set; null channel → plain amount. Verified via demo route: "Broker - $680,000", "Non-Del - $2,460,000",
+and null → "$540,000".
+**Git note:** tried to squash the rejected intermediate escrow-card commit (`2403ed9`) out of history, but the
+force-push was blocked by environment policy — so `2403ed9` remains in the log (harmless; the live code is the final
+2×2). History cleanup would need a manual force-push by Efrain.
+
 ### [2026-06-30] Fluid CPU — match LastSyncBadge polling to cron cadence + skip middleware on /api/sync-status
 **Status:** CHANGED (pending tsc + build verify, then deploy). Targets idle Vercel Active CPU.
 **Why:** Efrain — Fluid Active CPU breakdown showed middleware (edge) ≈ 52% and node functions ≈ 48%, both running 24/7 regardless of real usage. Root drivers: `LastSyncBadge` polled `/api/sync-status` every 30s per open tab (each poll *also* paid the middleware `getUser()` auth cost), and a forgotten tab kept that up all night/weekend. The sync itself only runs ~every 15 min (cron-job.org), so 30s polling was 30× more often than the data changes.

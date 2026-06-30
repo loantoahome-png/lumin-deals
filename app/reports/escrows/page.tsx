@@ -294,7 +294,10 @@ function DealRow({ deal }: { deal: Deal }) {
           )}
         </div>
         <div className="text-right shrink-0">
-          <p className="font-bold text-slate-900">{deal.loan_amount ? formatCurrency(deal.loan_amount) : '—'}</p>
+          <p className="font-bold text-slate-900">
+            {deal.broker_corr && <span className="font-medium text-slate-500">{deal.broker_corr} - </span>}
+            {deal.loan_amount ? formatCurrency(deal.loan_amount) : '—'}
+          </p>
           <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-1.5 py-0.5 rounded mt-0.5 ${TONE[li.tone]}`}>
             <Lock className="w-3 h-3" /> {li.label}
           </span>
