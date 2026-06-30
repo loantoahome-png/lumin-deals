@@ -20,6 +20,23 @@ GHL "LD stage" workflow's `monetaryValue → {{opportunity.lead_value}}` custom 
 `loan-amount-provenance` memory + `~/.claude/handoffs/lumin-deals.md`. NOTE: visible on the next "Sync GHL";
 the opp value may not always equal the loan amount (GHL data quality — watch the in-process volume).
 
+## Recent Changes (2026-06-30)
+- **Lender List** (`/lenders`) — editable directory of ~82 approved lenders. `lib/lenders.ts` (from
+  `scripts/parse_lenders.py`) is the SEED; live team list in `sync_state 'lenders_list'` via `app/api/lenders`
+  (like /api/tools). ✏️/Add/Delete via `LenderEditModal`. Don't re-propose live Google-Sheet pull.
+- **Cron GHL sync hardened** — `app/api/cron/ghl-sync` returns instantly + runs the sync in `after()`. Root cause
+  of stale-dashboard/lost-not-reflecting bugs was **cron-job.org's 30s request-timeout** killing heavy runs (it's
+  the trigger; not a Vercel cron). cron-job.org pass/fail is no longer meaningful — use LastSyncBadge/logs.
+- **Next-step LOG** on the escrow card — `next_action` is now a timestamped history (`next_action_log` jsonb).
+  `components/NextStepLog.tsx`: prominent current step + **+**-opens-a-popup. `next_action` mirrors the latest
+  entry. **Migration `next_action_log` RUN.** Dashboard "Next Steps" shows latest + "· Xago".
+- **Full Sync button** in the sidebar (`/api/sync/ghl?full=1`) — use after renaming a GHL contact (incremental
+  won't catch contact renames; a full sync re-pulls all contacts). NOTE: a full sync can surface a co-borrower's
+  dormant opp as a duplicate card.
+- **Removed Past-SLA notifications** from `NotificationBell` (kept lock-expiry + tasks).
+- **Borrower override REVERTED** — built `borrower_locked` then removed it; borrower identity is GHL-owned, fix at
+  the GHL source (reassign the contact/opp). **`borrower_locked` migration NOT run.**
+
 ## Recent Changes (2026-06-26)
 - **Loan amount = GHL opp value for in-process loans** (see section above); the **webhook** now writes it in
   real time too.
