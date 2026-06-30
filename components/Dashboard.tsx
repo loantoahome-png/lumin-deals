@@ -37,6 +37,16 @@ const STAGE_COLORS: Record<string, string> = {
 }
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
+// Compact "time since" for the latest next-step log entry.
+function relAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime()
+  if (isNaN(ms) || ms < 0) return ''
+  const m = Math.floor(ms / 60000), h = Math.floor(ms / 3600000), d = Math.floor(ms / 86400000)
+  if (d >= 1) return d === 1 ? 'yesterday' : `${d}d ago`
+  if (h >= 1) return `${h}h ago`
+  return m >= 1 ? `${m}m ago` : 'just now'
+}
+
 export default function Dashboard() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
@@ -52,7 +62,7 @@ export default function Dashboard() {
       const DASHBOARD_COLS =
         'id,name,status,pipeline_group,loan_amount,loan_officer,loan_type,' +
         'created_at,funded_date,next_action,next_action_assignee,next_action_due,' +
-        'next_action_due'
+        'next_action_log'
       const data = await fetchAllDeals(
         q => q.order('created_at', { ascending: false }),
         DASHBOARD_COLS,
@@ -375,6 +385,7 @@ export default function Dashboard() {
               const due = d.next_action_due ? new Date(d.next_action_due) : null
               const overdue = due ? due < now : false
               const dueStr = due ? due.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
+              const loggedAgo = d.next_action_log?.[0]?.at ? relAgo(d.next_action_log[0].at) : ''
               return (
                 <Link key={d.id} href={`/deals/${d.id}`} className="flex items-start gap-3 px-5 py-2.5 hover:bg-slate-50 transition group">
                   <div className="w-48 shrink-0 min-w-0">
@@ -386,6 +397,7 @@ export default function Dashboard() {
                   <div className="flex-1 min-w-0">
                     <div className="text-sm text-slate-700">
                       {d.next_action || <span className="italic text-slate-400">No next step set</span>}
+                      {loggedAgo && <span className="ml-1.5 text-[11px] font-normal text-slate-400">· {loggedAgo}</span>}
                     </div>
                     {due && (
                       <div className={`text-[11px] ${overdue ? 'text-red-600 font-medium' : 'text-slate-400'}`}>
