@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { LENDERS, LENDER_SECTIONS } from '@/lib/lenders'
 import LenderEditModal, { type EditableLender } from '@/components/LenderEditModal'
+import LenderEmailModal from '@/components/LenderEmailModal'
 import { Landmark, Search, Phone, Mail, X, Pencil, Plus } from 'lucide-react'
 
 const PRODUCT_FILTERS = ['CONV', 'VA', 'FHA', '<580', 'Jumbo'] as const
@@ -56,6 +57,8 @@ export default function LenderListPage() {
   const [section, setSection] = useState<string>('All')
   const [products, setProducts] = useState<string[]>([])
   const [ariveOnly, setAriveOnly] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [showEmail, setShowEmail] = useState(false)
 
   // Prefer the shared team list (DB). If it isn't published yet, the SEED stands.
   useEffect(() => {
@@ -125,6 +128,34 @@ export default function LenderListPage() {
   const ariveCount = useMemo(() => filtered.filter(l => l.inArive.trim().toLowerCase() === 'yes').length, [filtered])
   const sectionsWithData = LENDER_SECTIONS.filter(s => lenders.some(l => l.category === s.key))
 
+  // ── Email selection ────────────────────────────────────────────────────────
+  // Selection is by lender id and survives filter changes (filter → select-all →
+  // change filter → select more → Email gathers everything checked).
+  const selectedLenders = useMemo(() => lenders.filter(l => selected.has(l.id)), [lenders, selected])
+  const filteredIds = useMemo(() => filtered.map(l => l.id), [filtered])
+  const allFilteredSelected = filteredIds.length > 0 && filteredIds.every(id => selected.has(id))
+  const someFilteredSelected = filteredIds.some(id => selected.has(id))
+
+  function toggleSelect(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  function toggleSelectAllFiltered() {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (allFilteredSelected) filteredIds.forEach(id => next.delete(id))
+      else filteredIds.forEach(id => next.add(id))
+      return next
+    })
+  }
+  function clearSelection() {
+    setSelected(new Set())
+    setShowEmail(false)
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -141,6 +172,18 @@ export default function LenderListPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowEmail(true)}
+              disabled={selected.size === 0}
+              title={selected.size === 0 ? 'Check lenders to build a BCC list' : `Show ${selected.size} selected email(s)`}
+              className={`flex items-center gap-1.5 text-sm font-semibold rounded-lg px-3 py-2 transition ${
+                selected.size === 0
+                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                  : 'text-white bg-emerald-600 hover:bg-emerald-700'
+              }`}
+            >
+              <Mail className="w-4 h-4" /> Email{selected.size > 0 ? ` (${selected.size})` : ''}
+            </button>
             <button
               onClick={handleAdd}
               className="flex items-center gap-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg px-3 py-2 hover:bg-blue-700"
@@ -206,6 +249,17 @@ export default function LenderListPage() {
           <table className="w-full text-sm border-separate border-spacing-0">
             <thead className="sticky top-0 z-10">
               <tr className="text-[11px] uppercase tracking-wide text-slate-500 bg-slate-50">
+                <th className="px-3 py-2 border-b border-slate-200 w-9">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all shown lenders"
+                    title="Select all shown"
+                    className="w-4 h-4 accent-blue-600 cursor-pointer align-middle"
+                    checked={allFilteredSelected}
+                    ref={el => { if (el) el.indeterminate = someFilteredSelected && !allFilteredSelected }}
+                    onChange={toggleSelectAllFiltered}
+                  />
+                </th>
                 {['Lender', 'Arive', 'Contact', 'Phone', 'Email', 'Products', 'Min FICO', 'Comp', 'Notes', ''].map((h, i) => (
                   <th key={i} className="px-3 py-2 text-left font-semibold border-b border-slate-200 whitespace-nowrap">{h}</th>
                 ))}
@@ -214,12 +268,18 @@ export default function LenderListPage() {
             {groups.map(g => (
               <tbody key={g.key}>
                 <tr>
-                  <td colSpan={10} className="bg-blue-600 text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 sticky left-0">
+                  <td colSpan={11} className="bg-blue-600 text-white text-xs font-bold uppercase tracking-wider px-3 py-1.5 sticky left-0">
                     {g.label} <span className="font-normal text-blue-100 normal-case">· {g.rows.length}</span>
                   </td>
                 </tr>
                 {g.rows.map(l => (
-                  <LenderRow key={l.id} l={l} onEdit={() => setEditing(l)} />
+                  <LenderRow
+                    key={l.id}
+                    l={l}
+                    onEdit={() => setEditing(l)}
+                    selected={selected.has(l.id)}
+                    onToggle={() => toggleSelect(l.id)}
+                  />
                 ))}
               </tbody>
             ))}
@@ -233,6 +293,14 @@ export default function LenderListPage() {
           onSave={handleSave}
           onDelete={handleDelete}
           onClose={() => setEditing(null)}
+        />
+      )}
+
+      {showEmail && (
+        <LenderEmailModal
+          lenders={selectedLenders}
+          onClose={() => setShowEmail(false)}
+          onClear={clearSelection}
         />
       )}
     </div>
@@ -253,10 +321,21 @@ function Chip({ children, active, onClick, accent }: {
   )
 }
 
-function LenderRow({ l, onEdit }: { l: EditableLender; onEdit: () => void }) {
+function LenderRow({ l, onEdit, selected, onToggle }: {
+  l: EditableLender; onEdit: () => void; selected: boolean; onToggle: () => void
+}) {
   const arive = ariveBadge(l.inArive)
   return (
-    <tr className="border-b border-slate-100 hover:bg-slate-50 align-top group">
+    <tr className={`border-b border-slate-100 align-top group ${selected ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
+      <td className="px-3 py-2 border-b border-slate-100">
+        <input
+          type="checkbox"
+          aria-label={`Select ${l.lender}`}
+          className="w-4 h-4 accent-blue-600 cursor-pointer align-middle"
+          checked={selected}
+          onChange={onToggle}
+        />
+      </td>
       <td className="px-3 py-2 font-medium text-slate-800 border-b border-slate-100 min-w-[180px]">{l.lender}</td>
       <td className="px-3 py-2 border-b border-slate-100">
         <span className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-semibold ${arive.cls}`}>{arive.label}</span>

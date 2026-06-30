@@ -1,5 +1,21 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-30] Lender List — BCC email picker (checkbox-select lenders → copy emails for Outlook BCC)
+**Status:** VERIFIED (local). tsc clean (7 pre-existing baseline), build READY.
+**Why:** Efrain wanted to blast a batch of lenders. Asked for a checkbox per lender, an "Email" button at the top,
+and a popup listing the selected emails to copy/paste into the Outlook BCC field.
+**Changes:** `components/LenderEmailModal.tsx` (NEW — gathers the first/primary email per checked lender, dedupes
+case-insensitively, skips + lists lenders with no email; `; ` default separator with a comma toggle; Copy button
+that selects-then-writes-clipboard so Cmd/Ctrl+C always works; Clear selection). `app/lenders/page.tsx`: added a
+`selected: Set<id>` (survives filter changes), a per-row checkbox column, a header **select-all-filtered** checkbox
+(with indeterminate state), and an "Email (N)" button (emerald, disabled at 0). No DB/API/migration change.
+**Test Method:** temp full middleware bypass (reverted — middleware git diff empty) + `preview_start` + screenshots.
+Verified: checking 2 rows → "Email (2)"; modal shows `geoffsamet@…; fuzz.heidari@…` (semicolon), comma toggle
+flips separator; Copy leaves the textarea fully selected (clipboard API is blocked in the headless preview — works
+on Efrain's focused HTTPS tab); select-all → "Email (82)" → modal "60 addresses" (dedupe/skip-empty proven);
+Clear selection closes the modal + unchecks all + disables the button. No console errors.
+**Efrain's live check:** `/lenders` → check a few lenders → **Email (N)** → Copy → paste into Outlook BCC.
+
 ### [2026-06-29] Next-step log UX redesign — prominent current + popup to add (Efrain feedback)
 **Status:** VERIFIED (local). tsc clean (back to 7 baseline after clearing a stale `.next/dev` validator ref to
 the deleted test page), build READY.
