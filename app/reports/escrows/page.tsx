@@ -53,11 +53,18 @@ function lockInfo(deal: Deal): { locked: boolean; label: string; tone: Tone; exp
   return { locked: true, label: `Locked · expires ${exp} (${d}d)`, tone: 'green', expiring: false, expired: false }
 }
 
-// Current next step (next_action mirrors the latest next_action_log entry).
-function nextStep(deal: Deal): string | null {
-  const fromLog = deal.next_action_log?.[0]?.text?.trim()
-  return (fromLog && fromLog.length > 0 ? fromLog : deal.next_action?.trim()) || null
+// Current next step + when it was entered. Prefer the latest next_action_log entry
+// (it carries the `at` timestamp); fall back to the legacy next_action field (no timestamp).
+function nextStepEntry(deal: Deal): { text: string; at: string | null } | null {
+  const top = deal.next_action_log?.[0]
+  if (top?.text?.trim()) return { text: top.text.trim(), at: top.at || null }
+  const legacy = deal.next_action?.trim()
+  return legacy ? { text: legacy, at: null } : null
 }
+
+// "Jun 30, 9:12 AM" — when a next step was logged.
+const fmtEntered = (iso: string) =>
+  new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 
 function ReportInner() {
   const searchParams = useSearchParams()
@@ -269,13 +276,13 @@ function Kpi({ label, value, tone = 'gray' }: { label: string; value: string; to
 
 function DealRow({ deal }: { deal: Deal }) {
   const li = lockInfo(deal)
-  const step = nextStep(deal)
+  const step = nextStepEntry(deal)
   const processor = deal.processor_status || deal.processor || null
   const blocked = deal.waiting_on && deal.waiting_on !== 'No one' ? deal.waiting_on : null
   const priority = deal.escrow_priority && deal.escrow_priority !== 'normal' ? deal.escrow_priority : null
 
   return (
-    <div className="deal-row bg-white rounded-lg border border-slate-200 px-4 py-3">
+    <div className="deal-row bg-white rounded-lg border-2 border-slate-300 px-4 py-3">
       {/* Row 1: name + amount + lock */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -322,19 +329,29 @@ function DealRow({ deal }: { deal: Deal }) {
         )}
       </div>
 
-      {/* Row 4: next step */}
-      <div className="mt-2 pt-2 border-t border-slate-100 text-xs flex items-start gap-1.5">
-        <AlertTriangle className={`w-3.5 h-3.5 shrink-0 mt-px ${step ? 'text-blue-500' : 'text-slate-300'}`} />
-        {step ? (
-          <p className="text-slate-700">
-            <span className="font-semibold">Next:</span> {step}
-            {deal.next_action_due && <span className="text-slate-400"> · due {formatDate(deal.next_action_due)}</span>}
-            {deal.next_action_assignee && <span className="text-slate-400"> · {deal.next_action_assignee}</span>}
-          </p>
-        ) : (
-          <p className="text-slate-400 italic">No next step logged</p>
-        )}
-      </div>
+      {/* Row 4: next step — boxed + tinted so it doesn't blend into the card */}
+      {step ? (
+        <div className="mt-2.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2">
+          <div className="flex items-start gap-2 text-xs">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-blue-600" />
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 mr-1.5">Next Step</span>
+              <span className="text-slate-900 font-semibold">{step.text}</span>
+              {(step.at || deal.next_action_due || deal.next_action_assignee) && (
+                <div className="text-slate-500 mt-0.5">
+                  {step.at && <span>Entered {fmtEntered(step.at)}</span>}
+                  {deal.next_action_due && <span>{step.at ? ' · ' : ''}due {formatDate(deal.next_action_due)}</span>}
+                  {deal.next_action_assignee && <span> · {deal.next_action_assignee}</span>}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-2.5 pt-2 border-t border-slate-100 text-xs text-slate-400 italic flex items-center gap-1.5">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-slate-300" /> No next step logged
+        </div>
+      )}
     </div>
   )
 }

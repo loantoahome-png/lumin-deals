@@ -30,6 +30,11 @@ Verified DOM order (KPI → callout → stages) + screenshot; scaffolding revert
 **Rev 4 (2026-06-30, Efrain feedback):** removed the "Expired" KPI tile ("we can't let any lock expire") — KPI band
 is now 4 tiles (`sm:grid-cols-4`). The per-deal red "Lock EXPIRED" badge stays (still flags an actually-expired
 lock on its card). Deterministic tile removal — verified via tsc (7 baseline) + build READY (no browser re-run).
+**Rev 5 (2026-06-30, Efrain feedback):** deal cards — Next step is now a tinted blue box with a "NEXT STEP" label
+(was blending into the card); card border thickened to `border-2 border-slate-300`; and the next step now shows
+**"Entered {date, time}"** from `next_action_log[0].at` (falls back to no timestamp for legacy `next_action`-only
+deals). Verified via demo (Victor Duarte: "Entered Jun 30, 9:05 AM · due … · Hanh"; legacy + no-step variants) +
+screenshot; 2px borders confirmed; scaffolding reverted.
 
 ### [2026-06-30] Lender List — BCC email picker (checkbox-select lenders → copy emails for Outlook BCC)
 **Status:** VERIFIED (local). tsc clean (7 pre-existing baseline), build READY.
