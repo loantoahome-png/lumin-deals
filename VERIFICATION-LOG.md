@@ -1,5 +1,17 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-29] Next-step log UX redesign — prominent current + popup to add (Efrain feedback)
+**Status:** VERIFIED (local). tsc clean (back to 7 baseline after clearing a stale `.next/dev` validator ref to
+the deleted test page), build READY.
+**Change:** `components/NextStepLog.tsx` reworked per Efrain: the latest entry is now the **prominent** current
+step (15px semibold + timestamp); removed the always-on textarea; the **+** opens a popup (textarea + Cancel/Done,
+Enter-to-save) to log a new step, which becomes current and pushes the prior into "▸ N earlier steps." The popup is
+rendered via `createPortal` to `document.body` so the escrow card's dnd-kit transform/overflow can't clip it.
+**Test Method:** temp `/nextsteptest` mock render + full middleware bypass (both reverted; middleware diff empty):
+screenshots confirmed the prominent current step + the **+** popup; clicking **Done** with new text closed the
+modal, made the new text the bold current (font-weight 600), and moved the prior step into "3 earlier steps."
+**Efrain's live check:** on an Active Escrow card, tap **+** → type → Done → it becomes the bold current step.
+
 ### [2026-06-29] Next-step LOG on the escrow card (timestamped history, replaces the single overwritten field)
 **Status:** CHANGED — tsc clean (7 pre-existing), build READY. **Needs the migration before deploy** (the card
 writes the new column). Component render verified locally; end-to-end persistence is Efrain's live check on a real
