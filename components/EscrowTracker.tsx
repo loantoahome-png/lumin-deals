@@ -10,6 +10,7 @@ import { Deal, STATUS_COLORS, STAGE_SLA_DAYS, Communication, PROCESSORS } from '
 import { formatCurrency } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { ariveUrl } from '@/lib/ariveLinks'
+import NextStepLog from '@/components/NextStepLog'
 import {
   AlertTriangle, Clock, ChevronRight, CalendarClock,
   Flame, ExternalLink, CheckCircle2, Lock, Search,
@@ -486,7 +487,6 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
   onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>
   dragHandleProps?: React.HTMLAttributes<HTMLDivElement> & Record<string, unknown>
 }) {
-  const [nextAction, setNextAction] = useState(deal.next_action || '')
   const [savingFlash, setSavingFlash] = useState(false)
 
   async function saveField<K extends keyof Deal>(field: K, value: Deal[K]) {
@@ -671,14 +671,7 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
               </span>
             )}
           </div>
-          <textarea
-            value={nextAction}
-            onChange={e => setNextAction(e.target.value)}
-            onBlur={() => saveField('next_action', nextAction.trim() || null)}
-            rows={2}
-            placeholder="Describe the next action…"
-            className="w-full flex-1 px-2.5 py-1.5 border border-orange-200 rounded-md text-sm font-medium text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#F37021] focus:border-orange-400 resize-none placeholder:text-slate-400 placeholder:font-normal"
-          />
+          <NextStepLog deal={deal} onUpdate={onUpdate} />
           {/* Follow-up now lives inside the Next Step section */}
           <div className="mt-2 pt-2 border-t border-orange-200">
             <FollowUpPicker

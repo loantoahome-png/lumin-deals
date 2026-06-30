@@ -123,6 +123,7 @@ export type Deal = {
   next_action: string | null
   next_action_due: string | null              // ISO timestamp with date+time
   next_action_assignee: string | null
+  next_action_log: NextStepEntry[] | null     // timestamped history of next steps (newest first); next_action mirrors the latest
   escrow_priority: string | null              // 'high' | 'normal' | 'low'
   stage_changed_at: string | null             // tracks days-in-stage (auto-updated)
   waiting_on: string | null                   // who/what is blocking the deal
@@ -205,6 +206,16 @@ export type Communication = {
 }
 
 export const COMM_CHANNELS = ['Call', 'SMS', 'Email', 'Meeting', 'Voicemail', 'Other'] as const
+
+// ── Next-step log ───────────────────────────────────────────────────────────
+// Timestamped history of a deal's "Next Step" entries (newest first). The deal's
+// `next_action` always mirrors the latest entry's text, so existing filters/sorts
+// keep working off a single field.
+export type NextStepEntry = {
+  id: string
+  at: string                                   // ISO timestamp
+  text: string
+}
 
 // ── Stage SLAs (days) ──────────────────────────────────────────────────────
 // Industry-standard target durations for each Loans-in-Process stage.

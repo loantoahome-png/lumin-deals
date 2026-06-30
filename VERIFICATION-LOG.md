@@ -1,5 +1,29 @@
 # Verification Log — Lumin Deals
 
+### [2026-06-29] Next-step LOG on the escrow card (timestamped history, replaces the single overwritten field)
+**Status:** CHANGED — tsc clean (7 pre-existing), build READY. **Needs the migration before deploy** (the card
+writes the new column). Component render verified locally; end-to-end persistence is Efrain's live check on a real
+card.
+**Why:** Efrain — the "Next Step" was a single `next_action` field that got overwritten on each edit, losing the
+file's progression. Wanted a timestamped log of all next steps. Chose timestamps WITHOUT author attribution.
+**Changes:** `supabase-add-next-action-log.sql` (NEW — `alter table deals add column next_action_log jsonb`).
+`lib/types.ts` (+`NextStepEntry {id,at,text}`, +`next_action_log: NextStepEntry[]|null` on Deal). `components/
+NextStepLog.tsx` (NEW — add-input + timestamped history, newest=current, older behind a "N earlier steps"
+expander, each removable; seeds a legacy `next_action` into the log on first add so the current step isn't lost).
+`components/EscrowTracker.tsx` (replaced the next_action textarea with `<NextStepLog>`; removed the now-unused
+`nextAction` state). `next_action` still mirrors the latest entry so existing filters/sorts/the "No next step" chip
+keep working.
+**Storage:** mirrors the existing `communications`/`documents` per-deal JSONB-log pattern — the GHL sync does NOT
+touch `next_action_log`, so no deploy-ordering risk to the sync (only the card's write needs the column).
+`app/deals` reads via `fetchAllDeals` default `select('*')`, so the log loads once the column exists; `onUpdate`
+passes the full patch to `supabase.update(patch)` (no field whitelist) + optimistically merges.
+**Test Method:** `npx tsc --noEmit` + `npm run build` (READY) + local mock render (temp `/nextsteptest` route +
+middleware bypass, both reverted): the orange box showed the add-input, the current step with timestamp
+("· current"), and the "2 earlier steps" expander — screenshot captured. Add/remove uses the standard optimistic
+onUpdate pattern.
+**Efrain's live check (after migration + deploy):** on an Active Escrow card, type a next step → it logs with a
+timestamp and stays; add another → the newest becomes current and the prior moves under "earlier steps."
+
 ### [2026-06-29] Cron GHL sync: return fast + run in after() (fix cron-job.org 30s timeouts)
 **Status:** VERIFIED (local) — tsc clean (7 pre-existing), build READY. Deploying.
 **Why:** A "Lost" loan (Mayra Sinohui) lingered ~3h on Active Escrows. Root cause (see GOTCHAS 2026-06-29):
