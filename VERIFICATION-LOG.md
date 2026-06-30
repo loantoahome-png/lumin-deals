@@ -18,9 +18,9 @@ block had no room, so split it.
 reverted; `.next` cleared to avoid the stale-route validator error). Verified all 3 channel states: Non-Del, Broker,
 and null→"—"; layout balanced, no overflow; no console errors. NOTE: temp route must NOT use a leading underscore
 (`app/_carddemo` = private/non-routable → 404); used `app/carddemo`.
-**Rev (2026-06-30, Efrain feedback):** moved Channel up to the TOP row, left of the Amount hero → row 1 is now
-Channel · Amount · LO; Lender dropped to its own row below (handles long lender names). Re-verified via demo route
-(Non-Del / Broker / null + "Change Mortgage Wholesale" on its own row); reverted.
+**Rev (2026-06-30, Efrain feedback):** final layout is a **2×2** — row 1 Channel · Amount(hero), row 2 LO · Lender
+(left col left-aligned, right col right-aligned). (Interim try of Channel·Amount·LO + Lender-own-row was rejected.)
+Re-verified via demo route across Non-Del / Broker / null + a long lender name; reverted.
 **Status:** VERIFIED (tsc 7 baseline, build READY).
 **Why:** Efrain — removed the "Waiting On" field from the deal detail TEAM section; added an Arive "channel" column
 (broker vs Non-Del) and wants the dashboard field relabeled "Broker / Non-Del" ahead of the next import.

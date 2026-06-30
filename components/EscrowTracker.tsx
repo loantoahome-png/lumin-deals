@@ -599,29 +599,31 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
 
       {/* Body */}
       <div className="p-4 space-y-3 flex-1 flex flex-col">
-        {/* Quick stats — Channel · Amount (hero) · LO on top; Lender on its own row below */}
+        {/* Quick stats — Channel · Amount on top; LO · Lender on the bottom (2×2) */}
         <div className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5 space-y-2">
-          {/* Row 1 — channel · amount hero · LO */}
-          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 items-center">
-            <div className="self-center min-w-0">
+          {/* Row 1 — channel · amount (hero) */}
+          <div className="grid grid-cols-2 gap-2 items-center">
+            <div className="min-w-0">
               <p className="text-slate-400 uppercase tracking-wider font-semibold text-[9px]">Channel</p>
               <p className="text-xs font-semibold text-slate-700 truncate mt-0.5" title={deal.broker_corr || undefined}>{deal.broker_corr || '—'}</p>
             </div>
-            <div className="min-w-0 px-1 text-center">
+            <div className="min-w-0 text-right">
               <p className="text-slate-400 uppercase tracking-wider font-semibold text-[9px]">Amount</p>
               <p className="text-lg font-extrabold text-slate-900 tabular-nums leading-tight whitespace-nowrap">
                 {deal.loan_amount ? formatCurrency(deal.loan_amount) : '—'}
               </p>
             </div>
-            <div className="self-center min-w-0 text-right">
+          </div>
+          {/* Row 2 — LO · lender */}
+          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/70">
+            <div className="min-w-0">
               <p className="text-slate-400 uppercase tracking-wider font-semibold text-[9px]">LO</p>
               <p className="text-xs font-semibold text-slate-700 truncate mt-0.5" title={deal.loan_officer || undefined}>{deal.loan_officer || '—'}</p>
             </div>
-          </div>
-          {/* Row 2 — lender (own row; names can be long) */}
-          <div className="pt-2 border-t border-slate-200/70 min-w-0">
-            <p className="text-slate-400 uppercase tracking-wider font-semibold text-[9px]">Lender</p>
-            <p className="text-xs font-semibold text-slate-700 truncate mt-0.5" title={deal.investor || undefined}>{deal.investor || '—'}</p>
+            <div className="min-w-0 text-right">
+              <p className="text-slate-400 uppercase tracking-wider font-semibold text-[9px]">Lender</p>
+              <p className="text-xs font-semibold text-slate-700 truncate mt-0.5" title={deal.investor || undefined}>{deal.investor || '—'}</p>
+            </div>
           </div>
         </div>
 
