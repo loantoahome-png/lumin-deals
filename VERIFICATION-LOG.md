@@ -1,5 +1,11 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-01] Escrow report — remove warning-triangle icon + recolor next-step box blue → orange
+**Status:** CHANGED. tsc holds the 7-error baseline (none in escrows/page.tsx); build READY.
+**Why:** Efrain — the blue ⚠ (AlertTriangle) icon in the per-deal "Next Step" box wasn't wanted, and he wanted the box orange instead of blue.
+**Changes:** `app/reports/escrows/page.tsx` DealRow Row 4 (populated next-step branch) — removed the `<AlertTriangle>` icon; box `border-blue-200 bg-blue-50` → `border-orange-200 bg-orange-50`; "Next Step" label `text-blue-700` → `text-orange-700`. The "No next step logged" fallback (gray, separate) is untouched; `AlertTriangle` import retained (still used there).
+**Test Method:** `npx tsc --noEmit` (7 baseline, 0 new) + `npm run build` → READY. Deterministic Tailwind swap; browser screenshot skipped (RLS blocks anon preview → would need temp auth-bypass + mock scaffolding for a color change).
+
 ### [2026-06-30] Clear-to-Close + Non-Del funding alert — built as a cron, then REMOVED (Efrain declined the cron)
 **Status:** REMOVED same day. Built `app/api/cron/ctc-nondel-alerts/route.ts` + `supabase-add-ctc-nondel-alert.sql`
 (dry-run verified), but Efrain didn't want to set up a new cron-job.org job, so both files were deleted (never

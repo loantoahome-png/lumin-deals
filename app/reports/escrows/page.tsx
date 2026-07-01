@@ -334,11 +334,10 @@ function DealRow({ deal }: { deal: Deal }) {
 
       {/* Row 4: next step — boxed + tinted so it doesn't blend into the card */}
       {step ? (
-        <div className="mt-2.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2">
+        <div className="mt-2.5 rounded-md border border-orange-200 bg-orange-50 px-3 py-2">
           <div className="flex items-start gap-2 text-xs">
-            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-blue-600" />
             <div className="min-w-0">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 mr-1.5">Next Step</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-orange-700 mr-1.5">Next Step</span>
               <span className="text-slate-900 font-semibold">{step.text}</span>
               {(step.at || deal.next_action_due || deal.next_action_assignee) && (
                 <div className="text-slate-500 mt-0.5">
