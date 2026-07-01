@@ -245,9 +245,9 @@ function ReportInner() {
                 const badge = STATUS_COLORS[g.stage] || 'bg-slate-100 text-slate-600'
                 return (
                   <section key={g.stage} className="mb-6">
-                    <div className={`stage-head flex items-center justify-between px-3 py-2 rounded-md mb-2 ${badge}`}>
-                      <span className="text-sm font-bold uppercase tracking-wide">{g.stage}</span>
-                      <span className="text-xs font-semibold opacity-75">{g.deals.length} · {formatCurrency(stageVol)}</span>
+                    <div className={`stage-head flex items-center justify-between px-4 py-2.5 rounded-md mb-2 ${badge}`}>
+                      <span className="text-lg font-extrabold uppercase tracking-wider">{g.stage}</span>
+                      <span className="text-sm font-semibold opacity-75">{g.deals.length} · {formatCurrency(stageVol)}</span>
                     </div>
                     <div className="space-y-2">
                       {g.deals.map(d => <DealRow key={d.id} deal={d} />)}

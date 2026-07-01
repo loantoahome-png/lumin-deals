@@ -1,5 +1,11 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-01] Escrow report — make stage-band titles pop (bigger/bolder)
+**Status:** CHANGED. tsc holds the 7-error baseline (0 in escrows/page.tsx); build READY.
+**Why:** Efrain — the per-stage section headers (APPROVED W/ CONDITIONS, CLEAR TO CLOSE, DOCS OUT…) should stand out more as section dividers.
+**Changes:** `app/reports/escrows/page.tsx` `stage-head` band — title `text-sm font-bold tracking-wide` → `text-lg font-extrabold tracking-wider`; band padding `px-3 py-2` → `px-4 py-2.5`; count/volume `text-xs` → `text-sm`. Colors unchanged (still `STATUS_COLORS[stage]`).
+**Test Method:** `npx tsc --noEmit` (7 baseline, 0 new) + `npm run build` → READY. Deterministic Tailwind typography swap; live check on the authed `/reports/escrows`.
+
 ### [2026-07-01] Escrow report — remove warning-triangle icon + recolor next-step box blue → orange
 **Status:** CHANGED. tsc holds the 7-error baseline (none in escrows/page.tsx); build READY.
 **Why:** Efrain — the blue ⚠ (AlertTriangle) icon in the per-deal "Next Step" box wasn't wanted, and he wanted the box orange instead of blue.
