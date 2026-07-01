@@ -348,7 +348,7 @@ export const STATUS_COLORS: Record<string, string> = {
   // Loans in Process pipeline
   'Loan Setup':              'bg-yellow-100 text-yellow-700',
   'Disclosed':               'bg-amber-100 text-amber-700',
-  'Submitted to UW':         'bg-orange-100 text-orange-700',
+  'Submitted to UW':         'bg-indigo-100 text-indigo-700',
   'Approved w/ Conditions':  'bg-lime-100 text-lime-700',
   'Re-Submittal':            'bg-red-100 text-red-700',
   'Clear to Close':          'bg-green-100 text-green-700',

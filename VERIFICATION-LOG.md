@@ -1,5 +1,11 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-01] Stage color — "Submitted to UW" orange → indigo (clashed with orange Next Step boxes)
+**Status:** CHANGED. tsc holds the 7-error baseline; build READY.
+**Why:** After recoloring the escrow-report Next Step boxes orange, the "Submitted to UW" stage band (also orange, `text-orange-700`) matched them — visually confusing on the report.
+**Changes:** `lib/types.ts` STATUS_COLORS `'Submitted to UW'` `bg-orange-100 text-orange-700` → `bg-indigo-100 text-indigo-700`. Global map → recolors the stage everywhere it renders (escrow report, pipeline board, deals list, trackers, global search), not just the report. Indigo is unused elsewhere in the Loans-in-Process pipeline, so no new neighbor clash.
+**Test Method:** `npx tsc --noEmit` (7 baseline, 0 new) + `npm run build` → READY. Deterministic Tailwind swap; live check on authed `/reports/escrows` + `/pipeline`.
+
 ### [2026-07-01] Escrow report — make stage-band titles pop (bigger/bolder)
 **Status:** CHANGED. tsc holds the 7-error baseline (0 in escrows/page.tsx); build READY.
 **Why:** Efrain — the per-stage section headers (APPROVED W/ CONDITIONS, CLEAR TO CLOSE, DOCS OUT…) should stand out more as section dividers.
