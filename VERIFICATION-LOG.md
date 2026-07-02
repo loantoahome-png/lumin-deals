@@ -1,5 +1,17 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-02] Returning-client detection — lib/repeatReferral.ts + Opportunity Radar section + Contacts badges
+**Status:** CHANGED, browser-verified with demo mocks. tsc holds the 7-error baseline (0 new); build READY.
+**Issue:** Repeat business is invisible: only 1 of the 5 currently-active returning clients carries a "Return Client" source tag. Grounded live 2026-07-02 — 14 people with post-funding deals, 5 active (Marian Cooper 4-funded/$1.3M is in UW with no flag anywhere).
+**Changes:**
+- NEW `lib/repeatReferral.ts` — pure detection (same contract as refiRadar): `classifyReturning` / `findReturningClients` — person has a funded loan + a non-funded deal created after first funding (anchor falls back to created_at when funded_date is blank, so GHL-sourced funded rows aren't skipped). Flags: `active` (Leads/Loans in Process), `taggedReturn`, `rePaidSpend` (lead spend re-buying a funded client).
+- `app/radar/page.tsx` — renamed "Refi Radar" → **"Opportunity Radar"**; fetch widened funded-only → whole book (superset projection); new violet "Returning clients" section above the refi table (funded history · new-deal stage pill · came-back date · "tagged return" pill), dormant rows behind a Show/Hide toggle. Refi section unchanged under its own heading.
+- `app/contacts/page.tsx` — violet "Returning" pill next to the lifecycle stage (active returning only, same lib so it can't disagree with /radar).
+- `app/contacts/[id]/page.tsx` — "Returning client" banner under the header (funded count/$, last funded, came-back date, current stage).
+- `components/Sidebar.tsx` — label "Refi Radar" → "Opportunity Radar".
+**Test Method:** 14 fixture assertions on the pure lib (all pass: detection, pre-funding lead excluded, funded_date-less anchor, active-headline preference, sort). Live-book run reproduces grounded numbers exactly (14 total / 5 active / $29 re-paid spend). Browser-verified via TEMP middleware bypass + `?demo=1` mock (both reverted; `git diff middleware.ts` empty, zero TEMP markers): section renders, toggle works, 0 console errors.
+**Result:** Deployed to prod. Efrain to confirm on the authed dashboard: /radar shows the 5 active returning clients; Marian Cooper's person page shows the banner.
+
 ### [2026-07-01] Stage color — "Submitted to UW" orange → indigo (clashed with orange Next Step boxes)
 **Status:** CHANGED. tsc holds the 7-error baseline; build READY.
 **Why:** After recoloring the escrow-report Next Step boxes orange, the "Submitted to UW" stage band (also orange, `text-orange-700`) matched them — visually confusing on the report.

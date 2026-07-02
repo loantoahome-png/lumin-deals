@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import { formatCurrency, formatDate, titleCase } from '@/lib/utils'
+import { formatCurrency, formatDate, titleCase, cleanSource } from '@/lib/utils'
 import { scoreFundedBook, PLAY_LABEL, DEFAULT_PAR, RadarDeal, RefiPlay, ParRates } from '@/lib/refiRadar'
+import { findReturningClients, ReturningClient } from '@/lib/repeatReferral'
 import Link from 'next/link'
-import { RefreshCw, Ban } from 'lucide-react'
+import { RefreshCw, Ban, UserCheck } from 'lucide-react'
 
 const PLAY_PILL: Record<RefiPlay, string> = {
   'second-lien': 'bg-amber-100 text-amber-800',
@@ -18,10 +19,15 @@ const PAR_FIELDS: { k: keyof ParRates; label: string }[] = [
   { k: 'conv', label: 'Conv' }, { k: 'fha', label: 'FHA' }, { k: 'va', label: 'VA' }, { k: 'nonqm', label: 'Non-QM' },
 ]
 
-const RADAR_COLS = 'id, borrower_id, name, loan_type, rate, loan_amount, funded_date, estimated_value, current_balance, ltv, compensation_amount, dnd, last_contacted, pipeline_group'
+// Superset projection: refi scoring (RadarDeal) + returning-client detection
+// (RepeatDeal) off one paged fetch of the whole book.
+const RADAR_COLS = 'id, borrower_id, name, loan_type, rate, loan_amount, funded_date, estimated_value, current_balance, ltv, compensation_amount, dnd, last_contacted, pipeline_group, status, created_at, source, lead_price'
+type RadarRow = RadarDeal & {
+  status: string | null; created_at: string; source: string | null; lead_price: number | null
+}
 
 export default function RadarPage() {
-  const [deals, setDeals] = useState<RadarDeal[]>([])
+  const [deals, setDeals] = useState<RadarRow[]>([])
   const [par, setPar] = useState<ParRates>(DEFAULT_PAR)
   const [draft, setDraft] = useState<ParRates>(DEFAULT_PAR)
   const [loading, setLoading] = useState(true)
@@ -31,13 +37,15 @@ export default function RadarPage() {
   const fetchData = useCallback(async () => {
     setLoading(true)
     const loadDeals = async () => {
-      const all: RadarDeal[] = []
+      // Whole book, not just Funded — returning-client detection needs the person's
+      // post-funding deals too. scoreFundedBook filters to Funded itself.
+      const all: RadarRow[] = []
       for (let from = 0; ; from += 1000) {
         const { data, error } = await supabase
-          .from('deals').select(RADAR_COLS).eq('pipeline_group', 'Funded')
+          .from('deals').select(RADAR_COLS)
           .order('id', { ascending: true }).range(from, from + 999)
         if (error) { console.error('[radar] fetch failed:', error.message); break }
-        const rows = (data ?? []) as RadarDeal[]
+        const rows = (data ?? []) as RadarRow[]
         all.push(...rows)
         if (rows.length < 1000) break
       }
@@ -59,6 +67,12 @@ export default function RadarPage() {
   const candidates = useMemo(() => scoreFundedBook(deals, par), [deals, par])
   const actionable = useMemo(() => candidates.filter(c => c.eligible), [candidates])
   const maturing = useMemo(() => candidates.filter(c => c.tooNew).length, [candidates])
+
+  // Returning clients — people with a funded loan who came back with a new deal.
+  const returning = useMemo(() => findReturningClients(deals), [deals])
+  const returningActive = useMemo(() => returning.filter(r => r.active), [returning])
+  const returningDormant = useMemo(() => returning.filter(r => !r.active), [returning])
+  const [showDormant, setShowDormant] = useState(false)
 
   const playCounts = useMemo(() => {
     const m: Record<string, number> = { all: actionable.length }
@@ -89,9 +103,11 @@ export default function RadarPage() {
       <div className="px-6 py-4 bg-white border-b border-slate-200 shrink-0">
         <div className="flex items-center justify-between mb-1">
           <div>
-            <h1 className="text-xl font-bold text-slate-900">Refi Radar</h1>
+            <h1 className="text-xl font-bold text-slate-900">Opportunity Radar</h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              <span className="font-semibold text-slate-800">{actionable.length}</span> actionable
+              <span className="font-semibold text-slate-800">{returningActive.length}</span> returning
+              <span className="text-slate-300"> · </span>
+              <span className="font-semibold text-slate-800">{actionable.length}</span> refi actionable
               {maturing > 0 && <span className="text-slate-400"> · {maturing} maturing (&lt;6mo)</span>}
             </p>
           </div>
@@ -151,6 +167,49 @@ export default function RadarPage() {
 
       {/* List */}
       <div className="flex-1 overflow-auto px-6 py-4">
+        {/* ── Returning clients ─────────────────────────────────────────── */}
+        {!loading && returning.length > 0 && (
+          <div className="mb-6">
+            <div className="flex items-center gap-2 mb-2">
+              <UserCheck className="w-4 h-4 text-violet-600" />
+              <h2 className="text-sm font-semibold text-slate-800">
+                Returning clients <span className="text-slate-400 font-normal">({returningActive.length} active)</span>
+              </h2>
+              {returningDormant.length > 0 && (
+                <button
+                  onClick={() => setShowDormant(v => !v)}
+                  className="text-xs text-slate-400 hover:text-slate-600 ml-auto"
+                >
+                  {showDormant ? 'Hide' : 'Show'} {returningDormant.length} not currently active
+                </button>
+              )}
+            </div>
+            <div className="border border-violet-200 bg-violet-50/40 rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-violet-100">
+                    <th className="px-3 py-2">Client</th>
+                    <th className="px-3 py-2">Funded history</th>
+                    <th className="px-3 py-2">New deal</th>
+                    <th className="px-3 py-2 text-right">Came back</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(showDormant ? returning : returningActive).map(r => (
+                    <ReturningRow key={r.borrowerId} r={r} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ── Refi candidates ───────────────────────────────────────────── */}
+        {!loading && (
+          <h2 className="text-sm font-semibold text-slate-800 mb-2">
+            Refi candidates <span className="text-slate-400 font-normal">({actionable.length} actionable)</span>
+          </h2>
+        )}
         {loading ? (
           <p className="text-sm text-slate-400">Loading…</p>
         ) : rows.length === 0 ? (
@@ -212,5 +271,36 @@ export default function RadarPage() {
         )}
       </div>
     </div>
+  )
+}
+
+function ReturningRow({ r }: { r: ReturningClient }) {
+  const name = titleCase(r.name) || r.name || '(no name)'
+  const src = cleanSource(r.newDeal.source)
+  return (
+    <tr className={`border-b border-violet-100 last:border-0 ${r.active ? 'bg-white' : 'bg-slate-50/60'}`}>
+      <td className="px-3 py-2.5">
+        <Link href={`/contacts/${r.borrowerId}`} className="font-medium text-blue-600 hover:text-blue-700">{name}</Link>
+        {r.taggedReturn && (
+          <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-violet-100 text-violet-700">tagged return</span>
+        )}
+      </td>
+      <td className="px-3 py-2.5 text-slate-600">
+        {r.fundedCount} funded{r.totalFundedVolume > 0 && <> · {formatCurrency(r.totalFundedVolume)}</>}
+        {r.lastFundedAt && <span className="text-slate-400"> · last {formatDate(r.lastFundedAt)}</span>}
+      </td>
+      <td className="px-3 py-2.5">
+        <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
+          r.active ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'
+        }`}>
+          {r.newDeal.status || r.newDeal.pipeline_group || '—'}
+        </span>
+        {src && <span className="ml-2 text-[11px] text-slate-400">{src}</span>}
+        {r.newDeal.loan_amount != null && r.newDeal.loan_amount > 0 && (
+          <span className="ml-2 text-[11px] text-slate-500 tabular-nums">{formatCurrency(r.newDeal.loan_amount)}</span>
+        )}
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums text-slate-500">{formatDate(r.newDeal.created_at)}</td>
+    </tr>
   )
 }

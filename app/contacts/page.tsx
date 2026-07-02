@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Contact } from '@/lib/types'
+import { findReturningClients, RepeatDeal } from '@/lib/repeatReferral'
 import { formatCurrency, titleCase, cleanSource } from '@/lib/utils'
 import Link from 'next/link'
 import { RefreshCw, Search, Copy, Check, Download, ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react'
@@ -70,6 +71,7 @@ function SortTh({ label, k, sortKey, sortDir, onSort, align = 'left', className 
 export default function ContactsPage() {
   const [contacts, setContacts] = useState<Contact[]>([])
   const [meta, setMeta] = useState<Map<string, DealMeta>>(new Map())
+  const [returningIds, setReturningIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
   const [stageFilter, setStageFilter] = useState<'all' | Lifecycle>('all')
@@ -101,15 +103,17 @@ export default function ContactsPage() {
     const loadDealMeta = async () => {
       const m = new Map<string, DealMeta>()
       const latestSourceAt = new Map<string, string>() // borrower_id → created_at of current source
+      const repeatRows: RepeatDeal[] = [] // slim rows for returning-client detection
       for (let from = 0; ; from += PAGE) {
         const { data, error } = await supabase
-          .from('deals').select('borrower_id, pipeline_group, source, created_at, lead_price')
+          .from('deals').select('id, borrower_id, name, pipeline_group, status, source, created_at, funded_date, lead_price')
           .order('id', { ascending: true })
           .range(from, from + PAGE - 1)
         if (error) { console.error('[contacts] deal-meta fetch failed:', error.message); break }
-        const rows = (data ?? []) as { borrower_id: string | null; pipeline_group: string | null; source: string | null; created_at: string; lead_price: number | null }[]
+        const rows = (data ?? []) as (RepeatDeal & { pipeline_group: string | null })[]
         for (const d of rows) {
           if (!d.borrower_id) continue
+          repeatRows.push(d)
           const entry = m.get(d.borrower_id) ?? { groups: new Set<string>(), source: null, leadCost: 0 }
           if (d.pipeline_group) entry.groups.add(d.pipeline_group)
           entry.leadCost += d.lead_price ?? 0
@@ -122,12 +126,15 @@ export default function ContactsPage() {
         }
         if (rows.length < PAGE) break
       }
-      return m
+      // Returning = funded before + an ACTIVE new deal now (same lib as /radar).
+      const returning = new Set(findReturningClients(repeatRows).filter(r => r.active).map(r => r.borrowerId))
+      return { m, returning }
     }
 
-    const [c, m] = await Promise.all([loadContacts(), loadDealMeta()])
+    const [c, dm] = await Promise.all([loadContacts(), loadDealMeta()])
     setContacts(c)
-    setMeta(m)
+    setMeta(dm.m)
+    setReturningIds(dm.returning)
     setSelected(new Set())
     setLoading(false)
   }, [])
@@ -369,6 +376,11 @@ export default function ContactsPage() {
                     </td>
                     <td className="px-3 py-2.5">
                       <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${LIFECYCLE_PILL[stage]}`}>{stage}</span>
+                      {returningIds.has(c.id) && (
+                        <span className="ml-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full bg-violet-100 text-violet-700" title="Funded before — has a new active deal">
+                          Returning
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums">{c.loan_count}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums">{c.funded_count}</td>

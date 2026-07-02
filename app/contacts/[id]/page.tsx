@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Contact, Deal, STATUS_COLORS } from '@/lib/types'
+import { classifyReturning } from '@/lib/repeatReferral'
 import { formatCurrency, formatDate, titleCase, dndLabel, dndSummary, cleanSource } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { ariveUrl } from '@/lib/ariveLinks'
@@ -266,6 +267,7 @@ export default function ContactDetailPage() {
   const reach = useMemo(() => reachability(deals), [deals])
   const details = useMemo(() => buildDetails(deals), [deals])
   const timeline = useMemo(() => buildTimeline(deals), [deals])
+  const returning = useMemo(() => classifyReturning(deals), [deals])
 
   if (loading) return <div className="p-6 text-sm text-slate-400">Loading…</div>
   if (!contact) {
@@ -288,6 +290,20 @@ export default function ContactDetailPage() {
         </Link>
         <h1 className="text-xl font-bold text-slate-900">{name}</h1>
         <p className="text-sm text-slate-500 mt-0.5">{[contact.email, contact.phone].filter(Boolean).join(' · ') || '—'}</p>
+
+        {returning && (
+          <div className="mt-3 flex items-start gap-2 px-3 py-2 rounded-lg bg-violet-50 border border-violet-200 text-sm text-violet-900 w-fit">
+            <span className="font-semibold">Returning client</span>
+            <span className="text-violet-700">
+              — funded {returning.fundedCount} loan{returning.fundedCount === 1 ? '' : 's'}
+              {returning.totalFundedVolume > 0 && <> ({formatCurrency(returning.totalFundedVolume)})</>}
+              {returning.lastFundedAt && <>, last {formatDate(returning.lastFundedAt)}</>}
+              ; came back {formatDate(returning.newDeal.created_at)}
+              {returning.newDeal.status && <> — now in {returning.newDeal.status}</>}
+              {!returning.active && <> (not currently active)</>}
+            </span>
+          </div>
+        )}
 
         {/* Reachability + jump bar */}
         <div className="flex flex-wrap items-center gap-2 mt-3">
