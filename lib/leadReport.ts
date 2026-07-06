@@ -23,7 +23,7 @@ export const OPTOUT_STATUSES = new Set(['DND - SMS', 'Remove from All Automation
 const FUNDED_STATUSES = new Set(['Loan Funded', 'Broker Check Received', 'Loan Finalized'])
 
 // Only the fields the report needs — keeps the page's select() slim.
-export type LeadRow = Pick<Deal, 'loan_officer' | 'pipeline_group' | 'status' | 'source' | 'state' | 'lead_price' | 'loan_purpose'>
+export type LeadRow = Pick<Deal, 'loan_officer' | 'pipeline_group' | 'status' | 'source' | 'state' | 'lead_price' | 'compensation_amount' | 'loan_purpose'>
 
 export const rawSource = (d: LeadRow): string => (d.source ?? '').trim()
 export const isPurchased = (d: LeadRow): boolean => PURCHASED_SET.has(rawSource(d).toLowerCase())
@@ -61,7 +61,7 @@ export const stateKey = (d: LeadRow): string => {
 export type Segment = {
   n: number; responded: number; rr: number
   cold: number; crate: number; optout: number; orate: number
-  funded: number; fr: number; spend: number; cpf: number | null
+  funded: number; fr: number; spend: number; revenue: number; roi: number | null
 }
 
 export function segment(rows: LeadRow[]): Segment {
@@ -70,12 +70,19 @@ export function segment(rows: LeadRow[]): Segment {
   const cold = rows.filter(isCold).length
   const optout = rows.filter(isOptout).length
   const funded = rows.filter(isFunded).length
-  const spend = rows.reduce((s, r) => s + (r.lead_price ?? 0), 0)
+  // Money analysis is restricted to leads with a recorded price so revenue and
+  // spend cover the SAME cohort. Otherwise a funded loan whose lead price was
+  // never captured adds comp with no matching cost and inflates ROI.
+  const priced = rows.filter(r => (r.lead_price ?? 0) > 0)
+  const spend = priced.reduce((s, r) => s + (r.lead_price ?? 0), 0)
+  const revenue = priced.reduce((s, r) => s + (r.compensation_amount ?? 0), 0)
   const safe = n || 1   // avoid div-by-zero on empty selections
   return {
     n, responded, rr: (100 * responded) / safe,
     cold, crate: (100 * cold) / safe, optout, orate: (100 * optout) / safe,
-    funded, fr: (100 * funded) / safe, spend, cpf: funded ? spend / funded : null,
+    funded, fr: (100 * funded) / safe, spend, revenue,
+    // ROI as a return multiple (revenue ÷ spend); null when no priced spend.
+    roi: spend > 0 ? revenue / spend : null,
   }
 }
 

@@ -13,7 +13,7 @@ function eq(label: string, got: unknown, want: unknown) {
 }
 const row = (p: Partial<LeadRow>): LeadRow => ({
   loan_officer: null, pipeline_group: 'Leads', status: 'New Lead', source: 'FRU', state: 'CA',
-  lead_price: 0, loan_purpose: 'Refinance', ...p,
+  lead_price: 0, compensation_amount: null, loan_purpose: 'Refinance', ...p,
 })
 
 // ── Purchased vs warm ──────────────────────────────────────────────
@@ -64,7 +64,7 @@ eq('sourceKey passthrough', sourceKey(row({ source: 'LeadPoint' })), 'LeadPoint'
 // ── Segment math ───────────────────────────────────────────────────
 // 4 leads: 1 funded(responded), 1 ghosted(responded), 1 new lead(cold), 1 STOP(optout)
 const seg = segment([
-  row({ status: 'Loan Funded', pipeline_group: 'Funded', lead_price: 100 }),
+  row({ status: 'Loan Funded', pipeline_group: 'Funded', lead_price: 100, compensation_amount: 5000 }),
   row({ status: 'Ghosted', lead_price: 50 }),
   row({ status: 'New Lead', lead_price: 30 }),
   row({ status: 'STOP', lead_price: 20 }),
@@ -76,8 +76,20 @@ eq('seg optout', seg.optout, 1)
 eq('seg funded', seg.funded, 1)
 eq('seg rr', seg.rr, 50)
 eq('seg spend', seg.spend, 200)
-eq('seg cost/funded', seg.cpf, 200)
-eq('empty seg cpf null', segment([]).cpf, null)
+eq('seg revenue', seg.revenue, 5000)
+eq('seg roi', seg.roi, 25)                 // 5000 comp ÷ 200 spend = 25×
+eq('empty seg roi null', segment([]).roi, null)
+// Money cohort = priced leads only. A funded loan whose lead price was never
+// recorded is excluded from BOTH revenue and spend, so its comp can't inflate ROI.
+const segUnpriced = segment([
+  row({ status: 'Loan Funded', pipeline_group: 'Funded', lead_price: 100, compensation_amount: 4000 }),
+  row({ status: 'Loan Funded', pipeline_group: 'Funded', lead_price: null, compensation_amount: 9999 }),
+])
+eq('unpriced comp excluded from revenue', segUnpriced.revenue, 4000)
+eq('unpriced excluded from spend', segUnpriced.spend, 100)
+eq('roi uses priced cohort only', segUnpriced.roi, 40)   // 4000/100, NOT 13999/100
+// A zero/undefined-price lead is outside the money cohort → no spend → ROI null.
+eq('no-spend roi null', segment([row({ status: 'Loan Funded', pipeline_group: 'Funded', lead_price: 0, compensation_amount: 5000 })]).roi, null)
 eq('empty seg rr 0', segment([]).rr, 0)
 
 // ── rrBand thresholds ──────────────────────────────────────────────
