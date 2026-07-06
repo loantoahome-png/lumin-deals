@@ -797,6 +797,9 @@ export default function LeadSpendPage() {
         </div>
       </div>
 
+      {/* Everything below the pinned filters scrolls together (KPIs, donut, tables) */}
+      <div className="flex-1 overflow-auto">
+
       {/* KPIs */}
       <div className="px-6 py-4 bg-slate-50/60 border-b border-slate-200 space-y-3">
         {/* Row 1: volume / conversion */}
@@ -867,7 +870,7 @@ export default function LeadSpendPage() {
       )}
 
       {/* Table */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="p-6">
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
@@ -1087,6 +1090,7 @@ export default function LeadSpendPage() {
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   )
