@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
-import { normPhone, normEmail } from '@/lib/dealMatcher'
+import { normPhone, normEmail, resolveExistingLoan } from '@/lib/dealMatcher'
 import { titleCase } from '@/lib/utils'
 import { resolveLO } from '@/lib/loanOfficer'
 
@@ -691,13 +691,17 @@ async function syncAccount(
   //   or their contact_ids. Cuts a multi-thousand-row scan to a few dozen.
   type DealKey = { id: string; pipeline_group: string | null }
   const byOppId = new Map<string, DealKey>()
+  // arive_file_no → deal. Fallback match key so a deleted+recreated GHL opportunity
+  // (new id, same loan) re-points the existing card instead of spawning a duplicate.
+  const byAriveNo = new Map<string, DealKey>()
   const contactToBorrower = new Map<string, string>()
   const emailToBorrower = new Map<string, string>()
   const phoneToBorrower = new Map<string, string>()
 
-  type DedupRow = { id: string; ghl_contact_id: string | null; ghl_opportunity_id: string | null; email: string | null; phone: string | null; borrower_id: string | null; pipeline_group: string | null }
+  type DedupRow = { id: string; ghl_contact_id: string | null; ghl_opportunity_id: string | null; arive_file_no: string | null; email: string | null; phone: string | null; borrower_id: string | null; pipeline_group: string | null }
   const ingestDedupRow = (d: DedupRow) => {
     if (d.ghl_opportunity_id && !byOppId.has(d.ghl_opportunity_id)) byOppId.set(d.ghl_opportunity_id, { id: d.id, pipeline_group: d.pipeline_group })
+    if (d.arive_file_no && !byAriveNo.has(d.arive_file_no)) byAriveNo.set(d.arive_file_no, { id: d.id, pipeline_group: d.pipeline_group })
     if (d.borrower_id) {
       if (d.ghl_contact_id && !contactToBorrower.has(d.ghl_contact_id)) contactToBorrower.set(d.ghl_contact_id, d.borrower_id)
       const e = normEmail(d.email); if (e && !emailToBorrower.has(e)) emailToBorrower.set(e, d.borrower_id)
@@ -711,7 +715,7 @@ async function syncAccount(
     for (;;) {
       const { data: pageRows, error: pageErr } = await supabase
         .from('deals')
-        .select('id, ghl_contact_id, ghl_opportunity_id, email, phone, borrower_id, pipeline_group')
+        .select('id, ghl_contact_id, ghl_opportunity_id, arive_file_no, email, phone, borrower_id, pipeline_group')
         .order('id', { ascending: true })
         .range(offset, offset + DEDUP_PAGE - 1)
       if (pageErr) {
@@ -743,7 +747,7 @@ async function syncAccount(
         const chunk = arr.slice(i, i + CHUNK)
         const { data, error } = await supabase
           .from('deals')
-          .select('id, ghl_contact_id, ghl_opportunity_id, email, phone, borrower_id, pipeline_group')
+          .select('id, ghl_contact_id, ghl_opportunity_id, arive_file_no, email, phone, borrower_id, pipeline_group')
           .in(col, chunk)
         if (error) {
           console.error(`[GHL Sync:${label}] Scoped dedup query (${col}) failed:`, error.message)
@@ -760,7 +764,7 @@ async function syncAccount(
     await queryBy('ghl_contact_id', targetContactIds)
   }
 
-  console.log(`[GHL Sync:${label}] Indexed ${byOppId.size} deals by opportunity_id; borrower lookups: ${contactToBorrower.size} contact / ${emailToBorrower.size} email / ${phoneToBorrower.size} phone`)
+  console.log(`[GHL Sync:${label}] Indexed ${byOppId.size} deals by opportunity_id, ${byAriveNo.size} by arive_file_no; borrower lookups: ${contactToBorrower.size} contact / ${emailToBorrower.size} email / ${phoneToBorrower.size} phone`)
 
   console.log(`[GHL Sync:${label}] Processing ${changedOpps.length} opportunities (of ${opportunities.length} fetched)`)
 
@@ -933,10 +937,13 @@ async function syncAccount(
           current_va_loan:  str(getCustomField(customFields, 'current_va_loan', 'va_loan', 'VA Loan')),
         }
 
-        // ── Match by OPPORTUNITY id (the loan) ──────────────────────────────
+        // ── Match by OPPORTUNITY id, then fall back to the ARIVE loan # ──────
+        // The arive# fallback re-points a card when its GHL opportunity was
+        // deleted + recreated (new id, same loan) — otherwise the sync sees an
+        // unknown opp id and inserts a duplicate. See resolveExistingLoan.
         const incomingEmail = normEmail(dealData.email as string | null)
         const incomingPhone = normPhone(dealData.phone as string | null)
-        const existing: DealKey | null = byOppId.get(oppId) ?? null
+        const existing: DealKey | null = resolveExistingLoan(oppId, ariveLoanId, byOppId, byAriveNo)
 
         if (existing) {
           // Update the loan. Sync status/pipeline always; other fields only when

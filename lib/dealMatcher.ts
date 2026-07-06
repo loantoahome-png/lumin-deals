@@ -15,6 +15,28 @@ export function normEmail(s: string | null | undefined): string | null {
 }
 
 /**
+ * Decide which existing deal an incoming GHL opportunity maps to, using the
+ * in-memory indexes the 3-min sync builds. Primary key is the opportunity id.
+ * FALLBACK to the Arive loan # so a GHL opportunity that was deleted + re-created
+ * (new id, SAME loan) RE-POINTS the existing card instead of spawning a duplicate.
+ *
+ * The Arive loan # is unique per loan — a deterministic per-loan key, as safe to
+ * match on as the opportunity id (unlike contact/email/phone, which can land on a
+ * sibling loan). This is the fix for the 2026-07 duplicate-"shell" incident: an opp
+ * deleted+recreated in GHL got a new id, and the sync — matching on opportunity id
+ * ONLY — didn't recognise it as the existing loan, so it inserted a twin card.
+ */
+export function resolveExistingLoan<T>(
+  opportunityId: string,
+  ariveLoanId: string | null | undefined,
+  byOppId: Map<string, T>,
+  byAriveNo: Map<string, T>,
+): T | null {
+  return byOppId.get(opportunityId)
+    ?? (ariveLoanId ? byAriveNo.get(ariveLoanId) ?? null : null)
+}
+
+/**
  * Find an existing dashboard deal that matches an incoming GHL event.
  *
  *   0. opportunity_id  — the ONLY identifier that pins the exact loan
