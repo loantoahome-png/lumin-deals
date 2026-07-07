@@ -73,7 +73,7 @@ export default function UnreadInbox() {
   const [items, setItems] = useState<UnreadItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [loFilter, setLoFilter] = useState<'All' | 'Matt' | 'Moe'>('All')
+  const [loFilter, setLoFilter] = useState<'All' | 'Matt' | 'Moe' | 'Randy'>('All')
   const [collapsed, setCollapsed] = useState(false)
 
   const fetchUnread = useCallback(async () => {
@@ -156,7 +156,7 @@ export default function UnreadInbox() {
           </span>
         </button>
         <div className="flex items-center gap-1.5">
-          {(['All', 'Matt', 'Moe'] as const).map(opt => (
+          {(['All', 'Matt', 'Moe', 'Randy'] as const).map(opt => (
             <button
               key={opt}
               onClick={() => setLoFilter(opt)}

@@ -739,6 +739,7 @@ export default function UnderwritingPage() {
             {[
               { name: 'Moe Sefati', role: 'Loan Officer', initials: 'MS', color: 'bg-blue-100 text-blue-700' },
               { name: 'Matt', role: 'Loan Officer', initials: 'M', color: 'bg-emerald-100 text-emerald-700' },
+              { name: 'Randy Mathis', role: 'Loan Officer', initials: 'RM', color: 'bg-violet-100 text-violet-700' },
               { name: 'Efrain', role: 'Loan Assistant', initials: 'E', color: 'bg-indigo-100 text-indigo-700' },
             ].map(({ name, role, initials, color }) => (
               <div key={name} className="flex items-center gap-2.5 px-1">

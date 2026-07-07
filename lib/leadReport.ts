@@ -34,11 +34,11 @@ export const isResponded = (d: LeadRow): boolean => !isCold(d) && !isOptout(d)
 export const isFunded = (d: LeadRow): boolean =>
   d.pipeline_group === 'Funded' || FUNDED_STATUSES.has(d.status ?? '')
 
-export type LO = 'All' | 'Matt' | 'Moe'
+export type LO = 'All' | 'Matt' | 'Moe' | 'Randy'
 export function matchesLO(d: LeadRow, lo: LO): boolean {
   if (lo === 'All') return true
   const l = (d.loan_officer ?? '').toLowerCase()
-  return lo === 'Matt' ? l.includes('matt') : l.includes('moe')
+  return lo === 'Matt' ? l.includes('matt') : lo === 'Moe' ? l.includes('moe') : l.includes('randy') || l.includes('mathis')
 }
 
 // loan_purpose buckets in the data: Refinance, Purchase, HELOC (+ ~8% untagged that

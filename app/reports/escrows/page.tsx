@@ -30,7 +30,7 @@ const daysUntil = (iso: string | null | undefined): number | null => {
 const round = (v: number, n: number) => Math.round(v * 10 ** n) / 10 ** n
 
 const STAGE_ORDER = PIPELINE_STATUSES['Loans in Process']
-type LOChoice = 'Moe Sefati' | 'Matt Park' | 'All'
+type LOChoice = 'Moe Sefati' | 'Matt Park' | 'Randy Mathis' | 'All'
 
 type Tone = 'gray' | 'green' | 'amber' | 'red'
 const TONE: Record<Tone, string> = {
@@ -158,7 +158,7 @@ function ReportInner() {
           </Link>
           <span className="w-px h-5 bg-slate-200" />
           <div className="flex bg-slate-100 rounded-lg p-1 gap-0.5">
-            {(['Moe Sefati', 'Matt Park', 'All'] as LOChoice[]).map(opt => (
+            {(['Moe Sefati', 'Matt Park', 'Randy Mathis', 'All'] as LOChoice[]).map(opt => (
               <button
                 key={opt}
                 onClick={() => setLo(opt)}

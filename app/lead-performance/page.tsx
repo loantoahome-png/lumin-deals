@@ -22,7 +22,7 @@ import {
 import { RefreshCw, Download, Target } from 'lucide-react'
 
 const LEAD_COLS = 'id,loan_officer,pipeline_group,status,source,state,lead_price,compensation_amount,loan_purpose,date_added_ghl'
-const LO_TABS: LO[] = ['All', 'Matt', 'Moe']
+const LO_TABS: LO[] = ['All', 'Matt', 'Moe', 'Randy']
 const PURPOSE_TABS: Purpose[] = ['All', 'Purchase', 'Refinance']
 
 const pct = (x: number) => x.toFixed(1) + '%'
@@ -131,7 +131,7 @@ export default function LeadPerformancePage() {
                   className={`px-3 py-1 text-xs font-medium rounded-full transition ${
                     lo === t ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}>
-                  {t === 'All' ? 'Matt + Moe' : t === 'Matt' ? 'Matt Park' : 'Moe Sefati'}
+                  {t === 'All' ? 'All LOs' : t === 'Matt' ? 'Matt Park' : t === 'Moe' ? 'Moe Sefati' : 'Randy Mathis'}
                 </button>
               ))}
             </div>

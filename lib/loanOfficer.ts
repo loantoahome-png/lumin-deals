@@ -11,6 +11,8 @@ const LO_MAP: Record<string, string> = {
   // Matt variants
   'matthew park': 'Matt Park', 'matthew': 'Matt Park', 'matt park': 'Matt Park',
   'matt': 'Matt Park', 'park': 'Matt Park',
+  // Randy variants
+  'randy mathis': 'Randy Mathis', 'randy': 'Randy Mathis', 'mathis': 'Randy Mathis',
 }
 
 export function resolveLO(name: string | null | undefined): string | null {

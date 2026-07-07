@@ -61,6 +61,7 @@ function inRange(d: Deal, start: Date | null, end: Date | null): boolean {
 const LO_COLORS: Record<string, string> = {
   'Matt': '#10b981',
   'Moe Sefati': '#f59e0b',
+  'Randy Mathis': '#8b5cf6',
 }
 
 // Funnel stages in order — leads pipeline → escrow → funded
@@ -206,7 +207,7 @@ export default function ReportsPage() {
     : 0
 
   // ── LO scorecard ──────────────────────────────────────────────────────────
-  const loScorecard = ['Matt', 'Moe Sefati'].map(lo => {
+  const loScorecard = ['Matt', 'Moe Sefati', 'Randy Mathis'].map(lo => {
     const all = filtered.filter(d => d.loan_officer?.includes(lo))
     const funded = all.filter(d => d.pipeline_group === 'Funded')
     const escrow = all.filter(d => d.pipeline_group === 'Loans in Process')
@@ -404,7 +405,7 @@ export default function ReportsPage() {
       </div>
 
       {/* LO scorecard */}
-      <Card title="Loan Officer Scorecard" subtitle="Head-to-head — Matt vs Moe over the selected range">
+      <Card title="Loan Officer Scorecard" subtitle="By loan officer over the selected range">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>

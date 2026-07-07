@@ -761,7 +761,7 @@ function ListView({ deals, onStatusChange, onUpdate, selectedIds, onToggleSelect
                   )}
                   {col('loan_officer') && (
                     <td className="px-4 py-3 whitespace-nowrap min-w-[110px]">
-                      {ic('loan_officer', deal.loan_officer, 'select', ['Matt', 'Moe Sefati'])}
+                      {ic('loan_officer', deal.loan_officer, 'select', ['Matt', 'Moe Sefati', 'Randy Mathis'])}
                     </td>
                   )}
                   {col('loan_type') && (
@@ -1913,7 +1913,7 @@ function PipelinePageInner() {
           <div>
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Loan Officer</p>
             <div className="space-y-1.5">
-              {['Matt', 'Moe Sefati'].map(lo => (
+              {['Matt', 'Moe Sefati', 'Randy Mathis'].map(lo => (
                 <label key={lo} className="flex items-center gap-2.5 cursor-pointer group">
                   <input
                     type="checkbox"
