@@ -1249,6 +1249,30 @@ async function syncAccount(
       }
     }
 
+    // ── Needs-review: surface issues that need a human, persisted for the /duplicates UI ──
+    //   (1) FUNDED loans whose GHL opportunity vanished (kept, never auto-deleted).
+    //   (2) One loan (arive#) carrying 2+ LIVE opps — e.g. a stray "lost" left on a funded
+    //       loan (the won+lost case). /duplicates can't see this (it only compares opp ids).
+    // Additive + wrapped in try/catch — a persist failure never affects the sync.
+    const nrOrphans = locDeals
+      .filter(d => d.pipeline_group === 'Funded' && d.ghl_opportunity_id && !liveOppIds.has(d.ghl_opportunity_id))
+      .map(d => ({ deal_id: d.id, name: d.name, arive_file_no: d.arive_file_no, dead_opp: d.ghl_opportunity_id }))
+    const ariveToLive = new Map<string, { id: string; status: string | null }[]>()
+    for (const o of opportunities) {
+      const aid = ariveLoanIdFromOpp(o, customFieldDefs); const oid = str(o.id)
+      if (!aid || !oid) continue
+      const arr = ariveToLive.get(aid) ?? []; arr.push({ id: oid, status: str(o.status) ?? null }); ariveToLive.set(aid, arr)
+    }
+    const nrMultiLive = [...ariveToLive.entries()].filter(([, opps]) => opps.length > 1).map(([arive_file_no, opps]) => ({ arive_file_no, opps }))
+    try {
+      await supabase.from('sync_state').upsert({
+        key: `needs_review_${label}`,
+        value: { updated_at: new Date().toISOString(), location_id: locationId, funded_orphans: nrOrphans, multi_live_opps: nrMultiLive },
+        updated_at: new Date().toISOString(),
+      })
+      console.log(`[GHL Sync:${label}] Needs-review: ${nrOrphans.length} funded orphan(s), ${nrMultiLive.length} loan(s) with 2+ live opps`)
+    } catch (e) { console.error(`[GHL Sync:${label}] needs_review persist failed:`, e) }
+
     // Apply loan-amount corrections (bounded concurrency).
     if (amountFixes.length > 0) {
       const AMT_CONC = 20

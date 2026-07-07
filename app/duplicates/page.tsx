@@ -180,6 +180,12 @@ const MATCH_LABELS: Record<MatchType, { label: string; icon: React.ReactNode }> 
   amount:          { label: 'Same LO + amount (funded)', icon: <DollarSign className="w-3.5 h-3.5" /> },
 }
 
+type NeedsReview = {
+  updated_at: string | null
+  funded_orphans: { deal_id: string; name: string | null; arive_file_no: string | null; dead_opp: string | null }[]
+  multi_live_opps: { arive_file_no: string; opps: { id: string; status: string | null }[] }[]
+}
+
 export default function DuplicatesPage() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
@@ -192,6 +198,7 @@ export default function DuplicatesPage() {
   const [resultMsg, setResultMsg] = useState<string | null>(null)
   // Signatures the user marked "not a duplicate" — hidden from the list.
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
+  const [needsReview, setNeedsReview] = useState<NeedsReview | null>(null)
 
   async function fetchDeals() {
     setLoading(true)
@@ -202,6 +209,10 @@ export default function DuplicatesPage() {
       const dj = await res.json() as { ok: boolean; signatures?: string[] }
       if (dj.ok && dj.signatures) setDismissed(new Set(dj.signatures))
     } catch { /* non-fatal — just won't hide dismissed groups */ }
+    try {
+      const nr = await fetch('/api/needs-review', { cache: 'no-store' }).then(r => r.json())
+      if (nr && !nr.error) setNeedsReview(nr as NeedsReview)
+    } catch { /* non-fatal — the panel just won't render */ }
     setLoading(false)
   }
   useEffect(() => { fetchDeals() }, [])
@@ -305,6 +316,41 @@ export default function DuplicatesPage() {
       {resultMsg && (
         <div className={`border rounded-lg px-4 py-2.5 text-sm ${resultMsg.startsWith('Error') ? 'bg-red-50 border-red-200 text-red-900' : 'bg-emerald-50 border-emerald-200 text-emerald-900'}`}>
           {resultMsg}
+        </div>
+      )}
+
+      {/* Needs review — GHL-level issues the sync flags (read-only; resolve in GHL) */}
+      {needsReview && (needsReview.funded_orphans.length > 0 || needsReview.multi_live_opps.length > 0) && (
+        <div className="border border-amber-200 bg-amber-50 rounded-xl p-4 space-y-3">
+          <h2 className="text-sm font-bold text-amber-900 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" /> Needs review in GHL
+          </h2>
+          {needsReview.multi_live_opps.length > 0 && (
+            <div className="text-xs text-amber-900">
+              <p className="font-semibold">{needsReview.multi_live_opps.length} loan(s) with 2+ live GHL opportunities — a stray opp (often a &ldquo;lost&rdquo;) is sitting on a funded loan. Delete the stray in GHL:</p>
+              <ul className="mt-1 space-y-0.5 list-disc pl-5">
+                {needsReview.multi_live_opps.map(m => (
+                  <li key={m.arive_file_no}>Arive #{m.arive_file_no} — {m.opps.map(o => o.status ?? '?').join(' + ')}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {needsReview.funded_orphans.length > 0 && (
+            <div className="text-xs text-amber-900">
+              <p className="font-semibold">{needsReview.funded_orphans.length} funded loan(s) whose GHL opportunity vanished (kept, not deleted):</p>
+              <ul className="mt-1 space-y-0.5 list-disc pl-5">
+                {needsReview.funded_orphans.map(o => (
+                  <li key={o.deal_id}>
+                    <Link href={`/deals/${o.deal_id}`} className="underline hover:text-amber-700">{o.name ?? '(no name)'}</Link>
+                    {o.arive_file_no ? ` — Arive #${o.arive_file_no}` : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <p className="text-[11px] text-amber-700">
+            Read-only · from the last sync{needsReview.updated_at ? ` (${new Date(needsReview.updated_at).toLocaleString()})` : ''}. Resolve in GHL; clears on the next sync.
+          </p>
         </div>
       )}
 
