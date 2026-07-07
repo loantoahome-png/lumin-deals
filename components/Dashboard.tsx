@@ -23,19 +23,6 @@ const LO_COLORS: Record<string, string> = {
   'Moe Sefati': '#f59e0b',
 }
 
-// Colors for the 8 sub-stages within Loans in Process — match the kanban
-// accent stripes on the Active Escrows page so the dashboard feels coherent.
-const STAGE_COLORS: Record<string, string> = {
-  'Setup':    '#facc15', // yellow-400
-  'Disclosed':'#f59e0b', // amber-500
-  'UW':       '#f97316', // orange-500
-  'Cond.':    '#84cc16', // lime-500
-  'Re-Sub':   '#ef4444', // red-500
-  'CTC':      '#10b981', // emerald-500
-  'Docs Out': '#14b8a6', // teal-500
-  'Signed':   '#16a34a', // green-600
-}
-
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 // Compact "time since" for the latest next-step log entry.
 function relAgo(iso: string): string {
@@ -262,9 +249,6 @@ export default function Dashboard() {
                 <linearGradient id="barBlue" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#93c5fd" /><stop offset="100%" stopColor="#2563eb" />
                 </linearGradient>
-                <linearGradient id="barRed" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#fca5a5" /><stop offset="100%" stopColor="#ef4444" />
-                </linearGradient>
                 <linearGradient id="barGreen" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#6ee7b7" /><stop offset="100%" stopColor="#10b981" />
                 </linearGradient>
@@ -275,9 +259,7 @@ export default function Dashboard() {
                 <LabelList dataKey="count" position="top" style={{ fontSize: 12, fontWeight: 700, fill: '#0f172a' }} />
                 {stageData.map(entry => (
                   <Cell key={entry.stage} fill={
-                    entry.stage === 'Re-Sub' ? 'url(#barRed)'
-                      : entry.stage === 'Signed' ? 'url(#barGreen)'
-                      : 'url(#barBlue)'
+                    entry.stage === 'Signed' ? 'url(#barGreen)' : 'url(#barBlue)'
                   } />
                 ))}
               </Bar>
