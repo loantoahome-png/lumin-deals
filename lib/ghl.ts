@@ -132,8 +132,11 @@ export async function pushOpportunityStage(args: {
   locationId: string | null
   opportunityId: string | null
   status: string
+  // 'open' (default) keeps the opp active on a stage move; 'lost' archives it
+  // (Hot Leads "Mark Lost" keeps the current stage but flips the opp status).
+  oppStatus?: 'open' | 'lost'
 }): Promise<PushStageResult> {
-  const { locationId, opportunityId, status } = args
+  const { locationId, opportunityId, status, oppStatus = 'open' } = args
 
   if (!locationId)    return { ok: true, pushed: false, reason: 'no_ghl_location_on_deal' }
   if (!opportunityId) return { ok: true, pushed: false, reason: 'no_ghl_opportunity_id' }
@@ -159,9 +162,9 @@ export async function pushOpportunityStage(args: {
       body: JSON.stringify({
         pipelineId: ref.pipelineId,
         pipelineStageId: ref.pipelineStageId,
-        // 'open' keeps the opp active (vs. won/lost which archive it).
-        // Moving stages always means the deal is in progress.
-        status: 'open',
+        // 'open' keeps the opp active (vs. won/lost which archive it); 'lost'
+        // is sent by the Hot Leads "Mark Lost" action to close the lead out.
+        status: oppStatus,
       }),
     })
     if (!res.ok) {

@@ -93,6 +93,17 @@ export default function HotLeadsPage() {
     }
   }
 
+  // Mark a lead Lost: flip the GHL opportunity status to lost — this archives it
+  // in GHL and drops it off Hot Leads (the tab filters out ghl_status='lost').
+  // We keep the current stage and push status=lost to GHL so the next sync keeps
+  // it lost (it also re-groups the deal to "Not Ready") instead of reverting to open.
+  async function handleMarkLost(id: string, currentStatus: string) {
+    setDeals(prev => prev.filter(d => d.id !== id))   // optimistic — leaves the view immediately
+    const { error } = await supabase.from('deals').update({ ghl_status: 'lost' }).eq('id', id)
+    if (error) { console.error('Mark lost failed:', error); return }
+    void pushStageToGHL(id, currentStatus, 'lost')
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -165,7 +176,7 @@ export default function HotLeadsPage() {
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto">
-          <HotLeadsTracker deals={filtered} onUpdate={handleUpdate} />
+          <HotLeadsTracker deals={filtered} onUpdate={handleUpdate} onMarkLost={handleMarkLost} />
         </div>
       )}
     </div>

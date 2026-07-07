@@ -23,12 +23,13 @@ export type PushStageResult = {
 export async function pushStageToGHL(
   dealId: string,
   status: string,
+  oppStatus?: 'open' | 'lost',
 ): Promise<PushStageResult> {
   try {
     const res = await fetch(`/api/deals/${dealId}/push-stage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, oppStatus }),
     })
     const data: PushStageResult = await res.json().catch(() => ({ ok: false, error: 'bad_json' }))
 

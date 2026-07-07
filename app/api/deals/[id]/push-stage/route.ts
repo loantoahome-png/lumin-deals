@@ -17,7 +17,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params
-  let body: { status?: string } = {}
+  let body: { status?: string; oppStatus?: 'open' | 'lost' } = {}
   try { body = await req.json() } catch { /* allow empty body — will 400 below */ }
 
   if (!id || !body.status) {
@@ -49,6 +49,7 @@ export async function POST(
     locationId:    deal.ghl_location_id as string | null,
     opportunityId,
     status:        body.status,
+    oppStatus:     body.oppStatus,
   })
 
   // 200 for success or intentional skip, 502 for actual GHL/lookup failures.

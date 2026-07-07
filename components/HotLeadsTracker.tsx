@@ -194,6 +194,7 @@ const OTHER_SECTIONS: OtherSection[] = [
 type Props = {
   deals: Deal[]
   onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>
+  onMarkLost: (id: string, currentStatus: string) => Promise<void>
 }
 
 // Purchased lead vendors (we pay per lead). Everything else — Self Source,
@@ -203,7 +204,7 @@ function isPaidLead(d: Deal): boolean {
   return PAID_SOURCES.has((d.source ?? '').trim())
 }
 
-export default function HotLeadsTracker({ deals, onUpdate }: Props) {
+export default function HotLeadsTracker({ deals, onUpdate, onMarkLost }: Props) {
   const [search, setSearch] = useState('')
   const [riskFilter, setRiskFilter] = useState<'all' | 'waiting' | 'cold'>('all')
   const [sourceFilter, setSourceFilter] = useState<'all' | 'paid' | 'self'>('all')
@@ -365,21 +366,22 @@ export default function HotLeadsTracker({ deals, onUpdate }: Props) {
         <div className="overflow-x-auto pb-2 -mx-4 px-4">
           <div className="flex gap-3 min-w-max">
             {BUCKETS.map(b => (
-              <BucketColumn key={b.key} bucket={b} deals={byBucket[b.key]} onUpdate={onUpdate} />
+              <BucketColumn key={b.key} bucket={b} deals={byBucket[b.key]} onUpdate={onUpdate} onMarkLost={onMarkLost} />
             ))}
           </div>
         </div>
       ) : (
-        <HotLeadList deals={sortedFlat} onUpdate={onUpdate} />
+        <HotLeadList deals={sortedFlat} onUpdate={onUpdate} onMarkLost={onMarkLost} />
       )}
     </div>
   )
 }
 
 // ── List view ───────────────────────────────────────────────────────────────
-function HotLeadList({ deals, onUpdate }: {
+function HotLeadList({ deals, onUpdate, onMarkLost }: {
   deals: Deal[]
   onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>
+  onMarkLost: (id: string, currentStatus: string) => Promise<void>
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkStatus, setBulkStatus] = useState('')
@@ -477,7 +479,7 @@ function HotLeadList({ deals, onUpdate }: {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {deals.map(d => (
-              <HotLeadRow key={d.id} deal={d} onUpdate={onUpdate} selected={selected.has(d.id)} onToggle={() => toggleOne(d.id)} />
+              <HotLeadRow key={d.id} deal={d} onUpdate={onUpdate} onMarkLost={onMarkLost} selected={selected.has(d.id)} onToggle={() => toggleOne(d.id)} />
             ))}
           </tbody>
         </table>
@@ -486,9 +488,10 @@ function HotLeadList({ deals, onUpdate }: {
   )
 }
 
-function HotLeadRow({ deal, onUpdate, selected, onToggle }: {
+function HotLeadRow({ deal, onUpdate, onMarkLost, selected, onToggle }: {
   deal: Deal
   onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>
+  onMarkLost: (id: string, currentStatus: string) => Promise<void>
   selected: boolean
   onToggle: () => void
 }) {
@@ -560,16 +563,26 @@ function HotLeadRow({ deal, onUpdate, selected, onToggle }: {
       </td>
       <td className="px-3 py-2.5">
         <div className="flex items-center justify-center gap-1">
-          {forwardButtons.map(opt => (
+          {stage === 'App Intake' ? (
             <button
-              key={opt.status}
-              onClick={() => advanceTo(opt.status, opt.group)}
-              className={`text-[10px] font-medium px-1.5 py-1 rounded transition-colors whitespace-nowrap ${opt.color}`}
-              title={opt.title}
+              onClick={() => { if (confirm(`Mark ${deal.name} as Lost? This archives the opportunity in GHL and removes it from Hot Leads.`)) onMarkLost(deal.id, deal.status) }}
+              className="text-[10px] font-semibold px-2 py-1 rounded transition-colors whitespace-nowrap bg-red-100 hover:bg-red-200 text-red-800 border border-red-200"
+              title="Mark this opportunity Lost in GHL and remove it from Hot Leads"
             >
-              {opt.label}
+              Mark Lost
             </button>
-          ))}
+          ) : (
+            forwardButtons.map(opt => (
+              <button
+                key={opt.status}
+                onClick={() => advanceTo(opt.status, opt.group)}
+                className={`text-[10px] font-medium px-1.5 py-1 rounded transition-colors whitespace-nowrap ${opt.color}`}
+                title={opt.title}
+              >
+                {opt.label}
+              </button>
+            ))
+          )}
         </div>
       </td>
     </tr>
@@ -601,10 +614,11 @@ function FilterChip({ active, onClick, color = 'slate', children }: {
   )
 }
 
-function BucketColumn({ bucket, deals, onUpdate }: {
+function BucketColumn({ bucket, deals, onUpdate, onMarkLost }: {
   bucket: Bucket
   deals: Deal[]
   onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>
+  onMarkLost: (id: string, currentStatus: string) => Promise<void>
 }) {
   const totalVolume = deals.reduce((s, d) => s + (d.loan_amount || 0), 0)
   return (
@@ -633,7 +647,7 @@ function BucketColumn({ bucket, deals, onUpdate }: {
           <p className="text-center text-[11px] italic py-6 text-slate-400">No leads here</p>
         ) : (
           deals.map(d => (
-            <HotLeadCard key={d.id} deal={d} bucket={bucket} onUpdate={onUpdate} />
+            <HotLeadCard key={d.id} deal={d} bucket={bucket} onUpdate={onUpdate} onMarkLost={onMarkLost} />
           ))
         )}
       </div>
@@ -641,10 +655,11 @@ function BucketColumn({ bucket, deals, onUpdate }: {
   )
 }
 
-function HotLeadCard({ deal, bucket, onUpdate }: {
+function HotLeadCard({ deal, bucket, onUpdate, onMarkLost }: {
   deal: Deal
   bucket: Bucket
   onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>
+  onMarkLost: (id: string, currentStatus: string) => Promise<void>
 }) {
   const [nextStep, setNextStep]         = useState(deal.next_action || '')
   const [followUpDate, setFollowUpDate] = useState(deal.next_action_due ? deal.next_action_due.slice(0, 10) : '')
@@ -823,19 +838,31 @@ function HotLeadCard({ deal, bucket, onUpdate }: {
 
       {/* Quick-advance buttons (stage-aware) */}
       <div className="px-4 py-2.5 border-t border-slate-100 bg-slate-50/50">
-        <p className="text-slate-400 uppercase tracking-wider text-[9px] font-semibold mb-1.5">Move to →</p>
-        <div className="grid grid-cols-3 gap-1.5">
-          {forwardButtons.map(opt => (
-            <button
-              key={opt.status}
-              onClick={() => advanceTo(opt.status, opt.group)}
-              className={`text-[11px] font-medium px-2 py-1.5 rounded transition-colors text-center ${opt.color}`}
-              title={opt.title}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
+        <p className="text-slate-400 uppercase tracking-wider text-[9px] font-semibold mb-1.5">
+          {stage === 'App Intake' ? 'Close out →' : 'Move to →'}
+        </p>
+        {stage === 'App Intake' ? (
+          <button
+            onClick={() => { if (confirm(`Mark ${deal.name} as Lost? This archives the opportunity in GHL and removes it from Hot Leads.`)) onMarkLost(deal.id, deal.status) }}
+            className="w-full text-[11px] font-semibold px-2 py-1.5 rounded transition-colors text-center bg-red-100 hover:bg-red-200 text-red-800 border border-red-200"
+            title="Mark this opportunity Lost in GHL and remove it from Hot Leads"
+          >
+            Mark Lost
+          </button>
+        ) : (
+          <div className="grid grid-cols-3 gap-1.5">
+            {forwardButtons.map(opt => (
+              <button
+                key={opt.status}
+                onClick={() => advanceTo(opt.status, opt.group)}
+                className={`text-[11px] font-medium px-2 py-1.5 rounded transition-colors text-center ${opt.color}`}
+                title={opt.title}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="relative mt-1">
           <button
             onClick={() => setShowMore(v => !v)}
