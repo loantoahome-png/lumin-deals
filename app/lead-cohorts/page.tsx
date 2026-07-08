@@ -44,6 +44,11 @@ const hoursFmt = (h: number | null) => {
 }
 const ptsFmt = (x: number | null) => (x == null ? '—' : `${x >= 0 ? '+' : ''}${x.toFixed(1)} pts`)
 const cntDelta = (x: number) => `${x >= 0 ? '+' : ''}${x}`
+// Compact header date range, e.g. "6/22–6/26" (year dropped — it's implied).
+const shortRange = (s: string, e: string) => {
+  const md = (d: string) => { const p = d.split('-'); return `${+p[1]}/${+p[2]}` }
+  return `${md(s)}–${md(e)}`
+}
 
 // ── delta arrow ─────────────────────────────────────────────────────────────
 function Delta({ value, higherIsBetter = true, fmt, neutral = false }: { value: number | null; higherIsBetter?: boolean; fmt: (x: number | null) => string; neutral?: boolean }) {
@@ -65,12 +70,12 @@ function Delta({ value, higherIsBetter = true, fmt, neutral = false }: { value: 
 function Row({ label, a, b, delta, hint }: { label: string; a: React.ReactNode; b: React.ReactNode; delta?: React.ReactNode; hint?: string }) {
   return (
     <tr className="border-t border-slate-100">
-      <td className="py-2.5 pr-3 text-sm text-slate-600">
-        {label}{hint && <span className="block text-[11px] text-slate-400">{hint}</span>}
+      <td className="py-2.5 pl-4 pr-3 text-sm text-slate-600">
+        {label}{hint && <span className="block text-[11px] text-slate-400 mt-0.5">{hint}</span>}
       </td>
-      <td className="py-2.5 px-3 text-right tabular-nums font-semibold text-slate-900">{a}</td>
-      <td className="py-2.5 px-3 text-right tabular-nums font-semibold text-slate-900">{b}</td>
-      <td className="py-2.5 pl-3 text-right">{delta ?? null}</td>
+      <td className="py-2.5 px-4 text-right tabular-nums font-semibold text-slate-900 whitespace-nowrap">{a}</td>
+      <td className="py-2.5 px-4 text-right tabular-nums font-semibold text-slate-900 whitespace-nowrap">{b}</td>
+      <td className="py-2.5 pl-4 pr-4 text-right whitespace-nowrap">{delta ?? null}</td>
     </tr>
   )
 }
@@ -185,19 +190,19 @@ export default function LeadCohortsPage() {
       ) : (
         <>
           {/* Headline scorecard */}
-          <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto mb-2">
-            <table className="w-full min-w-[560px]">
+          <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto mb-2 max-w-4xl">
+            <table className="w-full min-w-[520px]">
               <thead>
                 <tr className="text-[11px] uppercase tracking-wider text-slate-400">
-                  <th className="text-left font-semibold py-2.5 pr-3 pl-4">Metric</th>
-                  <th className="text-right font-semibold py-2.5 px-3">Cohort A<span className="block normal-case text-slate-400 font-normal">{aStart} → {aEnd} · n={sa.total}</span></th>
-                  <th className="text-right font-semibold py-2.5 px-3">Cohort B<span className="block normal-case text-indigo-400 font-normal">{bStart} → {bEnd} · n={sb.total}</span></th>
-                  <th className="text-right font-semibold py-2.5 pl-3 pr-4">Δ B−A</th>
+                  <th className="text-left font-semibold py-2.5 pl-4 pr-3">Metric</th>
+                  <th className="text-right font-semibold py-2.5 px-4">Cohort A<span className="block normal-case text-slate-400 font-normal mt-0.5">{shortRange(aStart, aEnd)} · n={sa.total}</span></th>
+                  <th className="text-right font-semibold py-2.5 px-4">Cohort B<span className="block normal-case text-indigo-500 font-normal mt-0.5">{shortRange(bStart, bEnd)} · n={sb.total}</span></th>
+                  <th className="text-right font-semibold py-2.5 pl-4 pr-4">Δ B−A</th>
                 </tr>
               </thead>
               <tbody>
                 <tr><td colSpan={4} className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">As of today</td></tr>
-                <Row label="Total leads" a={numFmt(sa.total)} b={numFmt(sb.total)} delta={<Delta value={d.total} fmt={v => cntDelta(v!)} />} />
+                <Row label="Total leads" a={numFmt(sa.total)} b={numFmt(sb.total)} delta={<Delta value={d.total} neutral fmt={v => cntDelta(v!)} />} />
                 <Row label="Responded" hint="engaged at least once — Ghosted counts"
                   a={`${sa.respondedNow} · ${pctFmt(sa.respondedNowPct)}`} b={`${sb.respondedNow} · ${pctFmt(sb.respondedNowPct)}`}
                   delta={<Delta value={d.respondedNowPct} fmt={ptsFmt} />} />
@@ -218,7 +223,7 @@ export default function LeadCohortsPage() {
               </tbody>
             </table>
           </div>
-          <p className="text-[11px] text-slate-400 mb-6 px-1">
+          <p className="text-[11px] text-slate-400 mb-6 px-4 max-w-4xl leading-relaxed">
             <b className="font-semibold text-slate-500">Opted out / DND</b> spans all channels (email · call · SMS…). Its A↔B delta is muted — per-channel opt-out data is still syncing on newer leads, so each cohort&apos;s % is solid but the gap isn&apos;t comparable yet.
           </p>
 
