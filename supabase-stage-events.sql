@@ -66,6 +66,9 @@ CREATE INDEX IF NOT EXISTS stage_events_event_at_idx ON stage_events(event_at DE
 CREATE UNIQUE INDEX IF NOT EXISTS stage_events_backfill_uniq
   ON stage_events(opportunity_id) WHERE source = 'backfill_comm';
 
--- Internal app, all users are trusted team members — mirror the deals table.
--- (Reads/writes go through the service-role client anyway, which bypasses RLS.)
-ALTER TABLE stage_events DISABLE ROW LEVEL SECURITY;
+-- RLS ON with NO policies. Unlike `deals` (which the browser reads directly with the
+-- anon key), stage_events is touched ONLY by the server via the service-role client
+-- (webhook writer + first-responded/backfill readers), which bypasses RLS. So enabling
+-- RLS blocks public/anon access to the event log (contact/opportunity IDs + timing)
+-- without breaking anything. Do NOT add anon/authenticated policies — server-only.
+ALTER TABLE stage_events ENABLE ROW LEVEL SECURITY;
