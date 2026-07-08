@@ -165,7 +165,7 @@ export type DealTask = {
 }
 
 export const TASK_ASSIGNEES = [
-  'Matt Park', 'Moe Sefati', 'Randy Mathis', 'Efrain Ramirez', 'Brianne Han',
+  'Matt Park', 'Moe Sefati', 'Efrain Ramirez', 'Brianne Han',
 ] as const
 
 // ── Document checklist ──────────────────────────────────────────────────────
@@ -297,7 +297,7 @@ export const PIPELINE_GROUPS = [
 // Park" (711 deals); a short "Matt" option matches nothing, so every LO <select> across
 // the app (deal detail, pipeline, deals, hot-leads, FundedTracker, DealForm) renders
 // blank on Matt's deals. Keep these in lockstep with the resolveLO map.
-export const LOAN_OFFICERS = ['Matt Park', 'Moe Sefati', 'Randy Mathis'] as const
+export const LOAN_OFFICERS = ['Matt Park', 'Moe Sefati'] as const
 
 // Processor options (stored on `processor_status`). Surfaced in the Active Escrows
 // card, the deal detail panel, the new-deal form, and the pipeline table.

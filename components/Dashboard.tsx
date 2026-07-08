@@ -21,7 +21,6 @@ import Link from 'next/link'
 const LO_COLORS: Record<string, string> = {
   'Matt': '#10b981',
   'Moe Sefati': '#f59e0b',
-  'Randy Mathis': '#8b5cf6',
 }
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
@@ -101,7 +100,7 @@ export default function Dashboard() {
   })
 
   // LO Performance: scoped to escrow deals only
-  const loData = ['Matt', 'Moe Sefati', 'Randy Mathis'].map(lo => {
+  const loData = ['Matt', 'Moe Sefati'].map(lo => {
     const loDeals = escrowDeals.filter(d => d.loan_officer?.includes(lo))
     return { name: lo, loanVolume: loDeals.reduce((s, d) => s + (d.loan_amount || 0), 0), deals: loDeals.length }
   })

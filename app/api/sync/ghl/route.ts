@@ -841,7 +841,7 @@ async function syncAccount(
         // Resolve the LO from the assigned GHL user. If nobody is assigned in
         // GHL, fall back to the sub-account owner (each LO has their own
         // location): Matt's account → Matt Park, Moe's (primary) → Moe Sefati.
-        const loFromAccount = label === 'matt' ? 'Matt Park' : label === 'primary' ? 'Moe Sefati' : label === 'extra' ? 'Randy Mathis' : null
+        const loFromAccount = label === 'matt' ? 'Matt Park' : label === 'primary' ? 'Moe Sefati' : null
         const loanOfficer = resolveLO(assignedName) || loFromAccount
         if (!loanOfficer && assignedToId) {
           console.log(`[GHL Sync:${label}] No LO resolved for assignedTo="${assignedToId}" name="${assignedName}" contact="${contactId}"`)

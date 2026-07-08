@@ -13,7 +13,6 @@ export const dynamic = 'force-dynamic'
 const ACCOUNT_LO: Record<string, string> = {
   primary: 'Moe Sefati',
   matt: 'Matt Park',
-  extra: 'Randy Mathis',
 }
 
 function channelLabel(type: string | null | undefined): string {
