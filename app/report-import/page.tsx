@@ -9,8 +9,8 @@
 
 import { useState, useMemo, useEffect, useRef } from 'react'
 import {
-  segment, groupBy, isPurchased, sourceKey, stateKey, rrBand,
-  PURCHASED_SOURCES, COLD_STATUSES, OPTOUT_STATUSES,
+  segment, groupBy, isPurchased, isInEscrow, isFunded, sourceKey, stateKey, rrBand,
+  PURCHASED_SOURCES, COLD_STATUSES, OPTOUT_STATUSES, ESCROW_UW_STATUSES,
   type LeadRow, type Segment, type GroupRow,
 } from '@/lib/leadReport'
 import { formatCurrency } from '@/lib/utils'
@@ -79,6 +79,7 @@ export default function ReportImportPage() {
   const [mapping, setMapping] = useState<Mapping>(emptyMapping())
   const [generated, setGenerated] = useState(false)
   const [cohort, setCohort] = useState<'all' | 'purchased'>('all')
+  const [assumedComp, setAssumedComp] = useState('')   // hypothetical comp/deal ('' = use avg)
   const [error, setError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -149,11 +150,31 @@ export default function ReportImportPage() {
   const byState = useMemo<GroupRow[]>(() => groupBy(cohortRows, stateKey).slice(0, 12), [cohortRows])
   const purchasedSet = useMemo(() => new Set(PURCHASED_SOURCES.map(s => s.toLowerCase())), [])
 
+  // ── Escrow pipeline (Submitted to UW & later) + hypothetical funding ──────────
+  const escrowRows = useMemo(() => cohortRows.filter(isInEscrow), [cohortRows])
+  const escrowSpend = useMemo(() => escrowRows.reduce((s, r) => s + (r.lead_price ?? 0), 0), [escrowRows])
+  const escrowBySource = useMemo(
+    () => groupBy(escrowRows, sourceKey).map(g => ({ key: g.key, n: g.n, spend: g.spend })),
+    [escrowRows],
+  )
+  // Default assumed comp/deal = avg comp of funded deals in the current view.
+  const avgFundedComp = useMemo(() => {
+    const f = cohortRows.filter(d => isFunded(d) && (d.compensation_amount ?? 0) > 0)
+    return f.length ? Math.round(f.reduce((s, d) => s + (d.compensation_amount ?? 0), 0) / f.length) : 0
+  }, [cohortRows])
+  const effectiveComp = assumedComp.trim() !== '' ? (parseMoney(assumedComp) ?? 0) : avgFundedComp
+  const projRevenue = overall.revenue + effectiveComp * escrowRows.length
+  const projFunded = overall.funded + escrowRows.length
+  const projRoi = overall.spend > 0 ? projRevenue / overall.spend : null
+
   function exportCsv() {
     const esc = (v: unknown) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
     const head = ['Source', 'Leads', 'Response %', 'Cold %', 'Opt-out %', 'Funded', 'Funded %', 'Lead Spend', 'Revenue', 'ROI ×']
     const line = (label: string, s: Segment) => [label, s.n, s.rr.toFixed(1), s.crate.toFixed(1), s.orate.toFixed(1), s.funded, s.fr.toFixed(1), s.spend.toFixed(0), s.revenue.toFixed(0), s.roi == null ? '' : s.roi.toFixed(2)].map(esc).join(',')
     const rows = ['﻿' + head.join(','), line('ALL (' + cohort + ')', overall), ...bySource.map(g => line(g.key, g))]
+    rows.push('')
+    rows.push(['In escrow (Submitted to UW+)', escrowRows.length, '', '', '', '', '', escrowSpend.toFixed(0), '', ''].map(esc).join(','))
+    rows.push([`Projected if escrow funds @ ${effectiveComp}/deal`, overall.n, '', '', '', projFunded, '', overall.spend.toFixed(0), projRevenue.toFixed(0), projRoi == null ? '' : projRoi.toFixed(2)].map(esc).join(','))
     const blob = new Blob([rows.join('\r\n')], { type: 'text/csv' })
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
     a.download = `lead-report-${fileName.replace(/\.csv$/i, '') || 'import'}.csv`; a.click()
@@ -258,12 +279,74 @@ export default function ReportImportPage() {
             {/* By state */}
             {byState.length > 1 && <SegmentTable title={`By state (${cohort})`} rows={byState} />}
 
+            {/* ── In escrow (Submitted to UW & later) ─────────────────────────── */}
+            <div className="bg-white border border-slate-200 rounded-xl p-5">
+              <h2 className="font-semibold text-slate-800">In escrow — Submitted to UW &amp; later</h2>
+              <p className="text-xs text-slate-500 mt-0.5">Leads that reached underwriting and haven&apos;t funded yet.</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+                <Kpi label="In escrow" value={escrowRows.length.toLocaleString()} />
+                <Kpi label="Lead spend on them" value={escrowSpend > 0 ? formatCurrency(escrowSpend) : '—'} />
+                <Kpi label="% of leads" value={`${((escrowRows.length / (overall.n || 1)) * 100).toFixed(1)}%`} />
+                <Kpi label="Avg funded comp" value={avgFundedComp > 0 ? formatCurrency(avgFundedComp) : '—'} />
+              </div>
+              {escrowBySource.length > 0 ? (
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-100">
+                      <tr><th className="text-left py-2">Source</th><th className="text-right py-2">In escrow</th><th className="text-right py-2">Lead spend</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {escrowBySource.map(g => (
+                        <tr key={g.key}>
+                          <td className="py-2 text-slate-800">{purchasedSet.has(g.key.toLowerCase()) && <span className="text-amber-500 mr-1" title="Purchased vendor">★</span>}{g.key}</td>
+                          <td className="py-2 text-right tabular-nums text-slate-700">{g.n}</td>
+                          <td className="py-2 text-right tabular-nums text-slate-700">{g.spend > 0 ? formatCurrency(g.spend) : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400 mt-2">No in-escrow leads detected in this file. Recognized stages: {[...ESCROW_UW_STATUSES].join(', ')}.</p>
+              )}
+            </div>
+
+            {/* ── Hypothetical: if the in-escrow deals fund ───────────────────── */}
+            <div className="bg-white border border-violet-200 rounded-xl p-5">
+              <h2 className="font-semibold text-slate-800">If the in-escrow deals fund — projection</h2>
+              <div className="flex items-center gap-2 flex-wrap mt-2">
+                <label className="text-xs font-semibold text-slate-600">Assumed comp per funded deal</label>
+                <div className="relative">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
+                  <input
+                    value={assumedComp}
+                    onChange={e => setAssumedComp(e.target.value)}
+                    placeholder={avgFundedComp > 0 ? avgFundedComp.toLocaleString() : 'e.g. 4500'}
+                    inputMode="decimal"
+                    className="w-32 text-sm border border-slate-200 rounded-lg pl-6 pr-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+                <span className="text-xs text-slate-400">
+                  {avgFundedComp > 0 ? `default = avg funded comp (${formatCurrency(avgFundedComp)})` : 'enter an expected comp per deal'}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mt-4">
+                <CompareTile label="Funded" current={overall.funded.toLocaleString()} projected={projFunded.toLocaleString()} up={projFunded > overall.funded} />
+                <CompareTile label="Revenue" current={overall.revenue > 0 ? formatCurrency(overall.revenue) : '$0'} projected={formatCurrency(projRevenue)} up={projRevenue > overall.revenue} />
+                <CompareTile label="ROI" current={overall.roi == null ? '—' : `${overall.roi.toFixed(2)}×`} projected={projRoi == null ? '—' : `${projRoi.toFixed(2)}×`} up={projRoi != null && (overall.roi == null || projRoi > overall.roi)} />
+              </div>
+              <p className="text-[11px] text-slate-400 mt-3">
+                Assumes all {escrowRows.length} in-escrow {escrowRows.length === 1 ? 'deal funds' : 'deals fund'} at {formatCurrency(effectiveComp)} comp each. Spend is unchanged (leads already bought) — projected revenue = current + {escrowRows.length} × assumed comp; projected ROI = projected revenue ÷ spend.
+              </p>
+            </div>
+
             <p className="text-[11px] text-slate-400 flex items-start gap-1.5">
               <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
               <span>
                 Metrics match the Lead Performance report. <b>Spend/Revenue/ROI</b> use only rows with a lead price &gt; 0 (so both cover the same cohort).
                 <b> Responded</b> = anything not in a no-response status ({[...COLD_STATUSES].join(', ')}) or opt-out ({[...OPTOUT_STATUSES].join(', ')}).
                 <b> Purchased</b> sources: {PURCHASED_SOURCES.join(', ')}. Funded is detected from standard funded statuses or a Pipeline Group of &quot;Funded&quot;.
+                <b> In escrow</b> = reached Submitted to UW or later (not yet funded).
               </span>
             </p>
           </>
@@ -279,6 +362,20 @@ function Kpi({ label, value, tone }: { label: string; value: string; tone?: 'goo
     <div className="bg-white border border-slate-200 rounded-xl p-3.5">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
       <p className={`text-xl font-bold mt-1 tabular-nums ${c}`}>{value}</p>
+    </div>
+  )
+}
+
+function CompareTile({ label, current, projected, up }: { label: string; current: string; projected: string; up?: boolean }) {
+  return (
+    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+      <div className="flex items-baseline gap-2 mt-1 flex-wrap">
+        <span className="text-sm text-slate-500 tabular-nums">{current}</span>
+        <span className="text-slate-300">→</span>
+        <span className={`text-xl font-bold tabular-nums ${up ? 'text-emerald-600' : 'text-slate-800'}`}>{projected}</span>
+      </div>
+      <p className="text-[10px] text-slate-400 mt-0.5">current → projected</p>
     </div>
   )
 }

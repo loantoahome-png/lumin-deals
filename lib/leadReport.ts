@@ -34,6 +34,15 @@ export const isResponded = (d: LeadRow): boolean => !isCold(d) && !isOptout(d)
 export const isFunded = (d: LeadRow): boolean =>
   d.pipeline_group === 'Funded' || FUNDED_STATUSES.has(d.status ?? '')
 
+// In escrow: reached "Submitted to UW" or a later underwriting/closing stage but
+// hasn't funded yet. Used for the escrow-pipeline + hypothetical-funding sections.
+export const ESCROW_UW_STATUSES = new Set([
+  'Submitted to UW', 'Approved w/ Conditions', 'Re-Submittal',
+  'Clear to Close', 'Docs Out', 'Docs Signed',
+])
+export const isInEscrow = (d: LeadRow): boolean =>
+  !isFunded(d) && ESCROW_UW_STATUSES.has(d.status ?? '')
+
 export type LO = 'All' | 'Matt' | 'Moe'
 export function matchesLO(d: LeadRow, lo: LO): boolean {
   if (lo === 'All') return true
