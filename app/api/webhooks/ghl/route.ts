@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { createHmac } from 'crypto'
 import { findExistingDeal } from '@/lib/dealMatcher'
-import { titleCase } from '@/lib/utils'
+import { titleCase, cleanSource } from '@/lib/utils'
 import { resolveLO } from '@/lib/loanOfficer'
 import { logStageEvent } from '@/lib/stageEvents'
 
@@ -261,7 +261,12 @@ function extractFields(body: Record<string, unknown>) {
     propertyFound, loanTimeframe, hasAcceptedOffer,
     city, state, zip, ghlTags, ghlAssignedUser, loanOfficer,
     contactSource, campaign, leadSourceAgg, dateAddedGHL,
-    source: contactSource || pick(contact, 'source') || 'GHL',
+    // Guard the LOS name out of `source`: Arive writes its own name into GHL's
+    // native `source` attribute once a loan syncs back, which would clobber the
+    // real vendor (LMB/OwnUp/…). cleanSource() nulls "Arive"/"unknown" — same
+    // guard the 3-min sync (route.ts) and Arive CSV import already enforce. Never
+    // default to the literal 'GHL'; fall back to 'Self Source' like the sync does.
+    source: cleanSource(contactSource || pick(contact, 'source')) || 'Self Source',
   }
 }
 
@@ -478,7 +483,9 @@ export async function POST(req: NextRequest) {
       maybeSet('state',             fields.state)
       maybeSet('zip',               fields.zip)
       maybeSet('lead_source_agg',   fields.leadSourceAgg)
-      maybeSet('source',            fields.contactSource)
+      // cleanSource() → null for "Arive"/"unknown", and maybeSet skips nulls, so a
+      // drifted webhook can never re-stamp the LOS name over a real vendor source.
+      maybeSet('source',            cleanSource(fields.contactSource))
       maybeSet('dnd',               fields.dnd)
       maybeSet('dnd_settings',      fields.dndSettings)
 

@@ -93,3 +93,22 @@ was never the culprit — it already keys by opportunity id.
 demoting it; the sync never clears `funded_date`) — corrupted rows need a manual correction.
 **Project:** lumin-deals
 **Date:** 2026-06-24
+
+### "Arive" (the LOS) showing as a lead source in reports — one of THREE `source` writers bypassed the guard
+**Tried:** After `cleanSource` (sync) + `isRealLeadSource` (Arive CSV) were both added to reject "Arive",
+purchased leads STILL showed `source="Arive"` in `/lead-cohorts` + `/lead-performance`. A prior memory said
+the overwrite lived in `lib/ariveCsv.ts`, so that's where I'd have looked.
+**Failed because:** `ariveCsv.ts` was already guarded. The leak was the **GHL webhook**
+(`app/api/webhooks/ghl/route.ts`), the THIRD writer of `deals.source`, writing it RAW —
+`maybeSet('source', fields.contactSource)` (:481) and an insert default of `|| 'GHL'` (:264), no `cleanSource`.
+Arive stamps its own name into GHL's **native `source` attribute** on sync-back; the webhook fell through to
+it. And the sync's update path never overwrites an existing source with null (to protect manual categories),
+so once written the bad value **froze** — the sync could never self-heal it.
+**What works:** guard EVERY writer identically — wrapped the webhook's source writes in `cleanSource()` too
+(nulls "Arive" → `maybeSet` skips → the existing real vendor is preserved). The true vendor was NOT lost: it
+lives in the GHL contact **"Lead Source" custom field** (not the native `source`), so a one-time service-role
+backfill re-attributed 16/17. Lesson: when guarding a derived column, grep for EVERY writer
+(`grep -rn "source:" app/api lib`) before trusting a "the bug is in file X" note — a single unguarded path
+silently poisons the whole column.
+**Project:** lumin-deals
+**Date:** 2026-07-08
