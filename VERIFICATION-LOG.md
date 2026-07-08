@@ -14,7 +14,17 @@
 - NEW `app/lead-cohorts/page.tsx` — side-by-side cohort scorecard with green/red deltas, 7/14-day window cards (show eligible denom + maturity coverage, "not enough maturity to compare" at 0 eligible), three-state honesty strip, breakdown table + recharts bar chart, LO + two-date-range filters. `components/Sidebar.tsx` — Insights nav link.
 - NEW `scripts/cohort-report-check.ts` — 49 fixture assertions.
 **Test Method:** `npx tsx scripts/cohort-report-check.ts` → 49/49 (covers: Ghosted-counts, three states, 7d≠14d denominators, too-young excluded, state#2 never a no, zero-eligible→null "can't compare", TTR median/avg, conversion, breakdown sums back to totals, delta null-propagation). `npx tsc --noEmit` → 7 baseline / 0 new. `npm run build` → READY.
-**Result:** Logic VERIFIED via fixtures + type-clean build. Live data verification pending the authed deploy. **Blocked on 2 Efrain steps before deploy activates fully:** (1) run `supabase-stage-events.sql` in Supabase; (2) confirm GHL "opportunity stage changed" webhook subscription points at `/api/webhooks/ghl`. Window timing is forward-only — real numbers accrue only for cohorts created after the log goes live (~1–2 weeks to populate); as-of-today totals + breakdowns work immediately.
+**Result:** Logic VERIFIED via fixtures + type-clean build. As-of-today totals + breakdowns work immediately; window timing is populated by the conversation-history backfill below (NOT forward-only after all).
+
+**Follow-up (2026-07-08, same session) — timing backfilled from GHL conversation history (Efrain corrected "forward-only"):**
+GHL retains full per-contact message/call history, so the EARLIEST INBOUND communication = a historical first-response timestamp. Verified the API surface against the existing `app/api/ghl/thread` + `app/api/sync/conversations` routes: `GET /conversations/search` → `GET /conversations/{id}/messages` (Version 2021-04-15), each message carries `direction` (inbound=borrower), `dateAdded`, `messageType` (incl. CALL). `deals.ghl_location_id` → `resolveApiKey` gives the right Moe/Matt token per deal.
+- `supabase-stage-events.sql` — added `source` col ('webhook' | 'backfill_comm') + partial unique index (idempotent backfill). **Migration not yet run — safe to amend; re-copy the file.**
+- NEW `lib/ghlConversations.ts` — `earliestInboundAt` (pure) + `fetchFirstInbound` (pages newest→oldest, 429 backoff, samples raw call payloads).
+- NEW `app/api/stage-events/backfill/route.ts` — GET, middleware-gated; scoped by `from`/`to` (date_added_ghl); **dry-run unless `run=1`**; concurrency 5; upserts one `backfill_comm` stage_events row per opp. `first-responded` already MINs across sources, so backfilled + live merge automatically.
+- `lib/stageEvents.ts` — `source` field. Report banner + state-2 label reworded (comm-based, not forward-only).
+- NEW `scripts/ghl-conversations-check.ts` — 8 fixture assertions.
+**CAVEAT (flagged to Efrain):** captures inbound reliably (incl. inbound calls); a lead who ONLY answered an outbound LO call is logged outbound and is NOT counted. The backfill sample-logs raw call payloads (`callSamples` in the response) so we can verify GHL's call fields before crediting answered-outbound calls.
+**Test:** cohort 49/49 + conversations 8/8; `tsc` 7-baseline / 0-new; `npm run build` READY (both routes compile). **Run sequence:** run the migration → deploy → (logged in) GET `/api/stage-events/backfill?from=…&to=…` for a dry run, then add `&run=1`.
 
 ### [2026-07-02] Returning-client detection — lib/repeatReferral.ts + Opportunity Radar section + Contacts badges
 **Status:** CHANGED, browser-verified with demo mocks. tsc holds the 7-error baseline (0 new); build READY.

@@ -148,14 +148,15 @@ export default function LeadCohortsPage() {
         Are the leads from one week less responsive than another? Two cohorts by created date (GHL date-added), normalized by maturity.
       </p>
 
-      {/* Forward-only notice */}
+      {/* Timing-source notice */}
       <div className="flex gap-2 items-start bg-amber-50 border border-amber-200 rounded-lg p-3 mb-5 text-[13px] text-amber-800">
         <AlertTriangle size={16} className="mt-0.5 shrink-0" />
         <div>
-          <b>Window timing is forward-only.</b> The 7/14-day rates rely on the stage-change event log, which only has events
-          from the day it went live. Responders whose crossing predates the log are counted in <i>as-of-today</i> totals but
-          excluded from window timing (never counted as a no) — see each cohort&apos;s <b>timing coverage</b>.
-          {timingBackfilled && <> <b>Right now the log is empty</b>, so window rates will read n/a until stage changes accumulate.</>}
+          <b>Window timing comes from GHL conversation history</b> (earliest inbound text/call/email = first response),
+          backfilled historically, plus the live stage-change log — earliest signal wins. Leads with no inbound on record
+          (e.g. only answered an outbound call, or never engaged) have no timestamp: they still count in <i>as-of-today</i>
+          totals but are excluded from window timing (never counted as a no) — see each cohort&apos;s <b>timing coverage</b>.
+          {timingBackfilled && <> <b>No timing data is loaded yet</b> — run the conversation-history backfill (<code>/api/stage-events/backfill</code>) to populate it.</>}
         </div>
       </div>
 
@@ -329,7 +330,7 @@ function StatesStrip({ label, seg, accent }: { label: string; seg: CohortSegment
       <div className={`text-[11px] font-semibold uppercase tracking-wider mb-2 ${accent ? 'text-indigo-500' : 'text-slate-400'}`}>{label} — response states</div>
       <div className="flex gap-3">
         {cell(seg.respondedTimed, 'responded, timed (usable in windows)', 'text-emerald-600')}
-        {cell(seg.respondedUntimed, 'responded, pre-log (no timestamp)', 'text-amber-600')}
+        {cell(seg.respondedUntimed, 'responded, no inbound on record (untimed)', 'text-amber-600')}
         {cell(seg.notResponded, 'not responded', 'text-slate-500')}
       </div>
     </div>

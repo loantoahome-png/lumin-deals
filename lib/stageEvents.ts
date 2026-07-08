@@ -25,6 +25,8 @@ export type StageEventInput = {
   assignedTo?: string | null
   /** Event timestamp from the payload (ISO or epoch). Falls back to now(). */
   eventAt?: string | number | null
+  /** 'webhook' (live stage move, default) | 'backfill_comm' (historical inbound). */
+  source?: string
 }
 
 /** GHL sends timestamps as ISO strings OR epoch (s/ms). Normalize to ISO, or null. */
@@ -59,6 +61,7 @@ export async function logStageEvent(supabase: SupabaseClient, e: StageEventInput
       loan_officer:      e.loanOfficer ?? null,
       assigned_to:       e.assignedTo ?? null,
       event_at:          eventAt,
+      source:            e.source ?? 'webhook',
     })
     if (error) {
       // Most common cause before go-live: table doesn't exist yet. Non-fatal.

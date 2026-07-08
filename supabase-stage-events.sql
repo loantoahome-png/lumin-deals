@@ -12,7 +12,11 @@
 -- that distinction (see lib/cohortReport.ts) and surfaces a timing-coverage %.
 --
 -- Written by app/api/webhooks/ghl/route.ts (via lib/stageEvents.ts) on every
--- real stage move. Read by app/api/stage-events/first-responded (service role).
+-- real stage move, AND backfilled historically by app/api/stage-events/backfill
+-- from GHL conversation history (earliest inbound message/call = first response).
+-- Read by app/api/stage-events/first-responded (service role), which takes the
+-- MIN event_at per opportunity across BOTH sources — so the earliest real signal
+-- wins and historical cohorts get timing without waiting for the log to fill.
 
 CREATE TABLE IF NOT EXISTS stage_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -41,6 +45,10 @@ CREATE TABLE IF NOT EXISTS stage_events (
   loan_officer   TEXT,          -- resolved LO (Matt / Moe) at event time
   assigned_to    TEXT,          -- raw GHL assignedTo (id or name)
 
+  -- Provenance: 'webhook' = live stage move; 'backfill_comm' = earliest inbound
+  -- message/call reconstructed from GHL conversation history (historical).
+  source TEXT NOT NULL DEFAULT 'webhook',
+
   -- When the change happened (payload timestamp if present, else insert time)
   event_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   -- When WE logged it
@@ -54,6 +62,9 @@ CREATE INDEX IF NOT EXISTS stage_events_responded_idx
   ON stage_events(opportunity_id, event_at) WHERE to_responded;
 -- Recent-activity scans.
 CREATE INDEX IF NOT EXISTS stage_events_event_at_idx ON stage_events(event_at DESC);
+-- One backfill row per opportunity — makes the backfill idempotent (re-runnable).
+CREATE UNIQUE INDEX IF NOT EXISTS stage_events_backfill_uniq
+  ON stage_events(opportunity_id) WHERE source = 'backfill_comm';
 
 -- Internal app, all users are trusted team members — mirror the deals table.
 -- (Reads/writes go through the service-role client anyway, which bypasses RLS.)
