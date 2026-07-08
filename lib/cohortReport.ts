@@ -27,7 +27,7 @@ export const WINDOWS = [7, 14] as const
 // Only the fields the report needs — keeps the page's select() slim.
 export type CohortLead = Pick<Deal,
   'id' | 'ghl_opportunity_id' | 'loan_officer' | 'pipeline_group' |
-  'status' | 'source' | 'state' | 'loan_purpose' | 'date_added_ghl'>
+  'status' | 'source' | 'state' | 'loan_purpose' | 'date_added_ghl' | 'lead_price'>
 
 /** ghl_opportunity_id → ISO timestamp of the EARLIEST logged crossing into a
  *  responded stage. Built by /api/stage-events/first-responded. */
@@ -73,6 +73,12 @@ function mean(xs: number[]): number | null {
 }
 
 // ── Filtering ────────────────────────────────────────────────────────────────
+/** Aggregator (purchased) leads ALWAYS carry a lead price. This report tracks ONLY
+ *  priced leads — organic/warm leads with no lead price are excluded entirely.
+ *  (Filtering on lead_price rather than source also dodges the source-drift bug where
+ *  a purchased lead's source gets overwritten to "Arive"/null once it enters the LOS.) */
+export const isPriced = (d: CohortLead): boolean => (d.lead_price ?? 0) > 0
+
 /** LO filter (cohort-local — CohortLead lacks the money fields leadReport.matchesLO needs). */
 export function matchesLO(d: CohortLead, lo: LO): boolean {
   if (lo === 'All') return true
@@ -242,7 +248,8 @@ export function analyzeCohort(
   lo: LO,
   windowDays: readonly number[] = WINDOWS,
 ): CohortResult {
-  const rows = filterCohort(all, input.start, input.end).filter(r => matchesLO(r, lo))
+  // Priced-only: this is an aggregator-lead report. Exclude anything with no lead price.
+  const rows = filterCohort(all, input.start, input.end).filter(r => isPriced(r) && matchesLO(r, lo))
   return {
     input,
     seg: cohortSegment(rows, firstResp, now, windowDays),

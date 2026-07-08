@@ -29,7 +29,7 @@ import {
 } from 'recharts'
 import { RefreshCw, Users, Clock, Target, TrendingUp, TrendingDown, Minus, AlertTriangle } from 'lucide-react'
 
-const COLS = 'id,ghl_opportunity_id,loan_officer,pipeline_group,status,source,state,loan_purpose,date_added_ghl'
+const COLS = 'id,ghl_opportunity_id,loan_officer,pipeline_group,status,source,state,loan_purpose,date_added_ghl,lead_price'
 const LO_TABS: LO[] = ['All', 'Moe', 'Matt']
 type Dim = 'Source' | 'State' | 'Purpose'
 const DIM_TABS: Dim[] = ['Source', 'State', 'Purpose']
@@ -95,7 +95,9 @@ export default function LeadCohortsPage() {
       const json = await res.json()
       fr = new Map<string, string>(Object.entries(json.firstResponded ?? {}))
     } catch { /* leave empty — report still renders as-of-today */ }
-    const rows = await fetchAllDeals(q => q.order('id', { ascending: true }), COLS) as unknown as CohortLead[]
+    // Aggregator leads only — those with a lead price. Filter at the query for less
+    // data over the wire; analyzeCohort also enforces isPriced as the source of truth.
+    const rows = await fetchAllDeals(q => q.order('id', { ascending: true }).gt('lead_price', 0), COLS) as unknown as CohortLead[]
     setFirstResp(fr)
     setDeals(rows)
     setLoadedAt(new Date())
@@ -145,7 +147,8 @@ export default function LeadCohortsPage() {
         </button>
       </div>
       <p className="text-sm text-slate-500 mb-4">
-        Are the leads from one week less responsive than another? Two cohorts by created date (GHL date-added), normalized by maturity.
+        <b>Aggregator (purchased) leads only</b> — those with a lead price. Two cohorts by created date (GHL
+        date-added), maturity-normalized: are this week&apos;s leads less responsive than a prior week&apos;s?
       </p>
 
       {/* Timing-source notice */}

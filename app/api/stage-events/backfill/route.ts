@@ -36,11 +36,14 @@ export async function GET(req: NextRequest) {
   const from = url.searchParams.get('from')
   const to = url.searchParams.get('to')
   const run = url.searchParams.get('run') === '1'
+  const includeAll = url.searchParams.get('all') === '1'   // include unpriced/organic leads too
   const limit = Math.min(Number(url.searchParams.get('limit')) || DEFAULT_LIMIT, 1000)
 
   const supabase = createServiceClient()
 
   // Scope: deals with the GHL identifiers we need, optionally within a created-date range.
+  // Aggregator (priced) leads only by default — matches what /lead-cohorts tracks; pass
+  // ?all=1 to backfill organic leads too.
   let q = supabase
     .from('deals')
     .select('id, ghl_contact_id, ghl_location_id, ghl_opportunity_id, loan_officer, status, date_added_ghl')
@@ -49,6 +52,7 @@ export async function GET(req: NextRequest) {
     .not('ghl_opportunity_id', 'is', null)
     .order('date_added_ghl', { ascending: false })
     .limit(limit)
+  if (!includeAll) q = q.gt('lead_price', 0)
   if (from) q = q.gte('date_added_ghl', `${from}T00:00:00Z`)
   if (to) q = q.lte('date_added_ghl', `${to}T23:59:59.999Z`)
 

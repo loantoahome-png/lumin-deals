@@ -5,7 +5,7 @@
 //     && node /tmp/crc/scripts/cohort-report-check.js
 import {
   cohortSegment, cohortBreakdown, cohortDelta, filterCohort, analyzeCohort,
-  isConverted, matchesLO, sourceKey, WINDOWS,
+  isConverted, isPriced, matchesLO, sourceKey, WINDOWS,
   type CohortLead, type FirstRespondedMap,
 } from '../lib/cohortReport'
 
@@ -25,7 +25,8 @@ function isNull(label: string, got: unknown) {
 const NOW = new Date('2026-07-15T12:00:00Z')
 const lead = (p: Partial<CohortLead>): CohortLead => ({
   id: 'x', ghl_opportunity_id: null, loan_officer: 'Moe Sefati', pipeline_group: 'Leads',
-  status: 'New Lead', source: 'FRU', state: 'CA', loan_purpose: 'Refinance', date_added_ghl: '2026-07-01T00:00:00Z', ...p,
+  status: 'New Lead', source: 'FRU', state: 'CA', loan_purpose: 'Refinance', date_added_ghl: '2026-07-01T00:00:00Z',
+  lead_price: 50, ...p,   // priced by default (aggregator lead)
 })
 
 // A controlled cohort (created 07-01 … 07-10). now = 07-15T12:00Z.
@@ -137,6 +138,18 @@ eq('analyzeCohort has source/state/purpose breakdowns',
 // LO-filtered: only Moe (all fixtures are Moe by default) → same 6; Matt → 0
 eq('analyzeCohort Matt filter empties cohort',
   analyzeCohort(rows, firstResp, NOW, { label: 'A', start: '2026-07-01', end: '2026-07-10' }, 'Matt').seg.total, 0)
+
+// ── Priced-only (aggregator leads) ──────────────────────────────────────────
+eq('isPriced true for positive price', isPriced(lead({ lead_price: 25 })), true)
+eq('isPriced false for null price', isPriced(lead({ lead_price: null })), false)
+eq('isPriced false for zero price', isPriced(lead({ lead_price: 0 })), false)
+const priceMix: CohortLead[] = [
+  lead({ id: 'p1', date_added_ghl: '2026-07-01T00:00:00Z', lead_price: 40, status: 'Ghosted' }),
+  lead({ id: 'p2', date_added_ghl: '2026-07-01T00:00:00Z', lead_price: null, status: 'Ghosted' }), // organic → excluded
+  lead({ id: 'p3', date_added_ghl: '2026-07-01T00:00:00Z', lead_price: 0, status: 'Pitching' }),   // zero → excluded
+]
+eq('analyzeCohort keeps only priced leads',
+  analyzeCohort(priceMix, new Map(), NOW, { label: 'A', start: '2026-07-01', end: '2026-07-01' }, 'All').seg.total, 1)
 
 // ── Deltas (B − A) ──────────────────────────────────────────────────────────
 const segA = seg
