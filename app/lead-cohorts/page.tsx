@@ -46,8 +46,10 @@ const ptsFmt = (x: number | null) => (x == null ? '—' : `${x >= 0 ? '+' : ''}$
 const cntDelta = (x: number) => `${x >= 0 ? '+' : ''}${x}`
 
 // ── delta arrow ─────────────────────────────────────────────────────────────
-function Delta({ value, higherIsBetter = true, fmt }: { value: number | null; higherIsBetter?: boolean; fmt: (x: number | null) => string }) {
+function Delta({ value, higherIsBetter = true, fmt, neutral = false }: { value: number | null; higherIsBetter?: boolean; fmt: (x: number | null) => string; neutral?: boolean }) {
   if (value == null) return <span className="text-slate-400 text-xs">n/a</span>
+  // Neutral = show the gap but no good/bad color — for comparisons that aren't reliable yet.
+  if (neutral) return <span className="text-slate-400 text-xs" title="Not comparable yet — per-channel DND data still syncing on newer leads">{fmt(value)}</span>
   const flat = Math.abs(value) < 0.05
   const good = higherIsBetter ? value > 0 : value < 0
   const cls = flat ? 'text-slate-400' : good ? 'text-emerald-600' : 'text-red-600'
@@ -183,7 +185,7 @@ export default function LeadCohortsPage() {
       ) : (
         <>
           {/* Headline scorecard */}
-          <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto mb-6">
+          <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto mb-2">
             <table className="w-full min-w-[560px]">
               <thead>
                 <tr className="text-[11px] uppercase tracking-wider text-slate-400">
@@ -201,7 +203,7 @@ export default function LeadCohortsPage() {
                   delta={<Delta value={d.respondedNowPct} fmt={ptsFmt} />} />
                 <Row label="Opted out / DND" hint="any channel — STOP, DND flag, or email/call/SMS opt-out"
                   a={`${sa.optedOut} · ${pctFmt(sa.optedOutPct)}`} b={`${sb.optedOut} · ${pctFmt(sb.optedOutPct)}`}
-                  delta={<Delta value={d.optedOutPct} higherIsBetter={false} fmt={ptsFmt} />} />
+                  delta={<Delta value={d.optedOutPct} neutral fmt={ptsFmt} />} />
                 <Row label="Converted" hint="reached Arive Lead or later"
                   a={`${sa.converted} · ${pctFmt(sa.convertedPct)}`} b={`${sb.converted} · ${pctFmt(sb.convertedPct)}`}
                   delta={<Delta value={d.convertedPct} fmt={ptsFmt} />} />
@@ -216,6 +218,9 @@ export default function LeadCohortsPage() {
               </tbody>
             </table>
           </div>
+          <p className="text-[11px] text-slate-400 mb-6 px-1">
+            <b className="font-semibold text-slate-500">Opted out / DND</b> spans all channels (email · call · SMS…). Its A↔B delta is muted — per-channel opt-out data is still syncing on newer leads, so each cohort&apos;s % is solid but the gap isn&apos;t comparable yet.
+          </p>
 
           {/* Maturation windows — fixed cohort denominator, cumulative (7d & 14d = same leads) */}
           <h2 className="text-sm font-bold text-slate-700 mb-2">Responded within N days of arrival — % of the whole cohort (7-day &amp; 14-day cover the same leads)</h2>
