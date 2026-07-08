@@ -80,13 +80,13 @@ export type FirstInbound = { at: string; channel: string } | null
 
 /** Fetch a contact's GHL conversation and return the earliest inbound timestamp.
  *  Pages backward (newest-first API) collecting inbound, so long threads still
- *  yield the true first inbound. `onCallSample` lets the caller log raw call
- *  messages to verify GHL's call payload shape (for the answered-outbound question). */
+ *  yield the true first inbound. Inbound-only by decision (2026-07-08): answered
+ *  outbound calls aren't credited because GHL logs them identically to voicemails. */
 export async function fetchFirstInbound(
   locationId: string,
   contactId: string,
   apiKey: string,
-  opts: { maxPages?: number; onCallSample?: (m: ConvMessage) => void } = {},
+  opts: { maxPages?: number } = {},
 ): Promise<FirstInbound> {
   const maxPages = opts.maxPages ?? 15
 
@@ -103,9 +103,6 @@ export async function fetchFirstInbound(
     if (!j) break
     const list: ConvMessage[] = Array.isArray(j.messages) ? j.messages : (j.messages?.messages ?? [])
     if (!list.length) break
-
-    // Sample any call messages so we can verify GHL's call fields during the run.
-    if (opts.onCallSample) for (const m of list) if (channelOf(m) === 'Call') { opts.onCallSample(m); break }
 
     const e = earliestInboundAt(list)
     if (e && (!earliest || Date.parse(e.at) < Date.parse(earliest.at))) earliest = e

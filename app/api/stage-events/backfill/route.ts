@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { resolveApiKey } from '@/lib/ghl'
-import { fetchFirstInbound, type ConvMessage } from '@/lib/ghlConversations'
+import { fetchFirstInbound } from '@/lib/ghlConversations'
 import { isRespondedStatus } from '@/lib/leadReport'
 
 // Backfill "first responded" timing from GHL conversation history, so the Lead
@@ -59,9 +59,8 @@ export async function GET(req: NextRequest) {
   const summary = {
     ok: true, run, scope: { from, to, limit }, scanned: deals.length,
     withInbound: 0, written: 0, noConversation: 0, noApiKey: 0, errors: 0,
-    respondedButNoInbound: 0,     // responded-by-stage but no inbound found (answered-outbound-call candidates)
+    respondedButNoInbound: 0,     // responded-by-stage but no inbound (the answered-outbound-call gap; kept inbound-only by decision 2026-07-08)
     samples: [] as Array<{ opp: string; at: string; channel: string }>,
-    callSamples: [] as ConvMessage[],   // raw call payloads to verify GHL's call fields
   }
 
   // Simple concurrency pool.
@@ -74,9 +73,7 @@ export async function GET(req: NextRequest) {
       const apiKey = resolveApiKey(d.ghl_location_id)
       if (!apiKey) { summary.noApiKey++; continue }
       try {
-        const first = await fetchFirstInbound(d.ghl_location_id!, d.ghl_contact_id!, apiKey, {
-          onCallSample: (m) => { if (summary.callSamples.length < 5) summary.callSamples.push(m) },
-        })
+        const first = await fetchFirstInbound(d.ghl_location_id!, d.ghl_contact_id!, apiKey)
         if (!first) {
           summary.noConversation++
           if (isRespondedStatus(d.status)) summary.respondedButNoInbound++
