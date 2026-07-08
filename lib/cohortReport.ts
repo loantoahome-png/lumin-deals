@@ -19,7 +19,7 @@
 // Ghosted counts; New Lead / Attempted Contact / Non-Responsive and the opt-outs
 // don't). Kept as pure functions so scripts/cohort-report-check.ts can fixture it.
 
-import { isRespondedStatus, type LO } from './leadReport'
+import { isRespondedStatus, isOptoutStatus, type LO } from './leadReport'
 import type { Deal } from './types'
 
 export const WINDOWS = [7, 14] as const
@@ -27,7 +27,7 @@ export const WINDOWS = [7, 14] as const
 // Only the fields the report needs — keeps the page's select() slim.
 export type CohortLead = Pick<Deal,
   'id' | 'ghl_opportunity_id' | 'loan_officer' | 'pipeline_group' |
-  'status' | 'source' | 'state' | 'loan_purpose' | 'date_added_ghl' | 'lead_price'>
+  'status' | 'source' | 'state' | 'loan_purpose' | 'date_added_ghl' | 'lead_price' | 'dnd' | 'dnd_settings'>
 
 /** ghl_opportunity_id → ISO timestamp of the EARLIEST logged crossing into a
  *  responded stage. Built by /api/stage-events/first-responded. */
@@ -78,6 +78,29 @@ function mean(xs: number[]): number | null {
  *  (Filtering on lead_price rather than source also dodges the source-drift bug where
  *  a purchased lead's source gets overwritten to "Arive"/null once it enters the LOS.) */
 export const isPriced = (d: CohortLead): boolean => (d.lead_price ?? 0) > 0
+
+/** DND on ANY channel — treats a lead as opted-out if it's in a pipeline opt-out stage
+ *  (STOP / DND-SMS / Remove from All Automations), has GHL's master `dnd` flag, OR has
+ *  any per-channel `dnd_settings` marked active (Email, Call, SMS, FB, WhatsApp, …).
+ *  EXCLUDES SMS entries that are Twilio CARRIER errors ("TWILIO_ERROR_CODE: …") — those
+ *  are undeliverable/landline numbers, not a lead's opt-out choice. */
+export const isDnd = (d: CohortLead): boolean =>
+  isOptoutStatus(d.status) || d.dnd === true || hasChannelDnd(d.dnd_settings)
+
+function hasChannelDnd(settings: Record<string, unknown> | null | undefined): boolean {
+  if (!settings || typeof settings !== 'object') return false
+  for (const [channel, v] of Object.entries(settings)) {
+    if (v === true) return true
+    if (!v || typeof v !== 'object') continue
+    const rec = v as { status?: unknown; message?: unknown }
+    const status = String(rec.status ?? '').toLowerCase()
+    if (status !== 'active' && status !== 'permanent') continue
+    // Skip SMS carrier/delivery errors (undeliverable numbers) — not opt-outs.
+    const carrierError = channel.toUpperCase() === 'SMS' && /TWILIO/i.test(String(rec.message ?? ''))
+    if (!carrierError) return true
+  }
+  return false
+}
 
 /** LO filter (cohort-local — CohortLead lacks the money fields leadReport.matchesLO needs). */
 export function matchesLO(d: CohortLead, lo: LO): boolean {
@@ -130,6 +153,11 @@ export type CohortSegment = {
   // Conversion (reached the key stage)
   converted: number
   convertedPct: number
+  // Opted out / DND on any channel — see isDnd (opt-out stages + master dnd flag +
+  // per-channel dnd_settings; excludes SMS carrier errors). Status is the reliable
+  // floor; the dnd flag/settings add email/call/etc. opt-outs where GHL has them.
+  optedOut: number
+  optedOutPct: number
   // Maturation windows (one per WINDOWS entry)
   windows: WindowStat[]
   // Current pipeline stage distribution
@@ -143,7 +171,7 @@ export function cohortSegment(
   windowDays: readonly number[] = WINDOWS,
 ): CohortSegment {
   const total = rows.length
-  let respondedNow = 0, respondedTimed = 0, respondedUntimed = 0, converted = 0
+  let respondedNow = 0, respondedTimed = 0, respondedUntimed = 0, converted = 0, optedOut = 0
   const ttr: number[] = []                       // hours, responders with a ts
   const stageCount = new Map<string, number>()
   const winResponded = windowDays.map(() => 0)
@@ -163,6 +191,7 @@ export function cohortSegment(
       else respondedUntimed++
     }
     if (isConverted(r)) converted++
+    if (isDnd(r)) optedOut++
 
     // Stage distribution
     stageCount.set(status || '(no stage)', (stageCount.get(status || '(no stage)') ?? 0) + 1)
@@ -206,6 +235,8 @@ export function cohortSegment(
     ttrAvgH: mean(ttr),
     converted,
     convertedPct: pct(converted, total),
+    optedOut,
+    optedOutPct: pct(optedOut, total),
     windows,
     stageDist: [...stageCount.entries()].map(([status, n]) => ({ status, n })).sort((a, b) => b.n - a.n),
   }
@@ -267,6 +298,7 @@ export type CohortDelta = {
   total: number
   respondedNowPct: number
   convertedPct: number
+  optedOutPct: number
   timingCoverage: number | null
   ttrMedianH: number | null
   windows: { days: number; rate: number | null }[] // null when either cohort can't compare
@@ -276,6 +308,7 @@ export function cohortDelta(a: CohortSegment, b: CohortSegment): CohortDelta {
     total: b.total - a.total,
     respondedNowPct: b.respondedNowPct - a.respondedNowPct,
     convertedPct: b.convertedPct - a.convertedPct,
+    optedOutPct: b.optedOutPct - a.optedOutPct,
     timingCoverage: a.timingCoverage == null || b.timingCoverage == null ? null : b.timingCoverage - a.timingCoverage,
     ttrMedianH: a.ttrMedianH == null || b.ttrMedianH == null ? null : b.ttrMedianH - a.ttrMedianH,
     windows: a.windows.map((wa, i) => {

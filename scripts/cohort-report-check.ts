@@ -5,7 +5,7 @@
 //     && node /tmp/crc/scripts/cohort-report-check.js
 import {
   cohortSegment, cohortBreakdown, cohortDelta, filterCohort, analyzeCohort,
-  isConverted, isPriced, matchesLO, sourceKey, WINDOWS,
+  isConverted, isPriced, isDnd, matchesLO, sourceKey, WINDOWS,
   type CohortLead, type FirstRespondedMap,
 } from '../lib/cohortReport'
 
@@ -26,7 +26,7 @@ const NOW = new Date('2026-07-15T12:00:00Z')
 const lead = (p: Partial<CohortLead>): CohortLead => ({
   id: 'x', ghl_opportunity_id: null, loan_officer: 'Moe Sefati', pipeline_group: 'Leads',
   status: 'New Lead', source: 'FRU', state: 'CA', loan_purpose: 'Refinance', date_added_ghl: '2026-07-01T00:00:00Z',
-  lead_price: 50, ...p,   // priced by default (aggregator lead)
+  lead_price: 50, dnd: null, dnd_settings: null, ...p,   // priced by default (aggregator lead)
 })
 
 // A controlled cohort (created 07-01 … 07-10). now = 07-15T12:00Z.
@@ -158,6 +158,26 @@ const priceMix: CohortLead[] = [
 ]
 eq('analyzeCohort keeps only priced leads',
   analyzeCohort(priceMix, new Map(), NOW, { label: 'A', start: '2026-07-01', end: '2026-07-01' }, 'All').seg.total, 1)
+
+// ── DND on any channel (opt-out status + master flag + per-channel settings) ──
+eq('isDnd: opt-out status STOP', isDnd(lead({ status: 'STOP' })), true)
+eq('isDnd: DND-SMS status', isDnd(lead({ status: 'DND - SMS' })), true)
+eq('isDnd: master dnd flag', isDnd(lead({ dnd: true })), true)
+eq('isDnd: Email channel active', isDnd(lead({ dnd_settings: { Email: { status: 'active' } } })), true)
+eq('isDnd: Call channel active', isDnd(lead({ dnd_settings: { Call: { status: 'active' } } })), true)
+eq('isDnd: SMS Twilio carrier error NOT counted', isDnd(lead({ dnd_settings: { SMS: { status: 'active', message: 'TWILIO_ERROR_CODE: 30006' } } })), false)
+eq('isDnd: SMS genuine opt-out counted', isDnd(lead({ dnd_settings: { SMS: { status: 'active', message: 'unsubscribed' } } })), true)
+eq('isDnd: inactive channel not counted', isDnd(lead({ dnd_settings: { Email: { status: 'inactive' } } })), false)
+eq('isDnd: SMS carrier-error BUT Email active → still DND', isDnd(lead({ dnd_settings: { SMS: { status: 'active', message: 'TWILIO_ERROR_CODE: 30003' }, Email: { status: 'active' } } })), true)
+eq('isDnd: clean lead not DND', isDnd(lead({ status: 'Responded', dnd: false, dnd_settings: null })), false)
+const dndSeg = cohortSegment([
+  lead({ status: 'STOP' }),                                                                    // opt-out status
+  lead({ status: 'Responded', dnd_settings: { Email: { status: 'active' } } }),                // email DND
+  lead({ status: 'Responded', dnd_settings: { SMS: { status: 'active', message: 'TWILIO_ERROR_CODE: 30006' } } }), // carrier → NOT dnd
+  lead({ status: 'Responded' }),                                                               // clean
+], new Map(), NOW)
+eq('segment optedOut counts any-channel DND (excl carrier)', dndSeg.optedOut, 2)
+close('segment optedOutPct', dndSeg.optedOutPct, 50)
 
 // ── Deltas (B − A) ──────────────────────────────────────────────────────────
 const segA = seg

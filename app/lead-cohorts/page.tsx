@@ -29,7 +29,7 @@ import {
 } from 'recharts'
 import { RefreshCw, Users, Clock, Target, TrendingUp, TrendingDown, Minus, AlertTriangle } from 'lucide-react'
 
-const COLS = 'id,ghl_opportunity_id,loan_officer,pipeline_group,status,source,state,loan_purpose,date_added_ghl,lead_price'
+const COLS = 'id,ghl_opportunity_id,loan_officer,pipeline_group,status,source,state,loan_purpose,date_added_ghl,lead_price,dnd,dnd_settings'
 const LO_TABS: LO[] = ['All', 'Moe', 'Matt']
 type Dim = 'Source' | 'State' | 'Purpose'
 const DIM_TABS: Dim[] = ['Source', 'State', 'Purpose']
@@ -193,26 +193,26 @@ export default function LeadCohortsPage() {
                   <th className="text-right font-semibold py-2.5 pl-3 pr-4">Δ B−A</th>
                 </tr>
               </thead>
-              <tbody className="pl-4">
-                <tr><td colSpan={4} className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">As of today (not maturity-normalized)</td></tr>
-                <RowP>
-                  <Row label="Total leads" a={numFmt(sa.total)} b={numFmt(sb.total)} delta={<Delta value={d.total} fmt={v => cntDelta(v!)} />} />
-                  <Row label="Responded (as of today)" hint="current stage; Ghosted counts"
-                    a={`${sa.respondedNow} · ${pctFmt(sa.respondedNowPct)}`} b={`${sb.respondedNow} · ${pctFmt(sb.respondedNowPct)}`}
-                    delta={<Delta value={d.respondedNowPct} fmt={ptsFmt} />} />
-                  <Row label="Converted" hint="reached Arive Lead or later"
-                    a={`${sa.converted} · ${pctFmt(sa.convertedPct)}`} b={`${sb.converted} · ${pctFmt(sb.convertedPct)}`}
-                    delta={<Delta value={d.convertedPct} fmt={ptsFmt} />} />
-                </RowP>
-                <tr><td colSpan={4} className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Timing (logged crossings only)</td></tr>
-                <RowP>
-                  <Row label="Median time to first response" a={hoursFmt(sa.ttrMedianH)} b={hoursFmt(sb.ttrMedianH)}
-                    delta={<Delta value={d.ttrMedianH} higherIsBetter={false} fmt={v => v == null ? 'n/a' : hoursFmt(Math.abs(v)) + (v < 0 ? ' faster' : ' slower')} />} />
-                  <Row label="Avg time to first response" a={hoursFmt(sa.ttrAvgH)} b={hoursFmt(sb.ttrAvgH)} />
-                  <Row label="Timing coverage" hint="responders with a logged crossing"
-                    a={pctFmt(sa.timingCoverage)} b={pctFmt(sb.timingCoverage)}
-                    delta={<Delta value={d.timingCoverage} fmt={ptsFmt} />} />
-                </RowP>
+              <tbody>
+                <tr><td colSpan={4} className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">As of today</td></tr>
+                <Row label="Total leads" a={numFmt(sa.total)} b={numFmt(sb.total)} delta={<Delta value={d.total} fmt={v => cntDelta(v!)} />} />
+                <Row label="Responded" hint="engaged at least once — Ghosted counts"
+                  a={`${sa.respondedNow} · ${pctFmt(sa.respondedNowPct)}`} b={`${sb.respondedNow} · ${pctFmt(sb.respondedNowPct)}`}
+                  delta={<Delta value={d.respondedNowPct} fmt={ptsFmt} />} />
+                <Row label="Opted out / DND" hint="any channel — STOP, DND flag, or email/call/SMS opt-out"
+                  a={`${sa.optedOut} · ${pctFmt(sa.optedOutPct)}`} b={`${sb.optedOut} · ${pctFmt(sb.optedOutPct)}`}
+                  delta={<Delta value={d.optedOutPct} higherIsBetter={false} fmt={ptsFmt} />} />
+                <Row label="Converted" hint="reached Arive Lead or later"
+                  a={`${sa.converted} · ${pctFmt(sa.convertedPct)}`} b={`${sb.converted} · ${pctFmt(sb.convertedPct)}`}
+                  delta={<Delta value={d.convertedPct} fmt={ptsFmt} />} />
+
+                <tr><td colSpan={4} className="px-4 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Response timing</td></tr>
+                <Row label="Median time to first response" a={hoursFmt(sa.ttrMedianH)} b={hoursFmt(sb.ttrMedianH)}
+                  delta={<Delta value={d.ttrMedianH} higherIsBetter={false} fmt={v => v == null ? 'n/a' : hoursFmt(Math.abs(v)) + (v < 0 ? ' faster' : ' slower')} />} />
+                <Row label="Avg. time to first response" a={hoursFmt(sa.ttrAvgH)} b={hoursFmt(sb.ttrAvgH)} />
+                <Row label="Timing coverage" hint="responders with a known response time"
+                  a={pctFmt(sa.timingCoverage)} b={pctFmt(sb.timingCoverage)}
+                  delta={<Delta value={d.timingCoverage} fmt={ptsFmt} />} />
               </tbody>
             </table>
           </div>
@@ -294,8 +294,6 @@ export default function LeadCohortsPage() {
 }
 
 // ── sub-components ───────────────────────────────────────────────────────────
-function RowP({ children }: { children: React.ReactNode }) { return <>{children}</> }
-
 function CohortDates({ label, start, end, setStart, setEnd, accent }: {
   label: string; start: string; end: string; setStart: (s: string) => void; setEnd: (s: string) => void; accent: string
 }) {
