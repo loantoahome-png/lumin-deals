@@ -54,6 +54,7 @@ const navGroups = [
       { href: '/reports/escrows', label: 'Escrow Report', icon: FileText },
       { href: '/lead-performance', label: 'Lead Performance', icon: Target },
       { href: '/lead-spend', label: 'Lead Spend', icon: DollarSign },
+      { href: '/report-import', label: 'Report Import', icon: FileUp },
     ],
   },
   {
