@@ -27,10 +27,20 @@ export type LeadRow = Pick<Deal, 'loan_officer' | 'pipeline_group' | 'status' | 
 
 export const rawSource = (d: LeadRow): string => (d.source ?? '').trim()
 export const isPurchased = (d: LeadRow): boolean => PURCHASED_SET.has(rawSource(d).toLowerCase())
-export const isCold = (d: LeadRow): boolean => COLD_STATUSES.has(d.status ?? '')
-export const isOptout = (d: LeadRow): boolean => OPTOUT_STATUSES.has(d.status ?? '')
+
+// ── Status-level predicates (single source of truth) ───────────────────────────
+// The stage-change webhook (lib/stageEvents.ts) needs to decide "did this move
+// cross into a responded stage?" from a bare status string, before there's a Deal
+// row. Keep the responded definition here so the webhook and the report can never
+// disagree. Ghosted counts as responded (you can't ghost without first responding).
+export const isColdStatus    = (s: string | null | undefined): boolean => COLD_STATUSES.has(s ?? '')
+export const isOptoutStatus  = (s: string | null | undefined): boolean => OPTOUT_STATUSES.has(s ?? '')
+export const isRespondedStatus = (s: string | null | undefined): boolean => !isColdStatus(s) && !isOptoutStatus(s)
+
+export const isCold = (d: LeadRow): boolean => isColdStatus(d.status)
+export const isOptout = (d: LeadRow): boolean => isOptoutStatus(d.status)
 // Ghosted is intentionally NOT cold — it means the lead responded, then went dark.
-export const isResponded = (d: LeadRow): boolean => !isCold(d) && !isOptout(d)
+export const isResponded = (d: LeadRow): boolean => isRespondedStatus(d.status)
 export const isFunded = (d: LeadRow): boolean =>
   d.pipeline_group === 'Funded' || FUNDED_STATUSES.has(d.status ?? '')
 

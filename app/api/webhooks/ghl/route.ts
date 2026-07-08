@@ -4,6 +4,7 @@ import { createHmac } from 'crypto'
 import { findExistingDeal } from '@/lib/dealMatcher'
 import { titleCase } from '@/lib/utils'
 import { resolveLO } from '@/lib/loanOfficer'
+import { logStageEvent } from '@/lib/stageEvents'
 
 // ── Signature validation ──────────────────────────────────────────────────────
 async function validateGHLSignature(req: NextRequest, rawBody: string): Promise<boolean> {
@@ -377,8 +378,32 @@ export async function POST(req: NextRequest) {
         const oppId = pick(body, 'id', 'opportunity_id', 'opportunityId')
         const existing = await findExistingDeal(supabase, { opportunityId: oppId, ghlContactId: oppContactId })
         if (existing) {
+          // Capture the CURRENT status before we overwrite it — that's the "from"
+          // side of the transition we log to stage_events.
+          const { data: cur } = await supabase.from('deals')
+            .select('status, ghl_opportunity_id, ghl_contact_id, loan_officer')
+            .eq('id', existing.id).maybeSingle()
           await supabase.from('deals').update(stage).eq('id', existing.id)
           console.log('[GHL Webhook] Stage updated:', existing.id, '→', stage, `(by ${existing.matchedBy})`)
+          // Log the transition for responsiveness timing (forward-only). Only on a
+          // REAL move to a new status, so workflow echoes of the current stage don't
+          // inflate the log. logStageEvent never throws — never blocks the response.
+          if (!cur || cur.status !== stage.status) {
+            await logStageEvent(supabase, {
+              opportunityId:   cur?.ghl_opportunity_id ?? oppId ?? null,
+              contactId:       oppContactId ?? cur?.ghl_contact_id ?? null,
+              dealId:          existing.id,
+              fromStageId:     pick(body, 'previousStageId', 'fromStageId', 'oldStageId', 'old_stage_id'),
+              toStageId:       pick(body, 'pipelineStageId', 'stageId', 'toStageId', 'pipeline_stage_id'),
+              fromStatus:      cur?.status ?? null,
+              toStatus:        stage.status,
+              toPipelineGroup: stage.pipeline_group,
+              pipelineId:      pick(body, 'pipelineId', 'pipeline_id'),
+              loanOfficer:     cur?.loan_officer ?? null,
+              assignedTo:      pick(body, 'assignedTo', 'assigned_to', 'assignedToId', 'userId'),
+              eventAt:         pick(body, 'dateUpdated', 'date_updated', 'updatedAt', 'timestamp'),
+            })
+          }
           return NextResponse.json({ success: true, action: 'stage_updated', dealId: existing.id, newStage: stage })
         }
       }
@@ -469,6 +494,11 @@ export async function POST(req: NextRequest) {
                                'pipelineStage', 'pipleline_stage', 'pipeline_stage')
       const whStage = resolveGHLStage(whStageName, pick(body, 'pipelineName', 'pipeline_name', 'pipeline'))
       if (whStage) {
+        // Read current status BEFORE the update — the "from" side we log, and the
+        // signal for whether this is a real move worth logging.
+        const { data: cur } = await supabase.from('deals')
+          .select('status, pipeline_group, ghl_opportunity_id, ghl_contact_id, loan_officer')
+          .eq('id', match.id).maybeSingle()
         const oppStatus = (pick(body, 'status') || '').toLowerCase()
         const dead = oppStatus === 'lost' || oppStatus.startsWith('abandon')
         const newGroup = (dead && whStage.pipeline_group !== 'Funded') ? 'Not Ready' : whStage.pipeline_group
@@ -481,7 +511,27 @@ export async function POST(req: NextRequest) {
           .neq('pipeline_group', 'Funded')
           .neq('status', whStage.status)
         if (stErr) console.error('[GHL Webhook] stage apply error:', stErr.message)
-        else console.log(`[GHL Webhook] Stage applied from workflow payload → ${whStage.status} (${newGroup})`)
+        else {
+          console.log(`[GHL Webhook] Stage applied from workflow payload → ${whStage.status} (${newGroup})`)
+          // Log only when the guard above actually applied a move — not Funded, and
+          // status genuinely changed. Mirrors the .neq() conditions on the update so
+          // the log matches what really happened. Non-fatal.
+          if (cur && cur.pipeline_group !== 'Funded' && cur.status !== whStage.status) {
+            await logStageEvent(supabase, {
+              opportunityId:   cur.ghl_opportunity_id ?? opportunityId ?? null,
+              contactId:       ghlContactId ?? cur.ghl_contact_id ?? null,
+              dealId:          match.id,
+              toStageId:       pick(body, 'pipelineStageId', 'stageId', 'pipeline_stage_id'),
+              fromStatus:      cur.status,
+              toStatus:        whStage.status,
+              toPipelineGroup: newGroup,
+              pipelineId:      pick(body, 'pipelineId', 'pipeline_id'),
+              loanOfficer:     cur.loan_officer ?? fields.loanOfficer ?? null,
+              assignedTo:      fields.ghlAssignedUser,
+              eventAt:         pick(body, 'dateUpdated', 'date_updated', 'updatedAt', 'timestamp'),
+            })
+          }
+        }
       }
 
       // ── Real-time loan amount from the OPPORTUNITY monetary value ───────────
