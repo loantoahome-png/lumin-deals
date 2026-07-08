@@ -217,22 +217,34 @@ export default function LeadCohortsPage() {
             </table>
           </div>
 
-          {/* Maturation windows */}
-          <h2 className="text-sm font-bold text-slate-700 mb-2">Responded within N days of created date (maturity-normalized)</h2>
+          {/* Maturation windows — fixed cohort denominator, cumulative (7d & 14d = same leads) */}
+          <h2 className="text-sm font-bold text-slate-700 mb-2">Responded within N days of arrival — % of the whole cohort (7-day &amp; 14-day cover the same leads)</h2>
           <div className="grid sm:grid-cols-2 gap-4 mb-6">
             {WINDOWS.map((N, i) => {
               const wa = sa.windows[i], wb = sb.windows[i]
               const wd = d.windows[i]
+              // Cross-cohort delta only when BOTH cohorts are mature enough for this window
+              // — a young cohort's rate is a climbing floor, so the A/B gap isn't fair yet.
+              const bothMature = wa.maturedShare >= 90 && wb.maturedShare >= 90
+              const incrA = i > 0 ? wa.responded - sa.windows[i - 1].responded : null
+              const incrB = i > 0 ? wb.responded - sb.windows[i - 1].responded : null
               return (
                 <div key={N} className="bg-white border border-slate-200 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-3">
                     <div className="text-sm font-bold text-slate-700">{N}-day window</div>
-                    <Delta value={wd?.rate ?? null} fmt={ptsFmt} />
+                    {bothMature
+                      ? <Delta value={wd?.rate ?? null} fmt={ptsFmt} />
+                      : <span className="text-[11px] text-amber-600">still maturing — not comparable yet</span>}
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <WindowCol label="Cohort A" w={wa} total={sa.total} />
-                    <WindowCol label="Cohort B" w={wb} total={sb.total} accent />
+                    <WindowCol label="Cohort A" w={wa} />
+                    <WindowCol label="Cohort B" w={wb} accent />
                   </div>
+                  {i > 0 && (
+                    <div className="text-[11px] text-slate-400 mt-2 border-t border-slate-100 pt-2">
+                      Extra responders on days {WINDOWS[i - 1] + 1}–{N}: <b>A +{incrA}</b> · <b>B +{incrB}</b>
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -301,22 +313,23 @@ function CohortDates({ label, start, end, setStart, setEnd, accent }: {
   )
 }
 
-function WindowCol({ label, w, total, accent }: { label: string; w: CohortSegment['windows'][number]; total: number; accent?: boolean }) {
-  const comparable = w.rate != null
+function WindowCol({ label, w, accent }: { label: string; w: CohortSegment['windows'][number]; accent?: boolean }) {
+  const box = `rounded-lg p-3 ${accent ? 'bg-indigo-50' : 'bg-slate-50'}`
+  const head = `text-[11px] font-semibold uppercase tracking-wider mb-1 ${accent ? 'text-indigo-500' : 'text-slate-400'}`
+  if (w.rate == null) return (
+    <div className={box}><div className={head}>{label}</div><div className="text-[13px] text-slate-400 py-2">No leads in cohort</div></div>
+  )
+  const immature = w.maturedShare < 90
   return (
-    <div className={`rounded-lg p-3 ${accent ? 'bg-indigo-50' : 'bg-slate-50'}`}>
-      <div className={`text-[11px] font-semibold uppercase tracking-wider mb-1 ${accent ? 'text-indigo-500' : 'text-slate-400'}`}>{label}</div>
-      {comparable ? (
-        <>
-          <div className="text-2xl font-bold tabular-nums text-slate-900 flex items-center gap-1">
-            {pctFmt(w.rate)} <Clock size={13} className="text-slate-300" />
-          </div>
-          <div className="text-[11px] text-slate-500 mt-0.5">{w.responded} of {w.eligible} eligible</div>
-          <div className="text-[11px] text-slate-400">maturity coverage {w.maturityCoverage.toFixed(0)}% of {total}</div>
-        </>
-      ) : (
-        <div className="text-[13px] text-slate-400 py-2">Not enough maturity to compare<span className="block text-[11px]">0 eligible of {total}</span></div>
-      )}
+    <div className={box}>
+      <div className={head}>{label}</div>
+      <div className="text-2xl font-bold tabular-nums text-slate-900 flex items-center gap-1">
+        {pctFmt(w.rate)} <Clock size={13} className="text-slate-300" />
+      </div>
+      <div className="text-[11px] text-slate-500 mt-0.5">{w.responded} of {w.total} leads</div>
+      <div className={`text-[11px] ${immature ? 'text-amber-600 font-medium' : 'text-slate-400'}`}>
+        {w.maturedShare.toFixed(0)}% have reached {w.days}d{immature ? ' — still maturing' : ''}
+      </div>
     </div>
   )
 }

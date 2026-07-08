@@ -106,10 +106,12 @@ export const purposeKey = (d: CohortLead): string => (d.loan_purpose ?? '').trim
 // ── Per-window stat ─────────────────────────────────────────────────────────────
 export type WindowStat = {
   days: number
-  eligible: number          // matured AND (has ts OR not currently responded) — state #2 excluded
-  responded: number         // eligible leads that responded within `days` of their own created date
-  rate: number | null       // responded / eligible; null = 0 eligible → "not enough maturity to compare"
-  maturityCoverage: number  // eligible / total cohort (percent) — how much of the cohort this window can judge
+  responded: number    // cohort leads whose FIRST response landed within `days` of their created date
+  total: number        // cohort size — the SAME denominator for every window, so 7-day and 14-day
+                       // measure the SAME leads. The curve is cumulative: 14-day ⊇ 7-day, always ≥.
+  rate: number | null  // responded / total; null only when the cohort is empty
+  maturedShare: number // % of the cohort that has actually reached `days` of age — how settled this
+                       // number is (below ~100% it's a climbing floor: young leads can still respond)
 }
 
 export type CohortSegment = {
@@ -144,8 +146,8 @@ export function cohortSegment(
   let respondedNow = 0, respondedTimed = 0, respondedUntimed = 0, converted = 0
   const ttr: number[] = []                       // hours, responders with a ts
   const stageCount = new Map<string, number>()
-  const winElig = windowDays.map(() => 0)
-  const winResp = windowDays.map(() => 0)
+  const winResponded = windowDays.map(() => 0)
+  const winMatured = windowDays.map(() => 0)
 
   for (const r of rows) {
     const status = r.status ?? ''
@@ -171,27 +173,25 @@ export function cohortSegment(
       if (d != null) ttr.push(Math.max(0, d) * 24)
     }
 
-    // Windows
+    // Windows — SAME denominator (the whole cohort) for every N, so 7-day and 14-day
+    // measure the SAME leads. The response curve is cumulative: a lead counted within
+    // 7 days is also within 14. Maturity (age ≥ N) is tracked separately as an
+    // informational "how settled is this" share, NOT a filter on the denominator.
     const age = ageDays(now, r.date_added_ghl)
+    const respDelta = hasTs ? respDeltaDays(r.date_added_ghl, firstTs) : null
     for (let j = 0; j < windowDays.length; j++) {
       const N = windowDays[j]
-      const matured = age != null && age >= N
-      // Eligible = matured AND (has usable timing OR genuinely not-yet-responded).
-      // Excludes state #2 (responded-but-untimed) — never counted as a no.
-      const eligible = matured && (hasTs || !respNow)
-      if (!eligible) continue
-      winElig[j]++
-      const d = respDeltaDays(r.date_added_ghl, firstTs)
-      if (hasTs && d != null && d <= N) winResp[j]++
+      if (age != null && age >= N) winMatured[j]++
+      if (respDelta != null && respDelta <= N) winResponded[j]++
     }
   }
 
   const windows: WindowStat[] = windowDays.map((N, j) => ({
     days: N,
-    eligible: winElig[j],
-    responded: winResp[j],
-    rate: winElig[j] > 0 ? pct(winResp[j], winElig[j]) : null,
-    maturityCoverage: pct(winElig[j], total),
+    responded: winResponded[j],
+    total,
+    rate: total > 0 ? pct(winResponded[j], total) : null,
+    maturedShare: pct(winMatured[j], total),
   }))
 
   return {
