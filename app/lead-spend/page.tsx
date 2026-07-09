@@ -70,7 +70,7 @@ export default function LeadSpendPage() {
   const [deals, setDeals]         = useState<Deal[]>([])
   const [costs, setCosts]         = useState<Map<string, CostRow>>(new Map())
   const [loading, setLoading]     = useState(true)
-  const [range, setRange]         = useState<RangeKey>('this_month')
+  const [range, setRange]         = useState<RangeKey>('all')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo]   = useState('')
   const [lo, setLo]               = useState<LO>('Moe')
