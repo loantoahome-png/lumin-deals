@@ -1,5 +1,12 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-09] Lead Spend — "If all Active loans fund" projection panel
+**Status:** CHANGED + DEPLOYED. tsc 7-baseline / **0 new** in `app/lead-spend/page.tsx`; `npm run build` READY.
+**Issue:** Efrain wanted a projected scenario below the per-source table: if every Active (Loans in Process) loan funded, what do Revenue / Net Profit / ROI / Funded / Volume become? Verified in DB first: Loans-in-Process deals carry expected comp — 88% (22/25) have `compensation_amount>0`, avg ~$7,107 — so we project from REAL Arive comp, not a guess.
+**Changes:** `app/lead-spend/page.tsx` — added a pure `projection` useMemo (per-source + totals from `visibleSources`): adds each active loan's `compensation_amount` to revenue (lead cost fixed); active loans with no comp yet are estimated at the average comp of comp-bearing deals in view (est. count surfaced). New violet panel between the table's definitions footer and the Funded-loans section: header (active count + total added comp + est. note), five current→projected tiles (Funded, Funded Volume, Revenue, Net Profit, ROI), a per-source table (only sources with active loans), and a "not a forecast of close probability" footnote. Hidden when no active loans in view. Respects all current filters (derives from `visibleSources`/`kpis`).
+**Test Method:** DB comp-coverage check; tsc + build; live render check on the deployed authed page (Control Chrome).
+**Result:** VERIFIED — see live check below.
+
 ### [2026-07-09] Add Randy Mathis as a third loan officer (re-apply of reverted 962c331 + 2 post-revert sites)
 **Status:** **VERIFIED + DEPLOYED (live in prod).** tsc 7-baseline / **0 new** across 19 changed files; `npm run build` READY; fixtures **cohort 74/74 + lead-report 63/63**. Commit `f803ad6`, prod deploy `dpl_BJkLNNhhM6J4fjraJX4V9vx1LXJk`.
 **Issue:** Consolidate reporting by wiring Randy Mathis as a 3rd LO (with Moe Sefati + Matt Park). Originally shipped `962c331` (7/07), reverted next morning by `98f2b49` — no recorded reason; the commit itself noted "Env still to set". Verified benign: `getAccounts()` (`app/api/sync/ghl/route.ts:24`) only activates Randy's "extra" account when BOTH `GHL_API_KEY_2` + `GHL_LOCATION_ID_2` are set, so the reverted code was inert without env, not broken. Re-applied per Efrain "just go with it".

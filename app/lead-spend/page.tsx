@@ -317,6 +317,53 @@ export default function LeadSpendPage() {
     }
   }, [visibleSources])
 
+  // ── "If all Active loans fund" projection ─────────────────────────────────
+  // A what-if: add each in-process (Loans in Process) loan's EXPECTED Arive
+  // compensation to revenue, holding lead cost fixed. Active loans almost always
+  // carry a comp value from Arive already; the few that don't are estimated at the
+  // average comp of comp-bearing deals in view so the scenario isn't understated.
+  const projection = useMemo(() => {
+    let compSum = 0, compN = 0
+    for (const s of visibleSources) for (const d of s.deals) {
+      const c = d.compensation_amount ?? 0
+      if (c > 0) { compSum += c; compN++ }
+    }
+    const avgComp = compN > 0 ? compSum / compN : 0
+    const rows = visibleSources.map(s => {
+      const activeDeals = s.deals.filter(d => (d.pipeline_group ?? '') === 'Loans in Process')
+      let addComp = 0, addVolume = 0, estimated = 0
+      for (const d of activeDeals) {
+        const c = d.compensation_amount ?? 0
+        if (c > 0) addComp += c
+        else { addComp += avgComp; estimated++ }
+        addVolume += (d.loan_amount ?? 0)
+      }
+      const projRevenue = s.revenue + addComp
+      const projNetProfit = projRevenue - s.leadCost
+      return {
+        s, activeCount: activeDeals.length, addComp, addVolume, estimated,
+        projRevenue, projNetProfit,
+        projRoi: s.leadCost > 0 ? (projNetProfit / s.leadCost) * 100 : null,
+        projFunded: s.funded + activeDeals.length,
+        projVolume: s.fundedVolume + addVolume,
+      }
+    })
+    const activeCount = rows.reduce((a, r) => a + r.activeCount, 0)
+    const addComp = rows.reduce((a, r) => a + r.addComp, 0)
+    const addVolume = rows.reduce((a, r) => a + r.addVolume, 0)
+    const estimatedCount = rows.reduce((a, r) => a + r.estimated, 0)
+    const projRevenue = kpis.totalRevenue + addComp
+    const projNetProfit = projRevenue - kpis.totalLeadCost
+    return {
+      rows, withActive: rows.filter(r => r.activeCount > 0).sort((a, b) => b.addComp - a.addComp),
+      activeCount, estimatedCount, addComp, addVolume, avgComp,
+      projRevenue, projNetProfit,
+      projRoi: kpis.totalLeadCost > 0 ? (projNetProfit / kpis.totalLeadCost) * 100 : null,
+      projFunded: kpis.totalFunded + activeCount,
+      projVolume: kpis.totalVolume + addVolume,
+    }
+  }, [visibleSources, kpis])
+
   // ── Donut data — share of funded loans by source (top 8 + "Other") ────────
   const donutData = useMemo(() => {
     const withFunded = visibleSources.filter(s => s.funded > 0).sort((a, b) => b.funded - a.funded)
@@ -1042,6 +1089,83 @@ export default function LeadSpendPage() {
             <strong> Net Profit</strong> = Revenue − Lead Cost ·
             <strong> ROI</strong> = Net Profit ÷ Lead Cost ·
             Expand a source row to see its deals, set an optional flat <strong>monthly cost</strong> (for retainer-billed sources), or recategorize.
+          </div>
+        )}
+
+        {/* Projected — if every Active (in-process) loan funds */}
+        {!loading && projection.activeCount > 0 && (
+          <div className="mt-6 bg-white border border-violet-200 rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-violet-100 bg-violet-50/50 flex items-center justify-between gap-2 flex-wrap">
+              <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-violet-500" />
+                If all Active loans fund
+                <span className="font-normal text-slate-400">· {projection.activeCount} in process · {rangeLabel}</span>
+              </h3>
+              <span className="text-xs text-slate-500">
+                adds <span className="font-semibold text-violet-700">{formatCurrency(projection.addComp)}</span> projected comp
+                {projection.estimatedCount > 0 && <span className="text-slate-400"> · {projection.estimatedCount} est. at avg {formatCurrency(projection.avgComp)}</span>}
+              </span>
+            </div>
+
+            {/* Current → projected tiles */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 p-4">
+              {[
+                { label: 'Funded', now: String(kpis.totalFunded), next: String(projection.projFunded), up: true },
+                { label: 'Funded Volume', now: formatCurrency(kpis.totalVolume), next: formatCurrency(projection.projVolume), up: projection.addVolume > 0 },
+                { label: 'Revenue', now: kpis.totalRevenue > 0 ? formatCurrency(kpis.totalRevenue) : '—', next: formatCurrency(projection.projRevenue), up: projection.addComp > 0 },
+                { label: 'Net Profit', now: (kpis.totalRevenue > 0 || kpis.totalLeadCost > 0) ? formatCurrency(kpis.netProfit) : '—', next: formatCurrency(projection.projNetProfit), up: projection.projNetProfit >= kpis.netProfit },
+                { label: 'ROI', now: kpis.roi == null ? '—' : `${kpis.roi.toFixed(0)}%`, next: projection.projRoi == null ? '—' : `${projection.projRoi.toFixed(0)}%`, up: projection.projRoi != null && (kpis.roi == null || projection.projRoi >= kpis.roi) },
+              ].map(t => (
+                <div key={t.label} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{t.label}</p>
+                  <div className="flex items-baseline gap-1.5 mt-1 flex-wrap">
+                    <span className="text-sm text-slate-400 tabular-nums">{t.now}</span>
+                    <ArrowRight className="w-3 h-3 text-slate-300 shrink-0 self-center" />
+                    <span className={`text-lg font-bold tabular-nums ${t.up ? 'text-emerald-600' : 'text-slate-800'}`}>{t.next}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Per-source — only the sources that have active loans in view */}
+            {projection.withActive.length > 0 && (
+              <div className="overflow-x-auto border-t border-slate-100">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-200">
+                    <tr className="text-left text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                      <th className="px-4 py-2.5">Source</th>
+                      <th className="px-3 py-2.5 text-right">Active</th>
+                      <th className="px-3 py-2.5 text-right">+ Proj. Comp</th>
+                      <th className="px-3 py-2.5 text-right">Net Profit → Proj.</th>
+                      <th className="px-3 py-2.5 text-right pr-4">ROI → Proj.</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {projection.withActive.map(r => (
+                      <tr key={r.s.source}>
+                        <td className="px-4 py-2.5 font-medium text-slate-800">{r.s.source}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-amber-600">{r.activeCount}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-violet-700">{formatCurrency(r.addComp)}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
+                          <span className="text-slate-400">{(r.s.revenue === 0 && r.s.leadCost === 0) ? '—' : formatCurrency(r.s.netProfit)}</span>
+                          <ArrowRight className="inline w-3 h-3 text-slate-300 mx-1" />
+                          <span className={`font-semibold ${r.projNetProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(r.projNetProfit)}</span>
+                        </td>
+                        <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap pr-4">
+                          <span className="text-slate-400">{r.s.roi == null ? '—' : `${r.s.roi.toFixed(0)}%`}</span>
+                          <ArrowRight className="inline w-3 h-3 text-slate-300 mx-1" />
+                          <span className={`font-semibold ${r.projRoi == null ? 'text-slate-400' : r.projRoi >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{r.projRoi == null ? '—' : `${r.projRoi.toFixed(0)}%`}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="px-4 py-2.5 text-[11px] text-slate-400 border-t border-slate-100 leading-relaxed">
+              Hypothetical: adds each <strong>Active</strong> (Loans in Process) loan&apos;s Arive compensation to revenue with lead cost unchanged. Real comp is used where Arive has it{projection.estimatedCount > 0 ? `; ${projection.estimatedCount} without a comp yet ${projection.estimatedCount === 1 ? 'is' : 'are'} estimated at the ${formatCurrency(projection.avgComp)} average` : ''}. Not a forecast of close probability.
+            </div>
           </div>
         )}
 
