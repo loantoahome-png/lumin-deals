@@ -361,6 +361,9 @@ export default function LeadSpendPage() {
       projRoi: kpis.totalLeadCost > 0 ? (projNetProfit / kpis.totalLeadCost) * 100 : null,
       projFunded: kpis.totalFunded + activeCount,
       projVolume: kpis.totalVolume + addVolume,
+      // In this scenario every active loan closes, so active escrows → 0 and
+      // conversion is recomputed on the higher funded count (leads unchanged).
+      projConversion: kpis.totalLeads > 0 ? ((kpis.totalFunded + activeCount) / kpis.totalLeads) * 100 : 0,
     }
   }, [visibleSources, kpis])
 
@@ -1107,24 +1110,41 @@ export default function LeadSpendPage() {
               </span>
             </div>
 
-            {/* Current → projected tiles */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 p-4">
+            {/* Full projected KPI mirror — every metric from the top row, in the
+                "if all active fund" scenario. Unchanged metrics are shown too (tagged),
+                so the whole picture is visible, not just the deltas. */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 p-4">
               {[
-                { label: 'Funded', now: String(kpis.totalFunded), next: String(projection.projFunded), up: true },
-                { label: 'Funded Volume', now: formatCurrency(kpis.totalVolume), next: formatCurrency(projection.projVolume), up: projection.addVolume > 0 },
-                { label: 'Revenue', now: kpis.totalRevenue > 0 ? formatCurrency(kpis.totalRevenue) : '—', next: formatCurrency(projection.projRevenue), up: projection.addComp > 0 },
-                { label: 'Net Profit', now: (kpis.totalRevenue > 0 || kpis.totalLeadCost > 0) ? formatCurrency(kpis.netProfit) : '—', next: formatCurrency(projection.projNetProfit), up: projection.projNetProfit >= kpis.netProfit },
-                { label: 'ROI', now: kpis.roi == null ? '—' : `${kpis.roi.toFixed(0)}%`, next: projection.projRoi == null ? '—' : `${projection.projRoi.toFixed(0)}%`, up: projection.projRoi != null && (kpis.roi == null || projection.projRoi >= kpis.roi) },
-              ].map(t => (
-                <div key={t.label} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{t.label}</p>
-                  <div className="flex items-baseline gap-1.5 mt-1 flex-wrap">
-                    <span className="text-sm text-slate-400 tabular-nums">{t.now}</span>
-                    <ArrowRight className="w-3 h-3 text-slate-300 shrink-0 self-center" />
-                    <span className={`text-lg font-bold tabular-nums ${t.up ? 'text-emerald-600' : 'text-slate-800'}`}>{t.next}</span>
+                { label: 'Total Leads',    now: kpis.totalLeads.toLocaleString(),   next: kpis.totalLeads.toLocaleString(),   tone: 'neutral' as const },
+                { label: 'Active Escrows', now: kpis.totalActive.toLocaleString(),  next: '0',                                 tone: 'neutral' as const },
+                { label: 'Funded',         now: kpis.totalFunded.toLocaleString(),  next: projection.projFunded.toLocaleString(), tone: 'up' as const },
+                { label: 'Funded Volume',  now: formatCurrency(kpis.totalVolume),   next: formatCurrency(projection.projVolume), tone: 'up' as const },
+                { label: 'Conversion',     now: `${kpis.conversionRate.toFixed(1)}%`, next: `${projection.projConversion.toFixed(1)}%`, tone: 'up' as const },
+                { label: 'Lead Cost',      now: kpis.totalLeadCost > 0 ? formatCurrency(kpis.totalLeadCost) : '—', next: kpis.totalLeadCost > 0 ? formatCurrency(kpis.totalLeadCost) : '—', tone: 'neutral' as const },
+                { label: 'Revenue (comp)', now: kpis.totalRevenue > 0 ? formatCurrency(kpis.totalRevenue) : '—',  next: formatCurrency(projection.projRevenue), tone: 'up' as const },
+                { label: 'Net Profit',     now: (kpis.totalRevenue > 0 || kpis.totalLeadCost > 0) ? formatCurrency(kpis.netProfit) : '—', next: formatCurrency(projection.projNetProfit), tone: (projection.projNetProfit >= 0 ? 'up' : 'down') as 'up' | 'down' },
+                { label: 'ROI',            now: kpis.roi == null ? '—' : `${kpis.roi.toFixed(0)}%`, next: projection.projRoi == null ? '—' : `${projection.projRoi.toFixed(0)}%`, tone: (projection.projRoi != null && projection.projRoi >= 0 ? 'up' : 'down') as 'up' | 'down' },
+              ].map(t => {
+                const changed = t.now !== t.next
+                const nextColor = t.tone === 'down' ? 'text-red-600' : t.tone === 'up' ? 'text-emerald-600' : 'text-slate-800'
+                return (
+                  <div key={t.label} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{t.label}</p>
+                    {changed ? (
+                      <div className="flex items-baseline gap-1.5 mt-1 flex-wrap">
+                        <span className="text-sm text-slate-400 tabular-nums">{t.now}</span>
+                        <ArrowRight className="w-3 h-3 text-slate-300 shrink-0 self-center" />
+                        <span className={`text-lg font-bold tabular-nums ${nextColor}`}>{t.next}</span>
+                      </div>
+                    ) : (
+                      <div className="mt-1 flex items-baseline gap-1.5">
+                        <span className="text-lg font-bold tabular-nums text-slate-800">{t.next}</span>
+                        <span className="text-[10px] text-slate-400">unchanged</span>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
 
             {/* Per-source — only the sources that have active loans in view */}
