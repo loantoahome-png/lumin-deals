@@ -150,6 +150,13 @@ export type CohortSegment = {
   // Time to first response — responders WITH a logged timestamp only (hours)
   ttrMedianH: number | null
   ttrAvgH: number | null
+  // Speed to lead — % of the WHOLE cohort whose first response landed within the
+  // window. Same denominator + timing source as the day-windows (a finer-grained
+  // front of that same cumulative curve); only timed responders count in the numerator.
+  within1h: number
+  within1hPct: number
+  within24h: number
+  within24hPct: number
   // Conversion (reached the key stage)
   converted: number
   convertedPct: number
@@ -172,6 +179,7 @@ export function cohortSegment(
 ): CohortSegment {
   const total = rows.length
   let respondedNow = 0, respondedTimed = 0, respondedUntimed = 0, converted = 0, optedOut = 0
+  let within1h = 0, within24h = 0
   const ttr: number[] = []                       // hours, responders with a ts
   const stageCount = new Map<string, number>()
   const winResponded = windowDays.map(() => 0)
@@ -208,6 +216,11 @@ export function cohortSegment(
     // informational "how settled is this" share, NOT a filter on the denominator.
     const age = ageDays(now, r.date_added_ghl)
     const respDelta = hasTs ? respDeltaDays(r.date_added_ghl, firstTs) : null
+    // Speed-to-lead buckets (respDelta is in DAYS): 1/24 day = 1 hour, 1 day = 24 hours.
+    if (respDelta != null) {
+      if (respDelta <= 1 / 24) within1h++
+      if (respDelta <= 1) within24h++
+    }
     for (let j = 0; j < windowDays.length; j++) {
       const N = windowDays[j]
       if (age != null && age >= N) winMatured[j]++
@@ -233,6 +246,10 @@ export function cohortSegment(
     timingCoverage: respondedNow > 0 ? pct(respondedTimed, respondedNow) : null,
     ttrMedianH: median(ttr),
     ttrAvgH: mean(ttr),
+    within1h,
+    within1hPct: pct(within1h, total),
+    within24h,
+    within24hPct: pct(within24h, total),
     converted,
     convertedPct: pct(converted, total),
     optedOut,
@@ -301,6 +318,8 @@ export type CohortDelta = {
   optedOutPct: number
   timingCoverage: number | null
   ttrMedianH: number | null
+  within1hPct: number
+  within24hPct: number
   windows: { days: number; rate: number | null }[] // null when either cohort can't compare
 }
 export function cohortDelta(a: CohortSegment, b: CohortSegment): CohortDelta {
@@ -311,6 +330,8 @@ export function cohortDelta(a: CohortSegment, b: CohortSegment): CohortDelta {
     optedOutPct: b.optedOutPct - a.optedOutPct,
     timingCoverage: a.timingCoverage == null || b.timingCoverage == null ? null : b.timingCoverage - a.timingCoverage,
     ttrMedianH: a.ttrMedianH == null || b.ttrMedianH == null ? null : b.ttrMedianH - a.ttrMedianH,
+    within1hPct: b.within1hPct - a.within1hPct,
+    within24hPct: b.within24hPct - a.within24hPct,
     windows: a.windows.map((wa, i) => {
       const wb = b.windows[i]
       return { days: wa.days, rate: wa.rate == null || wb?.rate == null ? null : wb.rate - wa.rate }

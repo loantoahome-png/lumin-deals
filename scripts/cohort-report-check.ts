@@ -67,6 +67,26 @@ close('timingCoverage', seg.timingCoverage, 75)                   // 3 of 4 resp
 close('ttr median (48h)', seg.ttrMedianH, 48)                     // [24,48,216] → 48
 close('ttr avg (96h)', seg.ttrAvgH, 96)                           // (24+48+216)/3
 
+// ── Speed to lead — % of WHOLE cohort responding within 1h / 24h ─────────────
+// Base cohort resp deltas: L1 +48h, L2 +216h, L5 +24h(exact). None under 1h; L5 at the 24h edge.
+eq('within1h (none under 1h)', seg.within1h, 0)
+close('within1hPct', seg.within1hPct, 0)
+eq('within24h (L5 at exactly 24h counts)', seg.within24h, 1)
+close('within24hPct (1 of 6)', seg.within24hPct, 16.67)
+// Dedicated: a 30-min responder is in BOTH buckets; a 3-hr responder only in 24h.
+const speedSeg = cohortSegment(
+  [
+    lead({ id: 'F1', ghl_opportunity_id: 'f1', status: 'Responded', date_added_ghl: '2026-07-01T00:00:00Z' }),
+    lead({ id: 'F2', ghl_opportunity_id: 'f2', status: 'Responded', date_added_ghl: '2026-07-01T00:00:00Z' }),
+  ],
+  new Map([['f1', '2026-07-01T00:30:00Z'], ['f2', '2026-07-01T03:00:00Z']]), NOW,
+)
+eq('within1h (30-min responder only)', speedSeg.within1h, 1)     // F1
+close('within1hPct (1 of 2)', speedSeg.within1hPct, 50)
+eq('within24h (both under 24h)', speedSeg.within24h, 2)          // F1, F2
+close('within24hPct (2 of 2)', speedSeg.within24hPct, 100)
+eq('speed delta fields numeric', typeof cohortDelta(seg, speedSeg).within1hPct === 'number', true)
+
 // ── 7-day window (fixed cohort denominator) ─────────────────────────────────
 const w7 = seg.windows[0]
 eq('7d window days', w7.days, 7)

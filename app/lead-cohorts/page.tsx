@@ -157,16 +157,13 @@ export default function LeadCohortsPage() {
       const cls = neutral || flat ? 'mut' : (higherBetter ? v > 0 : v < 0) ? 'pos' : 'neg'
       return `<span class="${cls}">${esc(fmt(v))}</span>`
     }
-    const ttrDelta = (v: number) => `${hoursFmt(Math.abs(v))} ${v < 0 ? 'faster' : 'slower'}`
-
     const scoreRows = [
       ['Total leads', numFmt(sa.total), numFmt(sb.total), dc(d.total, cntDelta, true, true)],
       ['Responded', `${sa.respondedNow} · ${pctFmt(sa.respondedNowPct)}`, `${sb.respondedNow} · ${pctFmt(sb.respondedNowPct)}`, dc(d.respondedNowPct, x => ptsFmt(x))],
       ['Opted out / DND', `${sa.optedOut} · ${pctFmt(sa.optedOutPct)}`, `${sb.optedOut} · ${pctFmt(sb.optedOutPct)}`, dc(d.optedOutPct, x => ptsFmt(x), false, true)],
       ['Converted', `${sa.converted} · ${pctFmt(sa.convertedPct)}`, `${sb.converted} · ${pctFmt(sb.convertedPct)}`, dc(d.convertedPct, x => ptsFmt(x))],
-      ['Median time to first response', hoursFmt(sa.ttrMedianH), hoursFmt(sb.ttrMedianH), dc(d.ttrMedianH, ttrDelta, false)],
-      ['Avg time to first response', hoursFmt(sa.ttrAvgH), hoursFmt(sb.ttrAvgH), ''],
-      ['Timing coverage', pctFmt(sa.timingCoverage), pctFmt(sb.timingCoverage), dc(d.timingCoverage, x => ptsFmt(x))],
+      ['Responded within 1 hour', `${sa.within1h} · ${pctFmt(sa.within1hPct)}`, `${sb.within1h} · ${pctFmt(sb.within1hPct)}`, dc(d.within1hPct, x => ptsFmt(x))],
+      ['Responded within 24 hours', `${sa.within24h} · ${pctFmt(sa.within24hPct)}`, `${sb.within24h} · ${pctFmt(sb.within24hPct)}`, dc(d.within24hPct, x => ptsFmt(x))],
     ].map(([l, a, b, dl]) => `<tr><td class="src">${esc(l)}</td><td class="r">${esc(a)}</td><td class="r">${esc(b)}</td><td class="r">${dl}</td></tr>`).join('')
 
     const winRows = WINDOWS.map((N, i) => {
@@ -338,13 +335,13 @@ export default function LeadCohortsPage() {
                   a={`${sa.converted} · ${pctFmt(sa.convertedPct)}`} b={`${sb.converted} · ${pctFmt(sb.convertedPct)}`}
                   delta={<Delta value={d.convertedPct} fmt={ptsFmt} />} />
 
-                <tr><td colSpan={4} className="px-4 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Response timing</td></tr>
-                <Row label="Median time to first response" a={hoursFmt(sa.ttrMedianH)} b={hoursFmt(sb.ttrMedianH)}
-                  delta={<Delta value={d.ttrMedianH} higherIsBetter={false} fmt={v => v == null ? 'n/a' : hoursFmt(Math.abs(v)) + (v < 0 ? ' faster' : ' slower')} />} />
-                <Row label="Avg. time to first response" a={hoursFmt(sa.ttrAvgH)} b={hoursFmt(sb.ttrAvgH)} />
-                <Row label="Timing coverage" hint="responders with a known response time"
-                  a={pctFmt(sa.timingCoverage)} b={pctFmt(sb.timingCoverage)}
-                  delta={<Delta value={d.timingCoverage} fmt={ptsFmt} />} />
+                <tr><td colSpan={4} className="px-4 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Speed to lead</td></tr>
+                <Row label="Responded within 1 hour" hint="of the whole cohort — first inbound within 1 hr of arrival"
+                  a={`${sa.within1h} · ${pctFmt(sa.within1hPct)}`} b={`${sb.within1h} · ${pctFmt(sb.within1hPct)}`}
+                  delta={<Delta value={d.within1hPct} fmt={ptsFmt} />} />
+                <Row label="Responded within 24 hours" hint="of the whole cohort — first inbound within 24 hrs"
+                  a={`${sa.within24h} · ${pctFmt(sa.within24hPct)}`} b={`${sb.within24h} · ${pctFmt(sb.within24hPct)}`}
+                  delta={<Delta value={d.within24hPct} fmt={ptsFmt} />} />
               </tbody>
             </table>
           </div>

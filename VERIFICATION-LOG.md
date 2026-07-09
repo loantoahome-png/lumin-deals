@@ -1,5 +1,15 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-09] Lead Cohorts — replaced Response Timing box with Speed-to-Lead metrics
+**Status:** CHANGED + DEPLOYED. tsc 7-baseline / **0 new**; `npm run build` READY; fixtures **83/83** (+9 speed).
+**Issue:** Efrain wanted the scorecard's "Response timing" box (Median TTR, Avg TTR, Timing coverage) replaced with speed-to-lead metrics.
+**Changes:**
+- `lib/cohortReport.ts` — `CohortSegment` gains `within1h/within1hPct/within24h/within24hPct`; `cohortSegment` counts leads whose first-response delta ≤ 1/24 day (1h) and ≤ 1 day (24h) — same whole-cohort denominator + timing source as the day-windows (a finer front of that cumulative curve; timed responders only in the numerator). `CohortDelta` gains `within1hPct/within24hPct` (b−a). `ttrMedianH/ttrAvgH/timingCoverage` still computed (unused by the scorecard now; timing-coverage concept stays in the amber banner).
+- `app/lead-cohorts/page.tsx` — scorecard section relabeled "Speed to lead" with two rows (Responded within 1 hour / within 24 hours, count·% + Δ). Visual report `scoreRows` swapped the 3 TTR rows for the 2 speed rows (removed now-unused `ttrDelta`).
+- `scripts/cohort-report-check.ts` — +9 assertions (1h/24h buckets incl. a sub-1h fixture + exact-24h edge + delta).
+**Test Method:** 83/83 fixtures; tsc + build; real-data recompute of the exact cohorts.
+**Result:** VERIFIED. Live numbers — Default A (6/22–6/26) n=169: <1h 36·21.3%, <24h 60·35.5% (84% coverage); B n=156: <1h 20.5%, <24h 34.6%; Randy A (6/15–6/19) n=53: <1h 24.5%, <24h 34.0% (96% coverage).
+
 ### [2026-07-09] Visual reports — projection added to Lead Spend PDF + NEW Lead Cohorts PDF report
 **Status:** CHANGED + DEPLOYED. tsc 7-baseline / **0 new** in both files; `npm run build` READY.
 **Issue:** (1) The Lead Spend "Visual Report" (print/PDF window) didn't include the new "If all Active loans fund" projection. (2) The Lead Cohorts page had no printable report at all.
