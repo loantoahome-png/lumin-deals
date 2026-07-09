@@ -27,7 +27,7 @@ import {
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid,
 } from 'recharts'
-import { RefreshCw, Users, Clock, Target, TrendingUp, TrendingDown, Minus, AlertTriangle } from 'lucide-react'
+import { RefreshCw, Users, Clock, Target, TrendingUp, TrendingDown, Minus, AlertTriangle, FileText } from 'lucide-react'
 
 const COLS = 'id,ghl_opportunity_id,loan_officer,pipeline_group,status,source,state,loan_purpose,date_added_ghl,lead_price,dnd,dnd_settings'
 const LO_TABS: LO[] = ['All', 'Moe', 'Matt', 'Randy']
@@ -141,6 +141,125 @@ export default function LeadCohortsPage() {
       .slice(0, 12)
   }, [ra, rb, dim])
 
+  // ── Printable visual report (opens a styled window → Print / Save as PDF) ─────
+  function openVisualReport() {
+    const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string))
+    const filterBits = [
+      `Cohort A: ${aStart} → ${aEnd}`,
+      `Cohort B: ${bStart} → ${bEnd}`,
+      `LO: ${lo === 'All' ? 'All LOs' : lo}`,
+      'Aggregator (priced) leads only',
+    ]
+    // delta span with good/bad color
+    const dc = (v: number | null, fmt: (n: number) => string, higherBetter = true, neutral = false) => {
+      if (v == null) return '<span class="mut">n/a</span>'
+      const flat = Math.abs(v) < 0.05
+      const cls = neutral || flat ? 'mut' : (higherBetter ? v > 0 : v < 0) ? 'pos' : 'neg'
+      return `<span class="${cls}">${esc(fmt(v))}</span>`
+    }
+    const ttrDelta = (v: number) => `${hoursFmt(Math.abs(v))} ${v < 0 ? 'faster' : 'slower'}`
+
+    const scoreRows = [
+      ['Total leads', numFmt(sa.total), numFmt(sb.total), dc(d.total, cntDelta, true, true)],
+      ['Responded', `${sa.respondedNow} · ${pctFmt(sa.respondedNowPct)}`, `${sb.respondedNow} · ${pctFmt(sb.respondedNowPct)}`, dc(d.respondedNowPct, x => ptsFmt(x))],
+      ['Opted out / DND', `${sa.optedOut} · ${pctFmt(sa.optedOutPct)}`, `${sb.optedOut} · ${pctFmt(sb.optedOutPct)}`, dc(d.optedOutPct, x => ptsFmt(x), false, true)],
+      ['Converted', `${sa.converted} · ${pctFmt(sa.convertedPct)}`, `${sb.converted} · ${pctFmt(sb.convertedPct)}`, dc(d.convertedPct, x => ptsFmt(x))],
+      ['Median time to first response', hoursFmt(sa.ttrMedianH), hoursFmt(sb.ttrMedianH), dc(d.ttrMedianH, ttrDelta, false)],
+      ['Avg time to first response', hoursFmt(sa.ttrAvgH), hoursFmt(sb.ttrAvgH), ''],
+      ['Timing coverage', pctFmt(sa.timingCoverage), pctFmt(sb.timingCoverage), dc(d.timingCoverage, x => ptsFmt(x))],
+    ].map(([l, a, b, dl]) => `<tr><td class="src">${esc(l)}</td><td class="r">${esc(a)}</td><td class="r">${esc(b)}</td><td class="r">${dl}</td></tr>`).join('')
+
+    const winRows = WINDOWS.map((N, i) => {
+      const wa = sa.windows[i], wb = sb.windows[i], wd = d.windows[i]
+      const bothMature = wa.maturedShare >= 90 && wb.maturedShare >= 90
+      return `<tr>
+        <td class="src">${N}-day</td>
+        <td class="r">${pctFmt(wa.rate)} <span class="mut">${wa.responded}/${wa.total}</span></td>
+        <td class="r">${wa.maturedShare.toFixed(0)}%</td>
+        <td class="r">${pctFmt(wb.rate)} <span class="mut">${wb.responded}/${wb.total}</span></td>
+        <td class="r">${wb.maturedShare.toFixed(0)}%</td>
+        <td class="r">${bothMature ? dc(wd?.rate ?? null, x => ptsFmt(x)) : '<span class="mut">maturing</span>'}</td>
+      </tr>`
+    }).join('')
+
+    // Breakdown (current dimension) — union of A/B keys, sorted by combined leads
+    const aMap = new Map(breakdown(ra).map(x => [x.key, x.seg]))
+    const bMap = new Map(breakdown(rb).map(x => [x.key, x.seg]))
+    const keys = [...new Set<string>([...aMap.keys(), ...bMap.keys()])]
+      .map(k => ({ k, n: (aMap.get(k)?.total ?? 0) + (bMap.get(k)?.total ?? 0) }))
+      .sort((x, y) => y.n - x.n)
+    const win = (seg: CohortSegment | undefined, i: number) => seg ? (seg.windows[i]?.rate == null ? '—' : pctFmt(seg.windows[i].rate)) : '—'
+    const bdRows = keys.map(({ k }) => {
+      const av = aMap.get(k), bv = bMap.get(k)
+      return `<tr>
+        <td class="src">${esc(k)}</td>
+        <td class="r">${av?.total ?? 0}</td><td class="r">${pctFmt(av?.respondedNowPct ?? null)}</td><td class="r">${win(av, 0)}</td><td class="r">${win(av, 1)}</td>
+        <td class="r bl">${bv?.total ?? 0}</td><td class="r">${pctFmt(bv?.respondedNowPct ?? null)}</td><td class="r">${win(bv, 0)}</td><td class="r">${win(bv, 1)}</td>
+      </tr>`
+    }).join('')
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Lumin Lending — Lead Cohort Report</title>
+<style>
+  * { box-sizing:border-box; } body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; color:#0f172a; margin:0; padding:32px 40px; background:#fff; }
+  h1 { font-size:22px; margin:0 0 2px; } .sub { color:#64748b; font-size:13px; }
+  .filters { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0 22px; }
+  .filters span { background:#eef2ff; color:#4338ca; font-size:11px; font-weight:600; padding:3px 9px; border-radius:999px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:#64748b; margin:24px 0 10px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; margin-top:8px; }
+  th { text-align:left; font-size:9px; text-transform:uppercase; letter-spacing:.04em; color:#64748b; border-bottom:2px solid #e2e8f0; padding:6px 8px; }
+  td { padding:6px 8px; border-bottom:1px solid #f1f5f9; }
+  td.r, th.r { text-align:right; } td.src { font-weight:600; } td.bl, th.bl { border-left:1px solid #e2e8f0; }
+  td.pos, .pos { color:#047857; font-weight:700; } td.neg, .neg { color:#dc2626; font-weight:700; } .mut { color:#94a3b8; font-weight:400; }
+  .note { background:#fffbeb; border:1px solid #fde68a; color:#92400e; font-size:11px; border-radius:8px; padding:8px 12px; margin:8px 0 0; }
+  .foot { margin-top:26px; color:#94a3b8; font-size:10px; line-height:1.5; }
+  @media print { body { padding:0; } .noprint { display:none; } }
+  .noprint { margin-bottom:18px; } .btn { background:#4f46e5; color:#fff; border:0; border-radius:8px; padding:9px 16px; font-size:13px; font-weight:600; cursor:pointer; }
+</style></head><body>
+  <div class="noprint"><button class="btn" onclick="window.print()">🖨 Print / Save as PDF</button></div>
+  <h1>Lumin Lending — Lead Cohort Responsiveness</h1>
+  <div class="sub">Generated ${esc(new Date().toLocaleString())} · A = ${esc(shortRange(aStart, aEnd))} (n=${sa.total}) vs B = ${esc(shortRange(bStart, bEnd))} (n=${sb.total})</div>
+  <div class="filters">${filterBits.map(b => `<span>${esc(b)}</span>`).join('')}</div>
+  ${timingBackfilled ? '<div class="note">No timing data loaded — window rates need the conversation-history backfill. As-of-today totals are still accurate.</div>' : ''}
+
+  <h2>Scorecard — Cohort A vs Cohort B</h2>
+  <table>
+    <thead><tr><th>Metric</th><th class="r">A · ${esc(shortRange(aStart, aEnd))}</th><th class="r">B · ${esc(shortRange(bStart, bEnd))}</th><th class="r">Δ B−A</th></tr></thead>
+    <tbody>${scoreRows}</tbody>
+  </table>
+
+  <h2>Responded within N days of arrival — % of whole cohort</h2>
+  <table>
+    <thead><tr><th>Window</th><th class="r">Cohort A</th><th class="r">A matured</th><th class="r">Cohort B</th><th class="r">B matured</th><th class="r">Δ</th></tr></thead>
+    <tbody>${winRows}</tbody>
+  </table>
+
+  <h2>Response states</h2>
+  <table>
+    <thead><tr><th>Cohort</th><th class="r">Responded · timed</th><th class="r">Responded · untimed</th><th class="r">Not responded</th></tr></thead>
+    <tbody>
+      <tr><td class="src">A · ${esc(shortRange(aStart, aEnd))}</td><td class="r">${sa.respondedTimed}</td><td class="r">${sa.respondedUntimed}</td><td class="r">${sa.notResponded}</td></tr>
+      <tr><td class="src">B · ${esc(shortRange(bStart, bEnd))}</td><td class="r">${sb.respondedTimed}</td><td class="r">${sb.respondedUntimed}</td><td class="r">${sb.notResponded}</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Breakdown by ${esc(dim.toLowerCase())}</h2>
+  <table>
+    <thead><tr><th>${esc(dim)}</th><th class="r">A n</th><th class="r">A resp%</th><th class="r">A 7d</th><th class="r">A 14d</th><th class="r bl">B n</th><th class="r">B resp%</th><th class="r">B 7d</th><th class="r">B 14d</th></tr></thead>
+    <tbody>${bdRows || '<tr><td colspan="9" class="mut" style="text-align:center;padding:14px">No leads in either cohort.</td></tr>'}</tbody>
+  </table>
+
+  <div class="foot">
+    Aggregator (priced) leads only, grouped by created date (GHL date-added). <b>Responded</b> = engaged at least once (Ghosted counts). <b>Window rates</b> come from GHL conversation history (earliest inbound) ∪ the live stage log; leads with no inbound on record are excluded from window timing (never a "no") — see timing coverage. <b>Converted</b> = reached Arive Lead or later. Two lenses (as-of-today stage vs window inbound timing) can diverge by design.
+  </div>
+</body></html>`
+
+    const w = window.open('', '_blank')
+    if (!w) { alert('Please allow pop-ups to view the visual report.'); return }
+    w.document.write(html)
+    w.document.close()
+  }
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       {/* Header */}
@@ -148,10 +267,16 @@ export default function LeadCohortsPage() {
         <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
           <Users className="text-indigo-600" size={24} /> Lead Cohort Responsiveness
         </h1>
-        <button onClick={load} disabled={loading}
-          className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50">
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={openVisualReport} disabled={loading || !deals.length}
+            className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
+            <FileText size={14} /> Visual Report
+          </button>
+          <button onClick={load} disabled={loading}
+            className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50">
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+          </button>
+        </div>
       </div>
       <p className="text-sm text-slate-500 mb-4">
         <b>Aggregator (purchased) leads only</b> — those with a lead price. Two cohorts by created date (GHL

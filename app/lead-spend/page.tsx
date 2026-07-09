@@ -489,6 +489,21 @@ export default function LeadSpendPage() {
     const kpiCard = (label: string, value: string, cls = '') =>
       `<div class="kpi ${cls}"><div class="kpi-l">${esc(label)}</div><div class="kpi-v">${esc(value)}</div></div>`
 
+    // Projected KPI card ("now → next"), tags unchanged metrics. tone: '' | 'good' | 'bad'
+    const projKpiCard = (label: string, now: string, next: string, tone = '') => {
+      const body = now === next
+        ? `<div class="kpi-v">${esc(next)} <span class="unch">unchanged</span></div>`
+        : `<div class="kpi-v"><span class="was">${esc(now)}</span> → <span class="nx ${tone}">${esc(next)}</span></div>`
+      return `<div class="kpi"><div class="kpi-l">${esc(label)}</div>${body}</div>`
+    }
+    const projRowsHtml = projection.withActive.map(r => `<tr>
+      <td class="src">${esc(r.s.source)}</td>
+      <td class="r">${r.activeCount}</td>
+      <td class="r" style="color:#7c3aed">${fc(r.addComp)}</td>
+      <td class="r">${(r.s.revenue === 0 && r.s.leadCost === 0) ? '—' : fc(r.s.netProfit)} → <b class="${r.projNetProfit >= 0 ? 'pos' : 'neg'}">${fc(r.projNetProfit)}</b></td>
+      <td class="r">${r.s.roi == null ? '—' : r.s.roi.toFixed(0) + '%'} → <b class="${r.projRoi == null ? '' : r.projRoi >= 0 ? 'pos' : 'neg'}">${r.projRoi == null ? '—' : r.projRoi.toFixed(0) + '%'}</b></td>
+    </tr>`).join('')
+
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>Lumin Lending — Lead Spend Report</title>
 <style>
@@ -506,6 +521,14 @@ export default function LeadSpendPage() {
   .kpi.good { border-color:#6ee7b7; background:#ecfdf5; } .kpi.good .kpi-v { color:#047857; }
   .kpi.bad  { border-color:#fca5a5; background:#fef2f2; } .kpi.bad  .kpi-v { color:#b91c1c; }
   .kpi.hl   { border-color:#a5b4fc; background:#eef2ff; } .kpi.hl   .kpi-v { color:#4338ca; }
+  .kpis.proj { grid-template-columns:repeat(5,1fr); }
+  .kpis.proj.money { grid-template-columns:repeat(4,1fr); }
+  .kpi .was { color:#94a3b8; font-size:14px; font-weight:600; }
+  .kpi .nx  { color:#0f172a; } .kpi .nx.good { color:#047857; } .kpi .nx.bad { color:#b91c1c; }
+  .kpi .unch { font-size:9px; color:#94a3b8; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+  .proj-hd { border:1px solid #ddd6fe; background:#f5f3ff; border-radius:10px; padding:10px 14px; margin:24px 0 12px; }
+  .proj-hd .t { font-size:13px; font-weight:800; color:#5b21b6; }
+  .proj-hd .d { font-size:11px; color:#7c3aed; margin-top:2px; }
   h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:#64748b; margin:24px 0 10px; }
   .bar-row { display:flex; align-items:center; gap:12px; font-size:13px; margin-bottom:6px; }
   .bar-label { width:150px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -578,6 +601,30 @@ export default function LeadSpendPage() {
       <td class="r ${kpis.roi == null ? '' : kpis.roi >= 0 ? 'pos' : 'neg'}">${kpis.roi == null ? '—' : kpis.roi.toFixed(0) + '%'}</td>
     </tr></tfoot>
   </table>
+  ${projection.activeCount > 0 ? `
+  <div class="proj-hd">
+    <div class="t">📈 If all Active loans fund — projected</div>
+    <div class="d">${projection.activeCount} loan${projection.activeCount === 1 ? '' : 's'} in process · adds ${fc(projection.addComp)} projected comp${projection.estimatedCount > 0 ? ` · ${projection.estimatedCount} estimated at avg ${fc(projection.avgComp)}` : ''}</div>
+  </div>
+  <div class="kpis proj">
+    ${projKpiCard('Total Leads', kpis.totalLeads.toLocaleString(), kpis.totalLeads.toLocaleString())}
+    ${projKpiCard('Active Escrows', kpis.totalActive.toLocaleString(), '0')}
+    ${projKpiCard('Funded', kpis.totalFunded.toLocaleString(), projection.projFunded.toLocaleString(), 'good')}
+    ${projKpiCard('Funded Volume', fc(kpis.totalVolume), fc(projection.projVolume), 'good')}
+    ${projKpiCard('Conversion', kpis.conversionRate.toFixed(1) + '%', projection.projConversion.toFixed(1) + '%', 'good')}
+  </div>
+  <div class="kpis proj money">
+    ${projKpiCard('Lead Cost', kpis.totalLeadCost > 0 ? fc(kpis.totalLeadCost) : '—', kpis.totalLeadCost > 0 ? fc(kpis.totalLeadCost) : '—')}
+    ${projKpiCard('Revenue (comp)', kpis.totalRevenue > 0 ? fc(kpis.totalRevenue) : '—', fc(projection.projRevenue), 'good')}
+    ${projKpiCard('Net Profit', (kpis.totalRevenue > 0 || kpis.totalLeadCost > 0) ? fc(kpis.netProfit) : '—', fc(projection.projNetProfit), projection.projNetProfit >= 0 ? 'good' : 'bad')}
+    ${projKpiCard('ROI', kpis.roi == null ? '—' : kpis.roi.toFixed(0) + '%', projection.projRoi == null ? '—' : projection.projRoi.toFixed(0) + '%', projection.projRoi != null && projection.projRoi >= 0 ? 'good' : 'bad')}
+  </div>
+  ${projection.withActive.length ? `<table>
+    <thead><tr><th>Source</th><th class="r">Active</th><th class="r">+ Proj Comp</th><th class="r">Net Profit → Proj</th><th class="r">ROI → Proj</th></tr></thead>
+    <tbody>${projRowsHtml}</tbody>
+  </table>` : ''}
+  <div class="foot">Hypothetical: adds each Active (Loans in Process) loan&apos;s Arive compensation to revenue with lead cost unchanged${projection.estimatedCount > 0 ? `; ${projection.estimatedCount} without a comp yet estimated at the ${fc(projection.avgComp)} average` : ''}. Not a forecast of close probability.</div>
+  ` : ''}
 
   <div class="foot">
     Lead Cost = Σ lead price (GHL) · Revenue = Σ compensation on funded deals (Arive) · Net Profit = Revenue − Lead Cost · ROI = Net Profit ÷ Lead Cost.

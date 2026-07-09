@@ -1,5 +1,14 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-09] Visual reports — projection added to Lead Spend PDF + NEW Lead Cohorts PDF report
+**Status:** CHANGED + DEPLOYED. tsc 7-baseline / **0 new** in both files; `npm run build` READY.
+**Issue:** (1) The Lead Spend "Visual Report" (print/PDF window) didn't include the new "If all Active loans fund" projection. (2) The Lead Cohorts page had no printable report at all.
+**Changes:**
+- `app/lead-spend/page.tsx` `openVisualReport()` — appended a "📈 If all Active loans fund — projected" section: full projected KPI mirror (Total Leads, Active Escrows→0, Funded, Funded Volume, Conversion, Lead Cost, Revenue, Net Profit, ROI as now→next, unchanged tagged) + a per-source active table (Active, +Proj Comp, Net Profit→Proj, ROI→Proj) + hypothetical footnote. New `projKpiCard`/`projRowsHtml` helpers + CSS. Section omitted when no active loans.
+- `app/lead-cohorts/page.tsx` — NEW `openVisualReport()` + "Visual Report" header button (indigo, next to Refresh). Report mirrors the whole page: scorecard (A vs B + Δ for total/responded/opted-out/converted/median+avg TTR/timing coverage), 7d & 14d window rates (rate + maturity + Δ, "maturing" when <90%), response-states table (timed/untimed/not-responded per cohort), and the current-dimension breakdown (A/B n·resp%·7d·14d). Same print-window pattern as Lead Spend; timing-not-loaded note; priced-only footnote.
+**Test Method:** tsc + build; live click-through of both "Visual Report" buttons on the deployed authed pages (Control Chrome).
+**Result:** VERIFIED — see live check.
+
 ### [2026-07-09] Lead Spend — "If all Active loans fund" projection panel
 **Status:** CHANGED + DEPLOYED. tsc 7-baseline / **0 new** in `app/lead-spend/page.tsx`; `npm run build` READY.
 **Issue:** Efrain wanted a projected scenario below the per-source table: if every Active (Loans in Process) loan funded, what do Revenue / Net Profit / ROI / Funded / Volume become? Verified in DB first: Loans-in-Process deals carry expected comp — 88% (22/25) have `compensation_amount>0`, avg ~$7,107 — so we project from REAL Arive comp, not a guess.
