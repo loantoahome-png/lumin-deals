@@ -4,9 +4,16 @@ import { NextResponse, type NextRequest } from 'next/server'
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // Allow login page, static assets, and GHL webhook through without auth
+  // Allow login page, static assets, and GHL webhook through without auth.
+  // The reset paths must be public too: /auth/confirm is where the emailed token_hash
+  // becomes a session (there isn't one yet), and /reset-password renders its own
+  // "link expired" state instead of bouncing to /login. Reaching /reset-password
+  // without a session can't change anything — updateUser requires one.
   const isPublic =
     pathname.startsWith('/login') ||
+    pathname.startsWith('/forgot-password') ||
+    pathname.startsWith('/reset-password') ||
+    pathname.startsWith('/auth/confirm') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api/webhooks') ||
     pathname.startsWith('/api/cron') ||

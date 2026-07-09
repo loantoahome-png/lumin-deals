@@ -3,11 +3,14 @@
 import { usePathname } from 'next/navigation'
 import Sidebar from './Sidebar'
 
+// Pages reachable without a session render bare — no sidebar, no sync controls,
+// no Sign Out. Must stay in step with the `isPublic` allowlist in middleware.ts.
+const CHROMELESS_PATHS = new Set(['/login', '/forgot-password', '/reset-password'])
+
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const isLoginPage = pathname === '/login'
 
-  if (isLoginPage) {
+  if (CHROMELESS_PATHS.has(pathname)) {
     return <>{children}</>
   }
 

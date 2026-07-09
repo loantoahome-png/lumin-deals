@@ -1,5 +1,35 @@
 # GOTCHAS — Lumin Deals
 
+### Supabase auth email links: the PKCE `code` flow CANNOT work for a dashboard-sent link
+**Tried:** Building the password reset around `/auth/callback` + `exchangeCodeForSession(code)` — the pattern most
+Next.js + Supabase examples show.
+**Failed because:** PKCE writes a **code verifier into the originating browser's local storage** when the flow starts.
+Supabase's own docs: *"the code exchange must be initiated on the same browser and device where the flow was started."*
+A link sent from the **Supabase dashboard** ("Send password recovery" / "Send magic link") is server-initiated — no
+verifier exists anywhere — so the exchange can never succeed. Same failure if the user opens the email on their phone
+after requesting the reset on their laptop. The `code` path silently half-works: fine when you test it yourself in one
+browser, broken for every real user.
+**What works:** the `token_hash` + `verifyOtp({token_hash, type})` path. `VerifyTokenHashParams` takes only
+`{token_hash, type}` — no email, no verifier — so it is cross-browser and works for dashboard-sent links. Requires
+editing the email template to `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password`;
+the default `{{ .ConfirmationURL }}` hands back a `code`, not a hash.
+**Also:** in the route handler you must build the `NextResponse.redirect(...)` **before** calling `verifyOtp`, so
+`setAll` can write session cookies onto it. Copying the read-only client from `app/api/underwriting/route.ts`
+(`setAll: () => {}`) verifies the token and then throws the session away — you land on the reset page logged out.
+**Project:** lumin-deals
+**Date:** 2026-07-09
+
+### A new unauthenticated page renders wrapped in the authed sidebar (AppShell hardcoded `=== '/login'`)
+**Tried:** Adding `/forgot-password` and `/reset-password`, adding them to `isPublic` in `middleware.ts`, assuming done.
+**Failed because:** `components/AppShell.tsx` decided chrome with `const isLoginPage = pathname === '/login'`. Any other
+public page therefore rendered with the full sidebar — nav links, "Sync GHL", and a **Sign Out button** — around a
+"Link expired" card, for a visitor with no session. `tsc` and `npm run build` both pass clean; only loading the page
+in a browser shows it.
+**What works:** `CHROMELESS_PATHS` set in `AppShell.tsx`, kept in step with `isPublic` in `middleware.ts`. Two
+allowlists, two files — when you add a public page, edit both.
+**Project:** lumin-deals
+**Date:** 2026-07-09
+
 ### The GHL sync is triggered by cron-job.org (free), which has a hard 30s timeout → heavy runs were cut off
 **Tried:** A loan marked "Lost" in GHL stayed on Active Escrows for ~3h. The sync DOES demote lost opps
 (`effectiveGroup → 'Not Ready'`), so why didn't it apply?
