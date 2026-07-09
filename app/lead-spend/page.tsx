@@ -57,7 +57,7 @@ function fmtDate(iso: string | null | undefined): string {
   return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-type LO = 'All' | 'Matt' | 'Moe'
+type LO = 'All' | 'Matt' | 'Moe' | 'Randy'
 
 // Green/teal palette for the funded-share donut (positive, "money in" feel).
 const DONUT_COLORS = ['#059669', '#10b981', '#34d399', '#0d9488', '#14b8a6', '#22c55e', '#16a34a', '#84cc16', '#5eead4']
@@ -179,8 +179,10 @@ export default function LeadSpendPage() {
     open: number
     byMatt: number
     byMoe: number
+    byRandy: number
     fundedByMatt: number
     fundedByMoe: number
+    fundedByRandy: number
     fundedVolume: number
     fundedAvg: number
     deals: Deal[]
@@ -204,7 +206,7 @@ export default function LeadSpendPage() {
         const totalSpend   = costPerMonth * months
         s = {
           source: src, total: 0, active: 0, funded: 0, lost: 0, open: 0,
-          byMatt: 0, byMoe: 0, fundedByMatt: 0, fundedByMoe: 0,
+          byMatt: 0, byMoe: 0, byRandy: 0, fundedByMatt: 0, fundedByMoe: 0, fundedByRandy: 0,
           fundedVolume: 0, fundedAvg: 0, deals: [],
           costPerMonth, totalSpend, costPerFunded: null,
           leadCost: 0, revenue: 0, netProfit: 0, roi: null,
@@ -230,14 +232,17 @@ export default function LeadSpendPage() {
       const lo = (d.loan_officer ?? '').toLowerCase()
       const isMatt = lo.includes('matt') || lo.includes('park')
       const isMoe  = lo.includes('moe')  || lo.includes('sefati')
+      const isRandy = lo.includes('randy') || lo.includes('mathis')
       if (isMatt) s.byMatt++
       if (isMoe)  s.byMoe++
+      if (isRandy) s.byRandy++
 
       if (grp === 'Funded') {
         s.fundedVolume += (d.loan_amount ?? 0)
         s.revenue      += (d.compensation_amount ?? 0)   // comp earned on funded deals
         if (isMatt) s.fundedByMatt++
         if (isMoe)  s.fundedByMoe++
+        if (isRandy) s.fundedByRandy++
       }
     }
     for (const s of map.values()) {
@@ -352,7 +357,7 @@ export default function LeadSpendPage() {
   function exportCsv() {
     const headers = [
       'Source', 'Leads', 'Open', 'Active', 'Lost', 'Funded', 'Conv %',
-      'Funded Volume', 'Avg Funded', 'Funded by Matt', 'Funded by Moe',
+      'Funded Volume', 'Avg Funded', 'Funded by Matt', 'Funded by Moe', 'Funded by Randy',
       'Lead Cost', 'Revenue (Comp)', 'Net Profit', 'ROI %',
       'Monthly Cost',
     ]
@@ -364,7 +369,7 @@ export default function LeadSpendPage() {
       const conv = s.total > 0 ? (s.funded / s.total) * 100 : 0
       return [
         s.source, s.total, s.open, s.active, s.lost, s.funded, conv.toFixed(1),
-        s.fundedVolume, s.fundedAvg.toFixed(0), s.fundedByMatt, s.fundedByMoe,
+        s.fundedVolume, s.fundedAvg.toFixed(0), s.fundedByMatt, s.fundedByMoe, s.fundedByRandy,
         s.leadCost.toFixed(0), s.revenue.toFixed(0), s.netProfit.toFixed(0),
         s.roi == null ? '' : s.roi.toFixed(0),
         s.costPerMonth,
@@ -651,6 +656,7 @@ export default function LeadSpendPage() {
           {([
             { key: 'Moe',  label: 'Moe Sefati', accent: 'bg-indigo-600 border-indigo-600' },
             { key: 'Matt', label: 'Matt Park',  accent: 'bg-emerald-600 border-emerald-600' },
+            { key: 'Randy', label: 'Randy Mathis', accent: 'bg-violet-600 border-violet-600' },
           ] as const).map(t => {
             const active = lo === t.key
             return (

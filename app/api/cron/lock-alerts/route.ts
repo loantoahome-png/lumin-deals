@@ -36,6 +36,7 @@ function getLoEmail(loanOfficer: string | null | undefined): string | null {
   const lo = loanOfficer.toLowerCase()
   if (lo.includes('matt')) return process.env.LO_EMAIL_MATT || null
   if (lo.includes('moe'))  return process.env.LO_EMAIL_MOE  || null
+  if (lo.includes('randy') || lo.includes('mathis')) return process.env.LO_EMAIL_RANDY || null
   return null
 }
 

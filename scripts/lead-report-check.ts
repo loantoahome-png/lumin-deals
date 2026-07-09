@@ -47,6 +47,9 @@ eq('Matt Park matches Matt', matchesLO(row({ loan_officer: 'Matt Park' }), 'Matt
 eq('Moe Sefati matches Moe', matchesLO(row({ loan_officer: 'Moe Sefati' }), 'Moe'), true)
 eq('Matt Park not Moe', matchesLO(row({ loan_officer: 'Matt Park' }), 'Moe'), false)
 eq('All matches anyone', matchesLO(row({ loan_officer: 'Matt Park' }), 'All'), true)
+eq('Randy Mathis matches Randy', matchesLO(row({ loan_officer: 'Randy Mathis' }), 'Randy'), true)
+eq('Randy Mathis not Moe', matchesLO(row({ loan_officer: 'Randy Mathis' }), 'Moe'), false)
+eq('Moe Sefati not Randy', matchesLO(row({ loan_officer: 'Moe Sefati' }), 'Randy'), false)
 
 // ── Purpose matching ───────────────────────────────────────────────
 eq('purpose All matches anything', matchesPurpose(row({ loan_purpose: null }), 'All'), true)

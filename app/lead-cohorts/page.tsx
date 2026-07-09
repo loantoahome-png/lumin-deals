@@ -30,7 +30,7 @@ import {
 import { RefreshCw, Users, Clock, Target, TrendingUp, TrendingDown, Minus, AlertTriangle } from 'lucide-react'
 
 const COLS = 'id,ghl_opportunity_id,loan_officer,pipeline_group,status,source,state,loan_purpose,date_added_ghl,lead_price,dnd,dnd_settings'
-const LO_TABS: LO[] = ['All', 'Moe', 'Matt']
+const LO_TABS: LO[] = ['All', 'Moe', 'Matt', 'Randy']
 type Dim = 'Source' | 'State' | 'Purpose'
 const DIM_TABS: Dim[] = ['Source', 'State', 'Purpose']
 

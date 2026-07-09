@@ -106,7 +106,7 @@ function hasChannelDnd(settings: Record<string, unknown> | null | undefined): bo
 export function matchesLO(d: CohortLead, lo: LO): boolean {
   if (lo === 'All') return true
   const l = (d.loan_officer ?? '').toLowerCase()
-  return lo === 'Matt' ? l.includes('matt') : l.includes('moe')
+  return lo === 'Matt' ? l.includes('matt') : lo === 'Moe' ? l.includes('moe') : l.includes('randy') || l.includes('mathis')
 }
 
 /** Keep leads whose created date (date_added_ghl) falls in [start, end], inclusive.

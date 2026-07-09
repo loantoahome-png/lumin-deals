@@ -137,6 +137,9 @@ eq('filterCohort drops null date', filterCohort(dated, '2026-01-01', '2026-12-31
 eq('matchesLO All', matchesLO(lead({ loan_officer: 'Matt Park' }), 'All'), true)
 eq('matchesLO Matt', matchesLO(lead({ loan_officer: 'Matt Park' }), 'Matt'), true)
 eq('matchesLO Moe excludes Matt', matchesLO(lead({ loan_officer: 'Matt Park' }), 'Moe'), false)
+eq('matchesLO Randy', matchesLO(lead({ loan_officer: 'Randy Mathis' }), 'Randy'), true)
+eq('matchesLO Randy excludes Moe', matchesLO(lead({ loan_officer: 'Moe Sefati' }), 'Randy'), false)
+eq('matchesLO Moe excludes Randy', matchesLO(lead({ loan_officer: 'Randy Mathis' }), 'Moe'), false)
 
 // ── analyzeCohort end-to-end ────────────────────────────────────────────────
 const res = analyzeCohort(rows, firstResp, NOW, { label: 'A', start: '2026-07-01', end: '2026-07-10' }, 'All')
