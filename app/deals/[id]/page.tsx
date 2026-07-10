@@ -12,10 +12,11 @@ import { use } from 'react'
 import {
   ArrowLeft, Check, Trash2, X, ExternalLink,
   DollarSign, Home, Lock, Hash, User, Users,
-  Calendar, MessageSquare, Building2, AlertOctagon, ClipboardList,
+  Calendar, MessageSquare, Building2, AlertOctagon, ClipboardList, Flame,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import LoanHistory from '@/components/LoanHistory'
+import NextStepLog from '@/components/NextStepLog'
 import CoborrowerManager from '@/components/CoborrowerManager'
 import RealEstateOwned from '@/components/RealEstateOwned'
 import ConversationThread from '@/components/ConversationThread'
@@ -433,6 +434,15 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
     router.push('/deals')
   }
 
+  // Next-step edits persist immediately (like the escrow tracker) — independent
+  // of the Save Changes button — and mirror into form so a later full save can't
+  // write a stale log back over them.
+  async function updateNextStep(dealId: string, patch: Record<string, unknown>) {
+    setForm(f => f ? { ...f, ...patch } : f)
+    const { error: err } = await supabase.from('deals').update(patch).eq('id', dealId)
+    if (err) setError(err.message)
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -622,6 +632,18 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
             </p>
           </div>
         </div>
+      </div>
+
+      {/* ── Next Step — sits between the hero and the detail body so the current
+           step (with its timestamp) is visible at a glance; the full timestamped
+           history is one tap away behind the "earlier steps" expander. Mirrors
+           the escrow card and saves immediately, independent of Save Changes. */}
+      <div className="mb-5 rounded-xl bg-orange-50 border border-orange-200 shadow-sm px-4 py-3">
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <Flame className="w-3.5 h-3.5 text-[#F37021]" />
+          <span className="text-[11px] font-bold uppercase tracking-wider text-[#F37021]">Next Step</span>
+        </div>
+        <NextStepLog deal={form as Deal} onUpdate={updateNextStep} />
       </div>
 
       {error && (
