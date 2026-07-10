@@ -264,7 +264,7 @@ function extractFields(body: Record<string, unknown>) {
     // Guard the LOS name out of `source`: Arive writes its own name into GHL's
     // native `source` attribute once a loan syncs back, which would clobber the
     // real vendor (LMB/OwnUp/…). cleanSource() nulls "Arive"/"unknown" — same
-    // guard the 3-min sync (route.ts) and Arive CSV import already enforce. Never
+    // guard the 15-min sync (route.ts) and Arive CSV import already enforce. Never
     // default to the literal 'GHL'; fall back to 'Self Source' like the sync does.
     source: cleanSource(contactSource || pick(contact, 'source')) || 'Self Source',
   }
@@ -456,7 +456,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Deal not found — do NOT create here. The webhook is update-only; the
-      // 3-min sync owns creation (it keys by opportunity ID and dedupes
+      // 15-min sync owns creation (it keys by opportunity ID and dedupes
       // correctly). Creating here produced rows with no ghl_opportunity_id /
       // ghl_location_id that the sync then duplicated. The sync will pick this
       // lead up and the next stage-change webhook will match it by contact_id.
@@ -618,12 +618,12 @@ export async function POST(req: NextRequest) {
     // ── No matching deal — do NOT create here ───────────────────────────────
     // The webhook is UPDATE-ONLY. Creating a deal here is what caused the
     // duplicate flood: the webhook can't set ghl_opportunity_id / ghl_location_id,
-    // so the 3-min sync (which keys by opportunity ID) couldn't recognize the
+    // so the 15-min sync (which keys by opportunity ID) couldn't recognize the
     // row and inserted a second one. Plus the webhook sometimes double-fires.
     //
     // The sync is the single source of truth for CREATING deals — it fetches
     // opportunities, keys each by its opportunity ID, and dedupes properly.
-    // A brand-new lead therefore appears within ~3 minutes (next sync) with the
+    // A brand-new lead therefore appears within ~15 minutes (next sync) with the
     // correct IDs, and every later webhook event (messages, stage, notes,
     // fields) will then match it and update in real time.
     console.log(`[GHL Webhook] New contact "${fullName}" has no matching deal — deferring creation to sync (contact ${ghlContactId ?? 'n/a'})`)

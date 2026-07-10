@@ -9,7 +9,7 @@
 
 ### GHL opportunity "lost" arrives as status=lost with the stage as a pipelineStageId UUID (no stage NAME) — name-based resolution silently skips it
 **Tried:** The webhook demoted lost opps only inside `if (whStage)`, where `whStage = resolveGHLStage(stageName, ...)` needs a stage NAME. Reasonable, since stage-change events carry names.
-**Failed because:** GHL separates opportunity **status** (open|won|lost|abandoned) from **stage**. When the team marks a loan "lost" they LEAVE the stage, and GHL's native opportunity payload carries only `pipelineStageId` (a UUID) — never a `pipelineStageName`. So `resolveGHLStage` got no name, returned null, `whStage` was falsy, and the lost demotion was skipped entirely (fell through to the 3-min sync). Confirmed against 48 real dead payloads: every one had `status` but only a stage UUID. Bonus trap: the stage-change branch's `resolveGHLStage("lost")` *partial-matches* the key "lost to competitor" and would relabel the stage to "Lost to Competitor" — silently rewriting the real last stage.
+**Failed because:** GHL separates opportunity **status** (open|won|lost|abandoned) from **stage**. When the team marks a loan "lost" they LEAVE the stage, and GHL's native opportunity payload carries only `pipelineStageId` (a UUID) — never a `pipelineStageName`. So `resolveGHLStage` got no name, returned null, `whStage` was falsy, and the lost demotion was skipped entirely (fell through to the 15-min sync). Confirmed against 48 real dead payloads: every one had `status` but only a stage UUID. Bonus trap: the stage-change branch's `resolveGHLStage("lost")` *partial-matches* the key "lost to competitor" and would relabel the stage to "Lost to Competitor" — silently rewriting the real last stage.
 **What works (2026-07-10):** demote off `status` DIRECTLY, independent of stage — `isDead = status==='lost' || startsWith('abandon')` → set `pipeline_group:'Not Ready'` + `ghl_status`, keep the stage label, guard Funded. Mirrors the sync's isDead rule (`sync/ghl/route.ts:806`), which never had this bug because it reads `opp.status` directly.
 **Project:** lumin-deals
 **Date:** 2026-07-10
@@ -71,7 +71,7 @@ a bare card carrying the real GHL opportunity (`ffkS…`).
 **Failed because (two compounding things):** (1) The loan's borrowers each have their OWN GHL contact, and the GHL
 *opportunity* was created under the CO-borrower's contact (Cynthia), not the main borrower's (Paul). The dashboard
 builds a deal per opportunity and derives identity from the opp's contact → a second card. (2) **A FULL SYNC
-surfaced it.** The incremental 3-min sync only processes CHANGED opps, so Cynthia's opp sat in GHL ~18 days with no
+surfaced it.** The incremental 15-min sync only processes CHANGED opps, so Cynthia's opp sat in GHL ~18 days with no
 dashboard deal; the manual `?full=1` sync (run for an unrelated fix) processed ALL opps and CREATED the card. So
 running a full sync can spawn "new" duplicate cards from long-dormant opps — expect it.
 **What works:** fix at the GHL source, then consolidate the dashboard. (a) In GHL you CAN reassign an
@@ -86,9 +86,9 @@ the "+N" co-borrower badge) — `linkCoborrower` guards against it but old data 
 **Project:** lumin-deals
 **Date:** 2026-06-29
 
-### A GHL contact RENAME doesn't reach the dashboard via the 3-min sync — only a FULL sync re-pulls it
+### A GHL contact RENAME doesn't reach the dashboard via the 15-min sync — only a FULL sync re-pulls it
 **Tried:** A borrower was renamed in GHL (Espinoza opp: the contact `t2BK…` was changed Judith → Jesus). The
-dashboard kept showing "Judith" for days, through many 3-min syncs and manual "Sync GHL" clicks.
+dashboard kept showing "Judith" for days, through many 15-min syncs and manual "Sync GHL" clicks.
 **Failed because:** the incremental sync only re-pulls a CONTACT when its OPPORTUNITY changed —
 `fetchContactsForOpps(changedOpps)`, and `changedOpps` is filtered by opportunity `updatedAt`. Renaming a contact
 doesn't bump the opportunity, so the opp isn't in `changedOpps`, so the new contact name is never fetched. The
@@ -131,7 +131,7 @@ With two loans on one contact, the FUNDED loan's "Loan Funded" workflow webhook 
 Symptom: John Winn showed 2 funded loans when one was Adverse/Lost. Tell-tale in the row:
 `ghl_opportunity_id` (its own) ≠ `raw_ghl_data.id` (the funded opp), and raw payload was webhook-shaped.
 **What works:** `findExistingDeal` matches by **opportunity id first**; contact/email/phone fallbacks
-only return a match when they resolve to **exactly one** deal (never guess a sibling). The 3-min sync
+only return a match when they resolve to **exactly one** deal (never guess a sibling). The 15-min sync
 was never the culprit — it already keys by opportunity id.
 **Also note:** the fix can't self-heal an already-corrupted row (funded-guard blocks the webhook from
 demoting it; the sync never clears `funded_date`) — corrupted rows need a manual correction.

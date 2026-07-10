@@ -1443,7 +1443,7 @@ export async function POST(req: Request) {
     const url = new URL(req.url)
     const full = url.searchParams.get('full') === '1' || url.searchParams.get('full') === 'true'
     const result = await runGhlSync({ full })
-    // Note: conversation/unread refresh is handled by the 3-min cron and the
+    // Note: conversation/unread refresh is handled by the 15-min cron and the
     // live /unread inbox — intentionally NOT run here to keep manual sync fast.
     return NextResponse.json(result)
   } catch (err) {
