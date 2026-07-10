@@ -1,7 +1,7 @@
 # Verification Log — Lumin Deals
 
 ### [2026-07-09] Auth — self-serve password reset (forgot-password → /auth/confirm → reset-password)
-**Status:** CHANGED. **NOT DEPLOYED** — blocked on two Supabase dashboard settings (below). tsc 7-baseline / **0 new**; `npm run build` READY.
+**Status:** CHANGED + **DEPLOYED** (merge `3f29813`). Both Supabase dashboard settings applied and verified from the server. tsc 7-baseline / **0 new**; `npm run build` READY.
 **Issue:** No password-reset path existed. Efrain locked himself out; the Supabase dashboard's "Send password recovery" button emailed a link to `http://localhost:3000` (Site URL never moved off dev) and, even with that fixed, the app had no route able to consume the link. Every reset had to go through a service-role script.
 **Changes:**
 - `app/auth/confirm/route.ts` — NEW. GET handler; reads `token_hash` + `type`, calls `verifyOtp({token_hash,type})`, writes session cookies onto the redirect response, forwards to `next`. Uses **token_hash, not the PKCE `code`** — `code` needs a verifier in the same browser that started the flow, so it can never work for a dashboard-sent link (see `docs/research/2026-07-09-supabase-password-reset.md`). `next` validated as a same-origin relative path (open-redirect guard). Failure → `/login?error=link_invalid`.
@@ -13,13 +13,16 @@
 **Test Method:** dev server + browser drive: `/reset-password` sessionless; `/auth/confirm` with a bogus token_hash; the `/login` error banner; `/forgot-password` render; console + server logs.
 **Result:** PARTIALLY VERIFIED.
 - VERIFIED: `/reset-password` (no session) → "Link expired", no sidebar. `/auth/confirm?token_hash=bogus123&type=recovery` → redirects to `/login?error=link_invalid`, banner renders, forgot link present. `/forgot-password` renders bare, styling matches login. Zero console errors, zero server errors.
-- **NOT VERIFIED — the success path.** Cookie-writing in `/auth/confirm` and the open-redirect guard only run after `verifyOtp` succeeds, which needs a real single-use token. Minting one requires a service-role `admin.generateLink` call; the sandbox denied it. **Efrain must confirm with one real end-to-end reset** after the dashboard settings below.
-**Blocked on (Supabase dashboard — both required before deploy):**
-1. Authentication → URL Configuration → **Site URL** = `https://lumin-deals.vercel.app` (currently `http://localhost:3000`); add to Redirect URLs.
-2. Authentication → Email Templates → **Reset Password** →
-   `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password`
-   (the default `{{ .ConfirmationURL }}` yields a `code`, which this route cannot consume by design.)
-**Deploy note:** shipping before (1) sends Moe/Matt/Randy reset emails pointing at localhost. Order matters.
+- VERIFIED IN PROD (curl, post-deploy): `/auth/confirm?token_hash=bogus123&type=recovery` → **307** → `/login?error=link_invalid`; `/forgot-password` → **200**; `/reset-password` → **200** (public, not bounced).
+- **STILL NOT VERIFIED — the success path.** Cookie-writing in `/auth/confirm` and the open-redirect guard on `next` only run after `verifyOtp` succeeds, which needs a real single-use token. Minting one requires a service-role `admin.generateLink` call; the sandbox denied it twice. **Closes when Efrain completes one real end-to-end reset.**
+**Supabase dashboard settings — APPLIED 2026-07-09, each verified by reloading the page and re-reading the server value:**
+1. Authentication → URL Configuration → **Site URL**: was `http://localhost:3000`, now `https://lumin-deals.vercel.app`. (Confirmed live: the recovery link Efrain clicked landed on `localhost:3000/#error=access_denied&error_code=otp_expired`.)
+2. Authentication → Emails → **Reset password** template body now:
+   `<p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password">Reset Password</a></p>`
+   (was `{{ .ConfirmationURL }}`, which yields a `code` this route cannot consume by design.)
+**Deploy ordering:** the template now points at prod `/auth/confirm`, so deploying became mandatory rather than optional — leaving it unshipped would have broken resets outright.
+**Left open:** the other email templates (Confirm signup, Invite user, Magic link, Change email) still use `{{ .ConfirmationURL }}`. Nothing in the app uses them today (there is no signup flow), but "Send magic link" from the dashboard will not work until they get the same `token_hash` treatment.
+**Observed, not acted on:** the project is FREE tier and the dashboard warns *"Grace period is over · your projects will not be able to serve requests when you use up your quota"*; and it is still on Supabase's built-in email service, which is rate-limited and flagged *"not meant to be used for production apps."* Password resets now depend on that sender.
 
 ### [2026-07-09] Lead Cohorts — replaced Response Timing box with Speed-to-Lead metrics
 **Status:** CHANGED + DEPLOYED. tsc 7-baseline / **0 new**; `npm run build` READY; fixtures **83/83** (+9 speed).
