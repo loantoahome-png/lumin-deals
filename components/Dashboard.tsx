@@ -3,12 +3,14 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
-import { Deal } from '@/lib/types'
+import { Deal, LOAN_OFFICERS } from '@/lib/types'
+import { resolveLO } from '@/lib/loanOfficer'
 import { formatCurrency } from '@/lib/utils'
 import UnreadInbox from '@/components/UnreadInbox'
 import {
   DollarSign, TrendingUp, Users, CheckCircle, Clock, AlertCircle,
   AlertTriangle, ChevronRight, Flame, ListChecks, Wallet, Layers,
+  Check, Filter,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList,
@@ -19,7 +21,7 @@ import Link from 'next/link'
 // (Date filter removed — the dashboard is a snapshot of what's currently in escrow.)
 
 const LO_COLORS: Record<string, string> = {
-  'Matt': '#10b981',
+  'Matt Park': '#10b981',
   'Moe Sefati': '#f59e0b',
   'Randy Mathis': '#8b5cf6',
 }
@@ -38,6 +40,11 @@ function relAgo(iso: string): string {
 export default function Dashboard() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
+  // Which loan officers' escrows count toward the metrics below. All checked =
+  // everyone (the default, unfiltered view). Toggled by the header checkboxes.
+  const [selectedLOs, setSelectedLOs] = useState<string[]>([...LOAN_OFFICERS])
+  const toggleLO = (lo: string) =>
+    setSelectedLOs(prev => prev.includes(lo) ? prev.filter(x => x !== lo) : [...prev, lo])
 
 
   useEffect(() => {
@@ -73,7 +80,17 @@ export default function Dashboard() {
   // The dashboard is a snapshot of what's CURRENTLY in escrow — the Loans-in-Process
   // pipeline. Leads, Funded, and Not Ready deals are excluded from every KPI, chart,
   // and list below. (No date range — active escrows are a present-state view.)
-  const escrowDeals = deals.filter(d => d.pipeline_group === 'Loans in Process')
+  // LO filter — the header checkboxes narrow every metric on this page to the
+  // selected loan officers. All-selected (the default) passes everyone through,
+  // including deals with no LO assigned, so the unfiltered view is unchanged.
+  const allLOsSelected = selectedLOs.length === LOAN_OFFICERS.length
+  const dealMatchesLO = (d: Deal) => {
+    if (allLOsSelected) return true
+    const lo = resolveLO(d.loan_officer)
+    return lo != null && selectedLOs.includes(lo)
+  }
+
+  const escrowDeals = deals.filter(d => d.pipeline_group === 'Loans in Process' && dealMatchesLO(d))
 
   const totalPipelineLoanVol = escrowDeals.reduce((s, d) => s + (d.loan_amount || 0), 0)
   const sizedDeals = escrowDeals.filter(d => d.loan_amount)
@@ -100,9 +117,11 @@ export default function Dashboard() {
     return { stage: STAGE_SHORT[stage] || stage, count: d.length, loanVolume: d.reduce((s, x) => s + (x.loan_amount || 0), 0) }
   })
 
-  // LO Performance: scoped to escrow deals only
-  const loData = ['Matt', 'Moe Sefati', 'Randy Mathis'].map(lo => {
-    const loDeals = escrowDeals.filter(d => d.loan_officer?.includes(lo))
+  // LO Performance: scoped to escrow deals, and to the LOs currently checked in
+  // the header filter (canonical order). resolveLO normalizes any loan_officer
+  // spelling to the same names the checkboxes use.
+  const loData = LOAN_OFFICERS.filter(lo => selectedLOs.includes(lo)).map(lo => {
+    const loDeals = escrowDeals.filter(d => resolveLO(d.loan_officer) === lo)
     return { name: lo, loanVolume: loDeals.reduce((s, d) => s + (d.loan_amount || 0), 0), deals: loDeals.length }
   })
 
@@ -119,7 +138,9 @@ export default function Dashboard() {
   // ── Today widget: escrows with follow-ups due today or overdue ──────────────
   const now = new Date()
   const endOfToday = new Date(); endOfToday.setHours(23, 59, 59, 999)
-  const escrowsInProcess = deals.filter(d => d.pipeline_group === 'Loans in Process')
+  // Same set as escrowDeals (Loans in Process, LO-filtered) — reused so the
+  // Today widget and Next Steps stay in lockstep with the KPIs above.
+  const escrowsInProcess = escrowDeals
   const todayItems = escrowsInProcess.filter(d => {
     if (!d.next_action_due) return false
     const due = new Date(d.next_action_due)
@@ -144,12 +165,48 @@ export default function Dashboard() {
   return (
     <div className="p-6 space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
           <p className="text-slate-500 text-sm mt-0.5">
             Lumin Lending — Active Escrow Overview
+            {!allLOsSelected && (
+              <span className="text-slate-400"> · filtered to {selectedLOs.length} of {LOAN_OFFICERS.length} LOs</span>
+            )}
           </p>
+        </div>
+
+        {/* Loan-officer filter — check the LOs whose escrows should count toward
+            every metric on this page. All checked = everyone (the default). */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-0.5 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <Filter className="h-3.5 w-3.5" /> Loan Officers
+          </span>
+          {LOAN_OFFICERS.map(lo => {
+            const active = selectedLOs.includes(lo)
+            const color = LO_COLORS[lo] || '#3b82f6'
+            return (
+              <button
+                key={lo}
+                type="button"
+                onClick={() => toggleLO(lo)}
+                aria-pressed={active}
+                className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
+                  active
+                    ? 'border-slate-300 bg-white text-slate-700 shadow-sm'
+                    : 'border-slate-200 bg-slate-50 text-slate-400 hover:bg-white hover:text-slate-600'
+                }`}
+              >
+                <span
+                  className={`flex h-4 w-4 items-center justify-center rounded border transition ${active ? 'border-transparent' : 'border-slate-300 bg-white'}`}
+                  style={active ? { backgroundColor: color } : undefined}
+                >
+                  {active && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+                </span>
+                {lo}
+              </button>
+            )
+          })}
         </div>
       </div>
 
