@@ -1,5 +1,26 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-09] Auth — self-serve password reset (forgot-password → /auth/confirm → reset-password)
+**Status:** CHANGED. **NOT DEPLOYED** — blocked on two Supabase dashboard settings (below). tsc 7-baseline / **0 new**; `npm run build` READY.
+**Issue:** No password-reset path existed. Efrain locked himself out; the Supabase dashboard's "Send password recovery" button emailed a link to `http://localhost:3000` (Site URL never moved off dev) and, even with that fixed, the app had no route able to consume the link. Every reset had to go through a service-role script.
+**Changes:**
+- `app/auth/confirm/route.ts` — NEW. GET handler; reads `token_hash` + `type`, calls `verifyOtp({token_hash,type})`, writes session cookies onto the redirect response, forwards to `next`. Uses **token_hash, not the PKCE `code`** — `code` needs a verifier in the same browser that started the flow, so it can never work for a dashboard-sent link (see `docs/research/2026-07-09-supabase-password-reset.md`). `next` validated as a same-origin relative path (open-redirect guard). Failure → `/login?error=link_invalid`.
+- `app/forgot-password/page.tsx` — NEW. Calls `resetPasswordForEmail`. Always reports success whether or not the address exists (no account enumeration).
+- `app/reset-password/page.tsx` — NEW. Checks session, then `updateUser({password})`. Min 10 chars + confirm-match, live inline validation. No session → "Link expired".
+- `middleware.ts` — `/forgot-password`, `/reset-password`, `/auth/confirm` added to `isPublic`.
+- `components/AppShell.tsx` — hardcoded `isLoginPage` replaced with a `CHROMELESS_PATHS` set. **Caught by browser test:** the new pages rendered inside the authed sidebar, Sign Out button and all.
+- `app/login/page.tsx` — "Forgot your password?" link; renders the `?error=link_invalid` banner.
+**Test Method:** dev server + browser drive: `/reset-password` sessionless; `/auth/confirm` with a bogus token_hash; the `/login` error banner; `/forgot-password` render; console + server logs.
+**Result:** PARTIALLY VERIFIED.
+- VERIFIED: `/reset-password` (no session) → "Link expired", no sidebar. `/auth/confirm?token_hash=bogus123&type=recovery` → redirects to `/login?error=link_invalid`, banner renders, forgot link present. `/forgot-password` renders bare, styling matches login. Zero console errors, zero server errors.
+- **NOT VERIFIED — the success path.** Cookie-writing in `/auth/confirm` and the open-redirect guard only run after `verifyOtp` succeeds, which needs a real single-use token. Minting one requires a service-role `admin.generateLink` call; the sandbox denied it. **Efrain must confirm with one real end-to-end reset** after the dashboard settings below.
+**Blocked on (Supabase dashboard — both required before deploy):**
+1. Authentication → URL Configuration → **Site URL** = `https://lumin-deals.vercel.app` (currently `http://localhost:3000`); add to Redirect URLs.
+2. Authentication → Email Templates → **Reset Password** →
+   `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password`
+   (the default `{{ .ConfirmationURL }}` yields a `code`, which this route cannot consume by design.)
+**Deploy note:** shipping before (1) sends Moe/Matt/Randy reset emails pointing at localhost. Order matters.
+
 ### [2026-07-09] Lead Cohorts — replaced Response Timing box with Speed-to-Lead metrics
 **Status:** CHANGED + DEPLOYED. tsc 7-baseline / **0 new**; `npm run build` READY; fixtures **83/83** (+9 speed).
 **Issue:** Efrain wanted the scorecard's "Response timing" box (Median TTR, Avg TTR, Timing coverage) replaced with speed-to-lead metrics.

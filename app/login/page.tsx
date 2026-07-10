@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, Suspense } from 'react'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Building2, Lock, Mail, Eye, EyeOff } from 'lucide-react'
@@ -14,7 +15,11 @@ function LoginForm() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState(
+    searchParams.get('error') === 'link_invalid'
+      ? 'That reset link is invalid or expired. Request a new one below.'
+      : ''
+  )
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -113,6 +118,13 @@ function LoginForm() {
               {loading ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
+
+          <Link
+            href="/forgot-password"
+            className="block text-center text-slate-500 hover:text-slate-300 text-xs mt-5 transition-colors"
+          >
+            Forgot your password?
+          </Link>
         </div>
 
         <p className="text-center text-slate-600 text-xs mt-6">
