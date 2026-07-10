@@ -7,11 +7,19 @@ import { Deal, CoborrowerLite, LOAN_OFFICERS, LOAN_TYPES, PIPELINE_GROUPS, PIPEL
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { pushStageToGHL } from '@/lib/pushStage'
 import Link from 'next/link'
-import { Search, RefreshCw, ExternalLink, Download, X, CheckSquare, Pencil, LayoutGrid, Table2, FileText } from 'lucide-react'
+import { Search, RefreshCw, ExternalLink, Download, X, Check, CheckSquare, Pencil, LayoutGrid, Table2, FileText } from 'lucide-react'
 import EscrowTracker from '@/components/EscrowTracker'
 import { ariveUrl } from '@/lib/ariveLinks'
+import { resolveLO } from '@/lib/loanOfficer'
 import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
+
+// Checkbox-chip accent per LO — matches the dashboard's LO filter colors.
+const LO_COLORS: Record<string, string> = {
+  'Matt Park': '#10b981',
+  'Moe Sefati': '#f59e0b',
+  'Randy Mathis': '#8b5cf6',
+}
 
 // ── Inline cell editing ────────────────────────────────────────────────────────
 type DealsInlineCellProps = {
@@ -175,7 +183,11 @@ function DealsPageInner() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState(initialSearch)
-  const [loFilter, setLoFilter] = useState('All')
+  // Multi-select LO filter (matches the dashboard): check any combination of 1–3
+  // LOs. All checked = everyone (the default). Empty = nobody (shows 0 deals).
+  const [selectedLOs, setSelectedLOs] = useState<string[]>([...LOAN_OFFICERS])
+  const toggleLO = (lo: string) =>
+    setSelectedLOs(prev => prev.includes(lo) ? prev.filter(x => x !== lo) : [...prev, lo])
   const [statusFilter, setStatusFilter] = useState('All')
   // This page is dedicated to active escrows — pipeline is locked to 'Loans in Process'.
   const pipelineFilter = 'Loans in Process'
@@ -218,6 +230,13 @@ function DealsPageInner() {
 
   useEffect(() => { fetchDeals() }, [fetchDeals])
 
+  const allLOsSelected = selectedLOs.length === LOAN_OFFICERS.length
+  const dealMatchesLO = (d: Deal) => {
+    if (allLOsSelected) return true
+    const lo = resolveLO(d.loan_officer)
+    return lo != null && selectedLOs.includes(lo)
+  }
+
   const filtered = deals.filter(d => {
     const ghlSt = (d.ghl_status ?? '').toLowerCase()
     if (ghlSt === 'lost' || ghlSt.startsWith('abandon')) return false
@@ -231,7 +250,7 @@ function DealsPageInner() {
       d.arive_file_no?.toLowerCase().includes(s) ||       // Arive Loan ID
       d.investor_file_no?.toLowerCase().includes(s)       // Lender Loan #
     const matchPipeline = d.pipeline_group === pipelineFilter
-    const matchLO = loFilter === 'All' || d.loan_officer?.includes(loFilter)
+    const matchLO = dealMatchesLO(d)
     const matchStatus = statusFilter === 'All' || d.status === statusFilter
     return matchSearch && matchPipeline && matchLO && matchStatus
   })
@@ -331,7 +350,7 @@ function DealsPageInner() {
               </button>
             </div>
             <Link
-              href={`/reports/escrows${loFilter !== 'All' ? `?lo=${encodeURIComponent(loFilter)}` : ''}`}
+              href={`/reports/escrows${selectedLOs.length === 1 ? `?lo=${encodeURIComponent(selectedLOs[0])}` : ''}`}
               title="Open a printable escrow report (per LO)"
               className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
             >
@@ -364,14 +383,36 @@ function DealsPageInner() {
               className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm w-80 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-          <select
-            value={loFilter}
-            onChange={e => setLoFilter(e.target.value)}
-            className="text-sm border border-slate-200 rounded-lg px-3 py-2 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="All">All LOs</option>
-            {LOAN_OFFICERS.map(lo => <option key={lo} value={lo}>{lo}</option>)}
-          </select>
+          {/* LO filter — multi-select checkboxes (like the dashboard). Check any
+              combination of LOs; all checked is the default "everyone" view. */}
+          <div className="flex items-center gap-1.5">
+            {LOAN_OFFICERS.map(lo => {
+              const active = selectedLOs.includes(lo)
+              const color = LO_COLORS[lo] || '#3b82f6'
+              return (
+                <button
+                  key={lo}
+                  type="button"
+                  onClick={() => toggleLO(lo)}
+                  aria-pressed={active}
+                  title={active ? `Hide ${lo}'s escrows` : `Show ${lo}'s escrows`}
+                  className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-sm font-medium transition ${
+                    active
+                      ? 'border-slate-300 bg-white text-slate-700 shadow-sm'
+                      : 'border-slate-200 bg-slate-50 text-slate-400 hover:bg-white hover:text-slate-600'
+                  }`}
+                >
+                  <span
+                    className={`flex h-4 w-4 items-center justify-center rounded border transition ${active ? 'border-transparent' : 'border-slate-300 bg-white'}`}
+                    style={active ? { backgroundColor: color } : undefined}
+                  >
+                    {active && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+                  </span>
+                  {lo}
+                </button>
+              )
+            })}
+          </div>
           <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
@@ -380,9 +421,9 @@ function DealsPageInner() {
             <option value="All">All Statuses</option>
             {PIPELINE_STATUSES['Loans in Process'].map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          {(search || loFilter !== 'All' || statusFilter !== 'All') && (
+          {(search || !allLOsSelected || statusFilter !== 'All') && (
             <button
-              onClick={() => { setSearch(''); setLoFilter('All'); setStatusFilter('All') }}
+              onClick={() => { setSearch(''); setSelectedLOs([...LOAN_OFFICERS]); setStatusFilter('All') }}
               className="text-sm text-blue-600 hover:underline"
             >
               Clear filters
