@@ -359,6 +359,48 @@ export async function POST(req: NextRequest) {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // OPPORTUNITY STATUS → LOST / ABANDONED — demote to Not Ready in real time
+    //   GHL separates an opportunity's STATUS (open|won|lost|abandoned) from its
+    //   pipeline STAGE. The team marks a fallen-through loan "lost" while LEAVING
+    //   it on its last stage (e.g. "Clear to Close"), so a pure status flip is not
+    //   a stage change and carries no resolvable stage NAME — the native GHL payload
+    //   has only a pipelineStageId UUID, which we can't map to a status without the
+    //   pipeline table the sync holds. This block keys off `status` directly, mirroring
+    //   the sync's isDead rule (app/api/sync/ghl/route.ts): route to "Not Ready", stamp
+    //   ghl_status, and LEAVE the stage label intact (the sync reconciles the exact
+    //   stage name later). Funded is never demoted — Arive owns funded, and the .neq
+    //   guard enforces it at the DB. Runs BEFORE the stage-change branch so a native
+    //   lost payload can't fall into resolveGHLStage("lost")'s fragile partial match
+    //   (which would wrongly relabel the stage to "Lost to Competitor"). Match is
+    //   opportunity-id-first so a lost flip can't demote a sibling loan of a
+    //   multi-loan borrower (see the funded-marks-sibling bug this mirrors).
+    // ══════════════════════════════════════════════════════════════════════════
+    {
+      const oppStatus = (pick(body, 'status', 'opportunityStatus') || '').toLowerCase()
+      const isDead = oppStatus === 'lost' || oppStatus.startsWith('abandon')
+      if (isDead) {
+        const contactObj = (body.contact as Record<string, unknown>) || {}
+        const oppId = pick(body, 'id', 'opportunity_id', 'opportunityId')
+        const statusContactId = pick(body, 'contactId', 'contact_id') || pick(contactObj, 'id')
+        const existing = await findExistingDeal(supabase, { opportunityId: oppId, ghlContactId: statusContactId })
+        if (!existing) {
+          console.log('[GHL Webhook] lost/abandoned for unknown deal — sync will demote:', statusContactId)
+          return NextResponse.json({ success: false, reason: 'no matching deal; sync will demote' })
+        }
+        const { error: deadErr } = await supabase.from('deals')
+          .update({ pipeline_group: 'Not Ready', ghl_status: oppStatus })
+          .eq('id', existing.id)
+          .neq('pipeline_group', 'Funded')   // never demote a funded loan
+        if (deadErr) {
+          console.error('[GHL Webhook] lost demotion error:', deadErr.message)
+          return NextResponse.json({ error: deadErr.message }, { status: 500 })
+        }
+        console.log(`[GHL Webhook] status=${oppStatus} → Not Ready on deal ${existing.id} (matched by ${existing.matchedBy})`)
+        return NextResponse.json({ success: true, action: 'status_demoted_not_ready', dealId: existing.id, status: oppStatus })
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // OPPORTUNITY STAGE CHANGE — update pipeline stage
     // ══════════════════════════════════════════════════════════════════════════
     if (

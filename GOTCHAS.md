@@ -1,5 +1,19 @@
 # GOTCHAS — Lumin Deals
 
+### `raw_ghl_data` on deals is SYNC-written, not webhook-written — don't treat captured payloads as proof of real-time webhook delivery
+**Tried:** To learn what GHL POSTs to our webhook on a status change, I read `deals.raw_ghl_data` (the webhook stores `raw_ghl_data: body`). Found native GHL opportunity objects with `status:"lost"` and assumed the webhook receives them in real time.
+**Failed because:** the **sync also writes `raw_ghl_data: opp`** (`app/api/sync/ghl/route.ts:908`). The tell: 30+ deals all stamped within the same 1-second `updated_at` batch = a sync run, not individual webhook POSTs. So a native-opportunity-shaped `raw_ghl_data` proves what the sync *fetched from GHL's API*, NOT what GHL *pushed to our endpoint*. Whether GHL fires a real-time webhook on opportunity status change is a GHL-side workflow/subscription config, invisible from the DB and the codebase.
+**What works:** to check real-time delivery, read Vercel function logs for `/api/webhooks/ghl` (live POSTs), or inspect the GHL Workflow/webhook config directly. To learn payload *shape*, `raw_ghl_data` is fine — just don't infer *delivery* from it.
+**Project:** lumin-deals
+**Date:** 2026-07-10
+
+### GHL opportunity "lost" arrives as status=lost with the stage as a pipelineStageId UUID (no stage NAME) — name-based resolution silently skips it
+**Tried:** The webhook demoted lost opps only inside `if (whStage)`, where `whStage = resolveGHLStage(stageName, ...)` needs a stage NAME. Reasonable, since stage-change events carry names.
+**Failed because:** GHL separates opportunity **status** (open|won|lost|abandoned) from **stage**. When the team marks a loan "lost" they LEAVE the stage, and GHL's native opportunity payload carries only `pipelineStageId` (a UUID) — never a `pipelineStageName`. So `resolveGHLStage` got no name, returned null, `whStage` was falsy, and the lost demotion was skipped entirely (fell through to the 3-min sync). Confirmed against 48 real dead payloads: every one had `status` but only a stage UUID. Bonus trap: the stage-change branch's `resolveGHLStage("lost")` *partial-matches* the key "lost to competitor" and would relabel the stage to "Lost to Competitor" — silently rewriting the real last stage.
+**What works (2026-07-10):** demote off `status` DIRECTLY, independent of stage — `isDead = status==='lost' || startsWith('abandon')` → set `pipeline_group:'Not Ready'` + `ghl_status`, keep the stage label, guard Funded. Mirrors the sync's isDead rule (`sync/ghl/route.ts:806`), which never had this bug because it reads `opp.status` directly.
+**Project:** lumin-deals
+**Date:** 2026-07-10
+
 ### Supabase auth email links: the PKCE `code` flow CANNOT work for a dashboard-sent link
 **Tried:** Building the password reset around `/auth/callback` + `exchangeCodeForSession(code)` — the pattern most
 Next.js + Supabase examples show.
