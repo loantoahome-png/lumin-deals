@@ -301,7 +301,7 @@ export const LOAN_OFFICERS = ['Matt Park', 'Moe Sefati', 'Randy Mathis'] as cons
 
 // Processor options (stored on `processor_status`). Surfaced in the Active Escrows
 // card, the deal detail panel, the new-deal form, and the pipeline table.
-export const PROCESSORS = ['Self Processing', 'Susan Lim', 'Hanh Nguyen'] as const
+export const PROCESSORS = ['Self Processing', 'Susan Lim', 'Hanh Nguyen', 'Jessica Ching'] as const
 
 // Loan type now stores only the FAMILY. Refinance-specific sub-type (Cash Out
 // vs Rate and Term) lives in `refinance_type` — surfaced in the UI only when

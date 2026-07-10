@@ -1,5 +1,13 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-09] Processors — added Jessica Ching to the dropdown
+**Status:** CHANGED + DEPLOYED. tsc 7-baseline / **0 new**; `npm run build` READY.
+**Issue:** Efrain asked to add "Jessica Ching" as a processor option in the dropdown (Active Escrows card).
+**Changes:**
+- `lib/types.ts` — `PROCESSORS` const gains `'Jessica Ching'` (now `Self Processing`, `Susan Lim`, `Hanh Nguyen`, `Jessica Ching`). Single source of truth: all four `<option>` lists (EscrowTracker card, DealForm new-deal, deal-detail panel, pipeline inline editor) map this same array, so one edit surfaces everywhere. Existing rows storing an old value are unaffected (value is a free string on `processor_status`).
+**Test Method:** tsc; production build; grep the built bundle for the name (dropdown pages are auth-gated, so the rendered `<select>` can't be driven locally without a session — the option IS `PROCESSORS.map(...)`, so bundle presence is the proof).
+**Result:** VERIFIED. Build compiled; `Jessica Ching` present in both the client chunk (`.next/static/chunks/…`) and the SSR chunk. Deployed to prod.
+
 ### [2026-07-09] Auth — self-serve password reset (forgot-password → /auth/confirm → reset-password)
 **Status:** CHANGED + **DEPLOYED** (merge `3f29813`). Both Supabase dashboard settings applied and verified from the server. tsc 7-baseline / **0 new**; `npm run build` READY.
 **Issue:** No password-reset path existed. Efrain locked himself out; the Supabase dashboard's "Send password recovery" button emailed a link to `http://localhost:3000` (Site URL never moved off dev) and, even with that fixed, the app had no route able to consume the link. Every reset had to go through a service-role script.
