@@ -14,15 +14,21 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
-import type { Deal } from '@/lib/types'
+import { LOAN_OFFICERS, type Deal } from '@/lib/types'
+import { resolveLO } from '@/lib/loanOfficer'
 import {
   PURCHASED_SOURCES, segment, groupBy, sourceKey, stateKey, leadBook, rrBand,
-  type LO, type Purpose, type SourceScope, type Segment, type GroupRow,
+  type Purpose, type SourceScope, type Segment, type GroupRow,
 } from '@/lib/leadReport'
-import { RefreshCw, Download, Target } from 'lucide-react'
+import { RefreshCw, Download, Target, Check } from 'lucide-react'
 
 const LEAD_COLS = 'id,loan_officer,pipeline_group,status,source,state,lead_price,compensation_amount,loan_purpose,date_added_ghl'
-const LO_TABS: LO[] = ['All', 'Matt', 'Moe', 'Randy']
+// LO checkbox swatches — same colors as the dashboard's Loan Officers filter.
+const LO_COLORS: Record<string, string> = {
+  'Matt Park': '#10b981',
+  'Moe Sefati': '#f59e0b',
+  'Randy Mathis': '#8b5cf6',
+}
 const PURPOSE_TABS: Purpose[] = ['All', 'Purchase', 'Refinance']
 const SCOPE_TABS: SourceScope[] = ['Purchased', 'All']
 
@@ -53,7 +59,12 @@ function Stat({ label, value, sub, color }: { label: string; value: string; sub?
 export default function LeadPerformancePage() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
-  const [lo, setLo] = useState<LO>('All')
+  // Multi-select LO filter (matches the dashboard): check any combination of LOs.
+  // All checked = everyone (the default). Empty = nobody (shows 0).
+  const [selectedLOs, setSelectedLOs] = useState<string[]>([...LOAN_OFFICERS])
+  const toggleLO = (name: string) =>
+    setSelectedLOs(prev => prev.includes(name) ? prev.filter(x => x !== name) : [...prev, name])
+  const allLOsSelected = selectedLOs.length === LOAN_OFFICERS.length
   const [purpose, setPurpose] = useState<Purpose>('All')
   const [scope, setScope] = useState<SourceScope>('Purchased')
 
@@ -65,7 +76,16 @@ export default function LeadPerformancePage() {
   }
   useEffect(() => { load() }, [])
 
-  const book = useMemo(() => leadBook(deals, lo, purpose, scope), [deals, lo, purpose, scope])
+  // Apply the LO selection up front (dashboard semantics: resolveLO → canonical
+  // name → membership), then leadBook handles scope + purpose with LO already applied.
+  const loDeals = useMemo(
+    () => allLOsSelected ? deals : deals.filter(d => {
+      const name = resolveLO(d.loan_officer)
+      return name != null && selectedLOs.includes(name)
+    }),
+    [deals, selectedLOs, allLOsSelected],
+  )
+  const book = useMemo(() => leadBook(loDeals, 'All', purpose, scope), [loDeals, purpose, scope])
   const allRev = scope === 'All'   // count comp on ALL funded loans, incl. price-less warm ones
   const totals: Segment = useMemo(() => segment(book, allRev), [book, allRev])
   const bySource: GroupRow[] = useMemo(() => groupBy(book, sourceKey, allRev), [book, allRev])
@@ -93,7 +113,8 @@ export default function LeadPerformancePage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `lead-performance-${scope.toLowerCase()}-${lo.toLowerCase()}-${purpose.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv`
+    const loSlug = allLOsSelected ? 'all-los' : (selectedLOs.map(l => l.split(' ')[0].toLowerCase()).join('-') || 'none')
+    a.download = `lead-performance-${scope.toLowerCase()}-${loSlug}-${purpose.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -110,6 +131,7 @@ export default function LeadPerformancePage() {
             <p className="text-sm text-slate-500 mt-0.5">
               {scope === 'All' ? 'All sources' : 'Purchased leads only'} · Ghosted counts as responded
               {purpose !== 'All' && <span className="text-blue-600 font-medium"> · {purpose}</span>}
+              {!allLOsSelected && <span className="text-slate-400"> · {selectedLOs.length} of {LOAN_OFFICERS.length} LOs</span>}
               {dateWindow && <span className="text-slate-400"> · {dateWindow}</span>}
             </p>
           </div>
@@ -142,15 +164,26 @@ export default function LeadPerformancePage() {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 w-12">LO</span>
-            <div className="flex items-center gap-1">
-              {LO_TABS.map(t => (
-                <button key={t} onClick={() => setLo(t)}
-                  className={`px-3 py-1 text-xs font-medium rounded-full transition ${
-                    lo === t ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}>
-                  {t === 'All' ? 'All LOs' : t === 'Matt' ? 'Matt Park' : t === 'Moe' ? 'Moe Sefati' : 'Randy Mathis'}
-                </button>
-              ))}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {LOAN_OFFICERS.map(name => {
+                const active = selectedLOs.includes(name)
+                const color = LO_COLORS[name] || '#3b82f6'
+                return (
+                  <button key={name} type="button" onClick={() => toggleLO(name)} aria-pressed={active}
+                    title={active ? `Hide ${name}` : `Show ${name}`}
+                    className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
+                      active
+                        ? 'border-slate-300 bg-white text-slate-700 shadow-sm'
+                        : 'border-slate-200 bg-slate-50 text-slate-400 hover:bg-white hover:text-slate-600'
+                    }`}>
+                    <span className={`flex h-4 w-4 items-center justify-center rounded border transition ${active ? 'border-transparent' : 'border-slate-300 bg-white'}`}
+                      style={active ? { backgroundColor: color } : undefined}>
+                      {active && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+                    </span>
+                    {name}
+                  </button>
+                )
+              })}
             </div>
           </div>
           <div className="flex items-center gap-2">
