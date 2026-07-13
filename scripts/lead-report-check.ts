@@ -94,6 +94,17 @@ eq('roi uses priced cohort only', segUnpriced.roi, 40)   // 4000/100, NOT 13999/
 // A zero/undefined-price lead is outside the money cohort → no spend → ROI null.
 eq('no-spend roi null', segment([row({ status: 'Loan Funded', pipeline_group: 'Funded', lead_price: 0, compensation_amount: 5000 })]).roi, null)
 eq('empty seg rr 0', segment([]).rr, 0)
+// Revenue = EARNED comp → funded loans only. Arive pre-fills compensation_amount
+// at setup and it lingers on leads that never fund, so a non-funded priced lead
+// carrying comp must NOT add revenue (this was overstating revenue ~3×).
+const segLingeringComp = segment([
+  row({ status: 'Loan Funded', pipeline_group: 'Funded', lead_price: 100, compensation_amount: 5000 }),
+  row({ status: 'Non-Responsive', pipeline_group: 'Not Ready', lead_price: 40, compensation_amount: 8000 }), // comp but dead → excluded
+  row({ status: 'Approved w/ Conditions', pipeline_group: 'Loans in Process', lead_price: 60, compensation_amount: 3000 }), // in escrow, not funded → excluded
+])
+eq('revenue counts funded comp only', segLingeringComp.revenue, 5000)
+eq('spend still counts all priced leads', segLingeringComp.spend, 200)
+eq('roi = funded comp / total spend', segLingeringComp.roi, 5000 / 200)   // 25×, NOT 16000/200=80×
 
 // ── rrBand thresholds ──────────────────────────────────────────────
 eq('rrBand 28 = good', rrBand(28), 'good')

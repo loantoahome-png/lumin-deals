@@ -94,7 +94,13 @@ export function segment(rows: LeadRow[]): Segment {
   // never captured adds comp with no matching cost and inflates ROI.
   const priced = rows.filter(r => (r.lead_price ?? 0) > 0)
   const spend = priced.reduce((s, r) => s + (r.lead_price ?? 0), 0)
-  const revenue = priced.reduce((s, r) => s + (r.compensation_amount ?? 0), 0)
+  // Revenue = broker comp actually EARNED, so only FUNDED loans count. Arive
+  // pre-populates compensation_amount at loan setup, and it lingers on leads that
+  // never fund — even dead "Non-Responsive / Not Ready" ones. Summing it across
+  // all priced leads overstated revenue ~3× ($292k vs ~$96k earned) and inflated
+  // ROI (~4.9× vs ~1.6×). Spend still counts every priced lead you paid for; only
+  // funded leads return comp, which is exactly the ROI we want (earned ÷ spent).
+  const revenue = priced.filter(isFunded).reduce((s, r) => s + (r.compensation_amount ?? 0), 0)
   const safe = n || 1   // avoid div-by-zero on empty selections
   return {
     n, responded, rr: (100 * responded) / safe,
