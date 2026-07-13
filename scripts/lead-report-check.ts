@@ -3,7 +3,7 @@
 //        --module nodenext --moduleResolution nodenext --skipLibCheck && node /tmp/lrc/scripts/lead-report-check.js
 import {
   isPurchased, isResponded, isCold, isOptout, isFunded, matchesLO, matchesPurpose,
-  segment, groupBy, sourceKey, stateKey, purchasedBook, rrBand, type LeadRow,
+  segment, groupBy, sourceKey, stateKey, purchasedBook, leadBook, rrBand, type LeadRow,
 } from '../lib/leadReport'
 
 let pass = 0, fail = 0
@@ -105,6 +105,16 @@ const segLingeringComp = segment([
 eq('revenue counts funded comp only', segLingeringComp.revenue, 5000)
 eq('spend still counts all priced leads', segLingeringComp.spend, 200)
 eq('roi = funded comp / total spend', segLingeringComp.roi, 5000 / 200)   // 25×, NOT 16000/200=80×
+// All-sources scope: warm/referral funded loans carry comp but NO lead price. Their
+// comp is real earned revenue, so allFundedRevenue=true must count it; the default
+// (purchased) still drops unpriced comp so spend & revenue stay comparable.
+const warmFunded = [
+  row({ source: 'Return Client', status: 'Loan Funded', pipeline_group: 'Funded', lead_price: null, compensation_amount: 4000 }),
+  row({ source: 'FRU', status: 'Loan Funded', pipeline_group: 'Funded', lead_price: 100, compensation_amount: 1000 }),
+]
+eq('purchased scope excludes unpriced warm comp', segment(warmFunded).revenue, 1000)
+eq('all scope includes unpriced warm comp', segment(warmFunded, true).revenue, 5000)
+eq('spend is priced-only regardless of scope', segment(warmFunded, true).spend, 100)
 
 // ── rrBand thresholds ──────────────────────────────────────────────
 eq('rrBand 28 = good', rrBand(28), 'good')
@@ -121,6 +131,10 @@ const mixed: LeadRow[] = [
 ]
 eq('purchasedBook All excludes warm', purchasedBook(mixed, 'All').length, 3)
 eq('purchasedBook Matt', purchasedBook(mixed, 'Matt').length, 2)
+// leadBook scope: 'All' keeps warm sources (Self Source), 'Purchased' drops them.
+eq('leadBook All-scope includes warm', leadBook(mixed, 'All', 'All', 'All').length, 4)
+eq('leadBook Purchased-scope == purchasedBook', leadBook(mixed, 'All', 'All', 'Purchased').length, 3)
+eq('leadBook All-scope Matt keeps warm Matt', leadBook(mixed, 'Matt', 'All', 'All').length, 3)
 
 // purpose filter on the cohort
 const purp: LeadRow[] = [

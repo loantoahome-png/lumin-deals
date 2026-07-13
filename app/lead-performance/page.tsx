@@ -16,14 +16,15 @@ import { useEffect, useMemo, useState } from 'react'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import type { Deal } from '@/lib/types'
 import {
-  PURCHASED_SOURCES, segment, groupBy, sourceKey, stateKey, purchasedBook, rrBand,
-  type LO, type Purpose, type Segment, type GroupRow,
+  PURCHASED_SOURCES, segment, groupBy, sourceKey, stateKey, leadBook, rrBand,
+  type LO, type Purpose, type SourceScope, type Segment, type GroupRow,
 } from '@/lib/leadReport'
 import { RefreshCw, Download, Target } from 'lucide-react'
 
 const LEAD_COLS = 'id,loan_officer,pipeline_group,status,source,state,lead_price,compensation_amount,loan_purpose,date_added_ghl'
 const LO_TABS: LO[] = ['All', 'Matt', 'Moe', 'Randy']
 const PURPOSE_TABS: Purpose[] = ['All', 'Purchase', 'Refinance']
+const SCOPE_TABS: SourceScope[] = ['Purchased', 'All']
 
 const pct = (x: number) => x.toFixed(1) + '%'
 const money = (x: number | null) => (x == null ? '—' : '$' + Math.round(x).toLocaleString())
@@ -54,6 +55,7 @@ export default function LeadPerformancePage() {
   const [loading, setLoading] = useState(true)
   const [lo, setLo] = useState<LO>('All')
   const [purpose, setPurpose] = useState<Purpose>('All')
+  const [scope, setScope] = useState<SourceScope>('Purchased')
 
   async function load() {
     setLoading(true)
@@ -63,10 +65,11 @@ export default function LeadPerformancePage() {
   }
   useEffect(() => { load() }, [])
 
-  const book = useMemo(() => purchasedBook(deals, lo, purpose), [deals, lo, purpose])
-  const totals: Segment = useMemo(() => segment(book), [book])
-  const bySource: GroupRow[] = useMemo(() => groupBy(book, sourceKey), [book])
-  const byState: GroupRow[] = useMemo(() => groupBy(book, stateKey), [book])
+  const book = useMemo(() => leadBook(deals, lo, purpose, scope), [deals, lo, purpose, scope])
+  const allRev = scope === 'All'   // count comp on ALL funded loans, incl. price-less warm ones
+  const totals: Segment = useMemo(() => segment(book, allRev), [book, allRev])
+  const bySource: GroupRow[] = useMemo(() => groupBy(book, sourceKey, allRev), [book, allRev])
+  const byState: GroupRow[] = useMemo(() => groupBy(book, stateKey, allRev), [book, allRev])
 
   const dateWindow = useMemo(() => {
     const ds = book
@@ -90,7 +93,7 @@ export default function LeadPerformancePage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `lead-performance-${lo.toLowerCase()}-${purpose.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv`
+    a.download = `lead-performance-${scope.toLowerCase()}-${lo.toLowerCase()}-${purpose.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -105,7 +108,7 @@ export default function LeadPerformancePage() {
               <Target className="w-5 h-5 text-blue-600" /> Lead Performance
             </h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              Purchased leads only · Ghosted counts as responded
+              {scope === 'All' ? 'All sources' : 'Purchased leads only'} · Ghosted counts as responded
               {purpose !== 'All' && <span className="text-blue-600 font-medium"> · {purpose}</span>}
               {dateWindow && <span className="text-slate-400"> · {dateWindow}</span>}
             </p>
@@ -123,6 +126,20 @@ export default function LeadPerformancePage() {
 
         {/* Filters */}
         <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 w-12">Source</span>
+            <div className="flex items-center gap-1">
+              {SCOPE_TABS.map(t => (
+                <button key={t} onClick={() => setScope(t)}
+                  title={t === 'Purchased' ? 'Vendor-bought leads only (lead-ROI funnel)' : 'Every source, incl. Return Client / Referrals — your full funded book'}
+                  className={`px-3 py-1 text-xs font-medium rounded-full transition ${
+                    scope === t ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}>
+                  {t === 'Purchased' ? 'Purchased' : 'All sources'}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 w-12">LO</span>
             <div className="flex items-center gap-1">
@@ -160,7 +177,7 @@ export default function LeadPerformancePage() {
           <>
             {/* KPI cards */}
             <div className="flex flex-wrap gap-3">
-              <Stat label="Purchased leads" value={totals.n.toLocaleString()} sub="vendor-bought" />
+              <Stat label={scope === 'All' ? 'Total leads' : 'Purchased leads'} value={totals.n.toLocaleString()} sub={scope === 'All' ? 'all sources' : 'vendor-bought'} />
               <Stat label="Responded" value={pct(totals.rr)} sub={`${totals.responded} leads`} color={RR_COLOR[rrBand(totals.rr)]} />
               <Stat label="No response" value={pct(totals.crate)} sub={`${totals.cold} leads`} />
               <Stat label="Opted out / DND" value={pct(totals.orate)} sub={`${totals.optout} leads`} />
@@ -176,7 +193,7 @@ export default function LeadPerformancePage() {
                 Definitions &amp; methodology
               </summary>
               <div className="px-4 pb-3 space-y-1.5">
-                <p><b>Purchased only:</b> {PURCHASED_SOURCES.join(', ')}. Warm/organic (Self Source, Return Client, Referrals, Arive, Unknown) excluded.</p>
+                <p><b>Source scope (toggle):</b> <b>Purchased</b> = vendor leads only ({PURCHASED_SOURCES.join(', ')}); warm/organic (Self Source, Return Client, Referrals, Arive) excluded — this is the lead-ROI funnel. <b>All sources</b> switches the whole page to every source, so Revenue reflects your full funded book. In All-sources, comp on warm funded loans counts even though they carry no lead price, so ROI compares total funded comp to purchased-lead spend.</p>
                 <p><b>Responded:</b> engaged at least once. <b>Ghosted counts</b> — only New Lead / Attempted Contact / Non-Responsive are &ldquo;no response.&rdquo;</p>
                 <p><b>Opted out / DND:</b> STOP, DND-SMS, Remove from All Automations — shown separately, not counted as responded.</p>
                 <p><b>Funded:</b> Loan Funded / Broker Check Received / Loan Finalized.</p>

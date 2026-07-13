@@ -83,7 +83,11 @@ export type Segment = {
   funded: number; fr: number; spend: number; revenue: number; roi: number | null
 }
 
-export function segment(rows: LeadRow[]): Segment {
+// allFundedRevenue: count comp on ALL funded loans, not just priced ones. Used by
+// the "All sources" scope, where warm/referral funded loans carry no lead_price but
+// their comp is still real earned revenue. Purchased scope leaves it false so spend
+// and revenue stay on the same priced cohort (Efrain's call — clean ROI).
+export function segment(rows: LeadRow[], allFundedRevenue = false): Segment {
   const n = rows.length
   const responded = rows.filter(isResponded).length
   const cold = rows.filter(isCold).length
@@ -100,7 +104,8 @@ export function segment(rows: LeadRow[]): Segment {
   // all priced leads overstated revenue ~3× ($292k vs ~$96k earned) and inflated
   // ROI (~4.9× vs ~1.6×). Spend still counts every priced lead you paid for; only
   // funded leads return comp, which is exactly the ROI we want (earned ÷ spent).
-  const revenue = priced.filter(isFunded).reduce((s, r) => s + (r.compensation_amount ?? 0), 0)
+  const fundedForRevenue = allFundedRevenue ? rows.filter(isFunded) : priced.filter(isFunded)
+  const revenue = fundedForRevenue.reduce((s, r) => s + (r.compensation_amount ?? 0), 0)
   const safe = n || 1   // avoid div-by-zero on empty selections
   return {
     n, responded, rr: (100 * responded) / safe,
@@ -112,7 +117,7 @@ export function segment(rows: LeadRow[]): Segment {
 }
 
 export type GroupRow = { key: string } & Segment
-export function groupBy(rows: LeadRow[], keyFn: (d: LeadRow) => string): GroupRow[] {
+export function groupBy(rows: LeadRow[], keyFn: (d: LeadRow) => string, allFundedRevenue = false): GroupRow[] {
   const groups = new Map<string, LeadRow[]>()
   for (const r of rows) {
     const k = keyFn(r)
@@ -121,13 +126,21 @@ export function groupBy(rows: LeadRow[], keyFn: (d: LeadRow) => string): GroupRo
     else groups.set(k, [r])
   }
   return [...groups.entries()]
-    .map(([key, rs]) => ({ key, ...segment(rs) }))
+    .map(([key, rs]) => ({ key, ...segment(rs, allFundedRevenue) }))
     .sort((a, b) => b.n - a.n)
 }
 
 /** Response-rate band → semantic color key (≥28 good · 20–28 mid · <20 bad). */
 export const rrBand = (rr: number): 'good' | 'mid' | 'bad' => (rr >= 28 ? 'good' : rr >= 20 ? 'mid' : 'bad')
 
-/** Filter a raw deal list down to the purchased-lead cohort for a given LO + loan purpose. */
+// Source scope: 'Purchased' = vendor-bought leads only (the ROI funnel); 'All' =
+// every source, so warm/organic (Return Client, Referrals, …) are included too.
+export type SourceScope = 'Purchased' | 'All'
+
+/** The lead cohort for a given LO + purpose, scoped to Purchased (default) or All sources. */
+export const leadBook = (deals: LeadRow[], lo: LO, purpose: Purpose = 'All', scope: SourceScope = 'Purchased'): LeadRow[] =>
+  deals.filter(d => (scope === 'All' || isPurchased(d)) && matchesLO(d, lo) && matchesPurpose(d, purpose))
+
+/** Purchased-only cohort — back-compat alias for leadBook(..., 'Purchased'). */
 export const purchasedBook = (deals: LeadRow[], lo: LO, purpose: Purpose = 'All'): LeadRow[] =>
-  deals.filter(d => isPurchased(d) && matchesLO(d, lo) && matchesPurpose(d, purpose))
+  leadBook(deals, lo, purpose, 'Purchased')
