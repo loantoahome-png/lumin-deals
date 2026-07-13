@@ -16,12 +16,26 @@ const TRIGGER_STAGES = ['New Lead', 'Attempted Contact']
 const MIN_AGE_MIN = 45
 const MAX_AGE_MIN = 360   // safety cap — never backfill leads older than 6h
 
+// Brianne only handles 2nd call-backs for Matt & Moe — NOT Randy (his GHL
+// sub-account runs its own follow-up). A lead is Randy's if its loan_officer
+// resolves to him OR it lives in Randy's GHL location (GHL_LOCATION_ID_2).
+// The 15-min sync that creates every deal reliably stamps both, so checking
+// both is belt-and-suspenders: a rename can't leak his leads back in.
+const RANDY_LOCATION_ID = process.env.GHL_LOCATION_ID_2 || ''
+function isRandysLead(d: Row): boolean {
+  const lo = (d.loan_officer ?? '').toLowerCase()
+  if (lo.includes('randy') || lo.includes('mathis')) return true
+  if (RANDY_LOCATION_ID && d.ghl_location_id === RANDY_LOCATION_ID) return true
+  return false
+}
+
 type Row = {
   id: string
   name: string | null
   created_at: string
   date_added_ghl: string | null
   loan_officer: string | null
+  ghl_location_id: string | null
   deal_id?: string
 }
 
@@ -33,7 +47,7 @@ export async function runSecondCallbackCheck(): Promise<{ scanned: number; creat
   // Candidates: still in a trigger stage, not yet handled, row created within 6h.
   const { data } = await supabase
     .from('deals')
-    .select('id,name,created_at,date_added_ghl,loan_officer')
+    .select('id,name,created_at,date_added_ghl,loan_officer,ghl_location_id')
     .in('status', TRIGGER_STAGES)
     .is('second_callback_at', null)
     .gte('created_at', sixHoursAgoIso)
@@ -42,6 +56,9 @@ export async function runSecondCallbackCheck(): Promise<{ scanned: number; creat
   let created = 0, errors = 0
 
   for (const d of rows) {
+    // Randy's leads are handled outside this rule — skip them (Matt & Moe only).
+    if (isRandysLead(d)) continue
+
     // Use the GHL creation time when available, else the DB row time.
     const eff = d.date_added_ghl ? Date.parse(d.date_added_ghl) : Date.parse(d.created_at)
     if (isNaN(eff)) continue
