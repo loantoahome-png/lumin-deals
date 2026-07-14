@@ -1,5 +1,12 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-14] Triage — "start now": pre-launch decision tasks deleted + start-now floor
+**Status:** VERIFIED (commit `504b3c3`, dpl `2r0xkr9cs` READY on prod alias)
+**Issue:** Efrain: "Get rid of the backlog/tasks for triage decision, I want to start now" — the first cron run had tasked 25 pre-launch day-5–7 leads; he wants the clock system to apply to leads arriving from launch onward only.
+**Changes:** (1) Deleted all 25 auto-created "Triage decision" tasks from `deal_tasks` (scoped `assigned_by='Auto (7-day triage)'`; 0 were completed; row backup in session scratchpad `triage-task-delete-backup.log`). (2) `lib/triage.ts` — NEW `DECISION_TASKS_SINCE` (2026-07-14T07:00Z = launch day midnight PT) floors `needsDecisionTask`: leads anchored before it NEVER get a decision task, regardless of tier. Triage-tab visibility of the old pile unchanged (bulk cleanup still the path). Check-in tasks unaffected (they only fire off dates set going forward).
+**Test Method:** `scripts/triage-check.ts` 49/49 (2 new floor fixtures + day-window tests moved to a post-launch NOW so the floor doesn't mask them) · tsc 0 new in changed files · build READY · post-delete count query = 0 remaining.
+**Result:** VERIFIED — deal_tasks has 0 `Auto (7-day triage)` rows; first decision tasks will fire ~2026-07-19 (day 5 for leads created on launch day). NOTE: Matt/Moe already received task-assigned emails for the 25 deleted tasks — the tasks they link to are gone; no retraction sent.
+
 ### [2026-07-14] Lead Triage — 7-day decision clock + check-in resurfacing (Hot Leads)
 **Status:** CHANGED (fixtures 47/47 · tsc 7-baseline / 0 new · build READY) — deploying per auto-deploy policy
 **Issue:** Efrain: no lead may fall through the cracks — every new lead needs a direction within its first 7 days (App Intake / Not Ready - Timeframe / Remove from All Automations) plus a system that resurfaces Not Ready leads on a promised check-in date. Prod census (read-only, service-role): 881 undecided open leads (787 already past day 7, 557 of those >30d) and 115 open Not Ready - Timeframe leads with **zero** check-in dates.
