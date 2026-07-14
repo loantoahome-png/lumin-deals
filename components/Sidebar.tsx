@@ -52,8 +52,7 @@ const navGroups = [
     items: [
       { href: '/reports', label: 'Reports', icon: BarChart3 },
       { href: '/reports/escrows', label: 'Escrow Report', icon: FileText },
-      { href: '/lead-performance', label: 'Lead Performance', icon: Target },
-      { href: '/lead-spend', label: 'Lead Spend', icon: DollarSign },
+      { href: '/lead-roi', label: 'Lead ROI', icon: Target },
       { href: '/lead-cohorts', label: 'Lead Cohorts', icon: Users },
       { href: '/report-import', label: 'Report Import', icon: FileUp },
     ],

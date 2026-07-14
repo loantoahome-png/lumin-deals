@@ -6,7 +6,7 @@ import { LOAN_OFFICERS } from '@/lib/types'
 import { resolveLO } from '@/lib/loanOfficer'
 
 // Loan-officer checkbox swatches — the single source of truth for LO colors across
-// the whole app (dashboard, deals, lead-performance, lead-cohorts, hot-leads, …).
+// the whole app (dashboard, deals, lead-roi, lead-cohorts, hot-leads, …).
 export const LO_COLORS: Record<string, string> = {
   'Matt Park': '#10b981',
   'Moe Sefati': '#f59e0b',

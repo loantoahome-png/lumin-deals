@@ -14,6 +14,12 @@ const nextConfig: NextConfig = {
       headers: [{ key: 'Cache-Control', value: 'no-store' }],
     },
   ],
+  redirects: async () => [
+    // Lead Performance + Lead Spend merged into /lead-roi (2026-07-13) —
+    // old bookmarks keep working.
+    { source: '/lead-performance', destination: '/lead-roi', permanent: true },
+    { source: '/lead-spend', destination: '/lead-roi', permanent: true },
+  ],
 };
 
 export default nextConfig;

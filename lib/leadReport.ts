@@ -1,6 +1,6 @@
 // Purchased-lead performance report — pure aggregation logic.
 //
-// This powers the /lead-performance dashboard page and is the live version of the
+// This powers /lead-roi (via lib/leadRoi.ts) and /report-import, and is the live version of the
 // "Purchased Lead Performance Report" PDF. Kept as pure functions (no I/O) so it's
 // testable via scripts/lead-report-check.ts and reusable anywhere.
 //

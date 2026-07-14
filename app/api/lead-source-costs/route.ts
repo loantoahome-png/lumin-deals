@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 
-// Marketing spend per lead source (cost_per_month). Used by /lead-spend to
+// Marketing spend per lead source (cost_per_month). Used by /lead-roi to
 // compute cost-per-funded-loan and rough ROI per source over any date range.
 
 type CostRow = {
