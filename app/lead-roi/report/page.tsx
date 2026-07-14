@@ -15,12 +15,12 @@ import { formatCurrency } from '@/lib/utils'
 import { rrBand, isFunded, PURCHASED_SOURCES, type Purpose, type SourceScope } from '@/lib/leadReport'
 import {
   RANGE_OPTIONS, rangeBounds, monthsBetween, filterDeals, buildSourceStats, rollupKpis,
-  funnel, stateRows, monthlySeries, projection,
+  funnel, stateRows, monthlySeries, projection, optout7dStats, insights,
   type RangeKey, type CostRow,
 } from '@/lib/leadRoi'
 import { Printer } from 'lucide-react'
 
-const LEAD_COLS = 'id,name,source,loan_officer,pipeline_group,status,loan_amount,state,loan_purpose,lead_price,compensation_amount,date_added_ghl,funded_date,created_at'
+const LEAD_COLS = 'id,name,source,loan_officer,pipeline_group,status,loan_amount,state,loan_purpose,lead_price,compensation_amount,date_added_ghl,funded_date,created_at,ghl_opportunity_id'
 
 const pct = (x: number) => x.toFixed(1) + '%'
 const roiFmt = (x: number | null) => (x == null ? '—' : x.toFixed(2) + '×')
@@ -58,6 +58,7 @@ function ReportBody() {
 
   const [deals, setDeals] = useState<Deal[]>([])
   const [costs, setCosts] = useState<Map<string, CostRow>>(new Map())
+  const [firstOptout, setFirstOptout] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [generatedAt, setGeneratedAt] = useState('')
 
@@ -69,6 +70,11 @@ function ReportBody() {
         const res = await fetch('/api/lead-source-costs', { cache: 'no-store' })
         const data = await res.json() as { ok: boolean; costs?: CostRow[] }
         if (data.ok && data.costs) setCosts(new Map(data.costs.map(c => [c.source, c])))
+      } catch {}
+      try {
+        const res = await fetch('/api/stage-events/first-optout', { cache: 'no-store' })
+        const data = await res.json() as { ok: boolean; firstOptout?: Record<string, string> }
+        if (data.ok && data.firstOptout) setFirstOptout(data.firstOptout)
       } catch {}
       setGeneratedAt(new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }))
       setLoading(false)
@@ -94,6 +100,8 @@ function ReportBody() {
   const retainerPerMonth = useMemo(() => visibleSources.reduce((a, s) => a + s.costPerMonth, 0), [visibleSources])
   const monthly = useMemo(() => monthlySeries(visibleDeals, retainerPerMonth), [visibleDeals, retainerPerMonth])
   const proj = useMemo(() => projection(visibleSources, kpis), [visibleSources, kpis])
+  const o7 = useMemo(() => optout7dStats(visibleDeals, firstOptout), [visibleDeals, firstOptout])
+  const ins = useMemo(() => insights(visibleSources), [visibleSources])
 
   const fundedList = useMemo(() =>
     visibleDeals
@@ -167,11 +175,58 @@ function ReportBody() {
 
         {/* KPI band */}
         <Section title="Summary">
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5">
+          {/* Computed narrative + best-performer callouts */}
+          {kpis.totalLeads > 0 && (
+            <div className="border border-indigo-200 border-l-4 border-l-indigo-500 rounded-lg px-3.5 py-3 mb-3.5">
+              <p className="text-[12.5px] text-slate-700 leading-relaxed">
+                <b className="text-slate-900">{kpis.totalLeads.toLocaleString()} leads</b> —{' '}
+                <b className={RR_TXT[rrBand(kpis.rr)]}>{pct(kpis.rr)} responded</b>,{' '}
+                <b className="text-slate-900">{kpis.funded} funded</b> ({pct(kpis.fr)}) for{' '}
+                <b className="text-slate-900">{formatCurrency(kpis.volume)}</b> in volume.{' '}
+                {kpis.spend > 0 && <>Spent <b className="text-rose-600">{formatCurrency(kpis.spend)}</b>, earned back{' '}
+                <b className="text-emerald-700">{formatCurrency(kpis.revenue)}</b> —{' '}
+                <b className={kpis.netProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}>{kpis.netProfit >= 0 ? '+' : ''}{formatCurrency(kpis.netProfit)} net</b>
+                {kpis.roi != null && <> at <b className={kpis.roi >= 1 ? 'text-emerald-700' : 'text-red-600'}>{kpis.roi.toFixed(2)}× ROI</b></>}.{' '}</>}
+                {kpis.optout > 0 && <>
+                  <b className="text-slate-900">{kpis.optout}</b> opted out ({pct(kpis.orate)})
+                  {o7.timed > 0
+                    ? <> — {o7.within} of the {o7.timed} with logged timing ({o7.withinPct.toFixed(0)}%) within {o7.days} days of creation.</>
+                    : <span className="text-slate-400"> — no opt-out timing logged yet.</span>}
+                </>}
+              </p>
+              {(ins.bestRoi || ins.topNet || ins.bestResponse || ins.worstRoi) && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {ins.bestRoi && (
+                    <span className="text-[11px] bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-full px-2.5 py-0.5">
+                      🏆 <b>Best performer: {ins.bestRoi.source}</b> · {ins.bestRoi.roi?.toFixed(2)}× ROI ({formatCurrency(ins.bestRoi.spend)} → {formatCurrency(ins.bestRoi.revenue)})
+                    </span>
+                  )}
+                  {ins.topNet && ins.topNet.source !== ins.bestRoi?.source && (
+                    <span className="text-[11px] bg-emerald-50/60 border border-emerald-200 text-emerald-800 rounded-full px-2.5 py-0.5">
+                      Biggest earner: <b>{ins.topNet.source}</b> · +{formatCurrency(ins.topNet.netProfit)} net
+                    </span>
+                  )}
+                  {ins.bestResponse && (
+                    <span className="text-[11px] bg-blue-50 border border-blue-200 text-blue-800 rounded-full px-2.5 py-0.5">
+                      Best response: <b>{ins.bestResponse.source}</b> · {pct(ins.bestResponse.rr)}
+                    </span>
+                  )}
+                  {ins.worstRoi && (
+                    <span className="text-[11px] bg-red-50 border border-red-200 text-red-700 rounded-full px-2.5 py-0.5">
+                      Underwater: <b>{ins.worstRoi.source}</b> · {ins.worstRoi.roi?.toFixed(2)}×
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          <div className="grid grid-cols-3 sm:grid-cols-7 gap-2.5">
             <RKpi label={scope === 'All' ? 'Total leads' : 'Purchased leads'} value={kpis.totalLeads.toLocaleString()} />
             <RKpi label="Responded" value={pct(kpis.rr)} sub={`${kpis.responded} leads`} valueClass={RR_TXT[rrBand(kpis.rr)]} />
             <RKpi label="No response" value={pct(kpis.crate)} sub={`${kpis.cold} leads`} />
             <RKpi label="Opted out / DND" value={pct(kpis.orate)} sub={`${kpis.optout} leads`} />
+            <RKpi label={`Opt-out ≤ ${o7.days}d`} value={o7.timed > 0 ? `${o7.withinPct.toFixed(0)}%` : '—'}
+              sub={o7.timed > 0 ? `${o7.within}/${o7.timed} timed · ${o7.coverage.toFixed(0)}% cov.` : 'no timing yet'} />
             <RKpi label="Active escrows" value={kpis.active.toLocaleString()} valueClass="text-amber-600" />
             <RKpi label="Funded" value={kpis.funded.toLocaleString()} sub={`${pct(kpis.fr)} · ${formatCurrency(kpis.volume)}`} tone="good" />
           </div>
@@ -256,7 +311,7 @@ function ReportBody() {
                     <Td left bold>{s.source}</Td>
                     <Td>{s.total}</Td>
                     <Td className={`font-semibold ${RR_TXT[rrBand(s.rr)]}`}>{pct(s.rr)}</Td>
-                    <Td dim>{s.optout || '—'}</Td>
+                    <Td dim>{s.optout ? `${s.optout} · ${pct(s.orate)}` : '—'}</Td>
                     <Td dim>{s.open || '—'}</Td>
                     <Td className={s.active ? 'text-amber-600 font-semibold' : 'text-slate-300'}>{s.active || '—'}</Td>
                     <Td dim>{s.lost || '—'}</Td>
@@ -277,7 +332,7 @@ function ReportBody() {
                   <Td left bold>Total</Td>
                   <Td>{kpis.totalLeads}</Td>
                   <Td className={RR_TXT[rrBand(kpis.rr)]}>{pct(kpis.rr)}</Td>
-                  <Td>{kpis.optout}</Td>
+                  <Td>{kpis.optout} · {pct(kpis.orate)}</Td>
                   <Td>{visibleSources.reduce((a, s) => a + s.open, 0)}</Td>
                   <Td>{kpis.active}</Td>
                   <Td>{visibleSources.reduce((a, s) => a + s.lost, 0)}</Td>
@@ -409,7 +464,7 @@ function ReportBody() {
         {/* Methodology */}
         <Section title="Definitions">
           <div className="text-[11px] text-slate-500 leading-relaxed space-y-1">
-            <p><b className="text-slate-700">Responded</b> — engaged at least once; Ghosted counts. <b className="text-slate-700">Opted out / DND</b> is its own bucket. <b className="text-slate-700">Funded</b> — Loan Funded / Broker Check Received / Loan Finalized; funded loans anchor on funded date, everything else on the date the lead was added.</p>
+            <p><b className="text-slate-700">Responded</b> — engaged at least once; Ghosted counts. <b className="text-slate-700">Opted out / DND</b> is its own bucket (shown as count · % of that source&apos;s leads). <b className="text-slate-700">Opt-out ≤ 7d</b> — share of timed opt-outs whose first logged opt-out event fell within 7 days of lead creation (forward-only stage log, so coverage is shown). <b className="text-slate-700">Funded</b> — Loan Funded / Broker Check Received / Loan Finalized; funded loans anchor on funded date, everything else on the date the lead was added.</p>
             <p><b className="text-slate-700">Spend</b> — Σ per-lead price (GHL) + flat monthly retainers × months in range. <b className="text-slate-700">Revenue</b> — Σ Arive compensation on funded loans only. <b className="text-slate-700">Net profit</b> = revenue − spend. <b className="text-slate-700">ROI</b> — revenue ÷ spend as a multiple ($ back per $1).</p>
             <p>Purchased scope covers {PURCHASED_SOURCES.join(', ')}. Stats are per-LO — this report is {lo} only.</p>
           </div>

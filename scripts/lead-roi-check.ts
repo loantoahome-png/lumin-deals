@@ -3,6 +3,7 @@
 import {
   rangeBounds, monthsBetween, parseLocalMs, anchorDate, filterDeals, buildSourceStats,
   rollupKpis, funnel, stateRows, monthlySeries, projection, sourceLabel,
+  optout7dStats, insights,
   type CostRow, type RoiFilters,
 } from '../lib/leadRoi'
 import type { Deal } from '../lib/types'
@@ -130,6 +131,54 @@ eq('projection estimates comp-less actives', proj.estimatedCount, 1)
 approx('projection addComp', proj.addComp, 4500)
 approx('projection revenue', proj.projRevenue, 7500)
 eq('projection funded', proj.projFunded, 4)
+
+// ── Opt-out rate + early opt-out (≤7d) ─────────────────────────────────────────
+const optBook: Deal[] = [
+  deal({ id: 'o1', status: 'STOP', ghl_opportunity_id: 'opp1', date_added_ghl: '2026-06-01' }),
+  deal({ id: 'o2', status: 'DND - SMS', ghl_opportunity_id: 'opp2', date_added_ghl: '2026-06-01' }),
+  deal({ id: 'o3', status: 'Remove from All Automations', ghl_opportunity_id: 'opp3', date_added_ghl: '2026-06-01' }),
+  deal({ id: 'o4', status: 'STOP', ghl_opportunity_id: null }),            // opt-out, no opp id → untimed
+  deal({ id: 'o5', status: 'Pitching', ghl_opportunity_id: 'opp5' }),      // responded — not an opt-out
+]
+const optStats = buildSourceStats(optBook, new Map(), 1)
+approx('per-source orate = optout ÷ leads', optStats[0].orate, 80)   // 4 of 5
+const firstOptout = {
+  opp1: '2026-06-05T12:00:00Z',   // day 4 → within 7
+  opp2: '2026-06-20T12:00:00Z',   // day 19 → outside
+  opp3: '2026-06-08T00:00:00Z',   // day 7 boundary → within (≤ 7d)
+  opp5: '2026-06-02T00:00:00Z',   // event exists but lead is NOT in the opt-out bucket → ignored
+}
+const o7 = optout7dStats(optBook, firstOptout)
+eq('optouts counts the current bucket', o7.optouts, 4)
+eq('timed = opt-outs with event + creation date', o7.timed, 3)
+eq('within-7d counts day-4 and day-7-boundary', o7.within, 2)
+approx('withinPct = within ÷ timed', o7.withinPct, 66.67, 0.1)
+approx('coverage = timed ÷ optouts', o7.coverage, 75)
+const o7empty = optout7dStats(optBook, {})
+eq('no events → zero coverage, no crash', [o7empty.timed, o7empty.within, o7empty.coverage], [0, 0, 0])
+
+// ── Insights ───────────────────────────────────────────────────────────────────
+const insBook: Deal[] = [
+  // Alpha: 2 funded, roi 4× (spend 1000 → rev 4000), 25 leads worth of rows collapsed to essentials
+  ...Array.from({ length: 23 }, (_, i) => deal({ id: `a${i}`, source: 'Alpha', status: 'Pitching', lead_price: 20 })),
+  deal({ id: 'aF1', source: 'Alpha', pipeline_group: 'Funded', status: 'Loan Funded', funded_date: '2026-06-10', lead_price: 270, compensation_amount: 2000 }),
+  deal({ id: 'aF2', source: 'Alpha', pipeline_group: 'Funded', status: 'Loan Funded', funded_date: '2026-06-11', lead_price: 270, compensation_amount: 2000 }),
+  // Beta: 1 funded, roi 8× on tiny spend (best ROI), but small net
+  deal({ id: 'bF', source: 'Beta', pipeline_group: 'Funded', status: 'Loan Funded', funded_date: '2026-06-12', lead_price: 100, compensation_amount: 800 }),
+  // Gamma: 30 leads, high response, no funded, underwater spend
+  ...Array.from({ length: 30 }, (_, i) => deal({ id: `g${i}`, source: 'Gamma', status: i < 24 ? 'Pitching' : 'STOP', lead_price: 10 })),
+  // Delta: 1 funded but underwater (roi 0.5×)
+  deal({ id: 'dF', source: 'Delta', pipeline_group: 'Funded', status: 'Loan Funded', funded_date: '2026-06-13', lead_price: 1000, compensation_amount: 500 }),
+]
+const insStats = buildSourceStats(insBook, new Map(), 1)
+const ins = insights(insStats, 20)
+eq('bestRoi = Beta (8×)', ins.bestRoi?.source, 'Beta')
+eq('topNet = Alpha (biggest $)', ins.topNet?.source, 'Alpha')
+eq('bestResponse needs ≥20 leads', ['Alpha', 'Gamma'].includes(ins.bestResponse?.source ?? ''), true)
+eq('worstRoi = Delta (underwater)', ins.worstRoi?.source, 'Delta')
+eq('highestOptout sized pick', ins.highestOptout?.source, 'Gamma')
+const insEmpty = insights([])
+eq('insights on empty book → all null', [insEmpty.bestRoi, insEmpty.topNet, insEmpty.bestResponse, insEmpty.worstRoi, insEmpty.highestOptout], [null, null, null, null, null])
 
 // ── Misc ───────────────────────────────────────────────────────────────────────
 eq('sourceLabel blank → sentinel', sourceLabel({ source: '  ' }), '(no source set)')

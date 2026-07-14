@@ -112,7 +112,7 @@ export type SourceStats = {
   source: string
   total: number
   responded: number; rr: number
-  cold: number; optout: number
+  cold: number; optout: number; orate: number
   open: number; active: number; lost: number
   funded: number; fr: number
   fundedVolume: number; fundedAvg: number
@@ -134,7 +134,7 @@ export function buildSourceStats(deals: Deal[], costs: Map<string, CostRow>, mon
     if (!s) {
       const cpm = costs.get(src)?.cost_per_month ?? 0
       s = {
-        source: src, total: 0, responded: 0, rr: 0, cold: 0, optout: 0,
+        source: src, total: 0, responded: 0, rr: 0, cold: 0, optout: 0, orate: 0,
         open: 0, active: 0, lost: 0, funded: 0, fr: 0,
         fundedVolume: 0, fundedAvg: 0,
         leadCost: 0, retainer: cpm * months, spend: 0, revenue: 0, netProfit: 0,
@@ -162,6 +162,7 @@ export function buildSourceStats(deals: Deal[], costs: Map<string, CostRow>, mon
   }
   for (const s of map.values()) {
     s.rr = s.total ? (100 * s.responded) / s.total : 0
+    s.orate = s.total ? (100 * s.optout) / s.total : 0
     s.fr = s.total ? (100 * s.funded) / s.total : 0
     s.fundedAvg = s.funded ? s.fundedVolume / s.funded : 0
     s.spend = s.leadCost + s.retainer
@@ -294,6 +295,74 @@ export function monthlySeries(deals: Deal[], retainerPerMonth: number, maxMonths
     })
   }
   return points.slice(-maxMonths)
+}
+
+// ── Early opt-out (within N days of lead creation) ─────────────────────────────
+// Timing comes from the stage_events log (/api/stage-events/first-optout —
+// earliest crossing into STOP / DND-SMS / Remove from All Automations per
+// opportunity). Forward-only: opt-outs that predate the webhook have no event,
+// so we report COVERAGE (timed ÷ current opt-out bucket) instead of pretending
+// the timing is complete.
+export type Optout7d = {
+  optouts: number          // leads currently in the opt-out bucket (the KPI's 152)
+  timed: number            // opt-out-bucket leads with a logged opt-out event AND a creation date
+  within: number           // of `timed`, how many opted out ≤ N days after creation
+  withinPct: number        // within ÷ timed (0 when no timing)
+  coverage: number         // timed ÷ optouts (0–100)
+  days: number
+}
+
+export function optout7dStats(
+  deals: Deal[],
+  firstOptout: Record<string, string>,
+  days = 7,
+): Optout7d {
+  const windowMs = days * 86_400_000
+  let optouts = 0, timed = 0, within = 0
+  for (const d of deals) {
+    if (!isOptout(d)) continue
+    optouts++
+    const oppId = d.ghl_opportunity_id
+    const evt = oppId ? firstOptout[oppId] : undefined
+    if (!evt || !d.date_added_ghl) continue
+    const created = parseLocalMs(d.date_added_ghl)
+    const optedAt = Date.parse(evt)
+    if (isNaN(created) || isNaN(optedAt)) continue
+    timed++
+    if (optedAt - created <= windowMs) within++
+  }
+  return {
+    optouts, timed, within,
+    withinPct: timed ? (100 * within) / timed : 0,
+    coverage: optouts ? (100 * timed) / optouts : 0,
+    days,
+  }
+}
+
+// ── Page-top insights — computed callouts, no editorializing beyond the math ───
+// Guards keep small samples from stealing the headline: money picks need a funded
+// loan + real spend; rate picks need a minimum lead count.
+export type Insights = {
+  bestRoi: SourceStats | null       // highest ROI (funded ≥ 1, spend > 0)
+  topNet: SourceStats | null        // biggest net profit in $ (may differ from bestRoi)
+  bestResponse: SourceStats | null  // highest resp % (total ≥ minLeads)
+  worstRoi: SourceStats | null      // underwater (< 1×) with the lowest ROI, if any
+  highestOptout: SourceStats | null // highest opt-out % (total ≥ minLeads)
+}
+
+export function insights(sources: SourceStats[], minLeads = 20): Insights {
+  const money = sources.filter(s => s.funded >= 1 && s.spend > 0 && s.roi != null)
+  const sized = sources.filter(s => s.total >= minLeads)
+  const byRoi = [...money].sort((a, b) => (b.roi ?? 0) - (a.roi ?? 0))
+  const under = byRoi.filter(s => (s.roi ?? 0) < 1)
+  const topNet = [...sources].sort((a, b) => b.netProfit - a.netProfit)[0] ?? null
+  return {
+    bestRoi: byRoi[0] ?? null,
+    topNet: topNet && (topNet.revenue > 0 || topNet.spend > 0) ? topNet : null,
+    bestResponse: [...sized].sort((a, b) => b.rr - a.rr)[0] ?? null,
+    worstRoi: under.length ? under[under.length - 1] : null,
+    highestOptout: [...sized].sort((a, b) => b.orate - a.orate)[0] ?? null,
+  }
 }
 
 // ── "If all active loans fund" projection ──────────────────────────────────────
