@@ -101,7 +101,7 @@ The dashboard owns the **unified person** (`contacts` table) that no upstream sy
 - `/contacts` — People list (FUB-style: avatar, source, lifecycle stage, sortable, source filter, CSV export, book stats strip) + person detail `/contacts/[id]` (identity, read-only Details panel, loans, activity timeline)
 - `/radar` — Refi Radar: product-segmented refinance scoring over the funded book (`lib/refiRadar.ts`); user-set par rates in `sync_state`
 - `/reports` — Charts and analytics
-- `/lead-spend` — Cost per lead source
+- `/lead-roi` — Lead ROI (merged Lead Performance + Lead Spend 2026-07-13): per-LO tabs ONLY (never combined), one metric set (ROI = rev÷spend ×, spend incl. retainers, funded = isFunded), lifecycle funnel, monthly trend, printable report route `/lead-roi/report`. Math in `lib/leadRoi.ts` (fixtures: `scripts/lead-roi-check.ts`). Old URLs 308-redirect.
 - `/deals/new` — Manual deal creation
 - `/tasks` — **Bulletin/Tasks**: team task management on top + the Notes/Bulletin board below (one page; `/notes` redirects here)
 - `/tools` — Utilities incl. the **PDF Tools** hub (compress/merge/split/rotate, 100% in-browser)
