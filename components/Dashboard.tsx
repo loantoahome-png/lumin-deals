@@ -16,7 +16,7 @@ import {
   PieChart, Pie, Legend, LineChart, Line, ReferenceLine,
 } from 'recharts'
 import Link from 'next/link'
-import { LoFilter, LO_COLORS } from '@/components/LoFilter'
+import { LoFilter, LO_COLORS, DEFAULT_LOS } from '@/components/LoFilter'
 
 // (Date filter removed — the dashboard is a snapshot of what's currently in escrow.)
 
@@ -36,7 +36,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   // Which loan officers' escrows count toward the metrics below. All checked =
   // everyone (the default, unfiltered view). Toggled by the header checkboxes.
-  const [selectedLOs, setSelectedLOs] = useState<string[]>([...LOAN_OFFICERS])
+  const [selectedLOs, setSelectedLOs] = useState<string[]>([...DEFAULT_LOS])
   const toggleLO = (lo: string) =>
     setSelectedLOs(prev => prev.includes(lo) ? prev.filter(x => x !== lo) : [...prev, lo])
 

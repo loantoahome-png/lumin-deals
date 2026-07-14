@@ -14,7 +14,7 @@ import { resolveLO } from '@/lib/loanOfficer'
 import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 
-import { LoFilter } from '@/components/LoFilter'
+import { LoFilter, DEFAULT_LOS } from '@/components/LoFilter'
 
 // ── Inline cell editing ────────────────────────────────────────────────────────
 type DealsInlineCellProps = {
@@ -193,7 +193,7 @@ function DealsPageInner() {
   const [search, setSearch] = useState(initialSearch)
   // Multi-select LO filter (matches the dashboard): check any combination of 1–3
   // LOs. All checked = everyone (the default). Empty = nobody (shows 0 deals).
-  const [selectedLOs, setSelectedLOs] = useState<string[]>([...LOAN_OFFICERS])
+  const [selectedLOs, setSelectedLOs] = useState<string[]>([...DEFAULT_LOS])
   const toggleLO = (lo: string) => {
     setSelectedLOs(prev => prev.includes(lo) ? prev.filter(x => x !== lo) : [...prev, lo])
     deactivateView()
