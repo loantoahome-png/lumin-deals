@@ -59,14 +59,23 @@ eq('checkin: in 7 days = soon (boundary)', checkinTier(nrt({ next_action_due: da
 eq('checkin: in 8 days = scheduled', checkinTier(nrt({ next_action_due: daysAgo(-8) }), NOW), 'scheduled')
 eq('checkin: bad date = none', checkinTier(nrt({ next_action_due: 'garbage' }), NOW), 'none')
 
-// ── Decision-task eligibility: ONLY the day 5–7 entry window ─────────────────
-eq('task: day 4 → no', needsDecisionTask(lead({ date_added_ghl: daysAgo(4) }), NOW), false)
-eq('task: day 5 → yes', needsDecisionTask(lead({ date_added_ghl: daysAgo(5) }), NOW), true)
-eq('task: day 7 → yes', needsDecisionTask(lead({ date_added_ghl: daysAgo(7) }), NOW), true)
-eq('task: day 8 → no (overdue pile never tasks)', needsDecisionTask(lead({ date_added_ghl: daysAgo(8) }), NOW), false)
-eq('task: day 45 backlog → no', needsDecisionTask(lead({ date_added_ghl: daysAgo(45) }), NOW), false)
-eq('task: day 6 but decided → no', needsDecisionTask(lead({ date_added_ghl: daysAgo(6), status: 'App Intake' }), NOW), false)
-eq('task: day 6 but lost → no', needsDecisionTask(lead({ date_added_ghl: daysAgo(6), ghl_status: 'lost' }), NOW), false)
+// ── Decision-task eligibility: ONLY the day 5–7 entry window, ONLY leads that
+// came in on/after launch day (the "start now" floor, DECISION_TASKS_SINCE).
+// Day-window tests run at a post-launch NOW so the floor doesn't mask them.
+const NOW_TASKS = Date.parse('2026-07-25T18:00:00Z')
+const daysAgoT = (n: number) => new Date(NOW_TASKS - n * 86_400_000).toISOString()
+eq('task: day 4 → no', needsDecisionTask(lead({ date_added_ghl: daysAgoT(4) }), NOW_TASKS), false)
+eq('task: day 5 → yes', needsDecisionTask(lead({ date_added_ghl: daysAgoT(5) }), NOW_TASKS), true)
+eq('task: day 7 → yes', needsDecisionTask(lead({ date_added_ghl: daysAgoT(7) }), NOW_TASKS), true)
+eq('task: day 8 → no (overdue pile never tasks)', needsDecisionTask(lead({ date_added_ghl: daysAgoT(8) }), NOW_TASKS), false)
+eq('task: day 45 backlog → no', needsDecisionTask(lead({ date_added_ghl: daysAgoT(45) }), NOW_TASKS), false)
+eq('task: day 6 but decided → no', needsDecisionTask(lead({ date_added_ghl: daysAgoT(6), status: 'App Intake' }), NOW_TASKS), false)
+eq('task: day 6 but lost → no', needsDecisionTask(lead({ date_added_ghl: daysAgoT(6), ghl_status: 'lost' }), NOW_TASKS), false)
+// The floor itself: a day-5–7 lead from BEFORE launch never tasks.
+eq('task: day 6 but pre-launch anchor → no (start-now floor)',
+  needsDecisionTask(lead({ date_added_ghl: '2026-07-13T12:00:00Z', created_at: '2026-07-13T12:00:00Z' }), Date.parse('2026-07-19T18:00:00Z')), false)
+eq('task: launch-day lead at day 5 → yes',
+  needsDecisionTask(lead({ date_added_ghl: '2026-07-14T15:00:00Z', created_at: '2026-07-14T15:00:00Z' }), Date.parse('2026-07-19T16:00:00Z')), true)
 
 // ── Check-in-task eligibility: due within [now−3d, now+24h] ──────────────────
 eq('checkin task: due today → yes', needsCheckinTask(nrt({ next_action_due: daysAgo(0) }), NOW), true)

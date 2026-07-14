@@ -92,12 +92,18 @@ export function checkinTier(d: TriageDealLike, now: number): CheckinTier {
 }
 
 // ── Auto-task eligibility (cron) ─────────────────────────────────────────────
-// Decision tasks fire only for leads ENTERING the decide window (age 5–7).
-// The 8–30d overdue pile and the 31d+ backlog never generate tasks — the prod
-// census (2026-07-14) found 787 leads already past day 7; tasking them would
-// bury the LOs in email. Those are handled visually + via bulk cleanup.
+// Decision tasks fire only for leads ENTERING the decide window (age 5–7),
+// AND only for leads that came in on/after launch day ("I want to start now" —
+// Efrain, 2026-07-14). Everything older — the decide/overdue/backlog pile that
+// existed at launch — is handled visually on the Triage tab + bulk cleanup,
+// never by tasks; tasking it would bury the LOs in email.
+export const DECISION_TASKS_SINCE = Date.parse('2026-07-14T07:00:00Z')   // launch day, midnight PT
+
 export function needsDecisionTask(d: TriageDealLike, now: number): boolean {
   if (!isUndecided(d)) return false
+  const iso = clockAnchorIso(d)
+  const anchor = iso ? Date.parse(iso) : NaN
+  if (isNaN(anchor) || anchor < DECISION_TASKS_SINCE) return false
   const age = leadAgeDays(d, now)
   return age >= TASK_AT_DAY && age < DECIDE_BY_DAY + 1
 }
