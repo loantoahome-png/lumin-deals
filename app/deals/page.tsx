@@ -7,7 +7,7 @@ import { Deal, CoborrowerLite, LOAN_OFFICERS, LOAN_TYPES, PIPELINE_GROUPS, PIPEL
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { pushStageToGHL } from '@/lib/pushStage'
 import Link from 'next/link'
-import { Search, RefreshCw, ExternalLink, Download, X, CheckSquare, Pencil, LayoutGrid, Table2, FileText } from 'lucide-react'
+import { Search, RefreshCw, ExternalLink, Download, X, CheckSquare, Pencil, LayoutGrid, Table2, FileText, Bookmark } from 'lucide-react'
 import EscrowTracker from '@/components/EscrowTracker'
 import { ariveUrl } from '@/lib/ariveLinks'
 import { resolveLO } from '@/lib/loanOfficer'
@@ -171,6 +171,19 @@ function exportToCSV(deals: Deal[]) {
   URL.revokeObjectURL(url)
 }
 
+// ── Saved views ───────────────────────────────────────────────────────────────
+// Same pattern as /pipeline's saved views (localStorage pills), plus: the last
+// view you applied is remembered and auto-applied on the next visit, so a saved
+// "Moe + Matt" view becomes the page's default. A ?search= deep-link skips the
+// auto-apply so the searched deal can't be hidden by a saved LO filter.
+type SavedView = {
+  id: string; name: string
+  loFilters: string[]
+  statusFilter: string
+}
+const VIEWS_KEY = 'lumin_deals_views'
+const ACTIVE_VIEW_KEY = 'lumin_deals_active_view'
+
 // ── Inner page (needs useSearchParams) ────────────────────────────────────────
 function DealsPageInner() {
   const searchParams = useSearchParams()
@@ -181,11 +194,77 @@ function DealsPageInner() {
   // Multi-select LO filter (matches the dashboard): check any combination of 1–3
   // LOs. All checked = everyone (the default). Empty = nobody (shows 0 deals).
   const [selectedLOs, setSelectedLOs] = useState<string[]>([...LOAN_OFFICERS])
-  const toggleLO = (lo: string) =>
+  const toggleLO = (lo: string) => {
     setSelectedLOs(prev => prev.includes(lo) ? prev.filter(x => x !== lo) : [...prev, lo])
+    deactivateView()
+  }
   const [statusFilter, setStatusFilter] = useState('All')
   // This page is dedicated to active escrows — pipeline is locked to 'Loans in Process'.
   const pipelineFilter = 'Loans in Process'
+
+  // Saved views
+  const [savedViews, setSavedViews] = useState<SavedView[]>([])
+  const [activeViewId, setActiveViewId] = useState<string | null>(null)
+  const [showSaveModal, setShowSaveModal] = useState(false)
+  const [newViewName, setNewViewName] = useState('')
+
+  // Load saved views once; auto-apply the last-used view (unless deep-linked search).
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(VIEWS_KEY)
+      if (!stored) return
+      const views: SavedView[] = JSON.parse(stored)
+      setSavedViews(views)
+      if (initialSearch) return
+      const lastId = localStorage.getItem(ACTIVE_VIEW_KEY)
+      const last = views.find(v => v.id === lastId)
+      if (last) {
+        setSelectedLOs(last.loFilters)
+        setStatusFilter(last.statusFilter)
+        setActiveViewId(last.id)
+      }
+    } catch { /* ignore corrupt localStorage */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function saveView() {
+    if (!newViewName.trim()) return
+    const view: SavedView = {
+      id: Date.now().toString(),
+      name: newViewName.trim(),
+      loFilters: selectedLOs,
+      statusFilter,
+    }
+    const updated = [...savedViews, view]
+    setSavedViews(updated)
+    localStorage.setItem(VIEWS_KEY, JSON.stringify(updated))
+    localStorage.setItem(ACTIVE_VIEW_KEY, view.id)
+    setNewViewName(''); setShowSaveModal(false); setActiveViewId(view.id)
+  }
+
+  function loadView(view: SavedView) {
+    setSelectedLOs(view.loFilters)
+    setStatusFilter(view.statusFilter)
+    setActiveViewId(view.id)
+    localStorage.setItem(ACTIVE_VIEW_KEY, view.id)
+  }
+
+  function deleteView(id: string) {
+    const updated = savedViews.filter(v => v.id !== id)
+    setSavedViews(updated)
+    localStorage.setItem(VIEWS_KEY, JSON.stringify(updated))
+    if (activeViewId === id) {
+      setActiveViewId(null)
+      localStorage.removeItem(ACTIVE_VIEW_KEY)
+    }
+  }
+
+  // Manually changing a filter unhighlights the pill for this session only. The
+  // remembered default is kept on purpose: a quick "peek at Randy" shouldn't stop
+  // the next visit from opening on the saved view. Deleting the view removes it.
+  function deactivateView() {
+    if (activeViewId != null) setActiveViewId(null)
+  }
 
   // Inline cell editing
   const [editCell, setEditCell] = useState<{ id: string; field: string } | null>(null)
@@ -382,7 +461,7 @@ function DealsPageInner() {
           <LoFilter selected={selectedLOs} onToggle={toggleLO} />
           <select
             value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
+            onChange={e => { setStatusFilter(e.target.value); deactivateView() }}
             className="text-sm border border-slate-200 rounded-lg px-3 py-2 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="All">All Statuses</option>
@@ -390,13 +469,62 @@ function DealsPageInner() {
           </select>
           {(search || !allLOsSelected || statusFilter !== 'All') && (
             <button
-              onClick={() => { setSearch(''); setSelectedLOs([...LOAN_OFFICERS]); setStatusFilter('All') }}
+              onClick={() => { setSearch(''); setSelectedLOs([...LOAN_OFFICERS]); setStatusFilter('All'); deactivateView() }}
               className="text-sm text-blue-600 hover:underline"
             >
               Clear filters
             </button>
           )}
+          <button
+            onClick={() => { setNewViewName(''); setShowSaveModal(true) }}
+            title="Save the current filters as a view — it becomes this page's default"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+          >
+            <Bookmark className="w-3.5 h-3.5" /> Save View
+          </button>
         </div>
+
+        {/* ── Saved views strip ─────────────────────────────────────────────── */}
+        {savedViews.length > 0 && (
+          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 flex-wrap">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Saved:</span>
+            {savedViews.map(v => (
+              <div key={v.id}
+                className={`flex items-center gap-1 rounded-full border text-xs font-semibold px-3 py-1 transition-colors ${
+                  activeViewId === v.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:text-blue-600'
+                }`}>
+                <button onClick={() => loadView(v)} className="pr-1">{v.name}</button>
+                <button onClick={() => deleteView(v.id)} title={`Delete "${v.name}"`}
+                  className={`rounded-full p-0.5 transition-colors ${activeViewId === v.id ? 'hover:bg-blue-500' : 'hover:bg-red-100 hover:text-red-500'}`}>
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Save view modal ───────────────────────────────────────────────── */}
+        {showSaveModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => setShowSaveModal(false)}>
+            <div className="bg-white rounded-xl shadow-xl p-6 w-80" onClick={e => e.stopPropagation()}>
+              <h3 className="font-bold text-slate-900 mb-1">Save Current View</h3>
+              <p className="text-xs text-slate-500 mb-4">Saves the LO + status filters. The last view you use opens by default next time.</p>
+              <input autoFocus type="text" placeholder={`e.g. "Moe + Matt"`}
+                value={newViewName} onChange={e => setNewViewName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveView(); if (e.key === 'Escape') setShowSaveModal(false) }}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4" />
+              <div className="text-xs text-slate-400 mb-4 space-y-0.5">
+                {!allLOsSelected && <div>LO: <strong>{selectedLOs.join(', ')}</strong></div>}
+                {statusFilter !== 'All' && <div>Stage: <strong>{statusFilter}</strong></div>}
+                {allLOsSelected && statusFilter === 'All' && <div className="italic">No filters active — saves the everyone/all-statuses view</div>}
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setShowSaveModal(false)} className="px-3 py-1.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+                <button onClick={saveView} disabled={!newViewName.trim()} className="px-4 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40">Save</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Tracker view (default) ────────────────────────────────────────── */}
