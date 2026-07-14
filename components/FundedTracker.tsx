@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Deal, STATUS_COLORS, LOAN_OFFICERS } from '@/lib/types'
+import { Deal, STATUS_COLORS } from '@/lib/types'
+import { LoFilter, useLoFilter, loSelected } from '@/components/LoFilter'
 import { formatCurrency, formatPercent, titleCase, cleanSource } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { ariveUrl } from '@/lib/ariveLinks'
@@ -58,7 +59,8 @@ type Props = {
 
 export default function FundedTracker({ deals, onUpdate }: Props) {
   const [search, setSearch] = useState('')
-  const [loFilter, setLoFilter] = useState<'all' | string>('all')
+  // Shared multi-select LO filter — seeded to the Moe + Matt default view.
+  const { selectedLOs, toggleLO } = useLoFilter()
   const [stageFilter, setStageFilter] = useState<'all' | string>('all')
   const [typeFilter, setTypeFilter] = useState<'all' | string>('all')
   const [sortKey, setSortKey] = useState<SortKey>('funded')
@@ -77,10 +79,10 @@ export default function FundedTracker({ deals, onUpdate }: Props) {
     })
   }, [deals, search])
 
-  const loScoped = useMemo(() => searched.filter(d => {
-    if (loFilter === 'all') return true
-    return (d.loan_officer ?? '').toLowerCase().includes(loFilter.toLowerCase())
-  }), [searched, loFilter])
+  const loScoped = useMemo(
+    () => searched.filter(d => loSelected(d.loan_officer, selectedLOs)),
+    [searched, selectedLOs],
+  )
 
   // Stage tab counts reflect search + LO (not the stage filter itself).
   const stageCounts = useMemo(() => {
@@ -255,15 +257,7 @@ export default function FundedTracker({ deals, onUpdate }: Props) {
             ))}
           </div>
           <div className="flex items-center gap-2">
-            <select
-              value={loFilter}
-              onChange={e => setLoFilter(e.target.value)}
-              className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              title="Filter by loan officer"
-            >
-              <option value="all">All LOs</option>
-              {LOAN_OFFICERS.map(lo => <option key={lo} value={lo}>{lo}</option>)}
-            </select>
+            <LoFilter selected={selectedLOs} onToggle={toggleLO} />
             <select
               value={typeFilter}
               onChange={e => setTypeFilter(e.target.value)}

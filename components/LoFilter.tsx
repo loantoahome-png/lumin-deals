@@ -13,8 +13,14 @@ export const LO_COLORS: Record<string, string> = {
   'Randy Mathis': '#8b5cf6',
 }
 
-/** Multi-select LO filter state, seeded to "everyone selected" (the default view). */
-export function useLoFilter(initial: string[] = [...LOAN_OFFICERS]) {
+// The default view everywhere is Moe + Matt — Randy is opt-in via his toggle
+// (Efrain, 2026-07-14: "the default views should include only Moe and Matt's
+// leads"). Randy's sub-account runs its own follow-up, so his 587 deals are
+// noise in the daily working views; his pill is one click away when needed.
+export const DEFAULT_LOS: string[] = ['Matt Park', 'Moe Sefati']
+
+/** Multi-select LO filter state, seeded to the Moe + Matt default view. */
+export function useLoFilter(initial: string[] = [...DEFAULT_LOS]) {
   const [selectedLOs, setSelectedLOs] = useState<string[]>(initial)
   const toggleLO = useCallback(
     (name: string) => setSelectedLOs(prev => (prev.includes(name) ? prev.filter(x => x !== name) : [...prev, name])),

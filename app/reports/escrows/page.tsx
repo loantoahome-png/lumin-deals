@@ -18,7 +18,7 @@ import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal, LOAN_OFFICERS, STATUS_COLORS, PIPELINE_STATUSES } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { Printer, RefreshCw, ArrowLeft, Lock, AlertTriangle, UserCog, Flag, Ban } from 'lucide-react'
-import { LoFilter, useLoFilter, loSelected } from '@/components/LoFilter'
+import { LoFilter, useLoFilter, loSelected, DEFAULT_LOS } from '@/components/LoFilter'
 
 const MS_PER_DAY = 86_400_000
 const daysUntil = (iso: string | null | undefined): number | null => {
@@ -69,11 +69,11 @@ const fmtEntered = (iso: string) =>
 function ReportInner() {
   const searchParams = useSearchParams()
   // Deep-link support: /reports/escrows?lo=<name> (used by the deals page) seeds the
-  // selection to just that LO; otherwise everyone is selected (the default).
+  // selection to just that LO; otherwise the Moe + Matt default view applies.
   const initialLOs = (() => {
     const q = searchParams.get('lo')
     if (q && LOAN_OFFICERS.includes(q as typeof LOAN_OFFICERS[number])) return [q]
-    return [...LOAN_OFFICERS]
+    return [...DEFAULT_LOS]
   })()
 
   const [deals, setDeals] = useState<Deal[]>([])
