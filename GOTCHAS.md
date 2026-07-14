@@ -179,3 +179,16 @@ normal and recover, it's a DB slow-window, not a bug. Chronic aggravator: /pipel
 "never raw_ghl_data"). Narrowing those selects would shrink the blast radius of any future slow window.
 **Project:** lumin-deals
 **Date:** 2026-07-14
+
+### Bare supabase-js .select() silently caps at 1000 rows — census/analysis scripts undercount
+**Tried:** A one-off service-role census script (`.from('deals').select(...).in('status', [...])`) to size the
+lead-triage backlog before building; reported 881 undecided leads / 115 Not Ready - Timeframe.
+**Failed because:** PostgREST returns at most 1000 rows per request unless you paginate with `.range()`. The
+query matched ~1,600+ rows, so the script got an arbitrary 1000-row slice — every per-status count was wrong
+(real numbers, verified on the paginated live page: 1,444 undecided, 174 NRT). The lib already knew this —
+`fetchAllDeals` exists precisely to walk pages — but ad-hoc scripts bypass it.
+**What works:** In any offline script that counts or aggregates deals, either loop `.range(offset, offset+999)`
+until short page (copy the fetchAllDeals loop), or use `.select('...', { count: 'exact', head: true })` when only
+counts are needed. Treat any round ~1000 total in a script result as a red flag.
+**Project:** lumin-deals
+**Date:** 2026-07-14

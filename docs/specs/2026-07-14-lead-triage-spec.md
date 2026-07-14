@@ -20,9 +20,13 @@ And Not Ready - Timeframe leads must **resurface when their check-in date arrive
 
 ## Grounding census (prod DB, 2026-07-14, read-only service-role)
 
-- Undecided open leads: **881** (Attempted Contact 598, Ghosted 192, Pitching 38, New Lead 37, Responded 11, Appt Booked 5).
-- Already past day 7: **787** — of which **557 are >30 days old** (historical backlog).
-- Not Ready - Timeframe open: **115**, with a check-in date set: **0**.
+> CORRECTION (post-launch): the census script hit PostgREST's 1000-row cap, so these figures were undercounts.
+> Live page (paginated, verified on prod DOM 2026-07-14): **1,444 undecided open leads** — 64 on-clock (0–4d),
+> 65 decision-due (5–7d), 542 overdue (8–30d), 773 backlog (>30d) — and **174 open Not Ready - Timeframe leads,
+> all with no check-in date**. Direction of all conclusions unchanged, magnitudes larger.
+
+- Undecided open leads: ~~881~~ (truncated; see correction above).
+- Not Ready - Timeframe open with a check-in date set: **0** (confirmed — live "No date set" = all 174).
 
 Consequences: (a) the triage tab must split the current cohort from the >30d backlog and offer **bulk disposition**;
 (b) auto-tasks fire only for leads aged **5–8 days** (forward-looking), never the backlog, else the first cron run
