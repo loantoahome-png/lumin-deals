@@ -1,14 +1,14 @@
 # Verification Log — Lumin Deals
 
 ### [2026-07-14] Pipeline + Deals — drop raw_ghl_data from list fetches (payload ~2×)
-**Status:** CHANGED (tsc 7-baseline / 0 new · build READY · local smoke clean · DB column parity verified) — deploying per auto-deploy policy; live-data field check pending post-deploy
+**Status:** VERIFIED on prod (commit `5e93807`, dpl `3lf6zpik6` READY) — live pipeline + deals fetch 100 cols / no blob, all fields render, 0 undefined/NaN
 **Issue:** /pipeline (and /deals) load ALL ~2,500 deals with `select=*`, dragging the `raw_ghl_data` GHL JSON blob the pages never render. Measured on prod (200 rows, service-role): full payload 1,165 KB/200, `raw_ghl_data` alone **52%** (~3.1 KB/row) — bigger than the other 100 columns combined. This morning's "stuck spinner" (post-9:15 sync DB slow-window, GOTCHAS 2026-07-14) waited on ~14 MB, ~7 MB of it this blob.
 **Changes:**
 - `lib/fetchAllDeals.ts` — NEW exported `DEAL_COLUMNS` const: all 100 deal columns EXCEPT `raw_ghl_data` (exclude-one, not a hand-picked allow-list, so it can't silently drop a rendered field). Verified against live schema: 100/100 exact match, blob excluded, no dupes/typos.
 - `app/pipeline/page.tsx` + `app/deals/page.tsx` — pass `DEAL_COLUMNS` to their `fetchAllDeals` calls. No other call site touched (funded/duplicates/reports/escrows still `*`; the `/deals/[id]/edit` single-row fetch + push-stage keep the blob explicitly).
 **Safety proof:** `grep raw_ghl_data` across app/components → the only client reads are `HotLeadsTracker` (hot-leads only) and `DealForm` (the `/deals/[id]/edit` route only) — neither on the two narrowed pages; both those routes fetch their own data and are untouched.
 **Test Method:** `npx tsc --noEmit` (0 new; same 7 pre-existing) · `npm run build` READY · local dev render of /pipeline + /deals (temp middleware bypass, reverted; middleware byte-identical to HEAD): both shells render, **0 console errors** (data empty — RLS blocks anon locally) · payload + column-parity measured via service-role scripts (removed after).
-**Result:** (pending post-deploy live-data field check via Control Chrome)
+**Result:** VERIFIED — reloaded prod pipeline + deals in Efrain's authed Chrome (Control Chrome): both pages' own fetches now request **100 columns, no `raw_ghl_data`** (was `select=*`), all 200s at 300–600ms/page. Pipeline: 226 dollar figures rendered, 0 undefined/NaN/[object]. Deals (Moe+Matt saved view, 18 escrows): LO / lender / processor / next-step / lock-status / "Subbed on teams" all populated, 0 undefined/NaN. NOTE: durations aren't a clean before/after — the morning DB slow-window had already recovered by deploy time; the proven win is the payload halving (raw_ghl_data was measured at 52% of `select=*`), which shrinks the wait in the NEXT slow window.
 
 ### [2026-07-14] Active Escrows (/deals) — Save View + sticky default view
 **Status:** CHANGED (tsc 7-baseline / 0 new · build READY · full flow browser-verified locally) — deploying per auto-deploy policy
