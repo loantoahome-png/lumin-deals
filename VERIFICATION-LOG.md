@@ -5,7 +5,7 @@
 **Issue:** Efrain (screenshot of /deals filter bar): add a "Save view" option — "for the majority of the time, I only need to see Moe and Matt's leads."
 **Changes:** `app/deals/page.tsx` — saved views on the pattern of /pipeline's (localStorage pills + save modal), PLUS the last-applied view is remembered (`lumin_deals_active_view`) and auto-applies on page open, so a saved "Moe + Matt" view becomes the page's default. Saves LO multi-select + status filter (keys `lumin_deals_views`). A `?search=` deep-link skips the auto-apply so a searched deal can't be hidden by the saved LO filter. Manually toggling a filter unhighlights the pill for the session only — the sticky default survives a quick "peek at Randy"; deleting the pill removes the default.
 **Test Method:** `npx tsc --noEmit` (0 new; same 7 pre-existing) · `npm run build` READY · local browser flow via temp middleware dev-bypass (reverted before commit; middleware byte-identical to HEAD): unchecked Randy → Save View modal (summary showed "LO: Matt Park, Moe Sefati") → saved → localStorage confirmed → reload → aria-pressed read Matt=true/Moe=true/Randy=false + pill highlighted → toggled Randy back on (pill unhighlighted, stored default intact) → reload → view re-applied.
-**Result:** (pending Efrain's eyeball on prod)
+**Result:** Deployed — commit `2079d0d` → prod READY (dpl_URiSL6qLVgPBFmYxoL5Aw4XbwEz4), 2026-07-14. Pending Efrain's eyeball on prod (save a view once on the live site — localStorage is per-browser, so the local test data doesn't carry over).
 
 ### [2026-07-13] Lead ROI — summary insights, opt-out %, early opt-out (≤7d) stat
 **Status:** VERIFIED (prod DOM via Control Chrome) — commit `2344f3d`, deployed (dpl j4d9jwxfb, Ready)
