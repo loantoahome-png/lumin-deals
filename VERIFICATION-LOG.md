@@ -1,5 +1,13 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-14] Default LO view = Moe + Matt everywhere (Randy opt-in)
+**Status:** VERIFIED (commits `3f19745` + `af16ebf`, dpl `hn88sanec` READY) — live DOM: / and /hot-leads and /funded all open with Matt+Moe pressed, Randy unpressed ("filtered to 2 of 3 LOs" on dashboard; /funded shows shared pills, old "All LOs" select gone, 155 rows).
+**Issue:** Efrain: "On the whole dashboard, the default views should include only Moe and Matt's leads."
+**Changes:** NEW `DEFAULT_LOS = ['Matt Park','Moe Sefati']` in `components/LoFilter.tsx`; `useLoFilter` seeds from it (pipeline, hot-leads, lead-cohorts, reports/escrows). **Gotcha caught on live DOM:** Dashboard.tsx + deals/page.tsx seed their OWN `useState([...LOAN_OFFICERS])` instead of the hook — first deploy missed them; both now seed `DEFAULT_LOS`. FundedTracker's single-select "All LOs" dropdown replaced with the shared `LoFilter` pills + `loSelected`. `?lo=` deep-links and saved views still override.
+**Safety proof:** paginated prod census (2,569 deals): Matt 934 / Moe 1,047 / Randy 587 / other 1 (Brianne Han) / blank 0 — so the new default hides exactly Randy + 1 row; no unassigned deals get silently hidden.
+**Test Method:** repo-wide grep for remaining `[...LOAN_OFFICERS]` filter seeds (0) · tsc 0 new · build READY · live DOM reads on /, /hot-leads, /funded post-deploy.
+**Result:** VERIFIED — see Status.
+
 ### [2026-07-14] Triage tab — pre-launch leads hidden (clock starts at launch)
 **Status:** VERIFIED (commit `bf66b43`, dpl `n4gt0wf66` READY) — prod DOM: Triage tab now 15 leads, all "Day 0 of 7" (today's arrivals only); decide/overdue/backlog metrics 0; Check-ins unchanged at 174.
 **Issue:** Efrain: "hide everything from before today on the triage tab" (follow-up to the start-now task purge).
