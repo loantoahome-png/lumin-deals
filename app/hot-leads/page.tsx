@@ -13,7 +13,7 @@ import TriageQueue, { type Disposition } from '@/components/TriageQueue'
 import CheckinQueue from '@/components/CheckinQueue'
 import TriageDateModal from '@/components/TriageDateModal'
 import { LoFilter, useLoFilter, loSelected } from '@/components/LoFilter'
-import { isOpenLead, isUndecided, triageTier, checkinTier, NOT_READY_TIMEFRAME } from '@/lib/triage'
+import { isOpenLead, onTriageClock, triageTier, checkinTier, NOT_READY_TIMEFRAME } from '@/lib/triage'
 
 const MS_PER_DAY = 86_400_000
 
@@ -83,7 +83,9 @@ function HotLeadsPageInner() {
   )
 
   const now = Date.now()
-  const triageDeals  = useMemo(() => visible.filter(isUndecided), [visible])
+  // Triage shows only leads that arrived since launch day (TRIAGE_SINCE) —
+  // the pre-launch pile is out of the triage workflow ("start now").
+  const triageDeals  = useMemo(() => visible.filter(onTriageClock), [visible])
   const checkinDeals = useMemo(() => visible.filter(d => d.status === NOT_READY_TIMEFRAME), [visible])
   const trackerDeals = (statuses: string[]) => visible.filter(d => statuses.includes(d.status))
 

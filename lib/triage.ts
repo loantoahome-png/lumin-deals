@@ -91,19 +91,25 @@ export function checkinTier(d: TriageDealLike, now: number): CheckinTier {
   return 'scheduled'
 }
 
-// ── Auto-task eligibility (cron) ─────────────────────────────────────────────
-// Decision tasks fire only for leads ENTERING the decide window (age 5–7),
-// AND only for leads that came in on/after launch day ("I want to start now" —
-// Efrain, 2026-07-14). Everything older — the decide/overdue/backlog pile that
-// existed at launch — is handled visually on the Triage tab + bulk cleanup,
-// never by tasks; tasking it would bury the LOs in email.
-export const DECISION_TASKS_SINCE = Date.parse('2026-07-14T07:00:00Z')   // launch day, midnight PT
+// ── The "start now" launch floor ─────────────────────────────────────────────
+// The triage system applies to leads that came in on/after launch day and
+// nothing older ("I want to start now" + "hide everything from before today" —
+// Efrain, 2026-07-14). The floor gates BOTH the Triage tab's visibility and
+// decision-task creation; the pre-launch pile stays reachable via /deals and
+// /pipeline but is out of the triage workflow entirely.
+export const TRIAGE_SINCE = Date.parse('2026-07-14T07:00:00Z')   // launch day, midnight PT
 
-export function needsDecisionTask(d: TriageDealLike, now: number): boolean {
+// Undecided, open, AND arrived since launch — i.e. actually on the 7-day clock.
+export function onTriageClock(d: TriageDealLike): boolean {
   if (!isUndecided(d)) return false
   const iso = clockAnchorIso(d)
   const anchor = iso ? Date.parse(iso) : NaN
-  if (isNaN(anchor) || anchor < DECISION_TASKS_SINCE) return false
+  return !isNaN(anchor) && anchor >= TRIAGE_SINCE
+}
+
+// Decision tasks fire only for leads ENTERING the decide window (age 5–7).
+export function needsDecisionTask(d: TriageDealLike, now: number): boolean {
+  if (!onTriageClock(d)) return false
   const age = leadAgeDays(d, now)
   return age >= TASK_AT_DAY && age < DECIDE_BY_DAY + 1
 }

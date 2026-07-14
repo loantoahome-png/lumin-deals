@@ -1,7 +1,7 @@
 // Fixture check for lib/triage.ts — pure logic, no DB.
 // Run: npx tsx scripts/triage-check.ts
 import {
-  isOpenLead, isUndecided, leadAgeDays, triageTier, checkinTier,
+  isOpenLead, isUndecided, onTriageClock, leadAgeDays, triageTier, checkinTier,
   needsDecisionTask, needsCheckinTask, decisionTaskTitle, checkinTaskTitle,
   decideByIso, clockAnchorIso, NOT_READY_TIMEFRAME,
   type TriageDealLike,
@@ -71,6 +71,15 @@ eq('task: day 8 → no (overdue pile never tasks)', needsDecisionTask(lead({ dat
 eq('task: day 45 backlog → no', needsDecisionTask(lead({ date_added_ghl: daysAgoT(45) }), NOW_TASKS), false)
 eq('task: day 6 but decided → no', needsDecisionTask(lead({ date_added_ghl: daysAgoT(6), status: 'App Intake' }), NOW_TASKS), false)
 eq('task: day 6 but lost → no', needsDecisionTask(lead({ date_added_ghl: daysAgoT(6), ghl_status: 'lost' }), NOW_TASKS), false)
+// ── The launch floor (TRIAGE_SINCE) gates tab visibility AND tasks ───────────
+eq('clock: launch-day lead is on the triage clock',
+  onTriageClock(lead({ date_added_ghl: '2026-07-14T15:00:00Z', created_at: '2026-07-14T15:00:00Z' })), true)
+eq('clock: pre-launch lead is hidden from triage',
+  onTriageClock(lead({ date_added_ghl: '2026-07-13T12:00:00Z', created_at: '2026-07-13T12:00:00Z' })), false)
+eq('clock: pre-launch lead is still "undecided" (other views unaffected)',
+  isUndecided(lead({ date_added_ghl: '2026-07-13T12:00:00Z' })), true)
+eq('clock: missing anchor is hidden (can\'t prove it\'s post-launch)',
+  onTriageClock(lead({ date_added_ghl: null, created_at: null })), false)
 // The floor itself: a day-5–7 lead from BEFORE launch never tasks.
 eq('task: day 6 but pre-launch anchor → no (start-now floor)',
   needsDecisionTask(lead({ date_added_ghl: '2026-07-13T12:00:00Z', created_at: '2026-07-13T12:00:00Z' }), Date.parse('2026-07-19T18:00:00Z')), false)
