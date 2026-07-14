@@ -1,5 +1,12 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-14] Triage tab — pre-launch leads hidden (clock starts at launch)
+**Status:** VERIFIED (commit `bf66b43`, dpl `n4gt0wf66` READY) — prod DOM: Triage tab now 15 leads, all "Day 0 of 7" (today's arrivals only); decide/overdue/backlog metrics 0; Check-ins unchanged at 174.
+**Issue:** Efrain: "hide everything from before today on the triage tab" (follow-up to the start-now task purge).
+**Changes:** `lib/triage.ts` — `DECISION_TASKS_SINCE` renamed `TRIAGE_SINCE`; NEW `onTriageClock()` (undecided + open + anchored ≥ launch day midnight PT) gates BOTH the Triage tab (`app/hot-leads/page.tsx` filter) and decision tasks. Pre-launch leads remain reachable via /deals + /pipeline; missing-anchor leads are hidden (can't prove post-launch).
+**Test Method:** `scripts/triage-check.ts` 53/53 (4 new onTriageClock fixtures) · tsc clean in changed files · build READY · prod DOM read via Control Chrome after reload.
+**Result:** VERIFIED — see Status.
+
 ### [2026-07-14] Triage — "start now": pre-launch decision tasks deleted + start-now floor
 **Status:** VERIFIED (commit `504b3c3`, dpl `2r0xkr9cs` READY on prod alias)
 **Issue:** Efrain: "Get rid of the backlog/tasks for triage decision, I want to start now" — the first cron run had tasked 25 pre-launch day-5–7 leads; he wants the clock system to apply to leads arriving from launch onward only.
