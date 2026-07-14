@@ -7,19 +7,14 @@ import { Deal, CoborrowerLite, LOAN_OFFICERS, LOAN_TYPES, PIPELINE_GROUPS, PIPEL
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { pushStageToGHL } from '@/lib/pushStage'
 import Link from 'next/link'
-import { Search, RefreshCw, ExternalLink, Download, X, Check, CheckSquare, Pencil, LayoutGrid, Table2, FileText } from 'lucide-react'
+import { Search, RefreshCw, ExternalLink, Download, X, CheckSquare, Pencil, LayoutGrid, Table2, FileText } from 'lucide-react'
 import EscrowTracker from '@/components/EscrowTracker'
 import { ariveUrl } from '@/lib/ariveLinks'
 import { resolveLO } from '@/lib/loanOfficer'
 import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 
-// Checkbox-chip accent per LO — matches the dashboard's LO filter colors.
-const LO_COLORS: Record<string, string> = {
-  'Matt Park': '#10b981',
-  'Moe Sefati': '#f59e0b',
-  'Randy Mathis': '#8b5cf6',
-}
+import { LoFilter } from '@/components/LoFilter'
 
 // ── Inline cell editing ────────────────────────────────────────────────────────
 type DealsInlineCellProps = {
@@ -383,36 +378,8 @@ function DealsPageInner() {
               className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm w-80 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-          {/* LO filter — multi-select checkboxes (like the dashboard). Check any
-              combination of LOs; all checked is the default "everyone" view. */}
-          <div className="flex items-center gap-1.5">
-            {LOAN_OFFICERS.map(lo => {
-              const active = selectedLOs.includes(lo)
-              const color = LO_COLORS[lo] || '#3b82f6'
-              return (
-                <button
-                  key={lo}
-                  type="button"
-                  onClick={() => toggleLO(lo)}
-                  aria-pressed={active}
-                  title={active ? `Hide ${lo}'s escrows` : `Show ${lo}'s escrows`}
-                  className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-sm font-medium transition ${
-                    active
-                      ? 'border-slate-300 bg-white text-slate-700 shadow-sm'
-                      : 'border-slate-200 bg-slate-50 text-slate-400 hover:bg-white hover:text-slate-600'
-                  }`}
-                >
-                  <span
-                    className={`flex h-4 w-4 items-center justify-center rounded border transition ${active ? 'border-transparent' : 'border-slate-300 bg-white'}`}
-                    style={active ? { backgroundColor: color } : undefined}
-                  >
-                    {active && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
-                  </span>
-                  {lo}
-                </button>
-              )
-            })}
-          </div>
+          {/* LO filter — shared multi-select checkboxes (matches the dashboard). */}
+          <LoFilter selected={selectedLOs} onToggle={toggleLO} />
           <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}

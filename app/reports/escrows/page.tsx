@@ -18,6 +18,7 @@ import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal, LOAN_OFFICERS, STATUS_COLORS, PIPELINE_STATUSES } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { Printer, RefreshCw, ArrowLeft, Lock, AlertTriangle, UserCog, Flag, Ban } from 'lucide-react'
+import { LoFilter, useLoFilter, loSelected } from '@/components/LoFilter'
 
 const MS_PER_DAY = 86_400_000
 const daysUntil = (iso: string | null | undefined): number | null => {
@@ -30,7 +31,6 @@ const daysUntil = (iso: string | null | undefined): number | null => {
 const round = (v: number, n: number) => Math.round(v * 10 ** n) / 10 ** n
 
 const STAGE_ORDER = PIPELINE_STATUSES['Loans in Process']
-type LOChoice = 'Moe Sefati' | 'Matt Park' | 'Randy Mathis' | 'All'
 
 type Tone = 'gray' | 'green' | 'amber' | 'red'
 const TONE: Record<Tone, string> = {
@@ -68,15 +68,17 @@ const fmtEntered = (iso: string) =>
 
 function ReportInner() {
   const searchParams = useSearchParams()
-  const initialLO = (() => {
+  // Deep-link support: /reports/escrows?lo=<name> (used by the deals page) seeds the
+  // selection to just that LO; otherwise everyone is selected (the default).
+  const initialLOs = (() => {
     const q = searchParams.get('lo')
-    if (q && LOAN_OFFICERS.includes(q as typeof LOAN_OFFICERS[number])) return q as LOChoice
-    return 'Moe Sefati' as LOChoice
+    if (q && LOAN_OFFICERS.includes(q as typeof LOAN_OFFICERS[number])) return [q]
+    return [...LOAN_OFFICERS]
   })()
 
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
-  const [lo, setLo] = useState<LOChoice>(initialLO)
+  const { selectedLOs, toggleLO, allLOsSelected } = useLoFilter(initialLOs)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -94,8 +96,8 @@ function ReportInner() {
   }), [deals])
 
   const forLO = useMemo(
-    () => (lo === 'All' ? active : active.filter(d => d.loan_officer?.includes(lo))),
-    [active, lo],
+    () => (allLOsSelected ? active : active.filter(d => loSelected(d.loan_officer, selectedLOs))),
+    [active, selectedLOs, allLOsSelected],
   )
 
   // Group by stage, in canonical pipeline order (unknown stages appended).
@@ -157,17 +159,7 @@ function ReportInner() {
             <ArrowLeft className="w-4 h-4" /> Active Escrows
           </Link>
           <span className="w-px h-5 bg-slate-200" />
-          <div className="flex bg-slate-100 rounded-lg p-1 gap-0.5">
-            {(['Moe Sefati', 'Matt Park', 'Randy Mathis', 'All'] as LOChoice[]).map(opt => (
-              <button
-                key={opt}
-                onClick={() => setLo(opt)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${lo === opt ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-              >
-                {opt === 'All' ? 'All LOs' : opt}
-              </button>
-            ))}
-          </div>
+          <LoFilter selected={selectedLOs} onToggle={toggleLO} />
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} title="Refresh" className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg">
@@ -195,7 +187,7 @@ function ReportInner() {
               <div>
                 <h1 className="text-2xl font-bold text-slate-900">Active Escrows Report</h1>
                 <p className="text-sm text-slate-500 mt-0.5">
-                  {lo === 'All' ? 'All Loan Officers' : lo} · {kpis.count} loan{kpis.count !== 1 ? 's' : ''} · {formatCurrency(kpis.volume)} volume
+                  {allLOsSelected ? 'All Loan Officers' : selectedLOs.join(', ')} · {kpis.count} loan{kpis.count !== 1 ? 's' : ''} · {formatCurrency(kpis.volume)} volume
                 </p>
               </div>
               <div className="text-right">
@@ -238,7 +230,7 @@ function ReportInner() {
             )}
 
             {groups.length === 0 ? (
-              <p className="text-sm text-slate-400 py-12 text-center">No active escrows for {lo === 'All' ? 'any LO' : lo}.</p>
+              <p className="text-sm text-slate-400 py-12 text-center">No active escrows for {allLOsSelected ? 'any LO' : selectedLOs.join(', ')}.</p>
             ) : (
               groups.map(g => {
                 const stageVol = g.deals.reduce((s, d) => s + (d.loan_amount || 0), 0)

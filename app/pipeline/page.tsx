@@ -10,6 +10,8 @@ import { useDroppable, useDraggable } from '@dnd-kit/core'
 import { supabase } from '@/lib/supabase'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal, LOAN_STATUSES, STATUS_COLORS, LOAN_TYPES, OCCUPANCY_TYPES, LOAN_OFFICERS, APPRAISAL_STATUSES, WAITING_ON_OPTIONS, PROCESSORS } from '@/lib/types'
+import { LoFilter, useLoFilter, loSelected } from '@/components/LoFilter'
+import { resolveLO } from '@/lib/loanOfficer'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { pushStageToGHL } from '@/lib/pushStage'
 import { ghlContactUrl } from '@/lib/ghlLinks'
@@ -950,11 +952,22 @@ function emptyMasterFilter(): MasterFilter {
 // ── Saved view type ───────────────────────────────────────────────────────────
 type SavedView = {
   id: string; name: string
-  loFilter: string; sourceFilter: string; statusFilter: string
+  loFilters?: string[]     // multi-select LO selection (current)
+  loFilter?: string        // legacy single-select, still read from old saved views
+  sourceFilter: string; statusFilter: string
   hideFunded: boolean; layoutView: 'board' | 'list'
   visiblePipelines: string[]
 }
 const VIEWS_KEY = 'lumin_pipeline_views'
+
+// Older saved views stored one loFilter string ('All' | 'Matt' | 'Moe Sefati' | …);
+// map those onto the multi-select array so existing views keep working.
+function loFiltersFromView(v: SavedView): string[] {
+  if (Array.isArray(v.loFilters)) return v.loFilters
+  if (!v.loFilter || v.loFilter === 'All') return [...LOAN_OFFICERS]
+  const canon = resolveLO(v.loFilter)
+  return canon ? [canon] : [...LOAN_OFFICERS]
+}
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 function PipelinePageInner() {
@@ -962,7 +975,7 @@ function PipelinePageInner() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
   const [textSearch, setTextSearch] = useState(searchParams.get('search') || '')
-  const [loFilter, setLoFilter] = useState('All')
+  const { selectedLOs, setSelectedLOs, toggleLO, allLOsSelected } = useLoFilter()
   const [sourceFilter, setSourceFilter] = useState('All')
   const [statusFilter, setStatusFilter] = useState('All')
   const [hideFunded, setHideFunded] = useState(false)
@@ -1046,7 +1059,7 @@ function PipelinePageInner() {
     const view: SavedView = {
       id: Date.now().toString(),
       name: newViewName.trim(),
-      loFilter, sourceFilter, statusFilter, hideFunded, layoutView,
+      loFilters: selectedLOs, sourceFilter, statusFilter, hideFunded, layoutView,
       visiblePipelines: Array.from(visiblePipelines),
     }
     const updated = [...savedViews, view]
@@ -1056,7 +1069,7 @@ function PipelinePageInner() {
   }
 
   function loadView(view: SavedView) {
-    setLoFilter(view.loFilter); setSourceFilter(view.sourceFilter)
+    setSelectedLOs(loFiltersFromView(view)); setSourceFilter(view.sourceFilter)
     setStatusFilter(view.statusFilter); setHideFunded(view.hideFunded)
     setLayoutView(view.layoutView)
     setVisiblePipelines(new Set(view.visiblePipelines || PIPELINE_CONFIG.map(p => p.key)))
@@ -1071,7 +1084,7 @@ function PipelinePageInner() {
   }
 
   function clearFilters() {
-    setLoFilter('All'); setSourceFilter('All'); setStatusFilter('All')
+    setSelectedLOs([...LOAN_OFFICERS]); setSourceFilter('All'); setStatusFilter('All')
     setHideFunded(false); setActiveViewId(null)
     // Reset to default visibility: Leads + Escrows only
     setVisiblePipelines(new Set(['Leads', 'Escrows']))
@@ -1132,7 +1145,7 @@ function PipelinePageInner() {
   const isDefaultPipelineSet =
     visiblePipelines.size === defaultVisible.length &&
     defaultVisible.every(k => visiblePipelines.has(k))
-  const filtersActive = loFilter !== 'All' || sourceFilter !== 'All' || statusFilter !== 'All' || hideFunded
+  const filtersActive = !allLOsSelected || sourceFilter !== 'All' || statusFilter !== 'All' || hideFunded
     || !isDefaultPipelineSet
 
   // ── Pipeline counts for pills (respects LO/source/status filters) ─────────
@@ -1142,7 +1155,7 @@ function PipelinePageInner() {
     const key = getDealPipelineKey(d)
     if (!key) return
     if (hideFunded && key === 'Funded') return
-    if (loFilter !== 'All' && !d.loan_officer?.includes(loFilter)) return
+    if (!loSelected(d.loan_officer, selectedLOs)) return
     if (sourceFilter !== 'All' && d.source !== sourceFilter) return
     if (statusFilter !== 'All' && d.status !== statusFilter) return
     pipelineCount[key] = (pipelineCount[key] || 0) + 1
@@ -1158,7 +1171,7 @@ function PipelinePageInner() {
   const filteredDeals = deals.filter(d => {
     const key = getDealPipelineKey(d)
     if (!key || !activePipelines.find(p => p.key === key)) return false
-    if (loFilter !== 'All' && !d.loan_officer?.includes(loFilter)) return false
+    if (!loSelected(d.loan_officer, selectedLOs)) return false
     if (sourceFilter !== 'All' && d.source !== sourceFilter) return false
     if (statusFilter !== 'All' && d.status !== statusFilter) return false
     if (textSearch) {
@@ -1705,7 +1718,7 @@ function PipelinePageInner() {
                   onKeyDown={e => { if (e.key === 'Enter') saveView(); if (e.key === 'Escape') setShowSaveModal(false) }}
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4" />
                 <div className="text-xs text-slate-400 mb-4 space-y-0.5">
-                  {loFilter !== 'All' && <div>LO: <strong>{loFilter}</strong></div>}
+                  {!allLOsSelected && <div>LO: <strong>{selectedLOs.join(', ')}</strong></div>}
                   {sourceFilter !== 'All' && <div>Source: <strong>{sourceFilter}</strong></div>}
                   {statusFilter !== 'All' && <div>Stage: <strong>{statusFilter}</strong></div>}
                   {visiblePipelines.size < 4 && <div>Pipelines: <strong>{Array.from(visiblePipelines).join(', ')}</strong></div>}
@@ -1912,19 +1925,7 @@ function PipelinePageInner() {
           {/* Loan Officer */}
           <div>
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Loan Officer</p>
-            <div className="space-y-1.5">
-              {['Matt', 'Moe Sefati', 'Randy Mathis'].map(lo => (
-                <label key={lo} className="flex items-center gap-2.5 cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={loFilter === lo}
-                    onChange={() => setLoFilter(prev => prev === lo ? 'All' : lo)}
-                    className="w-4 h-4 rounded accent-blue-600 cursor-pointer"
-                  />
-                  <span className="text-sm text-slate-700 group-hover:text-slate-900">{lo}</span>
-                </label>
-              ))}
-            </div>
+            <LoFilter selected={selectedLOs} onToggle={toggleLO} />
           </div>
 
           {/* Status */}

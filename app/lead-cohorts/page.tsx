@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import type { Deal } from '@/lib/types'
-import type { LO } from '@/lib/leadReport'
+import { LoFilter, useLoFilter, loSelected } from '@/components/LoFilter'
 import {
   analyzeCohort, cohortDelta, WINDOWS,
   type CohortLead, type FirstRespondedMap, type CohortInput,
@@ -30,7 +30,6 @@ import {
 import { RefreshCw, Users, Clock, Target, TrendingUp, TrendingDown, Minus, AlertTriangle, FileText } from 'lucide-react'
 
 const COLS = 'id,ghl_opportunity_id,loan_officer,pipeline_group,status,source,state,loan_purpose,date_added_ghl,lead_price,dnd,dnd_settings'
-const LO_TABS: LO[] = ['All', 'Moe', 'Matt', 'Randy']
 type Dim = 'Source' | 'State' | 'Purpose'
 const DIM_TABS: Dim[] = ['Source', 'State', 'Purpose']
 
@@ -85,7 +84,7 @@ export default function LeadCohortsPage() {
   const [firstResp, setFirstResp] = useState<FirstRespondedMap>(new Map())
   const [loadedAt, setLoadedAt] = useState<Date>(() => new Date())
   const [loading, setLoading] = useState(true)
-  const [lo, setLo] = useState<LO>('All')
+  const { selectedLOs, toggleLO, allLOsSelected } = useLoFilter()
   const [dim, setDim] = useState<Dim>('Source')
   // Defaults from the spec example (A = prior week, B = this week).
   const [aStart, setAStart] = useState('2026-06-22')
@@ -115,8 +114,13 @@ export default function LeadCohortsPage() {
   const A: CohortInput = { label: 'Cohort A', start: aStart, end: aEnd }
   const B: CohortInput = { label: 'Cohort B', start: bStart, end: bEnd }
 
-  const ra: CohortResult = useMemo(() => analyzeCohort(deals, firstResp, loadedAt, A, lo), [deals, firstResp, loadedAt, aStart, aEnd, lo])
-  const rb: CohortResult = useMemo(() => analyzeCohort(deals, firstResp, loadedAt, B, lo), [deals, firstResp, loadedAt, bStart, bEnd, lo])
+  // Apply the LO selection up front (dashboard semantics), then analyze cohorts.
+  const loDeals = useMemo(
+    () => allLOsSelected ? deals : deals.filter(dl => loSelected(dl.loan_officer, selectedLOs)),
+    [deals, selectedLOs, allLOsSelected],
+  )
+  const ra: CohortResult = useMemo(() => analyzeCohort(loDeals, firstResp, loadedAt, A, 'All'), [loDeals, firstResp, loadedAt, aStart, aEnd])
+  const rb: CohortResult = useMemo(() => analyzeCohort(loDeals, firstResp, loadedAt, B, 'All'), [loDeals, firstResp, loadedAt, bStart, bEnd])
   const d = useMemo(() => cohortDelta(ra.seg, rb.seg), [ra, rb])
 
   const sa = ra.seg, sb = rb.seg
@@ -147,7 +151,7 @@ export default function LeadCohortsPage() {
     const filterBits = [
       `Cohort A: ${aStart} → ${aEnd}`,
       `Cohort B: ${bStart} → ${bEnd}`,
-      `LO: ${lo === 'All' ? 'All LOs' : lo}`,
+      `LO: ${allLOsSelected ? 'All LOs' : selectedLOs.join(', ')}`,
       'Aggregator (priced) leads only',
     ]
     // delta span with good/bad color
@@ -296,12 +300,7 @@ export default function LeadCohortsPage() {
       <div className="flex flex-wrap items-end gap-4 mb-5">
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Loan Officer</div>
-          <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden">
-            {LO_TABS.map(t => (
-              <button key={t} onClick={() => setLo(t)}
-                className={`px-3 py-1.5 text-sm ${lo === t ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>{t}</button>
-            ))}
-          </div>
+          <LoFilter selected={selectedLOs} onToggle={toggleLO} />
         </div>
         <CohortDates label="Cohort A (prior)" start={aStart} end={aEnd} setStart={setAStart} setEnd={setAEnd} accent="text-slate-700" />
         <CohortDates label="Cohort B (this)" start={bStart} end={bEnd} setStart={setBStart} setEnd={setBEnd} accent="text-indigo-700" />

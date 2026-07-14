@@ -20,15 +20,10 @@ import {
   PURCHASED_SOURCES, segment, groupBy, sourceKey, stateKey, leadBook, rrBand,
   type Purpose, type SourceScope, type Segment, type GroupRow,
 } from '@/lib/leadReport'
-import { RefreshCw, Download, Target, Check } from 'lucide-react'
+import { RefreshCw, Download, Target } from 'lucide-react'
+import { LoFilter } from '@/components/LoFilter'
 
 const LEAD_COLS = 'id,loan_officer,pipeline_group,status,source,state,lead_price,compensation_amount,loan_purpose,date_added_ghl'
-// LO checkbox swatches — same colors as the dashboard's Loan Officers filter.
-const LO_COLORS: Record<string, string> = {
-  'Matt Park': '#10b981',
-  'Moe Sefati': '#f59e0b',
-  'Randy Mathis': '#8b5cf6',
-}
 const PURPOSE_TABS: Purpose[] = ['All', 'Purchase', 'Refinance']
 const SCOPE_TABS: SourceScope[] = ['Purchased', 'All']
 
@@ -164,27 +159,7 @@ export default function LeadPerformancePage() {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 w-12">LO</span>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {LOAN_OFFICERS.map(name => {
-                const active = selectedLOs.includes(name)
-                const color = LO_COLORS[name] || '#3b82f6'
-                return (
-                  <button key={name} type="button" onClick={() => toggleLO(name)} aria-pressed={active}
-                    title={active ? `Hide ${name}` : `Show ${name}`}
-                    className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
-                      active
-                        ? 'border-slate-300 bg-white text-slate-700 shadow-sm'
-                        : 'border-slate-200 bg-slate-50 text-slate-400 hover:bg-white hover:text-slate-600'
-                    }`}>
-                    <span className={`flex h-4 w-4 items-center justify-center rounded border transition ${active ? 'border-transparent' : 'border-slate-300 bg-white'}`}
-                      style={active ? { backgroundColor: color } : undefined}>
-                      {active && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
-                    </span>
-                    {name}
-                  </button>
-                )
-              })}
-            </div>
+            <LoFilter selected={selectedLOs} onToggle={toggleLO} />
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 w-12">Purpose</span>

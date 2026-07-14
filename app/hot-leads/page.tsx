@@ -3,11 +3,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
-import { Deal, LOAN_OFFICERS } from '@/lib/types'
+import { Deal } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import { pushStageToGHL } from '@/lib/pushStage'
 import { RefreshCw, Flame } from 'lucide-react'
 import HotLeadsTracker from '@/components/HotLeadsTracker'
+import { LoFilter, useLoFilter, loSelected } from '@/components/LoFilter'
 
 const MS_PER_DAY = 86_400_000
 
@@ -26,7 +27,7 @@ const VIEW_STATUSES: Record<LeadView, string[]> = {
 export default function HotLeadsPage() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
-  const [loFilter, setLoFilter] = useState<'All' | string>('All')
+  const { selectedLOs, toggleLO } = useLoFilter()
   const [view, setView] = useState<LeadView>('pitching')
 
   const fetchDeals = useCallback(async () => {
@@ -52,7 +53,7 @@ export default function HotLeadsPage() {
     const st = (d.ghl_status ?? '').toLowerCase()
     if (st === 'lost' || st.startsWith('abandon')) return false
     if (!viewStatuses.includes(d.status)) return false
-    return loFilter === 'All' || (d.loan_officer ?? '').toLowerCase().includes(loFilter.toLowerCase())
+    return loSelected(d.loan_officer, selectedLOs)
   })
 
   // Per-view counts for the tab labels (LO-filtered, dead excluded).
@@ -60,7 +61,7 @@ export default function HotLeadsPage() {
     const st = (d.ghl_status ?? '').toLowerCase()
     if (st === 'lost' || st.startsWith('abandon')) return false
     if (!statuses.includes(d.status)) return false
-    return loFilter === 'All' || (d.loan_officer ?? '').toLowerCase().includes(loFilter.toLowerCase())
+    return loSelected(d.loan_officer, selectedLOs)
   }).length
   const pitchingViewCount = liveByView(VIEW_STATUSES.pitching)
   const intakeViewCount = liveByView(VIEW_STATUSES.intake)
@@ -158,14 +159,7 @@ export default function HotLeadsPage() {
           <Metric label="Stalled 4+ days" value={stalled} highlight={stalled > 0 ? 'red' : undefined} />
           <Metric label="Avg days in stage" value={avgDays} highlight={avgDays >= 4 ? 'amber' : undefined} />
 
-          <select
-            value={loFilter}
-            onChange={e => setLoFilter(e.target.value)}
-            className="ml-auto text-sm border border-slate-200 rounded-lg px-3 py-2 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="All">All LOs</option>
-            {LOAN_OFFICERS.map(lo => <option key={lo} value={lo}>{lo}</option>)}
-          </select>
+          <LoFilter selected={selectedLOs} onToggle={toggleLO} className="ml-auto" />
         </div>
       </div>
 
