@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { runGhlSync } from '@/app/api/sync/ghl/route'
 import { refreshConversations } from '@/app/api/sync/conversations/route'
 import { runSecondCallbackCheck } from '@/app/api/cron/second-callback/route'
+import { runTriageTaskCheck } from '@/app/api/cron/triage-tasks/route'
 import { runIdentityResolutionPass } from '@/lib/identityResolver'
 
 // Scheduled GHL sync — pinged by an external cron (cron-job.org).
@@ -27,6 +28,8 @@ const CONV_REFRESH_KEY = 'conversations_refresh_last'
 const CONV_REFRESH_INTERVAL_MS = 30 * 60 * 1000   // 30 min
 const CALLBACK_CHECK_KEY = 'second_callback_last'
 const CALLBACK_CHECK_INTERVAL_MS = 5 * 60 * 1000  //  5 min
+const TRIAGE_CHECK_KEY = 'triage_tasks_last'
+const TRIAGE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000  // 6h — day-granular windows; ~2 runs per business day
 const MAINTENANCE_KEY = 'ghl_maintenance_last'
 const MAINTENANCE_INTERVAL_MS = 3 * 60 * 60 * 1000    // 3 h — prune/reconcile pass (full-opp scan; Fluid CPU saver, widened 2026-06-17 from 60 min)
 const IDENTITY_RESOLVE_KEY = 'identity_resolve_last'
@@ -168,6 +171,18 @@ export async function GET(req: NextRequest) {
           console.log(`[Cron GHL Sync] 2nd-callback check:`, JSON.stringify(secondCallback))
         } catch (e) {
           console.error('[Cron GHL Sync] 2nd-callback check failed (non-fatal):', e)
+        }
+      }
+
+      // Lead-triage auto-tasks (7-day decisions + check-ins due) — throttled to
+      // every 6h. Non-fatal.
+      if (full || await isDue(supabase, TRIAGE_CHECK_KEY, TRIAGE_CHECK_INTERVAL_MS)) {
+        try {
+          const triage = await runTriageTaskCheck()
+          await markRan(supabase, TRIAGE_CHECK_KEY)
+          console.log(`[Cron GHL Sync] triage-tasks check:`, JSON.stringify(triage))
+        } catch (e) {
+          console.error('[Cron GHL Sync] triage-tasks check failed (non-fatal):', e)
         }
       }
     } catch (err) {

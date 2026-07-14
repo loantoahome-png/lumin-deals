@@ -94,7 +94,7 @@ The dashboard owns the **unified person** (`contacts` table) that no upstream sy
 ## Pages
 - `/` — Dashboard: KPI cards, Escrows by Stage chart, Loan Types donut, LO Performance, Needs Attention, Today's Follow-ups, Team Notes. Date filter: All Time / MTD / QTD / YTD / Custom.
 - `/pipeline` — Kanban deal board
-- `/hot-leads` — Responded / Pitching / App Intake; last contacted time, unread count
+- `/hot-leads` — 4 tabs (`?view=` deep-links): **Triage** (default — 7-day decision clock on every undecided open lead: tiers 0–4 / 5–7 / 8–30 / 30d+ backlog, per-row + bulk dispositions into App Intake / Not Ready - Timeframe [required check-in date] / Remove from All Automations), **Responded/Pitching** + **App Intake** (reply-recency buckets, unread count), **Check-ins** (Not Ready - Timeframe leads resurfacing on their check-in date, stored in `next_action_due` — no dedicated column). Logic in `lib/triage.ts` (fixtures: `scripts/triage-check.ts`); auto-tasks via `app/api/cron/triage-tasks/route.ts`, called in-process by the ghl-sync cron (6h throttle). Spec: `docs/specs/2026-07-14-lead-triage-spec.md`.
 - `/unread` — GHL conversations with unread messages
 - `/deals` — Active Escrows table
 - `/funded` — Closed/funded deals

@@ -1,5 +1,16 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-14] Lead Triage — 7-day decision clock + check-in resurfacing (Hot Leads)
+**Status:** CHANGED (fixtures 47/47 · tsc 7-baseline / 0 new · build READY) — deploying per auto-deploy policy
+**Issue:** Efrain: no lead may fall through the cracks — every new lead needs a direction within its first 7 days (App Intake / Not Ready - Timeframe / Remove from All Automations) plus a system that resurfaces Not Ready leads on a promised check-in date. Prod census (read-only, service-role): 881 undecided open leads (787 already past day 7, 557 of those >30d) and 115 open Not Ready - Timeframe leads with **zero** check-in dates.
+**Changes:**
+- NEW `lib/triage.ts` — pure logic: undecided/open predicates, 7-day clock (anchor `date_added_ghl||created_at`), tiers clock 0–4 / decide 5–7 / overdue 8–30 / backlog >30, check-in tiers off `next_action_due`, auto-task eligibility (decision: day 5–7 entry window ONLY — the 787-lead pile never tasks; check-in: due within [now−3d, now+24h]), deterministic task titles (dedup keys; check-in title embeds due date so reschedules re-task).
+- NEW `components/TriageQueue.tsx` (tiered sections, backlog collapsed, per-row + bulk dispositions), `components/CheckinQueue.tsx` (Overdue / Due this week / No date / Scheduled; Re-engage / Reschedule / App Intake / Remove), `components/TriageDateModal.tsx` (REQUIRED check-in date: presets +1/2/3/6 months + custom + note → `next_action`/`next_action_due`; no DB migration — sync/webhook never write those fields).
+- `app/hot-leads/page.tsx` — 4 tabs (⏱ Triage default · Responded/Pitching · App Intake · 📅 Check-ins), second paginated fetch for New Lead/Attempted Contact/Ghosted/Appt Booked/NRT using `DEAL_COLUMNS` (no blob; hot fetch unchanged), per-view metrics, `?view=` deep-link (Suspense-wrapped), dispositions push stage to GHL via existing `pushStageToGHL`.
+- NEW `app/api/cron/triage-tasks/route.ts` — `runTriageTaskCheck()`: decision + check-in auto-tasks (deal_tasks, assignee = deal LO, cap 25/kind/run, task-existence dedup, best-effort `notifyTaskEmail`) + authed GET; invoked in-process from `app/api/cron/ghl-sync/route.ts` throttled 6h (`triage_tasks_last`) — NO new cron-job.org job.
+**Test Method:** `npx tsx scripts/triage-check.ts` (47 fixtures: tier/window boundaries, anchor fallback, title determinism) · tsc 0 new · build READY · post-deploy: prod DOM read via Control Chrome (triage counts vs census) + one manual authed GET of /api/cron/triage-tasks with observed counts.
+**Result:** (pending post-deploy verification below)
+
 ### [2026-07-14] Pipeline + Deals — drop raw_ghl_data from list fetches (payload ~2×)
 **Status:** VERIFIED on prod (commit `5e93807`, dpl `3lf6zpik6` READY) — live pipeline + deals fetch 100 cols / no blob, all fields render, 0 undefined/NaN
 **Issue:** /pipeline (and /deals) load ALL ~2,500 deals with `select=*`, dragging the `raw_ghl_data` GHL JSON blob the pages never render. Measured on prod (200 rows, service-role): full payload 1,165 KB/200, `raw_ghl_data` alone **52%** (~3.1 KB/row) — bigger than the other 100 columns combined. This morning's "stuck spinner" (post-9:15 sync DB slow-window, GOTCHAS 2026-07-14) waited on ~14 MB, ~7 MB of it this blob.
