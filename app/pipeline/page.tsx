@@ -8,7 +8,7 @@ import {
 } from '@dnd-kit/core'
 import { useDroppable, useDraggable } from '@dnd-kit/core'
 import { supabase } from '@/lib/supabase'
-import { fetchAllDeals } from '@/lib/fetchAllDeals'
+import { fetchAllDeals, DEAL_COLUMNS } from '@/lib/fetchAllDeals'
 import { Deal, LOAN_STATUSES, STATUS_COLORS, LOAN_TYPES, OCCUPANCY_TYPES, LOAN_OFFICERS, APPRAISAL_STATUSES, WAITING_ON_OPTIONS, PROCESSORS } from '@/lib/types'
 import { LoFilter, useLoFilter, loSelected } from '@/components/LoFilter'
 import { resolveLO } from '@/lib/loanOfficer'
@@ -1019,7 +1019,8 @@ function PipelinePageInner() {
     setLoading(true)
     const all = await fetchAllDeals(q => q
       .not('pipeline_group', 'in', '("Lost","Last files at WCL","Lost/Inactive/Does not qualify","Nurture")')
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: false }),
+      DEAL_COLUMNS,   // skip the raw_ghl_data blob (~52% of payload, unused here)
     )
     setDeals(all)
     setLoading(false)

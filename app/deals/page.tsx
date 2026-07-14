@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { fetchAllDeals } from '@/lib/fetchAllDeals'
+import { fetchAllDeals, DEAL_COLUMNS } from '@/lib/fetchAllDeals'
 import { Deal, CoborrowerLite, LOAN_OFFICERS, LOAN_TYPES, PIPELINE_GROUPS, PIPELINE_STATUSES, STATUS_COLORS } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { pushStageToGHL } from '@/lib/pushStage'
@@ -288,7 +288,7 @@ function DealsPageInner() {
 
   const fetchDeals = useCallback(async () => {
     setLoading(true)
-    const all = await fetchAllDeals(q => q.order('created_at', { ascending: false }))
+    const all = await fetchAllDeals(q => q.order('created_at', { ascending: false }), DEAL_COLUMNS)
     // Attach co-borrower counts (one cheap query; tolerates the table not existing yet).
     const { data: links } = await supabase.from('deal_contacts').select('deal_id, contact_id, role')
     const byDeal = new Map<string, CoborrowerLite[]>()
