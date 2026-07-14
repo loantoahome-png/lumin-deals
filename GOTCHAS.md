@@ -163,3 +163,19 @@ backfill re-attributed 16/17. Lesson: when guarding a derived column, grep for E
 silently poisons the whole column.
 **Project:** lumin-deals
 **Date:** 2026-07-08
+
+### "Stuck" spinner on dashboard/pipeline = slow Supabase reads, not hung code
+**Tried:** Suspected a code bug / broken deploy when pages sat on their loading spinner indefinitely
+(2026-07-14, ~9:15–9:19am PT). Checked error boundaries, chunk staleness, client-error beacons — all clean.
+**Failed because:** Nothing was hung. `performance.getEntriesByType('resource')` in the live tab showed the
+pipeline's `deals?select=*` page-1 query took **133 s** (page 2: 66 s) vs the normal ~0.2 s. The window started
+right at the 09:15 GHL sync (`last_synced_at` 16:15:09Z) and recovered ~4 min later — DB-side slowness after
+the sync's bulk writes. The page finished loading by itself once reads recovered.
+**What works:** Diagnose from the tab, not the code: read resource timings via Control Chrome
+(status + duration per Supabase call) and compare against `/api/sync-status`. If durations are 100×
+normal and recover, it's a DB slow-window, not a bug. Chronic aggravator: /pipeline and /deals use
+`fetchAllDeals` with `select=*`, which drags the full `raw_ghl_data` JSON blob for every deal
+(Dashboard.tsx already switched to an explicit column list for exactly this reason — its comment says
+"never raw_ghl_data"). Narrowing those selects would shrink the blast radius of any future slow window.
+**Project:** lumin-deals
+**Date:** 2026-07-14
