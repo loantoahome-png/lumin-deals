@@ -1,5 +1,12 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-13] Lead ROI — summary insights, opt-out %, early opt-out (≤7d) stat
+**Status:** VERIFIED (prod DOM via Control Chrome) — commit `2344f3d`, deployed (dpl j4d9jwxfb, Ready)
+**Issue:** Efrain (screenshot of live /lead-roi): show opt-out % next to the count, add a "% opted out within 7 days of creation" stat, and a page-top summary highlighting the best-performing lead source.
+**Changes:** `lib/leadRoi.ts` `orate` per source + `optout7dStats()` + `insights()` (guards: money picks need ≥1 funded + spend; rate picks ≥20 leads) · NEW `/api/stage-events/first-optout` (earliest STOP/DND/Remove event per opportunity — mirror of first-responded) · page + report: indigo summary panel (computed narrative + 🏆 best-ROI / biggest-earner / best-response / underwater chips), "Opt-out ≤ 7d" KPI card w/ timing coverage, opt-out column now `count · %` (rows, totals, report, CSV `Opt-out %`).
+**Test Method:** fixtures 57/57 (13 new: orate, day-7 boundary ≤, coverage, insights guards, empty-book) · scoped tsc clean · build READY · local empty-state render (temp middleware bypass, reverted; middleware byte-identical) · **prod DOM read via Control Chrome (Moe tab, live data)**.
+**Result:** VERIFIED — summary renders real numbers (861 leads · 35.0% resp · 14 funded · 1.32× ROI), chips correct (Best: Lendgo 2.94×; dedup hides top-net when same source; Underwater: LMB 0.62×), opt-out cells "58 · 22.4%" + total "191 · 22.2%", ≤7d card "33% — 3 of 9 timed · covers 5%" (coverage honesty working: stage_events only logs since ~7/8). NOTE: Efrain's already-open /lead-roi tab runs the older bundle until refreshed.
+
 ### [2026-07-13] Lead ROI — /lead-performance + /lead-spend merged into /lead-roi (+ printable report route)
 **Status:** CHANGED (tsc scoped-clean · build READY · fixtures 44/44 + 72/72 · empty-state render verified locally) — deployed per auto-deploy policy; **pending Efrain's logged-in eyeball on prod data**
 **Issue:** The two pages computed the same metrics with different definitions (ROI multiple vs net-% · revenue cohort · funded rule · 3 LO matchers · date filter only on one). Efrain approved the unified design (mockup artifact) with one change: **per-LO tabs only — stats are never combined across LOs**.
@@ -10,7 +17,7 @@
 - `app/lead-roi/report/page.tsx` NEW — print-styled report ROUTE (replaces the popup `document.write`; shareable URL, no popup blockers), chromeless via `AppShell` `CHROMELESS_PATHS` (still session-gated by middleware).
 - Rewired: Sidebar → one "Lead ROI" entry; old pages DELETED; `next.config.ts` 308 redirects `/lead-performance` + `/lead-spend` → `/lead-roi`; stale route comments updated (leadReport, LoFilter, lead-source-costs).
 **Test Method:** `npx tsc --noEmit` (no errors in new/changed files; pre-existing baseline untouched) · `npx next build` READY with both routes · `npx tsx scripts/lead-roi-check.ts` (44/44) + `lead-report-check` (72/72) · curl: old URLs 308 → /lead-roi, new routes auth-gated · local render check of both routes via a TEMP middleware localhost bypass (reverted before commit; middleware byte-identical to HEAD): no console errors, clean zero-states (RLS blocks anon deal reads, so local shows 0 rows).
-**Result:** (fill after prod check) — verify on prod logged in: KPI totals match old Lead Spend for same LO/range modulo the documented definition changes (blended spend slightly ↑ spend on retainer sources; ROI now a multiple).
+**Result:** VERIFIED 2026-07-13 evening — prod DOM read via Control Chrome (Moe tab): page renders live data correctly (861 leads, 14 funded, blended spend incl. retainers, ROI 1.32×); Efrain actively using the page (sent enhancement requests off a live screenshot).
 
 ### [2026-07-10] Webhook — real-time demotion on opportunity status → lost/abandoned
 **Status:** CHANGED + DEPLOYED (code). tsc 7-baseline / **0 new**; `npm run build` READY. **End-to-end "right away" behavior is GATED on GHL delivery — NOT yet confirmed (see below).**
