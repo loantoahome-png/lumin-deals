@@ -24,12 +24,11 @@ const SECTIONS: Section[] = [
 type Props = {
   deals: Deal[]                                    // open Not Ready - Timeframe, LO-filtered by the page
   onSetDate: (ids: string[]) => void               // page opens the date modal
-  onReengage: (id: string) => void
   onIntake: (id: string) => void
   onRemove: (id: string) => void
 }
 
-export default function CheckinQueue({ deals, onSetDate, onReengage, onIntake, onRemove }: Props) {
+export default function CheckinQueue({ deals, onSetDate, onIntake, onRemove }: Props) {
   const now = Date.now()
   const byTier = useMemo(() => {
     const m: Record<CheckinTier, Deal[]> = { overdue: [], soon: [], none: [], scheduled: [] }
@@ -87,7 +86,7 @@ export default function CheckinQueue({ deals, onSetDate, onReengage, onIntake, o
                 <tbody className="divide-y divide-slate-100">
                   {rows.map(d => (
                     <CheckinRow key={d.id} deal={d} tier={section.tier}
-                      onSetDate={() => onSetDate([d.id])} onReengage={() => onReengage(d.id)}
+                      onSetDate={() => onSetDate([d.id])}
                       onIntake={() => onIntake(d.id)} onRemove={() => onRemove(d.id)} />
                   ))}
                 </tbody>
@@ -100,11 +99,10 @@ export default function CheckinQueue({ deals, onSetDate, onReengage, onIntake, o
   )
 }
 
-function CheckinRow({ deal, tier, onSetDate, onReengage, onIntake, onRemove }: {
+function CheckinRow({ deal, tier, onSetDate, onIntake, onRemove }: {
   deal: Deal
   tier: CheckinTier
   onSetDate: () => void
-  onReengage: () => void
   onIntake: () => void
   onRemove: () => void
 }) {
@@ -147,11 +145,6 @@ function CheckinRow({ deal, tier, onSetDate, onReengage, onIntake, onRemove }: {
       <td className="px-3 py-2 text-slate-600 truncate max-w-[110px]">{deal.source || '—'}</td>
       <td className="px-3 py-2">
         <div className="flex items-center justify-center gap-1">
-          <button onClick={onReengage}
-            className="text-[10px] font-semibold px-2 py-1 rounded whitespace-nowrap bg-sky-100 hover:bg-sky-200 text-sky-800 border border-sky-200"
-            title="They're ready to talk — move back to Responded (returns to Hot Leads)">
-            Re-engage
-          </button>
           <button onClick={onSetDate}
             className="text-[10px] font-semibold px-2 py-1 rounded whitespace-nowrap bg-violet-100 hover:bg-violet-200 text-violet-800 border border-violet-200"
             title={tier === 'none' ? 'Set the check-in date' : 'Reschedule the check-in'}>

@@ -178,10 +178,6 @@ function HotLeadsPageInner() {
     }
   }
 
-  function handleReengage(id: string) {
-    void handleUpdate(id, { status: 'Responded', pipeline_group: 'Leads', next_action: null, next_action_due: null })
-  }
-
   const modalLeadNames = (dateModalIds ?? [])
     .map(id => deals.find(d => d.id === id)?.name)
     .filter((n): n is string => !!n)
@@ -283,7 +279,6 @@ function HotLeadsPageInner() {
             <CheckinQueue
               deals={checkinDeals}
               onSetDate={ids => setDateModalIds(ids)}
-              onReengage={handleReengage}
               onIntake={id => handleDisposition([id], 'intake')}
               onRemove={id => handleDisposition([id], 'remove')}
             />
