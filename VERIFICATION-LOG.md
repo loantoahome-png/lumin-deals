@@ -1,5 +1,14 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-14] Check-in task emails → CC Brianne + Efrain (LO stays primary)
+**Status:** CHANGED (fixtures 53/53 · tsc 0 new in changed files · build READY) — deploying per auto-deploy policy
+**Issue:** Efrain: "Can we have those emails sent to Brianne and I?" — the triage CHECK-IN email (fires when a Not Ready - Timeframe lead's `next_action_due` arrives) went ONLY to the lead's loan officer via `notifyTaskEmail('assigned')`, so Efrain never saw check-ins on LO-owned leads (e.g. David Alegria = Moe's lead).
+**Changes:**
+- `app/api/tasks/notify/route.ts` — `notifyTaskEmail('assigned', task, opts?)` now accepts `opts.ccNames`; builds a deduped recipient set = assignee + resolved CC names (unresolved names dropped). With no ccNames, behavior is unchanged (assignee-only) so manual task assignments are unaffected. Added an Efrain email fallback (`ADMIN_EMAIL_EFRAIN || 'efrain@loantoahome.com'`) mirroring Brianne's existing one, so CC works even if the env var isn't set in prod. Added an "Assigned to" body row so CC readers know whose lead it is.
+- `app/api/cron/triage-tasks/route.ts` — `createTasks` takes `ccNames` (default `[]`); the CHECK-IN call passes `CHECKIN_CC = ['Brianne','Efrain']`; the DECISION-nudge call stays LO-only.
+**Test Method:** `scripts/triage-check.ts` 53/53 (pure logic untouched) · `tsc --noEmit` = 0 errors in the 2 changed files (pre-existing errors only in reports/underwriting/DealForm/next.config) · `next build` READY. Email SEND not test-fired (would email Brianne for real) — verified by types + build + code review.
+**Result:** CHANGED — no email fires on deploy; the next check-in email (fired when a `next_action_due` comes due, checked ~every 6h during business hours) will CC Brianne + Efrain. NOTE: to use a different address than efrain@loantoahome.com, set `ADMIN_EMAIL_EFRAIN` in Vercel (takes precedence over the fallback).
+
 ### [2026-07-14] Default LO view = Moe + Matt everywhere (Randy opt-in)
 **Status:** VERIFIED (commits `3f19745` + `af16ebf`, dpl `hn88sanec` READY) — live DOM: / and /hot-leads and /funded all open with Matt+Moe pressed, Randy unpressed ("filtered to 2 of 3 LOs" on dashboard; /funded shows shared pills, old "All LOs" select gone, 155 rows).
 **Issue:** Efrain: "On the whole dashboard, the default views should include only Moe and Matt's leads."

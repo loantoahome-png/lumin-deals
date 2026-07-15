@@ -30,7 +30,7 @@ function emailForName(name: string | null | undefined): string | null {
   const n = name.toLowerCase()
   if (n.includes('matt') || n.includes('park'))   return process.env.LO_EMAIL_MATT || null
   if (n.includes('moe')  || n.includes('sefati')) return process.env.LO_EMAIL_MOE  || null
-  if (n.includes('efrain'))                        return process.env.ADMIN_EMAIL_EFRAIN || null
+  if (n.includes('efrain'))                        return process.env.ADMIN_EMAIL_EFRAIN || 'efrain@loantoahome.com'
   if (n.includes('brianne'))                       return process.env.PROCESSOR_EMAIL_BRIANNE || 'brianne.han@luminlending.com'
   return null
 }
@@ -131,6 +131,7 @@ function deadlineCallout(iso: string | null | undefined): string {
 export async function notifyTaskEmail(
   event: 'assigned' | 'completed',
   task: TaskPayload,
+  opts?: { ccNames?: string[] },
 ): Promise<{ ok: boolean; sent?: boolean; reason?: string; recipients?: number; error?: string }> {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://lumin-deals.vercel.app'
   const link = task.deal_id ? `${appUrl}/deals/${task.deal_id}` : `${appUrl}/tasks`
@@ -150,19 +151,30 @@ export async function notifyTaskEmail(
   const dealRow = dealName ? `<tr><td style="padding:6px 0;font-size:12px;color:#64748b;width:90px">Deal</td><td style="padding:6px 0;font-size:13px;color:#0f172a;font-weight:600">${dealName}</td></tr>` : ''
 
   if (event === 'assigned') {
-    const to = emailForName(task.assignee)
-    if (!to) return { ok: true, sent: false, reason: `no_email_for_assignee:${task.assignee ?? 'none'}` }
+    // Recipients: the assignee, plus any oversight CC names (e.g. Brianne +
+    // Efrain on triage check-ins, so an LO-owned follow-up coming due isn't
+    // missed). Deduped by email; names that don't resolve are dropped. With no
+    // CC names this is exactly the old behavior — just the assignee.
+    const recipients = new Map<string, { email: string; name?: string }>()
+    const aEmail = emailForName(task.assignee)
+    if (aEmail) recipients.set(aEmail, { email: aEmail, name: task.assignee ?? undefined })
+    for (const name of opts?.ccNames ?? []) {
+      const e = emailForName(name)
+      if (e && !recipients.has(e)) recipients.set(e, { email: e, name })
+    }
+    if (recipients.size === 0) return { ok: true, sent: false, reason: `no_email_for_assignee:${task.assignee ?? 'none'}` }
     const html = shell('#2563eb', 'Lumin Lending', '📋 New task assigned to you', `
       <p style="margin:0 0 14px;font-size:15px;color:#0f172a;font-weight:700">${titleSafe}</p>
       ${descRow}
       ${deadlineCallout(task.due_at)}
       <table style="width:100%;border-collapse:collapse;margin-bottom:18px">
         ${dealRow}
-        <tr><td style="padding:6px 0;font-size:12px;color:#64748b;width:90px">Assigned by</td><td style="padding:6px 0;font-size:13px;color:#334155">${task.assigned_by || '—'}</td></tr>
+        <tr><td style="padding:6px 0;font-size:12px;color:#64748b;width:90px">Assigned to</td><td style="padding:6px 0;font-size:13px;color:#334155">${task.assignee || '—'}</td></tr>
+        <tr><td style="padding:6px 0;font-size:12px;color:#64748b">Assigned by</td><td style="padding:6px 0;font-size:13px;color:#334155">${task.assigned_by || '—'}</td></tr>
       </table>
       <a href="${link}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:11px 22px;border-radius:8px;font-weight:600;font-size:14px">Open in dashboard →</a>`)
-    const sent = await sendBrevo([{ email: to, name: task.assignee ?? undefined }], `📋 New task: ${titleSafe}`, html)
-    return { ok: true, sent }
+    const sent = await sendBrevo(Array.from(recipients.values()), `📋 New task: ${titleSafe}`, html)
+    return { ok: true, sent, recipients: recipients.size }
   }
 
   if (event === 'completed') {
