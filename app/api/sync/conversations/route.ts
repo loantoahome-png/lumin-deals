@@ -11,8 +11,9 @@ import { GHL_BASE, getAccounts, ghlHeaders } from '@/lib/ghl'
 //   • last_inbound_at          — last message FROM the borrower (inbound)
 //   • last_outbound_at         — last message FROM us (outbound)
 //
-// Scoped to the hot stages by default so it stays light enough to run on every
-// sync. Requires these columns (run once):
+// Covers the active/hot stages (any age) plus the early triage stages bounded
+// to the last TRIAGE_RECENT_DAYS, so it stays light enough to run on every sync.
+// Requires these columns (run once):
 //   ALTER TABLE deals
 //     ADD COLUMN IF NOT EXISTS last_communication_at timestamptz,
 //     ADD COLUMN IF NOT EXISTS last_communication_type text,
@@ -22,6 +23,13 @@ import { GHL_BASE, getAccounts, ghlHeaders } from '@/lib/ghl'
 export const maxDuration = 120
 
 const DEFAULT_STATUSES = ['Responded', 'Pitching', 'App Intake']
+// Early triage stages — leads still on their 7-day clock. Refreshed too so the
+// Hot Leads → Triage tab's "YOU LAST" / "BORROWER LAST" columns populate, but
+// ONLY for recent arrivals (see TRIAGE_RECENT_DAYS): the New Lead backlog is
+// huge, and rescanning all of it every 15 min would blow the GHL rate limit and
+// this route's maxDuration. These are the undecided stages not already hot.
+const TRIAGE_STATUSES = ['New Lead', 'Attempted Contact', 'Ghosted', 'Appointment Booked']
+const TRIAGE_RECENT_DAYS = 10   // the 7-day decision clock + a couple days of buffer
 const CONCURRENCY = 5
 
 // Map GHL message/conversation types to a short human label.
@@ -131,9 +139,8 @@ export type RefreshResult = {
   duration_ms: number
 }
 
-export async function refreshConversations(opts?: { statuses?: string[] }): Promise<RefreshResult> {
+export async function refreshConversations(opts?: { statuses?: string[]; recentDays?: number }): Promise<RefreshResult> {
   const started = Date.now()
-  const statuses = opts?.statuses ?? DEFAULT_STATUSES
   const supabase = createServiceClient()
 
   // Build a locationId → apiKey lookup from configured accounts.
@@ -149,21 +156,46 @@ export async function refreshConversations(opts?: { statuses?: string[] }): Prom
     }
   } catch { /* table may not exist yet — non-fatal */ }
 
-  // Page through the targeted deals.
+  // Page every deal in a status set, optionally bounded to leads created on or
+  // after `sinceIso`.
   type Row = { id: string; ghl_contact_id: string | null; ghl_location_id: string | null }
-  const rows: Row[] = []
-  let offset = 0
-  for (;;) {
-    const { data } = await supabase
-      .from('deals')
-      .select('id,ghl_contact_id,ghl_location_id')
-      .in('status', statuses)
-      .not('ghl_contact_id', 'is', null)
-      .range(offset, offset + 999)
-    const page = (data ?? []) as Row[]
-    rows.push(...page)
-    if (page.length < 1000) break
-    offset += 1000
+  async function loadRows(statuses: string[], sinceIso?: string): Promise<Row[]> {
+    const out: Row[] = []
+    let offset = 0
+    for (;;) {
+      let q = supabase
+        .from('deals')
+        .select('id,ghl_contact_id,ghl_location_id')
+        .in('status', statuses)
+        .not('ghl_contact_id', 'is', null)
+      if (sinceIso) q = q.gte('created_at', sinceIso)
+      const { data } = await q.range(offset, offset + 999)
+      const page = (data ?? []) as Row[]
+      out.push(...page)
+      if (page.length < 1000) break
+      offset += 1000
+    }
+    return out
+  }
+
+  // Target set:
+  //  • an explicit ?statuses= override (debug) → those stages at any age; else
+  //  • the active/hot stages at any age PLUS the early triage stages bounded to
+  //    the last TRIAGE_RECENT_DAYS — so the Triage tab's comm columns fill
+  //    without rescanning the whole New Lead backlog every run.
+  let rows: Row[]
+  if (opts?.statuses) {
+    rows = await loadRows(opts.statuses)
+  } else {
+    const sinceIso = new Date(started - (opts?.recentDays ?? TRIAGE_RECENT_DAYS) * 86_400_000).toISOString()
+    const [hot, triage] = await Promise.all([
+      loadRows(DEFAULT_STATUSES),
+      loadRows(TRIAGE_STATUSES, sinceIso),
+    ])
+    const byId = new Map<string, Row>()
+    for (const r of hot) byId.set(r.id, r)
+    for (const r of triage) byId.set(r.id, r)
+    rows = Array.from(byId.values())
   }
 
   let updated = 0, noKey = 0, errors = 0
