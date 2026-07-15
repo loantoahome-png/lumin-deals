@@ -246,8 +246,42 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
     }
   }, [deals, currentUser])
 
+  // How many active escrows each processor is carrying, across the current
+  // (LO-filtered) set — the same processor field the report shows
+  // (processor_status, falling back to processor). Known processors in PROCESSORS
+  // order, any legacy/unknown values next, Unassigned last (only when > 0).
+  const processorCounts = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const d of deals) {
+      const p = d.processor_status || d.processor || 'Unassigned'
+      m.set(p, (m.get(p) ?? 0) + 1)
+    }
+    const ordered: { name: string; count: number }[] = []
+    for (const p of PROCESSORS) if (m.has(p)) { ordered.push({ name: p, count: m.get(p)! }); m.delete(p) }
+    const unassigned = m.get('Unassigned') ?? 0
+    m.delete('Unassigned')
+    for (const [name, count] of m) ordered.push({ name, count })
+    if (unassigned > 0) ordered.push({ name: 'Unassigned', count: unassigned })
+    return ordered
+  }, [deals])
+
   return (
     <div className="p-4 space-y-4">
+      {/* Per-processor workload — counts across the current (LO-filtered) escrows */}
+      {deals.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap bg-white border border-slate-200 rounded-xl px-3 py-2">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            <UserCog className="w-3.5 h-3.5" /> By processor
+          </span>
+          {processorCounts.map(({ name, count }) => (
+            <span key={name} className={`inline-flex items-center gap-1.5 text-xs font-medium rounded-lg px-2 py-1 border ${name === 'Unassigned' ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-slate-700 bg-slate-50 border-slate-200'}`}>
+              {name}
+              <span className="text-[11px] font-bold tabular-nums text-slate-900 bg-white border border-slate-200 rounded-full px-1.5">{count}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Filter + Search bar */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative">

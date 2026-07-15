@@ -1,7 +1,14 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-14] Active Escrows — "By processor" workload strip (EscrowTracker)
+**Status:** CHANGED (tsc 0 errors in EscrowTracker.tsx · build READY) — deploying per auto-deploy policy
+**Issue:** Efrain: "Give me a little section here that shows how many loans are assigned to each processor" — the Active Escrows tracker (`/deals`, Tracker view) had no per-processor breakdown.
+**Changes:** `components/EscrowTracker.tsx` — new `processorCounts` useMemo over the `deals` prop (current LO-filtered active-escrow set), using the same field as the report (`processor_status || processor`, empties → 'Unassigned'; canonical `PROCESSORS` order, legacy/unknown values next, Unassigned last when > 0). Rendered as a compact "By processor" chip strip at the top of the tracker, above the search/quick-filter toolbar (where the screenshot's red box is). Display-only (not a filter); counts the full LO-filtered set (matches the "20 deals" header), independent of the quick-filter/search.
+**Test Method:** `tsc --noEmit` 0 errors in EscrowTracker.tsx · `next build` READY. `/deals` is login-gated, not driven in-session — verified by types + build + code review.
+**Result:** CHANGED — strip appears at the top of Active Escrows → Tracker on next load.
+
 ### [2026-07-14] Added "Remove all N" bulk button to the "No date set" check-in bucket
-**Status:** CHANGED (tsc 0 errors in changed files · build READY) — deploying per auto-deploy policy
+**Status:** DEPLOYED (commit `291bf5a`, dpl `4iqKritKWEYKjATjSWSwBT2ZzWzw` READY, aliased lumin-deals.vercel.app) — tsc clean in changed files, build READY. Button live on next load.
 **Issue:** Efrain: "Add a button that lets me remove all items here" — the "No date set" section (136 dateless Not Ready leads) had a bulk "Set one date for all" but no bulk remove; clearing them meant clicking Remove 136×.
 **Changes:** `components/CheckinQueue.tsx` — added a red "Remove all {N}" button beside "Set one date for all {N}" in the 'none' section header (both now wrapped in a right-aligned flex group); new `onRemoveAll(ids)` prop. `app/hot-leads/page.tsx` — wired `onRemoveAll={ids => handleDisposition(ids, 'remove')}`. Acts on the currently-visible (LO-filtered) 'none' rows. **Verify-catch:** `handleDisposition('remove')` ALREADY has a `confirm()`, so I dropped a redundant `window.confirm` I'd first added — one dialog, same guard as per-row Remove ("Remove N leads from all automations? This parks them in the Not Ready pipeline."). Each removed lead → status 'Remove from All Automations' + GHL push, via the existing per-row path at scale.
 **Test Method:** `tsc --noEmit` 0 errors in the 2 changed files · `next build` READY. Check-ins UI is login-gated, not driven in-session — verified by types + build + reading handleDisposition. CAVEAT: bulk fires N concurrent Supabase updates + GHL pushes; if GHL rate-limits some, those rows are still correct in Supabase and reconcile on the next sync.
