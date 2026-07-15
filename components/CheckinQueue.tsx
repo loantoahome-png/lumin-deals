@@ -26,9 +26,10 @@ type Props = {
   onSetDate: (ids: string[]) => void               // page opens the date modal
   onIntake: (id: string) => void
   onRemove: (id: string) => void
+  onRemoveAll: (ids: string[]) => void             // bulk "Remove from All Automations" for the dateless bucket
 }
 
-export default function CheckinQueue({ deals, onSetDate, onIntake, onRemove }: Props) {
+export default function CheckinQueue({ deals, onSetDate, onIntake, onRemove, onRemoveAll }: Props) {
   const now = Date.now()
   const byTier = useMemo(() => {
     const m: Record<CheckinTier, Deal[]> = { overdue: [], soon: [], none: [], scheduled: [] }
@@ -65,10 +66,18 @@ export default function CheckinQueue({ deals, onSetDate, onIntake, onRemove }: P
               <span className={`text-[11px] font-semibold border rounded-full px-2 py-0.5 tabular-nums ${section.badge}`}>{rows.length}</span>
               <span className="text-[11px] text-slate-400 ml-1 hidden sm:inline">{section.hint}</span>
               {section.tier === 'none' && rows.length > 1 && (
-                <button onClick={() => onSetDate(rows.map(d => d.id))}
-                  className="ml-auto text-[11px] font-semibold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg px-2.5 py-1">
-                  Set one date for all {rows.length}
-                </button>
+                <div className="ml-auto flex items-center gap-2">
+                  <button onClick={() => onSetDate(rows.map(d => d.id))}
+                    className="text-[11px] font-semibold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg px-2.5 py-1">
+                    Set one date for all {rows.length}
+                  </button>
+                  {/* Confirmation lives in the page's handleDisposition('remove') — one dialog, same as per-row Remove. */}
+                  <button
+                    onClick={() => onRemoveAll(rows.map(d => d.id))}
+                    className="text-[11px] font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2.5 py-1">
+                    Remove all {rows.length}
+                  </button>
+                </div>
               )}
             </div>
             <div className="border-t border-slate-100 overflow-x-auto">

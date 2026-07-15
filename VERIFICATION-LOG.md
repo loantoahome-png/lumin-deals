@@ -1,7 +1,14 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-14] Added "Remove all N" bulk button to the "No date set" check-in bucket
+**Status:** CHANGED (tsc 0 errors in changed files · build READY) — deploying per auto-deploy policy
+**Issue:** Efrain: "Add a button that lets me remove all items here" — the "No date set" section (136 dateless Not Ready leads) had a bulk "Set one date for all" but no bulk remove; clearing them meant clicking Remove 136×.
+**Changes:** `components/CheckinQueue.tsx` — added a red "Remove all {N}" button beside "Set one date for all {N}" in the 'none' section header (both now wrapped in a right-aligned flex group); new `onRemoveAll(ids)` prop. `app/hot-leads/page.tsx` — wired `onRemoveAll={ids => handleDisposition(ids, 'remove')}`. Acts on the currently-visible (LO-filtered) 'none' rows. **Verify-catch:** `handleDisposition('remove')` ALREADY has a `confirm()`, so I dropped a redundant `window.confirm` I'd first added — one dialog, same guard as per-row Remove ("Remove N leads from all automations? This parks them in the Not Ready pipeline."). Each removed lead → status 'Remove from All Automations' + GHL push, via the existing per-row path at scale.
+**Test Method:** `tsc --noEmit` 0 errors in the 2 changed files · `next build` READY. Check-ins UI is login-gated, not driven in-session — verified by types + build + reading handleDisposition. CAVEAT: bulk fires N concurrent Supabase updates + GHL pushes; if GHL rate-limits some, those rows are still correct in Supabase and reconcile on the next sync.
+**Result:** CHANGED — "Remove all {N}" appears in the No date set header on next load; one confirm.
+
 ### [2026-07-14] Removed the "Re-engage" button from the Check-ins queue
-**Status:** CHANGED (grep 0 refs · tsc 0 errors in changed files · build READY) — deploying per auto-deploy policy
+**Status:** DEPLOYED (commit `6de07c6`, dpl `7uLkEgJcpVSSnRMg9Pvx8iDSE9Ny` READY, aliased lumin-deals.vercel.app) — grep 0 refs, tsc clean in changed files, build READY. Button gone on next load.
 **Issue:** Efrain: "I don't think there should be a re-engage button at all." It fired silently and, on click, flipped a Not Ready lead to `Responded` AND wiped its check-in date + note — twice surprised a lead out of the Check-ins view with no undo.
 **Changes:** Removed the Re-engage `<button>` from `CheckinRow` and cleaned the dead wiring end-to-end — `onReengage` dropped from `CheckinQueue` Props + CheckinRow props/args (`components/CheckinQueue.tsx`); the `onReengage={handleReengage}` prop and the now-unused `handleReengage` handler removed from `app/hot-leads/page.tsx`. Remaining check-in row actions: Set date / Reschedule · App Intake · Remove. (Reactivating a parked lead is still possible from the Responded/Pitching tab or the deal page — just no longer a one-click silent action here.)
 **Test Method:** `grep` 0 `reengage` references remain · `tsc --noEmit` 0 errors in the 2 changed files · `next build` READY · triage fixtures unaffected. Couldn't drive the logged-in Check-ins UI in-session (deals table is login-gated) — verified by grep + types + build.

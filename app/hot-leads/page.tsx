@@ -281,6 +281,7 @@ function HotLeadsPageInner() {
               onSetDate={ids => setDateModalIds(ids)}
               onIntake={id => handleDisposition([id], 'intake')}
               onRemove={id => handleDisposition([id], 'remove')}
+              onRemoveAll={ids => handleDisposition(ids, 'remove')}
             />
           ) : (
             <HotLeadsTracker deals={trackerVisible} onUpdate={handleUpdate} onMarkLost={handleMarkLost} />
