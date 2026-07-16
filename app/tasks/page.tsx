@@ -81,13 +81,26 @@ const PRIORITY_STYLES: Record<string, string> = {
   low:    'bg-blue-50 text-blue-600 border-blue-200',
 }
 
+// The board is one column per person, laid out 2×2: Efrain / Brianne on top,
+// Moe / Matt below. Anyone NOT in this list (Randy, an unassigned task, a
+// legacy name) falls into the "Unassigned & other" column so no task can be
+// hidden just because it doesn't belong to one of the four.
+const BOARD_COLUMNS = ['Efrain Ramirez', 'Brianne Han', 'Moe Sefati', 'Matt Park'] as const
+const OTHER_COLUMN = 'Unassigned & other'
+const COLUMN_STYLES: Record<string, string> = {
+  'Efrain Ramirez':    'text-blue-800 bg-blue-50 border-blue-100',
+  'Brianne Han':       'text-violet-800 bg-violet-50 border-violet-100',
+  'Moe Sefati':        'text-emerald-800 bg-emerald-50 border-emerald-100',
+  'Matt Park':         'text-amber-800 bg-amber-50 border-amber-100',
+  [OTHER_COLUMN]:      'text-slate-600 bg-slate-50 border-slate-200',
+}
+
 function TasksSection() {
   const [tasks, setTasks] = useState<DealTask[]>([])
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<FilterMode>('open')
   const [search, setSearch] = useState('')
-  const [assigneeFilter, setAssigneeFilter] = useState<string>('all')
   const [showForm, setShowForm] = useState(false)
 
   const refresh = useCallback(async () => {
@@ -141,8 +154,6 @@ function TasksSection() {
         case 'week':      if (t.completed_at || !due || due < now || due > week) return false; break
         case 'all':       break
       }
-      // Assignee filter
-      if (assigneeFilter !== 'all' && t.assignee !== assigneeFilter) return false
       // Search
       if (q) {
         const dealName = t.deal_id ? (dealNames.get(t.deal_id) || '').toLowerCase() : ''
@@ -161,7 +172,19 @@ function TasksSection() {
       }
       return new Date(b.completed_at!).getTime() - new Date(a.completed_at!).getTime()
     })
-  }, [tasks, filter, search, assigneeFilter, dealNames])
+  }, [tasks, filter, search, dealNames])
+
+  // Split the filtered list into the four per-person columns + the catch-all.
+  // Search and the status chips above still apply across every column.
+  const columns = useMemo(() => {
+    const byPerson = new Map<string, DealTask[]>(BOARD_COLUMNS.map(n => [n, [] as DealTask[]]))
+    const other: DealTask[] = []
+    for (const t of filtered) {
+      const col = t.assignee && byPerson.has(t.assignee) ? byPerson.get(t.assignee)! : other
+      col.push(t)
+    }
+    return { byPerson, other }
+  }, [filtered])
 
   // Counts for filter pills
   const counts = useMemo(() => {
@@ -227,6 +250,29 @@ function TasksSection() {
     }
   }
 
+  // A row renders the same in every column; the column header already names the
+  // person, so the per-row assignee chip is dropped as redundant.
+  const renderTask = (t: DealTask) => editingId === t.id ? (
+    <NewTaskForm
+      key={t.id}
+      deals={deals}
+      initialTask={t}
+      onSubmit={patch => updateTask(t.id, patch)}
+      onCancel={() => setEditingId(null)}
+    />
+  ) : (
+    <TaskRow
+      key={t.id}
+      task={t}
+      hideAssignee
+      dealName={t.deal_id ? dealNames.get(t.deal_id) : undefined}
+      ghlUrl={t.deal_id ? dealGhlUrls.get(t.deal_id) : undefined}
+      onToggle={() => toggleComplete(t)}
+      onDelete={() => deleteTask(t.id)}
+      onEdit={() => setEditingId(t.id)}
+    />
+  )
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       {/* Header */}
@@ -277,15 +323,6 @@ function TasksSection() {
           <FilterChip active={filter==='completed'} onClick={() => setFilter('completed')} label="Completed" count={counts.completed} />
           <FilterChip active={filter==='all'}       onClick={() => setFilter('all')}       label="All"       count={counts.all} />
         </div>
-        <select
-          value={assigneeFilter}
-          onChange={e => setAssigneeFilter(e.target.value)}
-          className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="all">All assignees</option>
-          {TASK_ASSIGNEES.map(a => <option key={a} value={a}>{a}</option>)}
-          <option value="">— Unassigned —</option>
-        </select>
       </div>
 
       {showForm && (
@@ -312,29 +349,51 @@ function TasksSection() {
           </p>
         </div>
       ) : (
-        <div className="space-y-1.5">
-          {filtered.map(t => editingId === t.id ? (
-            <NewTaskForm
-              key={t.id}
-              deals={deals}
-              initialTask={t}
-              onSubmit={patch => updateTask(t.id, patch)}
-              onCancel={() => setEditingId(null)}
-            />
-          ) : (
-            <TaskRow
-              key={t.id}
-              task={t}
-              dealName={t.deal_id ? dealNames.get(t.deal_id) : undefined}
-              ghlUrl={t.deal_id ? dealGhlUrls.get(t.deal_id) : undefined}
-              onToggle={() => toggleComplete(t)}
-              onDelete={() => deleteTask(t.id)}
-              onEdit={() => setEditingId(t.id)}
-            />
-          ))}
-        </div>
+        <>
+          {/* Efrain / Brianne on top, Moe / Matt below */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+            {BOARD_COLUMNS.map(name => (
+              <AssigneeColumn key={name} name={name} tasks={columns.byPerson.get(name)!} renderTask={renderTask} />
+            ))}
+          </div>
+          {/* Only appears when a task sits outside the four columns (unassigned,
+              Randy, a legacy name) — so nothing is hidden by the split. */}
+          {columns.other.length > 0 && (
+            <div className="mt-4">
+              <AssigneeColumn name={OTHER_COLUMN} tasks={columns.other} renderTask={renderTask} />
+            </div>
+          )}
+        </>
       )}
     </div>
+  )
+}
+
+function AssigneeColumn({ name, tasks, renderTask }: {
+  name: string
+  tasks: DealTask[]
+  renderTask: (t: DealTask) => React.ReactNode
+}) {
+  return (
+    <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <div className={`flex items-center justify-between gap-2 px-4 py-2.5 border-b ${COLUMN_STYLES[name]}`}>
+        <h3 className="text-sm font-bold flex items-center gap-1.5 min-w-0">
+          <User className="w-3.5 h-3.5 shrink-0 opacity-60" />
+          <span className="truncate">{name}</span>
+        </h3>
+        <span className="text-[11px] font-bold tabular-nums rounded-full px-2 py-0.5 bg-white/70 shrink-0">
+          {tasks.length}
+        </span>
+      </div>
+      {tasks.length === 0 ? (
+        <p className="text-xs text-slate-400 text-center py-8">No tasks</p>
+      ) : (
+        // Capped so one long column (Brianne's auto-tasks under "Completed"/"All"
+        // run to ~1,900px) can't push the bottom row off-screen — each column
+        // scrolls in place and the 2×2 stays a quadrant.
+        <div className="p-2 space-y-1.5 max-h-[30rem] overflow-y-auto">{tasks.map(renderTask)}</div>
+      )}
+    </section>
   )
 }
 
@@ -357,8 +416,9 @@ function FilterChip({ active, onClick, label, count, tone }: {
   )
 }
 
-function TaskRow({ task, dealName, ghlUrl, onToggle, onDelete, onEdit }: {
-  task: DealTask; dealName?: string; ghlUrl?: string; onToggle: () => void; onDelete: () => void; onEdit?: () => void
+function TaskRow({ task, dealName, ghlUrl, hideAssignee, onToggle, onDelete, onEdit }: {
+  task: DealTask; dealName?: string; ghlUrl?: string; hideAssignee?: boolean
+  onToggle: () => void; onDelete: () => void; onEdit?: () => void
 }) {
   const due = relativeDue(task.due_at)
   const done = !!task.completed_at
@@ -391,7 +451,7 @@ function TaskRow({ task, dealName, ghlUrl, onToggle, onDelete, onEdit }: {
               <Calendar className="w-3 h-3" /> {due.label}
             </span>
           )}
-          {task.assignee && (
+          {task.assignee && !hideAssignee && (
             <span className="flex items-center gap-1 text-slate-500">
               <User className="w-3 h-3" /> {task.assignee}
             </span>

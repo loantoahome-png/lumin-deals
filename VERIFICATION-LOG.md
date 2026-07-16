@@ -1,5 +1,38 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-16] /tasks — Tasks tab is now a 2×2 per-assignee board
+**Status:** VERIFIED (browser, local) — tsc unchanged (7 pre-existing, 0 in touched files), `next build` READY,
+eslint unchanged (1 pre-existing `set-state-in-effect` on the untouched `useEffect(() => refresh())`, confirmed
+identical on HEAD).
+**Issue:** Efrain: "re-arrange the task section, have it filter to the assigned to. First two boxes for Efrain &
+Brianne, bottom two for Moe and Matt." The Tasks tab was one flat list + an "All assignees" dropdown.
+**Grounding (queried `deal_tasks` before building, 25 rows):** Brianne Han 17 (0 open) · Efrain Ramirez 6 (3 open)
+· **unassigned 2 (2 open)** · Moe/Matt/Randy 0. So a strict 4-column split would have **hidden the 2 unassigned
+open tasks**, and any future Randy task (`TASK_ASSIGNEES` has 5 names, the board names 4).
+**Changes:** `app/tasks/page.tsx`
+- `BOARD_COLUMNS` = Efrain / Brianne / Moe / Matt in a `lg:grid-cols-2` grid → the requested 2×2 (verified by
+  geometry: row1 top=216, row2 top=756; left col x=288, right col x=848). Stacks to 1 column below `lg`.
+- **`OTHER_COLUMN` ("Unassigned & other") renders below the grid only when non-empty** — catches unassigned,
+  Randy, and any legacy/renamed assignee, so the split can't hide a task. This is the safety net for the finding
+  above; do not "simplify" it away.
+- Column bodies are `max-h-[30rem] overflow-y-auto`. Without the cap, Brianne's 17 auto-tasks made her column
+  ~1,900px under Completed/All and pushed the Moe/Matt row to y=2130 — a dead zone under Efrain's short column.
+  Capped → whole board fits ~1,100px and stays a quadrant.
+- Removed the now-redundant "All assignees" `<select>` (the columns *are* the assignee split) + its state and the
+  filter branch. `TASK_ASSIGNEES` import stays — still feeds the task form's two dropdowns.
+- `TaskRow` gains `hideAssignee` — the column header names the person, so the per-row chip is noise. `assigned_by`
+  ("by Auto (45-min rule)") is kept.
+- Status chips (Open/Overdue/Today/This week/Completed/All) + search still apply across every column.
+**Test Method:** local dev + browser. Auth-gated → middleware bypassed for the run, then **reverted** (`git diff
+middleware.ts` empty, no `TEMP-LOCAL-PREVIEW-BYPASS` residue anywhere). No writes to prod data (opened the edit
+form to confirm it renders in-column, then cancelled — the dev server points at live Supabase).
+**Result:** Board renders 2×2 with per-column counts matching the DB exactly (Open → Efrain 3, Brianne 0, Moe 0,
+Matt 0, Unassigned & other 2; Completed → Efrain 3, Brianne 17). Inline edit renders inside its column. Narrow
+viewport stacks with no horizontal overflow. No console errors.
+**Gotcha found (cost ~10 min):** with only `/tasks` public, scrolling bounced the page to `/login` — Next prefetches
+the sidebar links entering the viewport, those RSC requests hit middleware, and the client router **follows the
+307**. A path-scoped bypass is not enough; bypass the whole middleware in dev instead.
+
 ### [2026-07-16] /tasks — split the stacked Bulletin/Tasks page into two tabs
 **Status:** VERIFIED (browser, local) — tsc unchanged (7 pre-existing, 0 in touched files), `next build` READY.
 **Issue:** Efrain: "Separate the Bulletin/Tasks into individual tabs." `/tasks` rendered `TasksSection` and
