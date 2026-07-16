@@ -77,10 +77,47 @@ occurrence silently repairs itself within ~15 min and never gets reported.
    known-bad id renders **no button** instead of a dead link, whatever writes it in future.
    Also replaces the duplicated inline URL builder at `app/deals/[id]/page.tsx:545-571`.
 
-## Separate finding (not fixed here)
+## CORRECTION (same day, after follow-up investigation) — evidence #5 was WRONG
 
-**No stage-change webhook arrived for this lead at all** (evidence #5). Lars's New Lead → Attempted Contact
-move only landed at 15:30 via the sync's stage reconciliation — a 30-min stale-stage window on what is
-supposed to be the real-time path. That is a distinct issue from the link bug and needs its own
-investigation (webhook not firing in GHL vs. firing with a stage name `resolveGHLStage()` can't resolve —
-the latter would also explain the fall-through in this very diagnosis).
+**Retracted:** "no stage-change webhook ever arrived." **A webhook DID fire for Lars**, and the stage sync
+is working fine:
+
+```
+stage_events f0cb350b:  New Lead → Attempted Contact   deal=77a74939   source=webhook
+  event_at   15:22:05.089Z   (the move, in GHL)
+  created_at 15:22:05.316Z   (our row — 227ms later)
+  opportunity_id  4jHxP2JJCpRXom8s7No0
+  contact_id      4jHxP2JJCpRXom8s7No0   ← identical: the OPP id, in the contact_id column
+```
+
+**Why the original query lied:** I searched `stage_events` by `contact_id = 6zsx…` (the real contact id) and
+got zero rows — then concluded no webhook fired. But the row's `contact_id` holds the **opportunity id**, so
+the query could never match. *The query was defeated by the very bug being investigated.* `logStageEvent` is
+called with `contactId: oppContactId ?? cur?.ghl_contact_id ?? null` — this payload carries **no**
+`contactId`/`contact_id` at all (`oppContactId` = null), so it fell back to `cur.ghl_contact_id`, which was
+**already poisoned** by then.
+
+**There was no stale-stage window.** The dashboard read "New Lead" at 15:04 because the lead genuinely *was*
+New Lead until 15:22. It moved at 15:22 and the webhook updated us 227ms later. Efrain compared a 15:04
+dashboard against a post-15:22 GHL screen — the lag was in the comparison, not the system.
+
+## Corroboration at scale (this strengthens the main diagnosis)
+
+**109 `stage_events` rows have `contact_id === opportunity_id`** (~10% of 1,162 total; 31 more confirmed
+against a capped 1,000-deal sample, so a lower bound). Each one is an independent timestamp at which
+`deals.ghl_contact_id` was poisoned — the link bug is **real and recurring**, not a one-off. The fix stops it
+at the source going forward.
+
+**No report is affected:** `stage_events.contact_id` is **write-only**. It's written by `lib/stageEvents.ts`
+and the backfill; `/lead-cohorts` and `/lead-roi` key off `opportunity_id` / `deal_id` and never read it. So
+the poisoned column is latent — a trap for ad-hoc queries (it caught me), not a broken report.
+
+## Actual open thread (re-scoped)
+
+The real payload shape here is a **GHL Workflow webhook**, not the native API object: it carries `id` (the
+opp id), a resolvable stage **name**, and `pipelineId` — but **no `contactId`, and no `pipelineStageId`**
+(`to_stage_id`/`from_stage_id` are null on every row). When its stage name resolves, the stage branch handles
+it safely and returns. When it **doesn't** resolve, it falls through to CONTACT CREATE/UPDATE — which is
+exactly the fall-through that caused the clobber. So: **audit `GHL_STAGE_MAP` against GHL's live pipeline
+stage names** to find which moves fall through. Optional cleanup: repair the 109 poisoned
+`stage_events.contact_id` rows from `deals.ghl_contact_id` (cosmetic — nothing reads them).
