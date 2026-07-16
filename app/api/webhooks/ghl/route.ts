@@ -172,6 +172,16 @@ function resolveGHLStage(
   return null
 }
 
+// Does this payload describe an OPPORTUNITY (rather than a bare contact)?
+// Matters because GHL's `id` is polymorphic: contact id on a contact payload,
+// opportunity id on an opportunity payload.
+function isOpportunityPayload(body: Record<string, unknown>): boolean {
+  return !!(
+    pick(body, 'opportunity_name', 'opportunityName') ||
+    pick(body, 'pipleline_stage', 'pipeline_stage', 'pipelineStageName', 'pipelineStageId', 'pipelineStage')
+  )
+}
+
 // ── Extract all contact/loan fields from a GHL payload ────────────────────────
 function extractFields(body: Record<string, unknown>) {
   const contact = (body.contact as Record<string, unknown>) || body
@@ -181,9 +191,24 @@ function extractFields(body: Record<string, unknown>) {
     (body.custom_fields as GHLCustomField[]) || []
   )
 
+  // Resolve the CONTACT id — never the opportunity id.
+  //
+  // `contact` above falls back to `body` itself when there's no nested contact
+  // object, so reading `id` off it on an opportunity payload yields the
+  // OPPORTUNITY id. That value used to win over the correct `contact_id` sitting
+  // right beside it, get written to deals.ghl_contact_id, and 404 the "open in
+  // GHL" link until the sync's reconciliation repaired it (see
+  // docs/diagnoses/2026-07-16-ghl-link-opp-id-diagnosis.md).
+  //
+  // Order: nested contact object → explicit contact_id/contactId → bare `id`,
+  // and the bare `id` ONLY when this isn't an opportunity payload. Returning
+  // null is safe: the caller's `|| undefined` leaves the stored value alone,
+  // which beats overwriting it with a known-wrong id.
+  const nestedContact = body.contact as Record<string, unknown> | undefined
   const ghlContactId =
-    pick(contact, 'id', 'contact_id', 'contactId') ||
-    pick(body, 'id', 'contact_id', 'contactId')
+    (nestedContact ? pick(nestedContact, 'id', 'contact_id', 'contactId') : null) ||
+    pick(body, 'contact_id', 'contactId') ||
+    (isOpportunityPayload(body) ? null : pick(body, 'id'))
 
   const firstNameRaw = pick(contact, 'firstName', 'first_name') || pick(body, 'firstName', 'first_name') || ''
   const lastNameRaw  = pick(contact, 'lastName',  'last_name')  || pick(body, 'lastName',  'last_name')  || ''
@@ -478,11 +503,7 @@ export async function POST(req: NextRequest) {
     // lands on the EXACT loan, not an arbitrary sibling on the same contact. (This
     // is what caused a funded loan's webhook to mark a borrower's withdrawn loan as
     // funded — contact/email/phone can't tell two loans of one person apart.)
-    const isOppPayload = !!(
-      pick(body, 'opportunity_name', 'opportunityName') ||
-      pick(body, 'pipleline_stage', 'pipeline_stage', 'pipelineStageName', 'pipelineStageId', 'pipelineStage')
-    )
-    const opportunityId = isOppPayload ? pick(body, 'id', 'opportunity_id', 'opportunityId') : null
+    const opportunityId = isOpportunityPayload(body) ? pick(body, 'id', 'opportunity_id', 'opportunityId') : null
     const match = await findExistingDeal(supabase, { opportunityId, ghlContactId, email, phone })
     if (match) {
       const patch: Record<string, unknown> = {

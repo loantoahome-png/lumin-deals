@@ -542,24 +542,14 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                 <User className="w-3.5 h-3.5" /> View Contact
               </Link>
             )}
-            {form.ghl_contact_id && (() => {
-              // Resolve which GHL sub-account this deal lives in:
-              //   1. The stored ghl_location_id (set during sync) — best signal
-              //   2. Fallback: derive from loan_officer ("Matt"/"Park" → Matt's, "Moe"/"Sefati" → Moe's)
-              //   3. Last resort: the default env var (Moe's)
-              let locId = form.ghl_location_id as string | null
-              if (!locId) {
-                const lo = ((form.loan_officer as string | null) || '').toLowerCase()
-                if (lo.includes('matt') || lo.includes('park')) {
-                  locId = process.env.NEXT_PUBLIC_GHL_LOCATION_ID_MATT ?? null
-                } else if (lo.includes('moe') || lo.includes('sefati')) {
-                  locId = process.env.NEXT_PUBLIC_GHL_LOCATION_ID ?? null
-                }
-              }
-              if (!locId) locId = process.env.NEXT_PUBLIC_GHL_LOCATION_ID ?? ''
+            {(() => {
+              // Location resolution + the known-bad-id guard both live in
+              // ghlContactUrl — this used to be a hand-rolled duplicate of it.
+              const ghlUrl = ghlContactUrl(form)
+              if (!ghlUrl) return null
               return (
                 <a
-                  href={`${process.env.NEXT_PUBLIC_GHL_BASE_URL}/v2/location/${locId}/contacts/detail/${form.ghl_contact_id}`}
+                  href={ghlUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   title="Open in GoHighLevel"

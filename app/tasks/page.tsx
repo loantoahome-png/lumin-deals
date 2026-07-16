@@ -96,7 +96,8 @@ function TasksSection() {
       // Paginate past PostgREST's 1000-row cap — the table has >1000 deals, so a
       // bare select dropped the oldest, leaving their tasks unable to resolve a
       // deal name / LO.
-      fetchAllDeals(undefined, 'id, name, loan_officer, ghl_contact_id, ghl_location_id'),
+      // ghl_opportunity_id is needed for ghlContactUrl's known-bad-id guard.
+      fetchAllDeals(undefined, 'id, name, loan_officer, ghl_contact_id, ghl_opportunity_id, ghl_location_id'),
     ])
     setTasks((tasksRes.data as DealTask[]) || [])
     setDeals(dealsData)

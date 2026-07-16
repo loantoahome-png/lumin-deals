@@ -7,10 +7,19 @@ const GHL_BASE = process.env.NEXT_PUBLIC_GHL_BASE_URL || 'https://app.luminlendi
 
 export function ghlContactUrl(deal: {
   ghl_contact_id?: string | null
+  ghl_opportunity_id?: string | null
   ghl_location_id?: string | null
   loan_officer?: string | null
 }): string | null {
   if (!deal.ghl_contact_id) return null
+
+  // Known-bad id: an OPPORTUNITY id stored in the contact-id column. GHL renders
+  // "Contact not found" for it, so show no button rather than a dead link — the
+  // sync's contact-id reconciliation repairs the row within ~15 min. The webhook
+  // no longer writes this (see 2026-07-16 diagnosis); this guard makes the whole
+  // class unrenderable regardless of what writes the column in future.
+  // Callers that don't select ghl_opportunity_id simply skip the check.
+  if (deal.ghl_opportunity_id && deal.ghl_contact_id === deal.ghl_opportunity_id) return null
 
   // Preference order:
   //   1. stored ghl_location_id (best signal — set during sync)

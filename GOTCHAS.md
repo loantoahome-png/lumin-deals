@@ -192,3 +192,28 @@ until short page (copy the fetchAllDeals loop), or use `.select('...', { count: 
 counts are needed. Treat any round ~1000 total in a script result as a red flag.
 **Project:** lumin-deals
 **Date:** 2026-07-14
+
+### GHL's `id` is polymorphic — a `body.contact || body` fallback silently stores the OPPORTUNITY id as the contact id
+**Tried:** `extractFields` in the GHL webhook resolved the contact with the reasonable-looking
+`const contact = (body.contact as Record<string, unknown>) || body` then
+`pick(contact, 'id', 'contact_id', 'contactId')` — "read the nested contact if present, else read the body."
+**Failed because:** GHL's `id` field means different things per payload: the CONTACT id on a contact webhook,
+the OPPORTUNITY id on an opportunity webhook. On a flat opportunity payload (no nested `contact` object) the
+`|| body` fallback makes `contact === body`, so `pick(contact, 'id', …)` returns the **opportunity id** — and
+because `'id'` was listed before `'contact_id'`, it beat the correct `contact_id` sitting right beside it in
+the same payload. That value got written to `deals.ghl_contact_id`, so the dashboard's "open in GHL" button
+rendered `/contacts/detail/<OPPORTUNITY_ID>` and GHL answered "Contact not found."
+**Why it hid for so long:** the 15-min sync's maintenance pass reconciles `ghl_contact_id` from the live
+opportunity, so every occurrence self-repaired within ~15–30 min. The bug was only ever visible if you
+clicked the link inside that window — and the sync's own code comment already described the symptom, meaning
+it had been patched downstream instead of at the write site. A self-healing bug generates no bug reports.
+**What works:** Never trust a bare `id` on a polymorphic payload. Resolve in this order: nested `contact`
+object → explicit `contact_id`/`contactId` → bare `id` **only when the payload is not an opportunity**
+(`isOpportunityPayload()`). If nothing resolves, return `null` and let the caller's `|| undefined` leave the
+stored value alone — writing nothing always beats writing a known-wrong id. Belt-and-suspenders at the render
+site: `ghlContactUrl` returns `null` when `ghl_contact_id === ghl_opportunity_id`, so the whole class is
+unrenderable. Locked by `scripts/ghl-link-check.ts`.
+**Broader lesson:** when a downstream reconciler's comment describes a data corruption, that's a signal the
+write site is still broken — fix the source, don't just widen the repair.
+**Project:** lumin-deals
+**Date:** 2026-07-16

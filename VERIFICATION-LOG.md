@@ -1,7 +1,22 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-16] "Open in GHL" link 404 — opportunity id was landing in `deals.ghl_contact_id`
+**Status:** CHANGED — tsc: 0 errors in all 4 touched files (repo-wide count went 10 → 7; my changes removed 3), `scripts/ghl-link-check.ts` 10/10, `next build` READY.
+**Issue:** Efrain clicked the GHL button on the auto "2nd call-back — Lars Rosene" task → GHL "Contact not found"; the lead was alive in Attempted Contact. Asked whether the bad link is avoidable or if we just wait for the sync. **Answer: avoidable — it was a write-site bug, not sync lag.**
+**Root cause:** `extractFields` (`app/api/webhooks/ghl/route.ts`) did `const contact = body.contact || body` then `pick(contact, 'id', 'contact_id', 'contactId')`. GHL's `id` is polymorphic — the OPPORTUNITY id on an opportunity payload. On a flat opp payload (no nested `contact`), `contact` collapses to `body`, so `body.id` (opp id) beat the correct `body.contact_id` beside it and was written to `ghl_contact_id` (`route.ts:494`), 404'ing the link until the 15-min sync's reconciliation (`sync/ghl/route.ts:1234`) repaired it. The sync's own comment already named this failure — it had been patched downstream, so every occurrence self-healed and was never reported.
+**Proof (verified, not inferred):** Efrain's own Chrome tab held `/contacts/detail/4jHxP2JJCpRXom8s7No0` = Lars's **opportunity** id (live GHL API: `GET /opportunities/4jHxP2JJCpRXom8s7No0` → 200, `contactId: 6zsx1K9Og2afEjB06Iee`; `GET /contacts/6zsx…` → 200 "Lars Rosene"). Row created 15:00:37Z (correct), task clicked 15:04:50Z (broken), row repaired 15:30:17Z. Old logic replayed against that payload shape returns `4jHxP2JJCpRXom8s7No0` — the bug reproduced exactly.
+**Changes:**
+- `app/api/webhooks/ghl/route.ts` — new `isOpportunityPayload()` (hoisted from the inline check at the old line 481, now reused at both sites). Contact-id order is now: nested `contact` object → explicit `contact_id`/`contactId` → bare `id` **only when not an opportunity payload**. No id resolvable → `null`, so the caller's `|| undefined` leaves the stored value untouched (never overwrites with a known-wrong id).
+- `lib/ghlLinks.ts` — `ghlContactUrl` returns `null` when `ghl_contact_id === ghl_opportunity_id`. Known-bad id renders **no button** instead of a dead link, regardless of future writers. Callers without `ghl_opportunity_id` skip the guard (no behavior change).
+- `app/tasks/page.tsx` — narrow select now includes `ghl_opportunity_id` so the guard can fire there.
+- `app/deals/[id]/page.tsx` — replaced a hand-rolled duplicate of the URL builder with `ghlContactUrl(form)` (inherits the guard; removed 3 pre-existing tsc errors).
+- `scripts/ghl-link-check.ts` — NEW, 10 fixtures over both fixes (flat opp payload, camelCase, nested contact, no-contact-id, contact payload, plus the 4 guard cases).
+**Test Method:** `npx tsx scripts/ghl-link-check.ts` (10/10) · `npx tsc --noEmit` (0 in touched files) · `npm run build` READY. Webhook is GHL-driven and can't be fired in-session; covered by fixtures replicating the real payload shapes.
+**Result:** (pending prod verify)
+**Open — separate issue:** **zero `stage_events` rows** exist for contact `6zsx1K9Og2afEjB06Iee`, so **no stage-change webhook ever arrived** for Lars's New Lead → Attempted Contact move; the stage only corrected at 15:30 via the sync. Distinct from the link bug, needs its own investigation (webhook not firing in GHL vs. firing with a stage name `resolveGHLStage()` can't resolve — the latter would also explain the fall-through that caused this bug).
+
 ### [2026-07-15] Arive import preview — 5 review/safety tools added
-**Status:** CHANGED (tsc 0 errors in both files · arive-match-check 12/12 · build READY) — deploying per auto-deploy policy
+**Status:** DEPLOYED (commit `e6c93e4`, dpl `c3MwbsBDETQw49soStynmDez2sB5` READY, aliased lumin-deals.vercel.app) — tsc clean, arive-match-check 12/12, build READY. Re-paste CSV to use them.
 **Issue:** Efrain: "Do all of them?" — build out the 5 preview improvements I'd recommended.
 **Changes:**
 - **Protect fields (surgical override)** — `app/api/import/arive/route.ts` + `page.tsx`: `PROTECTABLE` toggle chips (status, loan_officer, occupancy, lead_source_agg, phone, email, property_address) shield a field from overwrite (blank-fills still allowed). Client sends `protectedFields[]` on commit; route skips protected overwrites in the update patch loop (`if overwrite && protectedSet.has(field) continue`). Preview counts + per-row diff reflect shields (protected fields show a blue **protected** badge).
