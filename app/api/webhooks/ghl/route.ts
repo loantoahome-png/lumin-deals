@@ -5,6 +5,10 @@ import { findExistingDeal } from '@/lib/dealMatcher'
 import { titleCase, cleanSource } from '@/lib/utils'
 import { resolveLO } from '@/lib/loanOfficer'
 import { logStageEvent } from '@/lib/stageEvents'
+import {
+  pick, isOpportunityPayload, getCustomData, cleanGhlId,
+  resolveWebhookEventType, channelLabel, messageSnippet, sanitizeRawBody,
+} from '@/lib/webhookPayload'
 
 // ── Signature validation ──────────────────────────────────────────────────────
 async function validateGHLSignature(req: NextRequest, rawBody: string): Promise<boolean> {
@@ -72,29 +76,9 @@ function parseAmount(val: string | number | null | undefined): number | null {
   return isNaN(num) ? null : num
 }
 
-/** Pick from an object — handles strings AND numbers (GHL sends many numeric top-level fields). */
-function pick(body: Record<string, unknown>, ...keys: string[]): string | null {
-  for (const key of keys) {
-    const val = body[key]
-    if (val !== null && val !== undefined && val !== '') {
-      if (typeof val === 'string' && val.trim()) return val.trim()
-      if (typeof val === 'number' && !isNaN(val)) return String(val)
-    }
-  }
-  return null
-}
-
-function channelLabel(type: string | null | undefined): string {
-  if (!type) return 'Text'
-  const t = String(type).toUpperCase()
-  if (t.includes('SMS') || t.includes('TEXT')) return 'Text'
-  if (t.includes('CALL') || t.includes('PHONE') || t.includes('VOICE') || t.includes('NO_SHOW')) return 'Call'
-  if (t.includes('EMAIL')) return 'Email'
-  if (t.includes('FB') || t.includes('FACEBOOK')) return 'Facebook'
-  if (t.includes('IG') || t.includes('INSTAGRAM')) return 'Instagram'
-  if (t.includes('WHATSAPP')) return 'WhatsApp'
-  return 'Text'
-}
+// pick / channelLabel / isOpportunityPayload / customData + snippet + sanitize
+// helpers moved to lib/webhookPayload.ts (pure, fixture-tested by
+// scripts/webhook-fields-check.ts — route files can't export helpers).
 
 function buildNameFromObj(obj: Record<string, unknown> | null | undefined): string | null {
   if (!obj) return null
@@ -172,16 +156,6 @@ function resolveGHLStage(
   return null
 }
 
-// Does this payload describe an OPPORTUNITY (rather than a bare contact)?
-// Matters because GHL's `id` is polymorphic: contact id on a contact payload,
-// opportunity id on an opportunity payload.
-function isOpportunityPayload(body: Record<string, unknown>): boolean {
-  return !!(
-    pick(body, 'opportunity_name', 'opportunityName') ||
-    pick(body, 'pipleline_stage', 'pipeline_stage', 'pipelineStageName', 'pipelineStageId', 'pipelineStage')
-  )
-}
-
 // ── Extract all contact/loan fields from a GHL payload ────────────────────────
 function extractFields(body: Record<string, unknown>) {
   const contact = (body.contact as Record<string, unknown>) || body
@@ -200,14 +174,18 @@ function extractFields(body: Record<string, unknown>) {
   // GHL" link until the sync's reconciliation repaired it (see
   // docs/diagnoses/2026-07-16-ghl-link-opp-id-diagnosis.md).
   //
-  // Order: nested contact object → explicit contact_id/contactId → bare `id`,
+  // Order: nested contact object → explicit contact_id/contactId →
+  // customData.contactId (the stage workflows map it explicitly; 99% fill —
+  // cleanGhlId guards against unresolved "{{…}}" merge tags) → bare `id`,
   // and the bare `id` ONLY when this isn't an opportunity payload. Returning
   // null is safe: the caller's `|| undefined` leaves the stored value alone,
   // which beats overwriting it with a known-wrong id.
   const nestedContact = body.contact as Record<string, unknown> | undefined
+  const customData = getCustomData(body)
   const ghlContactId =
     (nestedContact ? pick(nestedContact, 'id', 'contact_id', 'contactId') : null) ||
     pick(body, 'contact_id', 'contactId') ||
+    cleanGhlId(customData ? pick(customData, 'contactId', 'contact_id') : null) ||
     (isOpportunityPayload(body) ? null : pick(body, 'id'))
 
   const firstNameRaw = pick(contact, 'firstName', 'first_name') || pick(body, 'firstName', 'first_name') || ''
@@ -272,6 +250,12 @@ function extractFields(body: Record<string, unknown>) {
 
   const dateAddedGHL = pick(contact, 'dateAdded', 'date_added', 'createdAt') || pick(body, 'dateAdded', 'date_added', 'date_created') || null
 
+  // The VENDOR's own lead id (GHL "Lead ID" contact CF, 92% fill) — the join
+  // key for Lendgo/FRU refund & dispute reconciliation. Exact top-level key
+  // ONLY: getCustomField's substring match would also catch "Lumin Lead ID".
+  // sanitizeStr rejects GHL's "{…}"/"[…]" object-serialization junk.
+  const vendorLeadId = sanitizeStr(pick(body, 'Lead ID'))
+
   // Do-Not-Contact (compliance): master flag + per-channel settings.
   const dndRaw = contact.dnd ?? body.dnd
   const dnd = typeof dndRaw === 'boolean' ? dndRaw : null
@@ -285,7 +269,7 @@ function extractFields(body: Record<string, unknown>) {
     currentBalance, ltv, cashOut, downPayment, isMilitary, currentVaLoan,
     propertyFound, loanTimeframe, hasAcceptedOffer,
     city, state, zip, ghlTags, ghlAssignedUser, loanOfficer,
-    contactSource, campaign, leadSourceAgg, dateAddedGHL,
+    contactSource, campaign, leadSourceAgg, dateAddedGHL, vendorLeadId,
     // Guard the LOS name out of `source`: Arive writes its own name into GHL's
     // native `source` attribute once a loan syncs back, which would clobber the
     // real vendor (LMB/OwnUp/…). cleanSource() nulls "Arive"/"unknown" — same
@@ -313,12 +297,13 @@ export async function POST(req: NextRequest) {
     const supabase = createServiceClient()
 
     // ── Detect event type ─────────────────────────────────────────────────────
-    const eventType = (
-      pick(body, 'type', 'event', 'eventType', 'messageType') ||
-      (body.note  ? 'NoteCreate' : null) ||
-      (body.pipelineStageId || body.pipelineStageName ? 'OpportunityStageChange' : null) ||
-      'ContactCreate'
-    )
+    // Workflow webhooks carry no top-level type/event — the reply workflows
+    // ("LD - replies" / "Customer Replied") send event=inbound_message inside
+    // customData, which resolveWebhookEventType reads. Before 2026-07-16 that
+    // nesting made the message branch unreachable and every reply fell through
+    // to the contact path (proof: 17 reply bodies stored in raw_ghl_data).
+    const customData = getCustomData(body)
+    const eventType = resolveWebhookEventType(body)
 
     console.log('[GHL Webhook] Event type:', eventType)
 
@@ -336,15 +321,34 @@ export async function POST(req: NextRequest) {
       if (isInbound || isOutbound) {
         const msgContactId =
           pick(body, 'contactId', 'contact_id') ||
-          pick((body.contact as Record<string, unknown>) || {}, 'id')
+          pick((body.contact as Record<string, unknown>) || {}, 'id') ||
+          cleanGhlId(customData ? pick(customData, 'contactId', 'contact_id') : null)
         if (!msgContactId) return NextResponse.json({ success: false, reason: 'no contactId on message event' })
-        const channel = channelLabel(pick(body, 'messageType', 'message_type', 'channel'))
+        // Channel arrives as text on native events, as GHL's numeric enum on
+        // workflow webhooks (customData.channel / message.type: 1=Call 2=SMS 3=Email).
+        const channel = channelLabel(
+          pick(body, 'messageType', 'message_type', 'channel') ||
+          (customData ? pick(customData, 'channel', 'messageType') : null) ||
+          pick((body.message as Record<string, unknown>) || {}, 'type'))
         const { error } = await supabase.from('deals').update({
           last_communication_at: new Date().toISOString(),
           last_communication_type: channel,
           comm_unread_count: isInbound ? 1 : 0,
         }).eq('ghl_contact_id', msgContactId)
         if (error) console.error('[GHL Webhook] message update error:', error.message)
+        // What they actually said — surfaced on /hot-leads ("client waiting").
+        // Separate best-effort write so a missing column (migration not yet
+        // run: supabase-webhook-fields.sql) can never fail the core update.
+        // Calls carry no body; noisy email bodies are collapsed + truncated.
+        if (isInbound) {
+          const snippet = messageSnippet(body)
+          if (snippet) {
+            const { error: msgErr } = await supabase.from('deals')
+              .update({ last_inbound_message: snippet })
+              .eq('ghl_contact_id', msgContactId)
+            if (msgErr) console.warn('[GHL Webhook] last_inbound_message skipped (run supabase-webhook-fields.sql?):', msgErr.message)
+          }
+        }
         console.log(`[GHL Webhook] ${isInbound ? 'inbound' : 'outbound'} message → contact ${msgContactId} (${channel})`)
         return NextResponse.json({ success: true, action: isInbound ? 'inbound_message' : 'outbound_message', contactId: msgContactId })
       }
@@ -457,7 +461,9 @@ export async function POST(req: NextRequest) {
     if (match) {
       const patch: Record<string, unknown> = {
         last_contacted: new Date().toISOString().split('T')[0],
-        raw_ghl_data: body,
+        // Never persist SSN-class keys — 2 real bodies arrived carrying a
+        // top-level "Social Security Number" CF. GHL retains the source data.
+        raw_ghl_data: sanitizeRawBody(body),
         // CRITICAL: when we matched by email/phone, force-update the contact_id
         // so the next webhook event finds this record by contact_id directly
         // (without falling back through email/phone again).
@@ -503,6 +509,15 @@ export async function POST(req: NextRequest) {
       maybeSet('dnd_settings',      fields.dndSettings)
 
       await supabase.from('deals').update(patch).eq('id', match.id)
+
+      // Vendor lead id (refund/dispute reconciliation) — separate best-effort
+      // write so a missing column (migration not yet run:
+      // supabase-webhook-fields.sql) can never fail the core update above.
+      if (fields.vendorLeadId) {
+        const { error: vErr } = await supabase.from('deals')
+          .update({ vendor_lead_id: fields.vendorLeadId }).eq('id', match.id)
+        if (vErr) console.warn('[GHL Webhook] vendor_lead_id skipped (run supabase-webhook-fields.sql?):', vErr.message)
+      }
 
       // Apply pipeline stage/status if the payload carries it. GHL opportunity
       // workflow webhooks (e.g. the "LD stage matt" workflow) deliver the stage

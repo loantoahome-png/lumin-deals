@@ -19,29 +19,19 @@ function eq(label: string, got: unknown, want: unknown) {
 
 // ── Mirror of the webhook's contact-id resolution ─────────────────────────────
 // extractFields isn't exported (it's route-local), so we replicate the exact
-// logic under test. If you change it in app/api/webhooks/ghl/route.ts, change it
-// here — these fixtures are the regression net for that ordering.
-function pick(body: Record<string, unknown>, ...keys: string[]): string | null {
-  for (const key of keys) {
-    const val = body[key]
-    if (val !== null && val !== undefined && val !== '') {
-      if (typeof val === 'string' && val.trim()) return val.trim()
-      if (typeof val === 'number' && !isNaN(val)) return String(val)
-    }
-  }
-  return null
-}
-function isOpportunityPayload(body: Record<string, unknown>): boolean {
-  return !!(
-    pick(body, 'opportunity_name', 'opportunityName') ||
-    pick(body, 'pipleline_stage', 'pipeline_stage', 'pipelineStageName', 'pipelineStageId', 'pipelineStage')
-  )
-}
+// COMPOSITION under test — the building blocks (pick/isOpportunityPayload/
+// getCustomData/cleanGhlId) are the real ones from lib/webhookPayload.ts. If
+// you change the ordering in app/api/webhooks/ghl/route.ts, change it here —
+// these fixtures are the regression net for that ordering.
+import { pick, isOpportunityPayload, getCustomData, cleanGhlId } from '../lib/webhookPayload'
+
 function resolveContactId(body: Record<string, unknown>): string | null {
   const nestedContact = body.contact as Record<string, unknown> | undefined
+  const customData = getCustomData(body)
   return (
     (nestedContact ? pick(nestedContact, 'id', 'contact_id', 'contactId') : null) ||
     pick(body, 'contact_id', 'contactId') ||
+    cleanGhlId(customData ? pick(customData, 'contactId', 'contact_id') : null) ||
     (isOpportunityPayload(body) ? null : pick(body, 'id'))
   )
 }
@@ -81,6 +71,28 @@ eq('contact payload → bare id is the contact id',
 // Contact payload with a nested contact object.
 eq('contact payload w/ nested contact object',
   resolveContactId({ contact: { id: CON, firstName: 'Lars' } }),
+  CON)
+
+// ── customData step (2026-07-16 webhook-payload audit) ────────────────────────
+// The stage workflows map contactId into customData explicitly (99% fill). When
+// the standard keys are absent on an opp payload, customData must win over
+// returning null — and MUST NOT lose to the bare opp `id`.
+eq('opp payload w/ only customData.contactId → customData wins',
+  resolveContactId({ id: OPP, opportunity_name: 'Lars Rosene', pipleline_stage: 'Ghosted',
+    customData: { contactId: CON, pipelineName: '1) Leads' } }),
+  CON)
+
+// An unresolved merge tag ("{{contact.id}}") or other junk must be rejected by
+// cleanGhlId — never written to an id column, and never beating the null-safety.
+eq('customData junk merge tag → rejected, resolves null (not the opp id)',
+  resolveContactId({ id: OPP, opportunity_name: 'Lars Rosene',
+    customData: { contactId: '{{contact.id}}' } }),
+  null)
+
+// Explicit top-level contact_id still outranks customData (standard data first).
+eq('top-level contact_id outranks customData.contactId',
+  resolveContactId({ id: OPP, contact_id: CON, opportunity_name: 'Lars',
+    customData: { contactId: 'zzzWrongCustomDataId1' } }),
   CON)
 
 // ── 2. ghlContactUrl known-bad-id guard ───────────────────────────────────────

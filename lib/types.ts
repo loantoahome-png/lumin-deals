@@ -56,6 +56,7 @@ export type Deal = {
   refinance_type: string | null          // 'Cash Out' | 'Rate and Term' — only meaningful when loan_purpose === 'Refinance'
   lien_position: string | null           // '1st Lien' | '2nd Lien' | '3rd Lien' — where the new loan sits in title hierarchy
   lead_price: number | null              // what we paid for this individual lead (GHL "Lead Price")
+  vendor_lead_id: string | null          // the VENDOR's own lead id (GHL "Lead ID" CF) — Lendgo/FRU refund & dispute reconciliation
   compensation_amount: number | null     // broker compensation earned on the funded loan (Arive "Compensation Amount")
   loan_amount: number | null
   estimated_value: number | null
@@ -132,6 +133,7 @@ export type Deal = {
   last_communication_type: string | null      // 'Text' | 'Call' | 'Email' | …
   comm_unread_count: number | null             // unanswered client messages — "waiting on us"
   last_inbound_at: string | null               // ISO — last message FROM the borrower (inbound)
+  last_inbound_message: string | null          // latest inbound message text (≤400-char snippet, real-time via reply webhook)
   last_outbound_at: string | null              // ISO — last message FROM us (outbound)
   dnd: boolean | null                           // GHL master Do-Not-Contact (blocks ALL channels)
   dnd_settings: Record<string, unknown> | null  // GHL per-channel DND ({ SMS:{status}, Email:{status}, … })

@@ -277,7 +277,7 @@ export default function HotLeadsTracker({ deals, onUpdate, onMarkLost }: Props) 
                   key={d.id}
                   href={`/deals/${d.id}`}
                   className="text-xs font-semibold text-red-700 bg-white border border-red-200 rounded-full px-2.5 py-0.5 hover:bg-red-100 transition-colors flex items-center gap-1"
-                  title={`${d.comm_unread_count} unread · ${d.status}`}
+                  title={`${d.comm_unread_count} unread · ${d.status}${d.last_inbound_message ? ` — “${d.last_inbound_message.slice(0, 140)}”` : ''}`}
                 >
                   {d.name}
                   <span className="text-[10px] font-bold text-red-500 tabular-nums">{d.comm_unread_count}</span>
@@ -737,11 +737,20 @@ function HotLeadCard({ deal, bucket, onUpdate, onMarkLost }: {
 
       {/* "Client waiting on us" — unanswered inbound messages. Top slip-risk. */}
       {waiting && (
-        <div className="px-4 py-1.5 bg-red-50 border-b border-red-100 flex items-center gap-1.5">
-          <span className="text-[11px] font-bold text-red-700">⏳ Client waiting on reply</span>
-          <span className="text-[10px] font-semibold text-red-600 bg-red-100 rounded-full px-1.5 py-0.5 tabular-nums">
-            {deal.comm_unread_count} unread
-          </span>
+        <div className="px-4 py-1.5 bg-red-50 border-b border-red-100">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-bold text-red-700">⏳ Client waiting on reply</span>
+            <span className="text-[10px] font-semibold text-red-600 bg-red-100 rounded-full px-1.5 py-0.5 tabular-nums">
+              {deal.comm_unread_count} unread
+            </span>
+          </div>
+          {/* What they said — real-time from the reply webhook. Emails can be
+              noisy (footers/marketing); the snippet is pre-collapsed server-side. */}
+          {deal.last_inbound_message && (
+            <p className="mt-1 text-[11px] leading-snug text-red-800/90 italic line-clamp-2" title={deal.last_inbound_message}>
+              “{deal.last_inbound_message}”
+            </p>
+          )}
         </div>
       )}
 
