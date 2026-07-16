@@ -426,68 +426,17 @@ export async function POST(req: NextRequest) {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // OPPORTUNITY STAGE CHANGE — update pipeline stage
+    // NOTE — there is deliberately NO dedicated "opportunity stage change" branch.
+    // GHL's Workflow webhook (the only thing that posts here) sends the stage under
+    // the MISSPELLED key `pipleline_stage` and carries no `pipelineStageId`,
+    // `pipelineStageName`, or `type`/`event` — so eventType always resolves to
+    // 'ContactCreate' and stage moves are applied by the CONTACT CREATE/UPDATE path
+    // below (see the `whStageName` block). A branch keyed on pipelineStageId /
+    // pipelineStageName existed here until 2026-07-16 and had never once fired:
+    // 0 of 1,162 stage_events carried a from_stage_id/to_stage_id, and its
+    // `.update(stage)` lacked the Funded guard the surviving path has.
+    // Verified payload shape + reasoning: docs/diagnoses/2026-07-16-webhook-dead-code.md
     // ══════════════════════════════════════════════════════════════════════════
-    if (
-      eventType === 'OpportunityStageChange' ||
-      eventType === 'opportunity.stageChange' ||
-      eventType === 'OpportunityStatusChanged' ||
-      body.pipelineStageId || body.pipelineStageName
-    ) {
-      const stageName =
-        pick(body, 'pipelineStageName', 'stageName', 'stage_name', 'pipelineStage') ||
-        pick(body, 'status')
-      const pipelineName = pick(body, 'pipelineName', 'pipeline_name', 'pipeline')
-      const oppContactId = pick(body, 'contactId', 'contact_id')
-      const oppName = pick(body, 'name', 'opportunityName', 'title')
-
-      const stage = resolveGHLStage(stageName, pipelineName)
-
-      if (stage) {
-        // Match by opportunity id first; the contact fallback only applies when it
-        // resolves to a single deal (findExistingDeal enforces this) — so a stage
-        // change can't land on a sibling loan of a multi-loan borrower.
-        const oppId = pick(body, 'id', 'opportunity_id', 'opportunityId')
-        const existing = await findExistingDeal(supabase, { opportunityId: oppId, ghlContactId: oppContactId })
-        if (existing) {
-          // Capture the CURRENT status before we overwrite it — that's the "from"
-          // side of the transition we log to stage_events.
-          const { data: cur } = await supabase.from('deals')
-            .select('status, ghl_opportunity_id, ghl_contact_id, loan_officer')
-            .eq('id', existing.id).maybeSingle()
-          await supabase.from('deals').update(stage).eq('id', existing.id)
-          console.log('[GHL Webhook] Stage updated:', existing.id, '→', stage, `(by ${existing.matchedBy})`)
-          // Log the transition for responsiveness timing (forward-only). Only on a
-          // REAL move to a new status, so workflow echoes of the current stage don't
-          // inflate the log. logStageEvent never throws — never blocks the response.
-          if (!cur || cur.status !== stage.status) {
-            await logStageEvent(supabase, {
-              opportunityId:   cur?.ghl_opportunity_id ?? oppId ?? null,
-              contactId:       oppContactId ?? cur?.ghl_contact_id ?? null,
-              dealId:          existing.id,
-              fromStageId:     pick(body, 'previousStageId', 'fromStageId', 'oldStageId', 'old_stage_id'),
-              toStageId:       pick(body, 'pipelineStageId', 'stageId', 'toStageId', 'pipeline_stage_id'),
-              fromStatus:      cur?.status ?? null,
-              toStatus:        stage.status,
-              toPipelineGroup: stage.pipeline_group,
-              pipelineId:      pick(body, 'pipelineId', 'pipeline_id'),
-              loanOfficer:     cur?.loan_officer ?? null,
-              assignedTo:      pick(body, 'assignedTo', 'assigned_to', 'assignedToId', 'userId'),
-              eventAt:         pick(body, 'dateUpdated', 'date_updated', 'updatedAt', 'timestamp'),
-            })
-          }
-          return NextResponse.json({ success: true, action: 'stage_updated', dealId: existing.id, newStage: stage })
-        }
-      }
-
-      // Deal not found — do NOT create here. The webhook is update-only; the
-      // 15-min sync owns creation (it keys by opportunity ID and dedupes
-      // correctly). Creating here produced rows with no ghl_opportunity_id /
-      // ghl_location_id that the sync then duplicated. The sync will pick this
-      // lead up and the next stage-change webhook will match it by contact_id.
-      console.log('[GHL Webhook] Stage change for unknown deal — deferring to sync:', oppContactId)
-      return NextResponse.json({ success: false, reason: 'no matching deal; sync will create it' })
-    }
 
     // ══════════════════════════════════════════════════════════════════════════
     // CONTACT CREATE / UPDATE — full field sync
@@ -516,11 +465,12 @@ export async function POST(req: NextRequest) {
       }
       const maybeSet = (key: string, val: unknown) => { if (val !== null && val !== undefined) patch[key] = val }
 
-      // loan_amount is NOT taken from the GHL "Loan Amount" CUSTOM FIELD — that's an
-      // unreliable lead-intake number (it once put $610k on a $150k loan). It IS set,
-      // in real time, from the opportunity monetaryValue further down (non-funded only,
-      // mirroring the sync's fundedOwnsAmount rule) IF this payload carries it; the
-      // full/maintenance sync stays the backstop that reconciles every deal.
+      // loan_amount is deliberately NOT written here. The GHL "Loan Amount" CUSTOM
+      // FIELD is an unreliable lead-intake number (it once put $610k on a $150k loan),
+      // and the payload carries no opportunity monetaryValue to use instead (verified
+      // 2026-07-16: 0 of 142 stored webhook bodies have one). loan_amount is SYNC-ONLY —
+      // the 15-min sync mirrors the opp value onto every non-funded deal
+      // (sync/ghl/route.ts:1223) and Arive stays authoritative for funded loans.
       maybeSet('estimated_value',   fields.estimatedValue)
       maybeSet('loan_type',         fields.loanType)
       maybeSet('loan_purpose',      fields.loanPurpose)
@@ -604,33 +554,17 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // ── Real-time loan amount from the OPPORTUNITY monetary value ───────────
-      // Mirrors the sync's fundedOwnsAmount rule (app/api/sync/ghl/route.ts): the opp
-      // value drives loan_amount on IN-PROCESS loans; FUNDED stays Arive-authoritative.
-      // The `.neq('pipeline_group','Funded')` guard enforces that at the DB, so a deal
-      // the stage block above just moved to Funded is correctly skipped.
-      // CRITICAL: only act when the payload actually CARRIES a monetary-value key — a
-      // mere ABSENCE must never wipe loan_amount (notes/messages/contact webhooks don't
-      // carry it). We detect key PRESENCE (hasOwnProperty), not truthiness, so an
-      // explicit empty value still clears a stale figure, exactly like the sync's mirror.
-      const mvContainers: Record<string, unknown>[] = [body]
-      if (body.opportunity && typeof body.opportunity === 'object') {
-        mvContainers.push(body.opportunity as Record<string, unknown>)
-      }
-      const MV_KEYS = ['monetaryValue', 'monetary_value', 'opportunityValue', 'opportunity_value', 'Monetary Value', 'Opportunity Value']
-      let mvFound: { value: number | null } | null = null
-      for (const c of mvContainers) {
-        const k = MV_KEYS.find(key => Object.prototype.hasOwnProperty.call(c, key))
-        if (k) { mvFound = { value: parseAmount(c[k] as string | number | null) }; break }
-      }
-      if (mvFound) {
-        const { error: amtErr } = await supabase.from('deals')
-          .update({ loan_amount: mvFound.value })
-          .eq('id', match.id)
-          .neq('pipeline_group', 'Funded')   // Arive owns funded amounts — never overwrite
-        if (amtErr) console.error('[GHL Webhook] loan_amount apply error:', amtErr.message)
-        else console.log(`[GHL Webhook] loan_amount ← opp monetaryValue ${mvFound.value} (non-funded only) on deal ${match.id}`)
-      }
+      // ── NOTE: no real-time loan_amount write here ──────────────────────────
+      // A block here used to mirror the sync's opp-value rule by reading a
+      // `monetaryValue` key off the payload. It never fired: 0 of 142 stored
+      // webhook bodies carry a top-level monetaryValue, and there is no
+      // `body.opportunity` either. The Workflow UI's "monetaryValue" custom field
+      // lands in the NESTED `body.customData` (which we don't read) — and its key
+      // literally has a trailing space ("monetaryValue "), so a hasOwnProperty
+      // lookup could never have matched it anyway.
+      // loan_amount is therefore SYNC-ONLY, and that is fine: the 15-min sync
+      // mirrors the opp value on every non-funded deal (sync/ghl/route.ts:1223).
+      // Removed 2026-07-16 — see docs/diagnoses/2026-07-16-webhook-dead-code.md
 
       console.log(`[GHL Webhook] Updated deal ${match.id} (matched by ${match.matchedBy})`)
       return NextResponse.json({ success: true, action: 'updated', dealId: match.id, matchedBy: match.matchedBy })
