@@ -96,8 +96,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 5. Build per-row plan
-  const planMode = mode === 'overwrite' ? 'overwrite' : 'fill_blanks'
+  // 5. Build per-row plan.
+  // PREVIEW builds the RICHEST plan ('overwrite') so the client gets every
+  // field's true action (fill vs overwrite) and can render + count per the
+  // user's selected display mode WITHOUT re-fetching. Preview writes nothing
+  // (it returns below, before the commit loop). Only a fill_blanks COMMIT
+  // restricts writes to currently-blank fields.
+  const planMode = mode === 'fill_blanks' ? 'fill_blanks' : 'overwrite'
   const plans = buildPlan({ rows: patches, deals: dealsMap, ix, mode: planMode, createUnmatched: body.createUnmatched })
   const summary = summarizePlan(plans)
 

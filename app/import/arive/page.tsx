@@ -314,23 +314,43 @@ export default function AriveImportPage() {
                     </div>
                   )}
                   {expanded && (p.matched || p.action === 'create_new') && (
-                    <div className="mt-2 ml-7 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                    <div className="mt-2 ml-7 text-xs">
                       {p.changes.length === 0 ? (
                         <span className="text-slate-400 italic">No mappable fields had values.</span>
                       ) : (
-                        p.changes.map((c, i) => {
-                          const willWrite = c.action === 'fill' || (c.action === 'overwrite' && mode === 'overwrite')
-                          const cls = !willWrite ? 'text-slate-400' : c.action === 'overwrite' ? 'text-amber-700' : 'text-emerald-700'
-                          return (
-                            <div key={i} className={`flex items-center gap-2 ${cls}`}>
-                              <span className="font-mono text-[10px] uppercase text-slate-400 w-32 shrink-0 truncate">{c.field}</span>
-                              <span className="text-slate-500 truncate">{fmt(c.current)}</span>
-                              <span className="text-slate-300">→</span>
-                              <span className={`truncate font-medium ${willWrite ? '' : 'line-through opacity-60'}`}>{fmt(c.next)}</span>
-                              {!willWrite && <span className="text-[9px] uppercase text-slate-400 ml-auto">skipped</span>}
-                            </div>
-                          )
-                        })
+                        <div className="rounded-lg border border-slate-200 overflow-hidden">
+                          {/* Header labels which value is which — the whole point of the diff */}
+                          <div className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-50 border-b border-slate-200 text-[9px] font-bold uppercase tracking-wide text-slate-400">
+                            <span className="w-28 shrink-0">Field</span>
+                            <span className="flex-1 truncate">Dashboard now</span>
+                            <span className="w-4 shrink-0 text-center">→</span>
+                            <span className="flex-1 truncate">Arive value</span>
+                            <span className="w-16 shrink-0 text-right">Result</span>
+                          </div>
+                          {p.changes.map((c, i) => {
+                            // With the preview plan built in 'overwrite' mode, action is the
+                            // TRUE action; ariveWins reflects the user's selected apply mode.
+                            const ariveWins = c.action === 'fill' || (c.action === 'overwrite' && mode === 'overwrite')
+                            const isOverwrite = c.action === 'overwrite'
+                            const dashBlank = c.current == null || c.current === ''
+                            return (
+                              <div key={i} className="flex items-center gap-2 px-2.5 py-1 border-b border-slate-100 last:border-0">
+                                <span className="font-mono text-[10px] uppercase text-slate-400 w-28 shrink-0 truncate" title={c.field}>{c.field}</span>
+                                {/* Dashboard value — bold when it's the one kept, muted when Arive overrides it */}
+                                <span className={`flex-1 truncate ${!ariveWins && !dashBlank ? 'text-slate-800 font-semibold' : 'text-slate-400'}`}>{fmt(c.current)}</span>
+                                <span className="w-4 shrink-0 text-center text-slate-300">→</span>
+                                {/* Arive value — bold + colored when it wins, struck through when skipped */}
+                                <span className={`flex-1 truncate ${ariveWins ? `font-semibold ${isOverwrite ? 'text-amber-700' : 'text-emerald-700'}` : 'text-slate-300 line-through'}`}>{fmt(c.next)}</span>
+                                {/* Result — says exactly what happens to this field */}
+                                <span className="w-16 shrink-0 text-right text-[9px] font-bold uppercase">
+                                  {ariveWins
+                                    ? (isOverwrite ? <span className="text-amber-700">overwrite</span> : <span className="text-emerald-700">fill</span>)
+                                    : <span className="text-slate-400">keep</span>}
+                                </span>
+                              </div>
+                            )
+                          })}
+                        </div>
                       )}
                     </div>
                   )}
