@@ -134,6 +134,8 @@ type Props = {
 export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
   const [filter, setFilter] = useState<FollowUpFilter>('all')
   const [search, setSearch] = useState('')
+  // Processor facet — independent of the quick-filter; null = all processors.
+  const [processorFilter, setProcessorFilter] = useState<string | null>(null)
 
   // Filtered + sorted list
   const filteredAndSorted = useMemo(() => {
@@ -148,6 +150,12 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
         const hay = [d.name, d.loan_officer, d.property_address, d.next_action, d.next_action_assignee]
           .filter(Boolean).join(' ').toLowerCase()
         if (!hay.includes(lower)) return false
+      }
+
+      // Processor facet — composes with the quick-filter + search.
+      if (processorFilter) {
+        const p = d.processor_status || d.processor || 'Unassigned'
+        if (p !== processorFilter) return false
       }
 
       const due = d.next_action_due ? new Date(d.next_action_due) : null
@@ -193,7 +201,7 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
       // Both have dates: overdue/today/future order is implicit by time
       return da - db || prioRank(a.escrow_priority) - prioRank(b.escrow_priority)
     })
-  }, [deals, filter, search, currentUser])
+  }, [deals, filter, search, currentUser, processorFilter])
 
   // ── Stable display order ────────────────────────────────────────────────────
   // The sort above is by next_action_due, so the instant you set a follow-up date
@@ -208,7 +216,7 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
   useEffect(() => {
     setOrderedIds(filteredAndSorted.map(d => d.id))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [membershipKey, filter, search, currentUser])
+  }, [membershipKey, filter, search, currentUser, processorFilter])
 
   const displayList = useMemo(() => {
     const byId = new Map(filteredAndSorted.map(d => [d.id, d]))
@@ -265,20 +273,52 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
     return ordered
   }, [deals])
 
+  // If the selected processor drops out of the current set (e.g. an LO-filter
+  // change leaves them with 0 escrows), clear the facet so the board can't get
+  // stuck on a filter with no chip left to toggle off.
+  useEffect(() => {
+    if (processorFilter && !processorCounts.some(p => p.name === processorFilter)) {
+      setProcessorFilter(null)
+    }
+  }, [processorCounts, processorFilter])
+
   return (
     <div className="p-4 space-y-4">
-      {/* Per-processor workload — counts across the current (LO-filtered) escrows */}
+      {/* Per-processor workload — click a chip to filter the board to that processor */}
       {deals.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap bg-white border border-slate-200 rounded-xl px-3 py-2">
           <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
             <UserCog className="w-3.5 h-3.5" /> By processor
           </span>
-          {processorCounts.map(({ name, count }) => (
-            <span key={name} className={`inline-flex items-center gap-1.5 text-xs font-medium rounded-lg px-2 py-1 border ${name === 'Unassigned' ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-slate-700 bg-slate-50 border-slate-200'}`}>
-              {name}
-              <span className="text-[11px] font-bold tabular-nums text-slate-900 bg-white border border-slate-200 rounded-full px-1.5">{count}</span>
-            </span>
-          ))}
+          {processorCounts.map(({ name, count }) => {
+            const active = processorFilter === name
+            const isUnassigned = name === 'Unassigned'
+            return (
+              <button
+                key={name}
+                onClick={() => setProcessorFilter(active ? null : name)}
+                title={active ? 'Clear processor filter' : `Show only ${name}`}
+                className={`inline-flex items-center gap-1.5 text-xs font-medium rounded-lg px-2 py-1 border transition-colors ${
+                  active
+                    ? 'text-white bg-blue-600 border-blue-600'
+                    : isUnassigned
+                      ? 'text-amber-700 bg-amber-50 border-amber-200 hover:bg-amber-100'
+                      : 'text-slate-700 bg-slate-50 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                {name}
+                <span className={`text-[11px] font-bold tabular-nums rounded-full px-1.5 border ${active ? 'text-blue-700 bg-white border-white' : 'text-slate-900 bg-white border-slate-200'}`}>{count}</span>
+              </button>
+            )
+          })}
+          {processorFilter && (
+            <button
+              onClick={() => setProcessorFilter(null)}
+              className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 underline decoration-dotted ml-0.5"
+            >
+              Clear
+            </button>
+          )}
         </div>
       )}
 

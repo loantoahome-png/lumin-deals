@@ -1,7 +1,14 @@
 # Verification Log — Lumin Deals
 
-### [2026-07-14] Active Escrows — "By processor" workload strip (EscrowTracker)
+### [2026-07-14] Active Escrows — processor chips are now clickable filters
 **Status:** CHANGED (tsc 0 errors in EscrowTracker.tsx · build READY) — deploying per auto-deploy policy
+**Issue:** Efrain (follow-up to the workload strip): "clickable processor filters."
+**Changes:** `components/EscrowTracker.tsx` — new `processorFilter` state (null = all); a predicate in `filteredAndSorted` (`processor_status || processor`, empties → 'Unassigned') that **composes** with the search + quick-filter facets; chips are now toggle `<button>`s (active = blue filled, click again or "Clear" to reset). Added a guard `useEffect` that clears the facet if the selected processor leaves the current set (e.g. an LO switch) so the board can't get stuck on an empty filter with no chip to toggle off. Counts still show the full LO-filtered distribution (stable menu), so combining a quick-filter + processor can show a chip count higher than the visible cards.
+**Test Method:** `tsc --noEmit` 0 errors in EscrowTracker.tsx · `next build` READY. `/deals` is login-gated, not driven in-session — verified by types + build + review.
+**Result:** CHANGED — click a processor chip to filter the board; composes with Overdue/Today/search.
+
+### [2026-07-14] Active Escrows — "By processor" workload strip (EscrowTracker)
+**Status:** DEPLOYED (commit `9723b33`, dpl `FtRTdqkNwSSdMNGN7KPVWymmN1JT` READY, aliased lumin-deals.vercel.app) — tsc clean in EscrowTracker.tsx, build READY. Strip live on next load.
 **Issue:** Efrain: "Give me a little section here that shows how many loans are assigned to each processor" — the Active Escrows tracker (`/deals`, Tracker view) had no per-processor breakdown.
 **Changes:** `components/EscrowTracker.tsx` — new `processorCounts` useMemo over the `deals` prop (current LO-filtered active-escrow set), using the same field as the report (`processor_status || processor`, empties → 'Unassigned'; canonical `PROCESSORS` order, legacy/unknown values next, Unassigned last when > 0). Rendered as a compact "By processor" chip strip at the top of the tracker, above the search/quick-filter toolbar (where the screenshot's red box is). Display-only (not a filter); counts the full LO-filtered set (matches the "20 deals" header), independent of the quick-filter/search.
 **Test Method:** `tsc --noEmit` 0 errors in EscrowTracker.tsx · `next build` READY. `/deals` is login-gated, not driven in-session — verified by types + build + code review.
