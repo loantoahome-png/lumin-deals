@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback, Suspense } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { notifyTask } from '@/lib/notifyTask'
@@ -10,7 +11,7 @@ import { ghlContactUrl } from '@/lib/ghlLinks'
 import { DealTask, Deal, TASK_ASSIGNEES } from '@/lib/types'
 import {
   ClipboardList, Plus, X, Search, CheckCircle2, Circle,
-  Calendar, User, Flame, ExternalLink, Trash2,
+  Calendar, User, Flame, ExternalLink, Trash2, StickyNote,
 } from 'lucide-react'
 import NotesBoard from '@/components/NotesBoard'
 
@@ -606,12 +607,70 @@ function NewTaskForm({ deals, initialTask, onSubmit, onCancel }: {
   )
 }
 
-// Combined "Bulletin/Tasks" page — tasks on top, the notes board (bulletin) below.
-export default function BulletinTasksPage() {
+// ── Combined "Bulletin/Tasks" page — one tab each ────────────────────────────
+type PageTab = 'tasks' | 'bulletin'
+
+const TABS: { key: PageTab; label: string; icon: typeof ClipboardList; accent: string }[] = [
+  { key: 'tasks',    label: 'Tasks',    icon: ClipboardList, accent: 'bg-blue-600 border-blue-600' },
+  { key: 'bulletin', label: 'Bulletin', icon: StickyNote,    accent: 'bg-amber-500 border-amber-500' },
+]
+
+function BulletinTasksPageInner() {
+  // ?tab=tasks|bulletin deep-links a tab (default: tasks).
+  const searchParams = useSearchParams()
+  const initialTab: PageTab = searchParams.get('tab') === 'bulletin' ? 'bulletin' : 'tasks'
+  const [tab, setTab] = useState<PageTab>(initialTab)
+
+  // Each panel fetches its own data (tasks pulls the whole deal list), so a panel
+  // is mounted on first visit and then kept mounted behind `hidden` — switching
+  // tabs never refetches, and the tab you never open never fetches at all.
+  const [mounted, setMounted] = useState<Set<PageTab>>(() => new Set([initialTab]))
+  function show(next: PageTab) {
+    setTab(next)
+    setMounted(prev => prev.has(next) ? prev : new Set(prev).add(next))
+  }
+
   return (
     <div>
-      <TasksSection />
-      <NotesBoard embedded />
+      <div className="max-w-6xl mx-auto px-6 pt-6">
+        <div className="flex gap-2">
+          {TABS.map(t => {
+            const active = tab === t.key
+            const Icon = t.icon
+            return (
+              <button
+                key={t.key}
+                onClick={() => show(t.key)}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${
+                  active ? `${t.accent} text-white shadow-md` : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'
+                }`}
+              >
+                <Icon className="w-4 h-4" /> {t.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {mounted.has('tasks') && (
+        <div className={tab === 'tasks' ? undefined : 'hidden'}><TasksSection /></div>
+      )}
+      {mounted.has('bulletin') && (
+        <div className={tab === 'bulletin' ? undefined : 'hidden'}><NotesBoard embedded /></div>
+      )}
     </div>
+  )
+}
+
+// useSearchParams requires a Suspense boundary in the App Router.
+export default function BulletinTasksPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center h-full">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+      </div>
+    }>
+      <BulletinTasksPageInner />
+    </Suspense>
   )
 }

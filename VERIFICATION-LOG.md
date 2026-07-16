@@ -1,5 +1,28 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-16] /tasks — split the stacked Bulletin/Tasks page into two tabs
+**Status:** VERIFIED (browser, local) — tsc unchanged (7 pre-existing, 0 in touched files), `next build` READY.
+**Issue:** Efrain: "Separate the Bulletin/Tasks into individual tabs." `/tasks` rendered `TasksSection` and
+`NotesBoard` stacked, so the Bulletin sat below the whole task list — you had to scroll past every task to reach it.
+**Changes:**
+- `app/tasks/page.tsx` — the default export is now a two-tab shell (Tasks · Bulletin) matching the /hot-leads tab
+  idiom (`flex-1 … rounded-xl border-2`, blue accent for Tasks, amber for Bulletin). `?tab=tasks|bulletin`
+  deep-links a tab (default: tasks), read via `useSearchParams` → the page is wrapped in `Suspense` (App Router
+  requirement, same as /hot-leads). `TasksSection`/`NotesBoard` are unchanged and keep their own headers/controls.
+- **Panels lazy-mount, then stay mounted behind `hidden`.** Each panel fetches its own data (Tasks pulls the whole
+  paginated deal list), so: the tab you never open never fetches, and switching tabs never refetches or loses
+  filter/search state. Conditional rendering would have re-run `fetchAllDeals` (>1000 rows) on every switch.
+- `app/notes/page.tsx` — the legacy `/notes` redirect now targets `/tasks?tab=bulletin` instead of `/tasks`, so it
+  still lands on the notes board.
+**Test Method:** local dev server + browser. Auth-gated, so `/tasks` was made public in `middleware.ts` for the
+run and **reverted** (`git diff middleware.ts` empty — confirmed no residue).
+**Result:** Tabs render and switch; Tasks tab mounts on click and loads (25 tasks; Open/Overdue/Completed chips
+correct); Bulletin renders all notes. `?tab=bulletin` cold load → Bulletin active and `input[placeholder="Search
+tasks…"]` **absent from the DOM** (lazy-mount confirmed — no deal fetch). Typed "HELIX" into the Bulletin search →
+switched to Tasks → back: filter still applied, no reload spinner (state preserved, no refetch). No console errors.
+Deal-name links render as generic "Deal" under the temporary bypass because `deals` rejects anon reads — known RLS
+behavior ([[project_lumin_deals_rls]]), not introduced here.
+
 ### [2026-07-16] Webhook enrichment — read customData, real-time reply flag, vendor Lead ID, SSN scrub
 **Status:** CHANGED — `webhook-fields-check` 32/32 (NEW), `ghl-link-check` 13/13 (+3 customData fixtures), push-stage-log 10/10, triage 53/53, tsc unchanged (7 pre-existing, 0 in touched files), `next build` READY.
 **Issue:** Efrain: "implement the fixes" from the webhook payload audit (`docs/research/2026-07-16-ghl-webhook-payload-audit.md`, 146 stored bodies). Four gaps: (1) `customData` never read — incl. `contactId` at 99% fill; (2) reply workflows ("LD - replies"/"Customer Replied") send `event=inbound_message` NESTED in customData, so the real-time message branch never fired — every reply fell through to the contact path and the "client waiting" flag waited on the 30-min conversations sync; (3) vendor "Lead ID" (92%, Lendgo/FRU refund reconciliation) unstored; (4) SSN arriving top-level, persisted verbatim into `raw_ghl_data`.
