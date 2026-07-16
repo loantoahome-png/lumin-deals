@@ -1,5 +1,18 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-16] /tasks — per-person "+" on each column header, pre-assigns the new task
+**Status:** VERIFIED in a real browser (see Result), tsc unchanged (7 pre-existing, 0 in the touched file), `next build` ✓ compiled.
+**Issue:** Efrain: "create a little button on these headers that once clicked, it will already have the 'assigned to' filled out based on whose header button is pressed… to create the task assigned to that specific person." Creating a task for someone meant the top "New Task" button + manually picking them from the dropdown.
+**Changes (`app/tasks/page.tsx` only):**
+- `NewTaskForm` gains `initialAssignee?: string` → seeds the assignee select (`initialTask?.assignee || initialAssignee || ''`, so edit-mode still wins).
+- `AssigneeColumn` gains `onAdd` (a `+` in the header, beside the count) + a `composing` slot rendering the form **inside that column** — following the precedent already set by `editingId`, which renders `NewTaskForm` in-column. Avoids the click-here/form-appears-offscreen-above problem.
+- `TasksSection` gains `composeFor` state. Only ONE form is ever open: the column `+` closes the top form and vice-versa; create/cancel clears it.
+- The catch-all column seeds `''` (blank) — "Unassigned & other" is not a person.
+**Load-bearing check:** every `BOARD_COLUMNS` name is an exact `TASK_ASSIGNEES` value (verified in `lib/types.ts`) — if that drifts the select silently falls back to "Unassigned" rather than showing an unsavable value. Note `Randy Mathis` IS an assignee but has no column (his tasks land in the catch-all, unchanged).
+**Test Method:** local dev + browser: click each `+`, read the live `select` value / owning column, switch columns, cancel.
+**Result:** **VERIFIED** — all 5 buttons render (`New task for Efrain/Brianne/Moe/Matt`, `New unassigned task`). Matt's `+` → form opens **inside Matt's column** with Assigned-to = `Matt Park`; switching to Brianne's → exactly 1 form, `Brianne Han`; catch-all `+` → assignee `""` (blank, correct); cancel → 0 forms. Screenshot confirms "Assigned to: Moe Sefati" pre-filled.
+**Two traps hit while verifying (both MINE, not the app's):** (1) the Browser pane opened at **viewport 0x0**, so the page rendered nothing and sat on the Suspense spinner — I nearly diagnosed a phantom hydration bug; `resize_window` fixed it instantly. **Check the viewport before debugging a "blank" preview.** (2) A `git stash` isolation test proved the blank page reproduced WITHOUT my change — that exoneration is what kept me from "fixing" working code. Local browser testing needs the temp middleware bypass (`isPublic = true ||`), **reverted before commit — verified `git diff middleware.ts` empty.**
+
 ### [2026-07-16] /tasks — Tasks tab is now a 2×2 per-assignee board
 **Status:** VERIFIED (browser, local) — tsc unchanged (7 pre-existing, 0 in touched files), `next build` READY,
 eslint unchanged (1 pre-existing `set-state-in-effect` on the untouched `useEffect(() => refresh())`, confirmed

@@ -102,6 +102,9 @@ function TasksSection() {
   const [filter, setFilter] = useState<FilterMode>('open')
   const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
+  // Which column's "+" is open (its name), pre-assigning the new task to that
+  // person. Only one form is ever open — opening either closes the other.
+  const [composeFor, setComposeFor] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -227,6 +230,7 @@ function TasksSection() {
       notifyTask('assigned', data as DealTask)
     }
     setShowForm(false)
+    setComposeFor(null)
   }
 
   async function clearCompleted() {
@@ -249,6 +253,18 @@ function TasksSection() {
       notifyTask('assigned', { ...patch, id })
     }
   }
+
+  // The create form for a column's "+", pre-assigned to that person. The catch-all
+  // column seeds nothing — "Unassigned & other" isn't a person to assign to.
+  const openComposer = (name: string) => { setComposeFor(name); setShowForm(false) }
+  const composerFor = (name: string) => composeFor !== name ? undefined : (
+    <NewTaskForm
+      deals={deals}
+      initialAssignee={name === OTHER_COLUMN ? '' : name}
+      onSubmit={createTask}
+      onCancel={() => setComposeFor(null)}
+    />
+  )
 
   // A row renders the same in every column; the column header already names the
   // person, so the per-row assignee chip is dropped as redundant.
@@ -296,7 +312,7 @@ function TasksSection() {
             </button>
           )}
           <button
-            onClick={() => setShowForm(v => !v)}
+            onClick={() => { setShowForm(v => !v); setComposeFor(null) }}
             className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700"
           >
             <Plus className="w-4 h-4" /> New Task
@@ -353,14 +369,27 @@ function TasksSection() {
           {/* Efrain / Brianne on top, Moe / Matt below */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
             {BOARD_COLUMNS.map(name => (
-              <AssigneeColumn key={name} name={name} tasks={columns.byPerson.get(name)!} renderTask={renderTask} />
+              <AssigneeColumn
+                key={name}
+                name={name}
+                tasks={columns.byPerson.get(name)!}
+                renderTask={renderTask}
+                onAdd={() => openComposer(name)}
+                composing={composerFor(name)}
+              />
             ))}
           </div>
           {/* Only appears when a task sits outside the four columns (unassigned,
               Randy, a legacy name) — so nothing is hidden by the split. */}
           {columns.other.length > 0 && (
             <div className="mt-4">
-              <AssigneeColumn name={OTHER_COLUMN} tasks={columns.other} renderTask={renderTask} />
+              <AssigneeColumn
+                name={OTHER_COLUMN}
+                tasks={columns.other}
+                renderTask={renderTask}
+                onAdd={() => openComposer(OTHER_COLUMN)}
+                composing={composerFor(OTHER_COLUMN)}
+              />
             </div>
           )}
         </>
@@ -369,10 +398,12 @@ function TasksSection() {
   )
 }
 
-function AssigneeColumn({ name, tasks, renderTask }: {
+function AssigneeColumn({ name, tasks, renderTask, onAdd, composing }: {
   name: string
   tasks: DealTask[]
   renderTask: (t: DealTask) => React.ReactNode
+  onAdd?: () => void
+  composing?: React.ReactNode
 }) {
   return (
     <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -381,12 +412,26 @@ function AssigneeColumn({ name, tasks, renderTask }: {
           <User className="w-3.5 h-3.5 shrink-0 opacity-60" />
           <span className="truncate">{name}</span>
         </h3>
-        <span className="text-[11px] font-bold tabular-nums rounded-full px-2 py-0.5 bg-white/70 shrink-0">
-          {tasks.length}
-        </span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Opens the create form right in this column, pre-assigned to this
+              person — the whole point is skipping the "Assigned to" dropdown. */}
+          {onAdd && (
+            <button
+              onClick={onAdd}
+              title={name === OTHER_COLUMN ? 'New unassigned task' : `New task for ${name.split(' ')[0]}`}
+              className="flex items-center justify-center w-5 h-5 rounded-md bg-white/70 hover:bg-white transition opacity-70 hover:opacity-100"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <span className="text-[11px] font-bold tabular-nums rounded-full px-2 py-0.5 bg-white/70">
+            {tasks.length}
+          </span>
+        </div>
       </div>
+      {composing && <div className="p-2 pb-0">{composing}</div>}
       {tasks.length === 0 ? (
-        <p className="text-xs text-slate-400 text-center py-8">No tasks</p>
+        !composing && <p className="text-xs text-slate-400 text-center py-8">No tasks</p>
       ) : (
         // Capped so one long column (Brianne's auto-tasks under "Completed"/"All"
         // run to ~1,900px) can't push the bottom row off-screen — each column
@@ -504,9 +549,14 @@ function TaskRow({ task, dealName, ghlUrl, hideAssignee, onToggle, onDelete, onE
 }
 
 // ── Task form for the global Tasks page (create + edit, includes deal picker) ─
-function NewTaskForm({ deals, initialTask, onSubmit, onCancel }: {
+// `initialAssignee` seeds the dropdown when creating from a column's + button
+// (the column header already says who it's for). Every BOARD_COLUMNS name is a
+// valid TASK_ASSIGNEES value — if that ever drifts, the select falls back to
+// "Unassigned" rather than showing a value it can't save.
+function NewTaskForm({ deals, initialTask, initialAssignee, onSubmit, onCancel }: {
   deals: Deal[]
   initialTask?: DealTask
+  initialAssignee?: string
   onSubmit: (t: Omit<DealTask, 'id' | 'created_at'>) => void
   onCancel: () => void
 }) {
@@ -518,7 +568,7 @@ function NewTaskForm({ deals, initialTask, onSubmit, onCancel }: {
   const [description, setDescription] = useState(initialTask?.description || '')
   const [date, setDate] = useState(initialDT.date)
   const [time, setTime] = useState(initialDT.time)
-  const [assignee, setAssignee] = useState(initialTask?.assignee || '')
+  const [assignee, setAssignee] = useState(initialTask?.assignee || initialAssignee || '')
   const [assignedBy, setAssignedBy] = useState(initialTask?.assigned_by || '')
   const [priority, setPriority] = useState(initialTask?.priority || 'normal')
   const [dealId, setDealId] = useState<string>(initialTask?.deal_id || '')
