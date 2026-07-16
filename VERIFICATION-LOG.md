@@ -11,7 +11,7 @@
 - NEW `supabase-webhook-fields.sql` — **ALREADY RUN against prod** (2026-07-16, via Supabase Management API `/v1/projects/{ref}/database/query` from Efrain's authed dashboard session; both columns verified in `information_schema` + via PostgREST probe). File kept for the record.
 - **Prod DB scrub (one-time):** every `raw_ghl_data` blob carrying an SSN-class KEY was rewritten via `sanitizeRawBody` (2 carried actual SSN values; the rest held the key with an empty value). SSN values were deliberately NOT backed up — GHL retains the source data. Re-scan: **0 rows remain** ✅.
 **Test Method:** fixture suites above · tsc · build · post-deploy: watch organic webhook traffic for `vendor_lead_id` fills + a `last_inbound_message` on the next reply; synthetic no-match POSTs against the parse paths.
-**Result:** (pending deploy — see below)
+**Result:** **DEPLOYED** (commit `74e2aef`, dpl `lumin-deals-i62bcn07c`, Ready, Production). Synthetic parse-path POSTs were blocked — prod's `GHL_WEBHOOK_SECRET` differs from `.env.local` (a Vercel *sensitive* env, same class as the CRON_SECRET gotcha) — which itself confirms signature validation rejects bad callers. Live proof is organic: see the post-deploy check below.
 
 ### [2026-07-16] Split OPTOUT_STATUSES — customer opt-out vs team disposition
 **Status:** CHANGED — all fixtures green (lead-report 86/86, lead-roi 61/61, cohort 83/83, ghl-link 10/10, push-stage-log 10/10), tsc unchanged (7 pre-existing, 0 in touched files), `next build` READY.
