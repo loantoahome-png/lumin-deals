@@ -419,9 +419,9 @@ function AssigneeColumn({ name, tasks, renderTask, onAdd, composing }: {
             <button
               onClick={onAdd}
               title={name === OTHER_COLUMN ? 'New unassigned task' : `New task for ${name.split(' ')[0]}`}
-              className="flex items-center justify-center w-5 h-5 rounded-md bg-white/70 hover:bg-white transition opacity-70 hover:opacity-100"
+              className="flex items-center gap-0.5 pl-1.5 pr-2 py-1 rounded-md text-xs font-semibold bg-white/70 hover:bg-white border border-black/5 transition"
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus className="w-3.5 h-3.5" /> Add Task
             </button>
           )}
           <span className="text-[11px] font-bold tabular-nums rounded-full px-2 py-0.5 bg-white/70">
