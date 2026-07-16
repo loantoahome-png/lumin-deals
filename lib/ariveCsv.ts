@@ -522,6 +522,26 @@ function buildNewDealFromPatch(patch: AriveImportPatch): Record<string, unknown>
   return data
 }
 
+// Treat a value as unchanged when it's genuinely the same number/address once
+// harmless reformatting is ignored — so overwrite mode doesn't "change" a field
+// for nothing. Notably PHONE: the dashboard stores E.164 ("+17606685048") while
+// Arive exports bare 10-digit ("7606685048") — the SAME number; without this,
+// every import would strip the +1/formatting. EMAIL: case-only differences.
+function sameFieldValue(field: string, current: unknown, value: unknown): boolean {
+  if (String(current) === String(value)) return true
+  if (field === 'phone') {
+    const a = normPhone(current == null ? null : String(current))
+    const b = normPhone(value == null ? null : String(value))
+    if (a && b && a === b) return true
+  }
+  if (field === 'email') {
+    const a = normEmail(current == null ? null : String(current))
+    const b = normEmail(value == null ? null : String(value))
+    if (a && b && a === b) return true
+  }
+  return false
+}
+
 export function buildPlan(args: {
   rows: AriveImportPatch[]
   deals: Map<string, Record<string, unknown>>      // dealId → current deal record
@@ -635,7 +655,7 @@ export function buildPlan(args: {
       if (value === undefined || value === null) continue
       const current = deal[field]
       const isBlank = current == null || current === ''
-      const isSame  = String(current) === String(value)
+      const isSame  = sameFieldValue(field, current, value)
       if (isSame) {
         plan.changes.push({ field, current, next: value, action: 'unchanged' })
       } else if (isBlank) {
