@@ -233,3 +233,42 @@ rows). Clean up the window globals afterwards. Used 2026-07-16 to add `deals.ven
 `deals.last_inbound_message`.
 **Project:** lumin-deals (works for any Supabase project ref)
 **Date:** 2026-07-16
+
+### GHL workflow-builder edits can NOT be automated via Control Chrome
+**Tried:** (1) driving the workflows UI by JS — it lives in a CROSS-ORIGIN iframe
+(`client-app-automation-workflows.leadconnectorhq.com`), unreachable from the parent frame; (2) opening that
+iframe URL standalone — blank, it only boots via a Postmate handshake from the shell; (3) the shell's
+`refreshedToken` JWT against `backend.leadconnectorhq.com/workflow/*` and `services.leadconnectorhq.com/workflows/`
+— 401 on every endpoint/header combo (wrong token audience; the iframe exchanges its own token, which lives in
+module closures); (4) CDP — not enabled; (5) System Events/screencapture — permission-gated.
+**Failed because:** GHL intentionally isolates the builder micro-frontend; the public API's workflow surface is
+read-only (list only, no actions).
+**What works:** workflow action edits are a HUMAN step in the GHL UI (20 seconds), or grant the harness
+screen-automation permissions first (Accessibility — Screen Recording alone is NOT enough; the CLI binary needs
+the grant, and real clicks need `cliclick`/CGEvents because System Events' `click at` resolves the AX element
+without delivering an event Chrome's JS acts on). NOTE: driving the UI steals the one physical cursor — it
+fights the user for the machine. The only non-disruptive path is Chrome launched with `--remote-debugging-port`
+(CDP `Input.dispatchMouseEvent` targets a tab's renderer with no OS focus, and can also evaluate JS INSIDE the
+cross-origin iframe) — but that flag is startup-only, so it needs a Chrome relaunch. Public API CAN list
+workflows (id/name/status/**version**/**updatedAt**) — enough to verify a save landed, not what changed.
+**Project:** lumin-deals / any GHL automation work
+**Date:** 2026-07-16
+
+### `deals.updated_at` is NOT "when a webhook arrived" — the sync touches it (false-negative machine)
+**Tried:** verifying a GHL workflow config change by querying `deals` for rows with
+`updated_at >= <edit time>` and inspecting their `raw_ghl_data.customData` keys. Reported "the edit did not take
+effect — post-edit payloads still have the old key." **That verdict was WRONG.**
+**Failed because:** the 15-min `ghl-sync` cron writes `updated_at` on every row it touches WITHOUT rewriting
+`raw_ghl_data`. So a row can carry a fresh `updated_at` and a payload captured hours earlier. The "post-edit
+dirty payloads" were the 15:30 PT sync run touching rows whose bodies predated the edit. Tell: the arrival
+cluster lines up exactly with a `*/15 8-18 * * 1-5` sync slot. Corroborating tell: `raw_ghl_data.workflow.name`
+showed BOTH an old and current name for the same workflow id interleaved within 90s — stale stored bodies, not
+stale GHL definitions.
+**What works:** `raw_ghl_data` holds only the LATEST body per deal and has no arrival timestamp, so detect a
+real webhook by CONTENT CHANGE — fingerprint `sha1(raw_ghl_data)` per deal, poll, and treat a changed hash (or
+a new deal in the set) as the fresh-webhook signal. For stage moves specifically, `stage_events.created_at`
+(`source='webhook'`) IS a true webhook arrival time, written by the webhook itself.
+**Broader lesson:** before using a column as a proxy for an event time, check every writer of that column. Same
+class of error as the opp-id bug (querying a column the bug itself poisons).
+**Project:** lumin-deals
+**Date:** 2026-07-16
