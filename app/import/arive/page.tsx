@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { Upload, FileText, X, Check, AlertTriangle, Loader2, Shield, ChevronDown, ChevronRight } from 'lucide-react'
+import { Upload, FileText, X, Check, AlertTriangle, Loader2, Shield, ChevronDown, ChevronRight, Download, Search } from 'lucide-react'
 
 type FieldChange = {
   field: string
@@ -51,6 +51,46 @@ function fmt(v: unknown): string {
   return String(v)
 }
 
+// Fields worth shielding from overwrite (real dashboard-semantic risk).
+const PROTECTABLE: { field: string; label: string }[] = [
+  { field: 'status',           label: 'Status / stage' },
+  { field: 'loan_officer',     label: 'Loan officer' },
+  { field: 'occupancy',        label: 'Occupancy' },
+  { field: 'lead_source_agg',  label: 'Lead source' },
+  { field: 'phone',            label: 'Phone' },
+  { field: 'email',            label: 'Email' },
+  { field: 'property_address', label: 'Property address' },
+]
+// Overwrites on these are materially consequential — emphasized in the diff.
+const CONSEQUENTIAL = new Set(['status', 'loan_officer', 'occupancy'])
+
+// Will this field change actually be WRITTEN, given the apply mode + shields?
+function fieldWrites(c: FieldChange, mode: Mode, protectedFields: Set<string>): boolean {
+  if (c.action === 'fill') return true
+  if (c.action === 'overwrite') return mode === 'overwrite' && !protectedFields.has(c.field)
+  return false
+}
+
+function csvCell(s: string): string {
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+// Build + download a CSV of every field that will be / was written.
+function downloadChangeLog(resp: ApiResp, mode: Mode, protectedFields: Set<string>, filename: string) {
+  const rows: string[][] = [['borrower', 'arive_file_no', 'deal_id', 'field', 'old_value', 'new_value', 'action']]
+  for (const p of resp.plans ?? []) {
+    for (const c of p.changes) {
+      if (!fieldWrites(c, mode, protectedFields)) continue
+      rows.push([p.borrower, p.arive_file_no ?? '', p.dealId ?? '', c.field, fmt(c.current), fmt(c.next), c.action])
+    }
+  }
+  const csv = rows.map(r => r.map(csvCell).join(',')).join('\n')
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+  const a = document.createElement('a')
+  a.href = url; a.download = filename; a.click()
+  URL.revokeObjectURL(url)
+}
+
 export default function AriveImportPage() {
   const [csvText, setCsvText]       = useState<string>('')
   const [fileName, setFileName]     = useState<string>('')
@@ -62,7 +102,19 @@ export default function AriveImportPage() {
   const [error, setError]           = useState<string | null>(null)
   const [loading, setLoading]       = useState(false)
   const [createUnmatched, setCreateUnmatched] = useState(false)
+  const [protectedFields, setProtectedFields] = useState<Set<string>>(new Set())
+  const [rowFilter, setRowFilter] = useState<'all' | 'overwrites' | 'new' | 'unmatched' | 'warnings'>('all')
+  const [rowSearch, setRowSearch] = useState('')
+  const [hideNoChange, setHideNoChange] = useState(true)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  function toggleProtected(field: string) {
+    setProtectedFields(prev => {
+      const next = new Set(prev)
+      if (next.has(field)) next.delete(field); else next.add(field)
+      return next
+    })
+  }
 
   async function runPreview(text: string, createUnm: boolean) {
     setLoading(true); setError(null)
@@ -97,7 +149,7 @@ export default function AriveImportPage() {
       const res = await fetch('/api/import/arive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ csv: csvText, mode, createUnmatched }),
+        body: JSON.stringify({ csv: csvText, mode, createUnmatched, protectedFields: [...protectedFields] }),
       })
       const data: ApiResp = await res.json()
       if (!data.ok) { setError(data.error || 'commit failed'); setCommitting(false); return }
@@ -123,21 +175,47 @@ export default function AriveImportPage() {
     })
   }
 
-  // Recompute the action counts under the current mode so the bottom summary
-  // reflects the user's selected mode without re-fetching.
+  // Recompute the write counts under the current mode + field shields so the
+  // summary reflects the user's selections without re-fetching.
   const recountedSummary = preview?.plans ? (() => {
-    let fill = 0, overwrite = 0, unchanged = 0
+    let fill = 0, overwrite = 0
     for (const p of preview.plans) {
       if (!p.matched) continue
       for (const c of p.changes) {
         if (c.action === 'fill') fill++
-        else if (c.action === 'overwrite') {
-          if (mode === 'overwrite') overwrite++; else unchanged++
-        } else unchanged++
+        else if (c.action === 'overwrite' && mode === 'overwrite' && !protectedFields.has(c.field)) overwrite++
       }
     }
-    return { fill, overwrite, unchanged }
+    return { fill, overwrite }
   })() : null
+
+  // Potential overwrites per field (before shields) — the "by field" table.
+  const overwritesByField: [string, number][] = preview?.plans ? (() => {
+    const m = new Map<string, number>()
+    for (const p of preview.plans) {
+      if (!p.matched) continue
+      for (const c of p.changes) if (c.action === 'overwrite') m.set(c.field, (m.get(c.field) ?? 0) + 1)
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1])
+  })() : []
+
+  // Rows to show after search + filter + hide-no-change.
+  const totalRows = preview?.plans?.length ?? 0
+  const visiblePlans = (preview?.plans ?? []).filter(p => {
+    if (rowSearch.trim()) {
+      const q = rowSearch.trim().toLowerCase()
+      if (!`${p.borrower} ${p.arive_file_no ?? ''}`.toLowerCase().includes(q)) return false
+    }
+    const writes = p.changes.filter(c => fieldWrites(c, mode, protectedFields)).length
+    const hasOverwrite = p.changes.some(c => c.action === 'overwrite' && mode === 'overwrite' && !protectedFields.has(c.field))
+    if (rowFilter === 'overwrites') return hasOverwrite
+    if (rowFilter === 'new')        return p.action === 'create_new' || p.action === 'create_loan'
+    if (rowFilter === 'unmatched')  return !p.matched
+    if (rowFilter === 'warnings')   return !!p.dedupWarning
+    // 'all': optionally hide matched no-op rows (nothing written, no warning).
+    if (hideNoChange && p.matched && p.action !== 'create_new' && p.action !== 'create_loan' && !p.dedupWarning && writes === 0) return false
+    return true
+  })
 
   return (
     <div className="p-6 max-w-6xl space-y-6">
@@ -253,18 +331,82 @@ export default function AriveImportPage() {
             </label>
           </div>
 
+          {/* Protect specific fields from overwrite (surgical override) — overwrite mode only */}
+          {mode === 'overwrite' && (
+            <div className="bg-white border border-slate-200 rounded-xl p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1 flex items-center gap-1.5">
+                <Shield className="w-3.5 h-3.5 text-slate-400" /> Protect from overwrite
+              </h3>
+              <p className="text-[11px] text-slate-500 mb-2.5">
+                Keep your dashboard value for these fields — Arive can still fill them when blank, but won&apos;t replace an existing value. The number is how many rows would otherwise overwrite.
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {PROTECTABLE.map(({ field, label }) => {
+                  const on = protectedFields.has(field)
+                  const cnt = overwritesByField.find(([f]) => f === field)?.[1] ?? 0
+                  return (
+                    <button key={field} onClick={() => toggleProtected(field)}
+                      className={`text-xs font-medium px-2.5 py-1 rounded-lg border transition-colors ${on ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-700 hover:border-blue-300'}`}>
+                      {on ? '🛡 ' : ''}{label}{cnt > 0 && <span className={`ml-1.5 tabular-nums ${on ? 'text-blue-100' : 'text-amber-600'}`}>{cnt}</span>}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Overwrites by field — quiet reference so systemic changes are visible */}
+          {mode === 'overwrite' && overwritesByField.length > 0 && (
+            <div className="bg-white border border-slate-200 rounded-xl p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Overwrites by field</h3>
+              <div className="flex flex-wrap gap-1.5">
+                {overwritesByField.map(([field, count]) => {
+                  const shielded = protectedFields.has(field)
+                  return (
+                    <span key={field} title={shielded ? 'Protected — will not overwrite' : undefined}
+                      className={`text-[11px] font-medium px-2 py-1 rounded-lg border inline-flex items-center gap-1.5 ${shielded ? 'bg-slate-50 border-slate-200 text-slate-400 line-through' : CONSEQUENTIAL.has(field) ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                      <span className="font-mono uppercase text-[10px]">{field}</span>
+                      <span className="tabular-nums font-bold">{count}</span>
+                    </span>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Row plans */}
           <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-200">
-            <div className="px-4 py-2.5 flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Per-row preview</h3>
-              <span className="text-[11px] text-slate-400">Click a row to see field-by-field changes</span>
+            <div className="px-4 py-2.5 flex flex-col gap-2.5">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Per-row preview</h3>
+                <span className="text-[11px] text-slate-400 tabular-nums">Showing {visiblePlans.length} of {totalRows} · click a row for field-by-field</span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
+                  <input value={rowSearch} onChange={e => setRowSearch(e.target.value)} placeholder="Search borrower / Arive #"
+                    className="pl-7 pr-2 py-1 text-xs border border-slate-200 rounded-lg w-52 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div className="flex bg-slate-100 rounded-lg p-0.5 gap-0.5">
+                  {([['all', 'All'], ['overwrites', 'Overwrites'], ['new', 'New loans'], ['unmatched', 'Unmatched'], ['warnings', 'Warnings']] as const).map(([key, label]) => (
+                    <button key={key} onClick={() => setRowFilter(key)}
+                      className={`text-[11px] font-semibold px-2 py-0.5 rounded ${rowFilter === key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <label className="flex items-center gap-1.5 text-[11px] text-slate-500 cursor-pointer ml-auto">
+                  <input type="checkbox" checked={hideNoChange} onChange={e => setHideNoChange(e.target.checked)} className="rounded accent-blue-600" />
+                  Hide unchanged rows
+                </label>
+              </div>
             </div>
-            {preview.plans?.map(p => {
+            {visiblePlans.length === 0 && (
+              <div className="px-4 py-6 text-center text-xs text-slate-400">No rows match this filter/search.</div>
+            )}
+            {visiblePlans.map(p => {
               const expanded = expandedRows.has(p.rowIndex)
-              const visibleChanges = mode === 'overwrite'
-                ? p.changes.filter(c => c.action !== 'unchanged')
-                : p.changes.filter(c => c.action === 'fill')
-              const willWriteCount = visibleChanges.length
+              const willWriteCount = p.changes.filter(c => fieldWrites(c, mode, protectedFields)).length
               return (
                 <div key={p.rowIndex} className="px-4 py-2.5">
                   <button
@@ -328,23 +470,25 @@ export default function AriveImportPage() {
                             <span className="w-16 shrink-0 text-right">Result</span>
                           </div>
                           {p.changes.map((c, i) => {
-                            // With the preview plan built in 'overwrite' mode, action is the
-                            // TRUE action; ariveWins reflects the user's selected apply mode.
-                            const ariveWins = c.action === 'fill' || (c.action === 'overwrite' && mode === 'overwrite')
+                            const ariveWins = fieldWrites(c, mode, protectedFields)
                             const isOverwrite = c.action === 'overwrite'
+                            const isProtected = isOverwrite && mode === 'overwrite' && protectedFields.has(c.field)
                             const dashBlank = c.current == null || c.current === ''
+                            const consequential = CONSEQUENTIAL.has(c.field) && ariveWins && isOverwrite
                             return (
-                              <div key={i} className="flex items-center gap-2 px-2.5 py-1 border-b border-slate-100 last:border-0">
-                                <span className="font-mono text-[10px] uppercase text-slate-400 w-28 shrink-0 truncate" title={c.field}>{c.field}</span>
-                                {/* Dashboard value — bold when it's the one kept, muted when Arive overrides it */}
+                              <div key={i} className={`flex items-center gap-2 px-2.5 py-1 border-b border-slate-100 last:border-0 ${consequential ? 'bg-amber-50/70' : ''}`}>
+                                {/* Field — bold/amber when a consequential field is being overwritten */}
+                                <span className={`font-mono text-[10px] uppercase w-28 shrink-0 truncate ${consequential ? 'text-amber-700 font-bold' : 'text-slate-400'}`} title={c.field}>{c.field}</span>
+                                {/* Dashboard value — bold when kept, muted when Arive overrides it */}
                                 <span className={`flex-1 truncate ${!ariveWins && !dashBlank ? 'text-slate-800 font-semibold' : 'text-slate-400'}`}>{fmt(c.current)}</span>
                                 <span className="w-4 shrink-0 text-center text-slate-300">→</span>
-                                {/* Arive value — bold + colored when it wins, struck through when skipped */}
+                                {/* Arive value — bold+colored when it wins, struck through when not */}
                                 <span className={`flex-1 truncate ${ariveWins ? `font-semibold ${isOverwrite ? 'text-amber-700' : 'text-emerald-700'}` : 'text-slate-300 line-through'}`}>{fmt(c.next)}</span>
-                                {/* Result — says exactly what happens to this field */}
+                                {/* Result — exactly what happens to this field */}
                                 <span className="w-16 shrink-0 text-right text-[9px] font-bold uppercase">
                                   {ariveWins
                                     ? (isOverwrite ? <span className="text-amber-700">overwrite</span> : <span className="text-emerald-700">fill</span>)
+                                    : isProtected ? <span className="text-blue-600">protected</span>
                                     : <span className="text-slate-400">keep</span>}
                                 </span>
                               </div>
@@ -362,8 +506,15 @@ export default function AriveImportPage() {
           {/* Apply */}
           <div className="sticky bottom-4 z-10 flex justify-end gap-2">
             <button
+              onClick={() => downloadChangeLog(preview, mode, protectedFields, 'arive-import-plan.csv')}
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 flex items-center gap-1.5 shadow-sm"
+              title="Download a CSV of every field this import will write (deal, field, old → new)"
+            >
+              <Download className="w-4 h-4" /> Download plan
+            </button>
+            <button
               onClick={resetAll}
-              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 shadow-sm"
             >
               Cancel
             </button>
@@ -415,6 +566,13 @@ export default function AriveImportPage() {
           <div className="mt-4 flex gap-2">
             <button onClick={resetAll} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
               Import another CSV
+            </button>
+            <button
+              onClick={() => downloadChangeLog(committed, mode, protectedFields, 'arive-import-changelog.csv')}
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 flex items-center gap-1.5"
+              title="Download a CSV of every field that was written (deal, field, old → new)"
+            >
+              <Download className="w-4 h-4" /> Download change log
             </button>
           </div>
         </div>

@@ -15,6 +15,7 @@ type ImportRequest = {
   csv: string
   mode: 'preview' | 'fill_blanks' | 'overwrite'
   createUnmatched?: boolean   // create brand-new deals for true no-match rows
+  protectedFields?: string[]  // fields the user shielded from overwrite (surgical override)
 }
 
 /**
@@ -130,6 +131,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Per-field overwrite shields (surgical override). Only affects the update
+  // path below — a protected field's existing value is never REPLACED (a
+  // blank-fill is still allowed; there's nothing to protect on an empty field).
+  const protectedSet = new Set(body.protectedFields ?? [])
+
   for (const plan of plans) {
     // ── Brand-new deal (no existing match) → INSERT ─────────────────────────
     if (plan.action === 'create_new' && plan.newLoanData) {
@@ -173,6 +179,7 @@ export async function POST(req: NextRequest) {
     const patch: Record<string, unknown> = {}
     for (const c of plan.changes) {
       if (c.action === 'fill' || c.action === 'overwrite') {
+        if (c.action === 'overwrite' && protectedSet.has(c.field)) continue   // shielded field
         patch[c.field] = c.next
       }
     }

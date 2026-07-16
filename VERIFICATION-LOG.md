@@ -1,7 +1,19 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-15] Arive import preview — 5 review/safety tools added
+**Status:** CHANGED (tsc 0 errors in both files · arive-match-check 12/12 · build READY) — deploying per auto-deploy policy
+**Issue:** Efrain: "Do all of them?" — build out the 5 preview improvements I'd recommended.
+**Changes:**
+- **Protect fields (surgical override)** — `app/api/import/arive/route.ts` + `page.tsx`: `PROTECTABLE` toggle chips (status, loan_officer, occupancy, lead_source_agg, phone, email, property_address) shield a field from overwrite (blank-fills still allowed). Client sends `protectedFields[]` on commit; route skips protected overwrites in the update patch loop (`if overwrite && protectedSet.has(field) continue`). Preview counts + per-row diff reflect shields (protected fields show a blue **protected** badge).
+- **Filter + search** — chips All / Overwrites / New loans / Unmatched / Warnings + borrower/Arive# search; "Showing X of Y" header.
+- **Overwrites-by-field** — quiet chip table of field→overwrite count (overwrite mode only); consequential fields amber, protected struck.
+- **Declutter** — default-on "Hide unchanged rows" (hides matched rows writing 0 fields with no warning); consequential fields (status/loan_officer/occupancy) emphasized (amber-bold + row tint) in the diff.
+- **Download change log** — client-built CSV of deal/field/old→new for every field actually written (respects mode + shields): "Download plan" on the preview, "Download change log" post-commit.
+**Test Method:** `tsc --noEmit` 0 errors in both files · `scripts/arive-match-check.ts` 12/12 · `next build` READY. `/import/arive` is login-gated, not driven in-session — verified by types + build + fixtures + review.
+**Result:** CHANGED — preview now has field shields, filter/search, an overwrites-by-field map, decluttered rows, and CSV export. Re-paste the CSV to use them.
+
 ### [2026-07-15] Arive import — reformatting-only phone/email no longer counts as an overwrite
-**Status:** CHANGED (tsc clean · arive-match-check 12/12 · build READY) — deploying per auto-deploy policy
+**Status:** DEPLOYED (commit `b345d24`, dpl `8nBtZxNY7aqenH39pNy4Wf44WgLB` READY, aliased lumin-deals.vercel.app) — tsc clean, arive-match-check 12/12, build READY. Re-paste CSV to see it.
 **Issue:** Now that the overwrite preview is correct, PHONE showed as OVERWRITE for `+17606685048 → 7606685048` — the SAME number, just E.164 vs bare 10-digit (Arive exports bare). Committing overwrite would strip the `+1`/formatting off phones on nearly every row. Same class of noise for case-only email differences. (Surfaced by Efrain's Kerry Anderson preview screenshot.)
 **Changes:** `lib/ariveCsv.ts` — new `sameFieldValue(field, current, value)` used for the `isSame` check in `buildPlan`: phone compared via `normPhone` (last-10 digits), email via `normEmail` (trim/case). Reformatting-equal values now resolve to action `unchanged` (shows KEEP), so overwrite fires only on genuinely different numbers/addresses. A real phone/email change still overwrites.
 **Test Method:** `tsc --noEmit` 0 errors in ariveCsv.ts · `scripts/arive-match-check.ts` 12/12 · `next build` READY. Import page login-gated, not driven in-session.
