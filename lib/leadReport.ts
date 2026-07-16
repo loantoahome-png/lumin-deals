@@ -19,7 +19,27 @@ export const PURCHASED_SOURCES = ['FRU', 'Lendgo', 'LMB', 'Lending Tree', 'LeadP
 
 const PURCHASED_SET = new Set<string>(PURCHASED_SOURCES.map(s => s.toLowerCase()))
 export const COLD_STATUSES = new Set(['New Lead', 'Attempted Contact', 'Non-Responsive'])
-export const OPTOUT_STATUSES = new Set(['DND - SMS', 'Remove from All Automations', 'STOP'])
+
+// ── Opt-out, split two ways (2026-07-16) ──────────────────────────────────────
+// These used to be one bucket. They answer different questions and must not be
+// conflated: 61% of the old bucket (295 of 486) was "Remove from All Automations",
+// which is a BUTTON WE PRESS, not something the borrower did — and the /hot-leads
+// triage UI now generates it in bulk (121 in its first two days). Left merged, the
+// "opt-out rate" reads as worsening lead quality when it's really triage adoption.
+
+/** Customer-initiated: the borrower told us to stop. A real lead-quality signal. */
+export const CUSTOMER_OPTOUT_STATUSES = new Set(['DND - SMS', 'STOP'])
+
+/** Team disposition: WE decided to stop working the lead (the triage button).
+ *  Says nothing about the lead's quality — it's an operational choice. */
+export const TEAM_REMOVED_STATUSES = new Set(['Remove from All Automations'])
+
+/** UNION — every status that takes a lead out of play.
+ *  ⚠️ DO NOT narrow this to the customer set. `isRespondedStatus` is defined as
+ *  "not cold AND not opt-out", and "Remove from All Automations" is not cold — so
+ *  dropping it here would silently reclassify ~295 deals as **Responded**, inflating
+ *  every responded rate and flipping `to_responded` on future stage_events rows. */
+export const OPTOUT_STATUSES = new Set([...CUSTOMER_OPTOUT_STATUSES, ...TEAM_REMOVED_STATUSES])
 const FUNDED_STATUSES = new Set(['Loan Funded', 'Broker Check Received', 'Loan Finalized'])
 
 // Only the fields the report needs — keeps the page's select() slim.
@@ -34,11 +54,23 @@ export const isPurchased = (d: LeadRow): boolean => PURCHASED_SET.has(rawSource(
 // row. Keep the responded definition here so the webhook and the report can never
 // disagree. Ghosted counts as responded (you can't ghost without first responding).
 export const isColdStatus    = (s: string | null | undefined): boolean => COLD_STATUSES.has(s ?? '')
+/** UNION (customer opt-out OR team-removed) — "out of play". Keep it broad: see the
+ *  warning on OPTOUT_STATUSES. This is what `isRespondedStatus` keys off. */
 export const isOptoutStatus  = (s: string | null | undefined): boolean => OPTOUT_STATUSES.has(s ?? '')
+/** The borrower told us to stop. Use this for opt-out RATE and TIMING metrics. */
+export const isCustomerOptoutStatus = (s: string | null | undefined): boolean => CUSTOMER_OPTOUT_STATUSES.has(s ?? '')
+/** We stopped working the lead (triage button). Operational, not lead quality. */
+export const isTeamRemovedStatus    = (s: string | null | undefined): boolean => TEAM_REMOVED_STATUSES.has(s ?? '')
 export const isRespondedStatus = (s: string | null | undefined): boolean => !isColdStatus(s) && !isOptoutStatus(s)
 
 export const isCold = (d: LeadRow): boolean => isColdStatus(d.status)
-export const isOptout = (d: LeadRow): boolean => isOptoutStatus(d.status)
+// NOTE: there is deliberately no `isOptout` any more (removed 2026-07-16). It was
+// ambiguous once the bucket split — callers must say which question they're asking:
+//   isCustomerOptout → did the BORROWER opt out?   (lead quality)
+//   isTeamRemoved    → did WE stop working it?     (operations)
+//   isOptoutStatus   → is it out of play either way? (responded/funnel math)
+export const isCustomerOptout = (d: LeadRow): boolean => isCustomerOptoutStatus(d.status)
+export const isTeamRemoved    = (d: LeadRow): boolean => isTeamRemovedStatus(d.status)
 // Ghosted is intentionally NOT cold — it means the lead responded, then went dark.
 export const isResponded = (d: LeadRow): boolean => isRespondedStatus(d.status)
 export const isFunded = (d: LeadRow): boolean =>
@@ -79,7 +111,13 @@ export const stateKey = (d: LeadRow): string => {
 
 export type Segment = {
   n: number; responded: number; rr: number
-  cold: number; crate: number; optout: number; orate: number
+  cold: number; crate: number
+  /** CUSTOMER opt-outs only (STOP / DND - SMS) — the borrower told us to stop. */
+  optout: number; orate: number
+  /** Team dispositions (Remove from All Automations) — we stopped working it.
+   *  Split out 2026-07-16; previously folded into `optout`, where it was 61% of
+   *  the bucket and rising with triage adoption. */
+  teamRemoved: number; trate: number
   funded: number; fr: number; spend: number; revenue: number; roi: number | null
 }
 
@@ -91,7 +129,12 @@ export function segment(rows: LeadRow[], allFundedRevenue = false): Segment {
   const n = rows.length
   const responded = rows.filter(isResponded).length
   const cold = rows.filter(isCold).length
-  const optout = rows.filter(isOptout).length
+  // optout + teamRemoved were one bucket until 2026-07-16. Together with responded
+  // and cold they still partition the whole set (responded = !cold && !either), so
+  // the funnel keeps summing to n — the team half just stops masquerading as a
+  // customer signal.
+  const optout = rows.filter(isCustomerOptout).length
+  const teamRemoved = rows.filter(isTeamRemoved).length
   const funded = rows.filter(isFunded).length
   // Money analysis is restricted to leads with a recorded price so revenue and
   // spend cover the SAME cohort. Otherwise a funded loan whose lead price was
@@ -109,7 +152,9 @@ export function segment(rows: LeadRow[], allFundedRevenue = false): Segment {
   const safe = n || 1   // avoid div-by-zero on empty selections
   return {
     n, responded, rr: (100 * responded) / safe,
-    cold, crate: (100 * cold) / safe, optout, orate: (100 * optout) / safe,
+    cold, crate: (100 * cold) / safe,
+    optout, orate: (100 * optout) / safe,
+    teamRemoved, trate: (100 * teamRemoved) / safe,
     funded, fr: (100 * funded) / safe, spend, revenue,
     // ROI as a return multiple (revenue ÷ spend); null when no priced spend.
     roi: spend > 0 ? revenue / spend : null,

@@ -18,7 +18,7 @@
 import type { Deal } from './types'
 import { PIPELINE_GROUPS } from './types'
 import { resolveLO } from './loanOfficer'
-import { isPurchased, isResponded, isCold, isOptout, isFunded, matchesPurpose, type Purpose, type SourceScope } from './leadReport'
+import { isPurchased, isResponded, isCold, isCustomerOptout, isTeamRemoved, isFunded, matchesPurpose, type Purpose, type SourceScope } from './leadReport'
 
 export const NO_SOURCE = '(no source set)'
 export const sourceLabel = (d: Pick<Deal, 'source'>): string => (d.source ?? '').trim() || NO_SOURCE
@@ -112,7 +112,13 @@ export type SourceStats = {
   source: string
   total: number
   responded: number; rr: number
-  cold: number; optout: number; orate: number
+  cold: number
+  /** CUSTOMER opt-outs only (STOP / DND - SMS). Split from team dispositions
+   *  2026-07-16 — see lib/leadReport.ts. `orate` is now a lead-QUALITY signal. */
+  optout: number; orate: number
+  /** Team dispositions (Remove from All Automations) — the triage button. Tracked
+   *  separately so triage adoption can't masquerade as leads opting out. */
+  teamRemoved: number; trate: number
   open: number; active: number; lost: number
   funded: number; fr: number
   fundedVolume: number; fundedAvg: number
@@ -135,6 +141,7 @@ export function buildSourceStats(deals: Deal[], costs: Map<string, CostRow>, mon
       const cpm = costs.get(src)?.cost_per_month ?? 0
       s = {
         source: src, total: 0, responded: 0, rr: 0, cold: 0, optout: 0, orate: 0,
+        teamRemoved: 0, trate: 0,
         open: 0, active: 0, lost: 0, funded: 0, fr: 0,
         fundedVolume: 0, fundedAvg: 0,
         leadCost: 0, retainer: cpm * months, spend: 0, revenue: 0, netProfit: 0,
@@ -150,7 +157,8 @@ export function buildSourceStats(deals: Deal[], costs: Map<string, CostRow>, mon
     s.deals.push(d)
     if (isResponded(d)) s.responded++
     if (isCold(d)) s.cold++
-    if (isOptout(d)) s.optout++
+    if (isCustomerOptout(d)) s.optout++
+    if (isTeamRemoved(d)) s.teamRemoved++
     s.leadCost += d.lead_price ?? 0
     if (isFunded(d)) {
       s.funded++
@@ -163,6 +171,7 @@ export function buildSourceStats(deals: Deal[], costs: Map<string, CostRow>, mon
   for (const s of map.values()) {
     s.rr = s.total ? (100 * s.responded) / s.total : 0
     s.orate = s.total ? (100 * s.optout) / s.total : 0
+    s.trate = s.total ? (100 * s.teamRemoved) / s.total : 0
     s.fr = s.total ? (100 * s.funded) / s.total : 0
     s.fundedAvg = s.funded ? s.fundedVolume / s.funded : 0
     s.spend = s.leadCost + s.retainer
@@ -178,7 +187,8 @@ export type RoiKpis = {
   totalLeads: number
   responded: number; rr: number
   cold: number; crate: number
-  optout: number; orate: number
+  optout: number; orate: number          // CUSTOMER opt-outs (STOP / DND-SMS)
+  teamRemoved: number; trate: number     // team dispositions (Remove from All Automations)
   active: number
   funded: number; fr: number
   volume: number
@@ -190,10 +200,11 @@ export type RoiKpis = {
 }
 
 export function rollupKpis(sources: SourceStats[]): RoiKpis {
-  let totalLeads = 0, responded = 0, cold = 0, optout = 0, active = 0, funded = 0
+  let totalLeads = 0, responded = 0, cold = 0, optout = 0, teamRemoved = 0, active = 0, funded = 0
   let volume = 0, leadCost = 0, retainer = 0, revenue = 0
   for (const s of sources) {
     totalLeads += s.total; responded += s.responded; cold += s.cold; optout += s.optout
+    teamRemoved += s.teamRemoved
     active += s.active; funded += s.funded; volume += s.fundedVolume
     leadCost += s.leadCost; retainer += s.retainer; revenue += s.revenue
   }
@@ -202,6 +213,7 @@ export function rollupKpis(sources: SourceStats[]): RoiKpis {
   return {
     totalLeads, responded, rr: (100 * responded) / safe,
     cold, crate: (100 * cold) / safe, optout, orate: (100 * optout) / safe,
+    teamRemoved, trate: (100 * teamRemoved) / safe,
     active, funded, fr: (100 * funded) / safe, volume,
     leadCost, retainer, spend, revenue, netProfit: revenue - spend,
     roi: spend > 0 ? revenue / spend : null,
@@ -320,7 +332,7 @@ export function optout7dStats(
   const windowMs = days * 86_400_000
   let optouts = 0, timed = 0, within = 0
   for (const d of deals) {
-    if (!isOptout(d)) continue
+    if (!isCustomerOptout(d)) continue
     optouts++
     const oppId = d.ghl_opportunity_id
     const evt = oppId ? firstOptout[oppId] : undefined

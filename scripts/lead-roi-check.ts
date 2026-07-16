@@ -133,27 +133,39 @@ approx('projection revenue', proj.projRevenue, 7500)
 eq('projection funded', proj.projFunded, 4)
 
 // ── Opt-out rate + early opt-out (≤7d) ─────────────────────────────────────────
+// SPLIT 2026-07-16: "opt-out" here means the CUSTOMER told us to stop (STOP /
+// DND - SMS). "Remove from All Automations" is a team disposition — the /hot-leads
+// triage button — and is tracked as teamRemoved instead. Folding it in made lead
+// quality look like it was collapsing when the team was just clearing a backlog.
 const optBook: Deal[] = [
   deal({ id: 'o1', status: 'STOP', ghl_opportunity_id: 'opp1', date_added_ghl: '2026-06-01' }),
   deal({ id: 'o2', status: 'DND - SMS', ghl_opportunity_id: 'opp2', date_added_ghl: '2026-06-01' }),
-  deal({ id: 'o3', status: 'Remove from All Automations', ghl_opportunity_id: 'opp3', date_added_ghl: '2026-06-01' }),
+  deal({ id: 'o3', status: 'Remove from All Automations', ghl_opportunity_id: 'opp3', date_added_ghl: '2026-06-01' }),  // TEAM, not customer
   deal({ id: 'o4', status: 'STOP', ghl_opportunity_id: null }),            // opt-out, no opp id → untimed
-  deal({ id: 'o5', status: 'Pitching', ghl_opportunity_id: 'opp5' }),      // responded — not an opt-out
+  deal({ id: 'o5', status: 'Pitching', ghl_opportunity_id: 'opp5' }),      // responded — neither
 ]
 const optStats = buildSourceStats(optBook, new Map(), 1)
-approx('per-source orate = optout ÷ leads', optStats[0].orate, 80)   // 4 of 5
+approx('per-source orate = CUSTOMER optout ÷ leads', optStats[0].orate, 60)   // o1,o2,o4 of 5
+approx('per-source trate = team-removed ÷ leads', optStats[0].trate, 20)      // o3 of 5
+eq('team-removed is NOT in optout', optStats[0].optout, 3)
+eq('team-removed counted separately', optStats[0].teamRemoved, 1)
+// buckets still partition: responded(o5) + cold(0) + optout(3) + teamRemoved(1) = 5
+eq('per-source buckets partition total',
+   optStats[0].responded + optStats[0].cold + optStats[0].optout + optStats[0].teamRemoved,
+   optStats[0].total)
+
 const firstOptout = {
   opp1: '2026-06-05T12:00:00Z',   // day 4 → within 7
   opp2: '2026-06-20T12:00:00Z',   // day 19 → outside
-  opp3: '2026-06-08T00:00:00Z',   // day 7 boundary → within (≤ 7d)
-  opp5: '2026-06-02T00:00:00Z',   // event exists but lead is NOT in the opt-out bucket → ignored
+  opp3: '2026-06-08T00:00:00Z',   // team-removed → must be IGNORED now (was counted pre-split)
+  opp5: '2026-06-02T00:00:00Z',   // event exists but lead is NOT an opt-out → ignored
 }
 const o7 = optout7dStats(optBook, firstOptout)
-eq('optouts counts the current bucket', o7.optouts, 4)
-eq('timed = opt-outs with event + creation date', o7.timed, 3)
-eq('within-7d counts day-4 and day-7-boundary', o7.within, 2)
-approx('withinPct = within ÷ timed', o7.withinPct, 66.67, 0.1)
-approx('coverage = timed ÷ optouts', o7.coverage, 75)
+eq('optouts = CUSTOMER opt-outs only (o1,o2,o4)', o7.optouts, 3)
+eq('timed = customer opt-outs with event + creation date (o1,o2)', o7.timed, 2)
+eq('within-7d counts day-4 only (o3 no longer inflates it)', o7.within, 1)
+approx('withinPct = within ÷ timed', o7.withinPct, 50)
+approx('coverage = timed ÷ optouts', o7.coverage, 66.67, 0.1)
 const o7empty = optout7dStats(optBook, {})
 eq('no events → zero coverage, no crash', [o7empty.timed, o7empty.within, o7empty.coverage], [0, 0, 0])
 

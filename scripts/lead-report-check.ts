@@ -2,7 +2,7 @@
 // Run: npx tsc lib/leadReport.ts scripts/lead-report-check.ts --outDir /tmp/lrc \
 //        --module nodenext --moduleResolution nodenext --skipLibCheck && node /tmp/lrc/scripts/lead-report-check.js
 import {
-  isPurchased, isResponded, isCold, isOptout, isFunded, matchesLO, matchesPurpose,
+  isPurchased, isResponded, isCold, isCustomerOptout, isTeamRemoved, isOptoutStatus, isFunded, matchesLO, matchesPurpose,
   segment, groupBy, sourceKey, stateKey, purchasedBook, leadBook, rrBand, type LeadRow,
 } from '../lib/leadReport'
 
@@ -33,9 +33,27 @@ eq('Non-Responsive = cold', isCold(row({ status: 'Non-Responsive' })), true)
 eq('New Lead not responded', isResponded(row({ status: 'New Lead' })), false)
 eq('Pitching = responded', isResponded(row({ status: 'Pitching' })), true)
 eq('Lost to Competitor = responded', isResponded(row({ status: 'Lost to Competitor' })), true)
-eq('STOP = optout', isOptout(row({ status: 'STOP' })), true)
-eq('DND-SMS = optout', isOptout(row({ status: 'DND - SMS' })), true)
-eq('optout not responded', isResponded(row({ status: 'DND - SMS' })), false)
+// ── Opt-out split (2026-07-16) — customer signal vs team disposition ───────
+// "Remove from All Automations" is a BUTTON WE PRESS (the /hot-leads triage UI),
+// not something the borrower did. It was 61% of the old merged bucket and rising
+// with triage adoption, making lead quality look like it was collapsing.
+eq('STOP = customer optout', isCustomerOptout(row({ status: 'STOP' })), true)
+eq('DND-SMS = customer optout', isCustomerOptout(row({ status: 'DND - SMS' })), true)
+eq('Remove from All Automations is NOT a customer optout',
+   isCustomerOptout(row({ status: 'Remove from All Automations' })), false)
+eq('Remove from All Automations IS team-removed',
+   isTeamRemoved(row({ status: 'Remove from All Automations' })), true)
+eq('STOP is NOT team-removed', isTeamRemoved(row({ status: 'STOP' })), false)
+
+// THE REGRESSION GUARD: the union must stay broad. isRespondedStatus is
+// "not cold AND not optout", and Remove-from-All-Automations is not cold — so if
+// it ever drops out of the UNION it silently becomes "Responded" (~295 deals) and
+// inflates every responded rate + flips to_responded on stage_events.
+eq('union still covers team-removed', isOptoutStatus('Remove from All Automations'), true)
+eq('union still covers STOP', isOptoutStatus('STOP'), true)
+eq('team-removed must NOT count as responded',
+   isResponded(row({ status: 'Remove from All Automations' })), false)
+eq('customer optout not responded', isResponded(row({ status: 'DND - SMS' })), false)
 
 // ── Funded ─────────────────────────────────────────────────────────
 eq('Funded group = funded', isFunded(row({ pipeline_group: 'Funded', status: 'Loan Funded' })), true)
@@ -82,6 +100,27 @@ eq('seg spend', seg.spend, 200)
 eq('seg revenue', seg.revenue, 5000)
 eq('seg roi', seg.roi, 25)                 // 5000 comp ÷ 200 spend = 25×
 eq('empty seg roi null', segment([]).roi, null)
+
+// ── Segment partition after the opt-out split (2026-07-16) ─────────
+// optout and teamRemoved are now separate buckets. They must STILL partition the
+// set with responded+cold — if team-removed leaked into responded (or vanished),
+// the funnel would stop summing to n.
+const segSplit = segment([
+  row({ status: 'Pitching' }),                       // responded
+  row({ status: 'New Lead' }),                       // cold
+  row({ status: 'STOP' }),                           // customer optout
+  row({ status: 'DND - SMS' }),                      // customer optout
+  row({ status: 'Remove from All Automations' }),    // team removed
+])
+eq('split: n', segSplit.n, 5)
+eq('split: responded excludes team-removed', segSplit.responded, 1)
+eq('split: cold', segSplit.cold, 1)
+eq('split: optout = customer only (STOP + DND-SMS)', segSplit.optout, 2)
+eq('split: teamRemoved counted separately', segSplit.teamRemoved, 1)
+eq('split: buckets still partition n',
+   segSplit.responded + segSplit.cold + segSplit.optout + segSplit.teamRemoved, segSplit.n)
+eq('split: orate is customer-only (2/5)', segSplit.orate, 40)
+eq('split: trate is team-only (1/5)', segSplit.trate, 20)
 // Money cohort = priced leads only. A funded loan whose lead price was never
 // recorded is excluded from BOTH revenue and spend, so its comp can't inflate ROI.
 const segUnpriced = segment([

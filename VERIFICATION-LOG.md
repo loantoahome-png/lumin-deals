@@ -1,5 +1,24 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-16] Split OPTOUT_STATUSES — customer opt-out vs team disposition
+**Status:** CHANGED — all fixtures green (lead-report 86/86, lead-roi 61/61, cohort 83/83, ghl-link 10/10, push-stage-log 10/10), tsc unchanged (7 pre-existing, 0 in touched files), `next build` READY.
+**Issue:** Efrain: "split the optout statuses." 61% of the merged bucket (295 of 486) was **"Remove from All Automations" — a BUTTON WE PRESS** (the /hot-leads triage UI), not a borrower signal. Triage shipped 07-14 and generated **121 in its first two days**, so the "opt-out rate" was set to climb as triage adoption grew — reading as collapsing lead quality when nothing about the leads changed.
+**LIVE IMPACT (verified against all 2,624 deals):**
+- BEFORE — merged "opt-out rate": **486 = 18.5%**
+- AFTER — opt-out (customer, STOP/DND-SMS): **191 = 7.3%** ← real lead-quality signal
+- AFTER — team-removed (triage): **295 = 11.2%** ← operational, now separate
+- Regression guard: responded **991 (37.8%) UNCHANGED**; 191+295=486 → partition holds ✅
+**THE TRAP (why a naive split would have been a silent disaster):** `isRespondedStatus = !isColdStatus && !isOptoutStatus`, and `COLD_STATUSES` does NOT contain "Remove from All Automations". So simply *removing* it from `OPTOUT_STATUSES` would have made it neither cold nor opt-out → **~295 deals would silently reclassify as "Responded"**, inflating every responded rate AND flipping `to_responded` on future stage_events rows. Fix: `OPTOUT_STATUSES` stays the **UNION**; the narrow sets are new and additive.
+**Changes:**
+- `lib/leadReport.ts` — NEW `CUSTOMER_OPTOUT_STATUSES` (STOP, DND - SMS) + `TEAM_REMOVED_STATUSES` (Remove from All Automations); `OPTOUT_STATUSES` is now their union (⚠️ documented: do not narrow). NEW `isCustomerOptoutStatus`/`isTeamRemovedStatus`/`isCustomerOptout`/`isTeamRemoved`. **`isOptout` DELETED** — deliberately, to force every caller to declare which question it's asking (tsc found them all; only 1 stale ref existed). `Segment` gains `teamRemoved`/`trate` so the funnel still partitions to n.
+- `lib/leadRoi.ts` — `SourceStats` + `RoiKpis` gain `teamRemoved`/`trate`; `optout`/`orate` and `optout7dStats` are now CUSTOMER-only.
+- `app/api/stage-events/first-optout/route.ts` — keys on `CUSTOMER_OPTOUT_STATUSES` (was the union), so the ≤7d timing stops measuring when WE cleared a backlog.
+- `app/lead-roi/page.tsx` — KPI relabelled "Opted out (customer)" with `N team-removed` in the sub (no grid change — it's `lg:grid-cols-7` and an 8th would wrap); table header tooltip was **factually wrong** (still listed the team disposition) — fixed; ≤7d explainer rewritten; CSV export gains Team-removed columns.
+- Fixtures: `lead-report-check` +12 (incl. the union regression guard + a partition test), `lead-roi-check` updated — **6 of its fixtures failed on the first run** because they encoded the old merged semantics (`o3` = Remove-from-All-Automations expected to count as an opt-out). Correct failures; updated to the new contract.
+**Test Method:** all 5 fixture suites · `npx tsc --noEmit` · `npm run build` · live-data check across 2,624 deals confirming the partition holds and responded is unchanged.
+**Result:** (pending prod verify)
+**Note:** `cohortReport.isDnd` deliberately still uses the UNION — it asks "is this lead reachable / out of play", where a team-removed lead genuinely is. Different question from lead quality; left alone on purpose.
+
 ### [2026-07-16] Opt-out timing gap — dashboard-origin stage moves were invisible to stage_events
 **Status:** CHANGED — `push-stage-log-check` 10/10, tsc unchanged (7 pre-existing, 0 in the touched route), `next build` READY.
 **Issue:** Efrain: "fix the opt-out gap."
