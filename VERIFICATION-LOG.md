@@ -1,5 +1,22 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-16] Opt-out timing gap — dashboard-origin stage moves were invisible to stage_events
+**Status:** CHANGED — `push-stage-log-check` 10/10, tsc unchanged (7 pre-existing, 0 in the touched route), `next build` READY.
+**Issue:** Efrain: "fix the opt-out gap."
+**CORRECTION TO MY EARLIER CLAIM (important):** I first said *"your opt-out data is missing 83% of opt-outs"* and warned it would corrupt the in-flight "% of opt out" work. **Wrong.** `lib/leadRoi.ts:153` counts opt-outs via `isOptout(d)` → `isOptoutStatus(d.status)`, read from **`deals.status`** — **complete**. The opt-out **count and rate are accurate**; any "% of opt out" built on them is fine. Only `optout7dStats` (`lib/leadRoi.ts:315`) uses stage_events, and only for **timing**.
+**The real defect:** `optouts=473` (complete) but `timed=27` → the card's headline **37.0% is computed from 27 of 473 (5.7% coverage)**. The page does report `coverage` honestly, but the sample is also **BIASED**: all 27 are `source='webhook'` (GHL-origin). Every **dashboard** opt-out (the triage dispositions) is missing — and those fire on the **day 5–7** clock by design, so the surviving 37% **overstates** how fast opt-outs happen. Measured: of 126 moves into an opt-out status in 7 days, only 22 logged, **104 invisible**.
+**Root cause:** dashboard writes `deals.status` FIRST (`hot-leads/page.tsx:124`), then `pushStageToGHL`. GHL echoes back; by then `cur.status` already equals the new value, so the webhook's echo-guard (`.neq('status', whStage.status)` + `cur.status !== whStage.status`) suppresses the log — **as designed**, to stop workflow echoes inflating it. Two correct behaviours composed into a blind spot. Nothing was broken.
+**Changes (`app/api/deals/[id]/push-stage/route.ts`):**
+- `logStageEvent(..., source:'dashboard')` — NEW source alongside `webhook`/`backfill_comm`. `lib/pushStage.ts` is the single choke point: **all 11** dashboard stage-change call sites (pipeline ×4, deals ×3, hot-leads ×2, deals/[id], funded) funnel through it → this route, so one edit covers every origin.
+- **`oppStatus='lost'` skipped** — a won/lost flip deliberately LEAVES the stage alone (`handleMarkLost` passes the CURRENT status); logging it would invent a move that never happened.
+- **2-min dedup** on (deal_id, to_status) — double-clicks / bulk re-applies.
+- **`from_status: null` by construction** — the client already overwrote `deals.status`; the prior value isn't recoverable here. The opt-out + first-responded readers key on `to_status`/`event_at`/`opportunity_id`, never `from_status`.
+- **Also:** `opportunityId` now prefers the **`ghl_opportunity_id` column** over `raw_ghl_data.id` — `/lead-roi` keys `firstOptout` by that column, so the blob's id could silently fail to join. Side benefit: the GHL push now works for the **96 deals with null `raw_ghl_data`**, whose dashboard changes previously no-op'd and never reached GHL.
+- NEW `scripts/push-stage-log-check.ts` (10 fixtures: opp-id resolution incl. column-over-blob join-key rule, mark-lost guard, dedup).
+**Test Method:** `npx tsx scripts/push-stage-log-check.ts` 10/10 · `npx tsc --noEmit` (0 in this route) · `npm run build` READY.
+**Result:** (pending prod verify — needs a real dashboard disposition to occur; watching for the first `source='dashboard'` row rather than manufacturing one against prod)
+**Caveats:** (1) **Forward-only** — historical coverage stays 5.7%. A backfill from `deals.stage_changed_at` is possible for deals *currently* in an opt-out status — **NOT done, needs sign-off** (inserts synthetic history). (2) **`/lead-cohorts` numbers WILL shift** — dashboard-origin moves into responded/other statuses now log too. They're real moves that were invisible, so it should get more correct, but it's a change. (3) Deliberately did **not** touch `/lead-roi` — another session is live in that page.
+
 ### [2026-07-16] Webhook dead-code removal + last 3 clobbered deals repaired
 **Status:** CHANGED — tsc 7 pre-existing errors (unchanged, none in the touched file), `ghl-link-check` 10/10, `next build` READY.
 **Issue:** Efrain: "yes fix the 3 deals and delete the dead code." Follow-up to `acbd101`.
