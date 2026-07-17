@@ -1,5 +1,17 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-17] Lead ROI — relabeled the confusing "Opt-out ≤ 7D" KPI to "Fast opt-outs"
+**Status:** CHANGED — tsc exactly 7 pre-existing errors (reports/underwriting/DealForm/next.config), **0 in the two touched files**; `next build` ✓ (`/lead-roi` + `/lead-roi/report` prerendered). No live-data browser check (RLS+auth; the card only populates logged-in on prod).
+**Issue:** Efrain, looking at the circled KPI: "this metric looks confusing, what is this measuring when it says 3 of 3 timed" → after I explained it, "re-label to fast opt outs and include that description."
+**What the metric is (from [lib/leadRoi.ts:327](lib/leadRoi.ts) `optout7dStats`):** of CUSTOMER opt-outs (STOP/DND-SMS; "Remove from All Automations" excluded), the ones with BOTH a logged `stage_events` opt-out timestamp AND a creation date are `timed`; `within` = those that opted out ≤7d after creation; headline `withinPct` = within/timed; `coverage` = timed/optouts. His screen: optouts 5, timed 3, within 3 → **100%** headline, old sub "3 of 3 timed · covers 60%". Confusing because 100% is a % of the *timed subset*, and "covers 60%" = 3/5.
+**Changes (label/text only — no math touched):**
+- Main KPI card ([app/lead-roi/page.tsx:518](app/lead-roi/page.tsx)): label `Opt-out ≤ 7d` → **`Fast opt-outs`**; sub → `${timed} of ${optouts} opt-outs timed — ${all? }${within} within ${days} days` (his numbers render exactly "3 of 5 opt-outs timed — all 3 within 7 days"). Headline % unchanged.
+- Report KPI ([app/lead-roi/report/page.tsx:228](app/lead-roi/report/page.tsx)): same rename, compact sub "3/5 timed · all 3 ≤ 7d".
+- Both glossaries renamed to "Fast opt-outs (≤7d)" so the legend matches the card, and now spell out that the % is of timed opt-outs only.
+- `sub` renders single-line `truncate` + full-text tooltip (Kpi @ line 1005), so on the narrow 7-col card the tail may clip — full text on hover / wider breakpoints.
+**Test Method:** typecheck + build (done) + traced the template against his exact screen numbers. Live: open `/lead-roi` on prod → the circled card reads "Fast opt-outs / 100% / 3 of 5 opt-outs timed — all 3 within 7 days".
+**Deployed:** (pending — see follow-up)
+
 ### [2026-07-17] Hot Leads — App Intake tab now shows Appointment Booked + App Intake
 **Status:** CHANGED — tsc unchanged (7 pre-existing errors in reports/underwriting/DealForm/next.config, **0 in the two touched files**), `next build` ✓ (`/hot-leads` prerendered). Live-data browser check NOT run: the page reads `deals` client-side under RLS+auth and anon reads return `[]` ([[deals-rls]]); appointment-booked leads are only visible logged-in on prod.
 **Issue:** Efrain: "one tab shows responded and pitching leads. Can we have the app intake tab also start showing appointment booked? So it will show both appointment booked and app intake leads."

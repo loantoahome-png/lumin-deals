@@ -225,8 +225,8 @@ function ReportBody() {
             <RKpi label="Responded" value={pct(kpis.rr)} sub={`${kpis.responded} leads`} valueClass={RR_TXT[rrBand(kpis.rr)]} />
             <RKpi label="No response" value={pct(kpis.crate)} sub={`${kpis.cold} leads`} />
             <RKpi label="Opted out / DND" value={pct(kpis.orate)} sub={`${kpis.optout} leads`} />
-            <RKpi label={`Opt-out ≤ ${o7.days}d`} value={o7.timed > 0 ? `${o7.withinPct.toFixed(0)}%` : '—'}
-              sub={o7.timed > 0 ? `${o7.within}/${o7.timed} timed · ${o7.coverage.toFixed(0)}% cov.` : 'no timing yet'} />
+            <RKpi label="Fast opt-outs" value={o7.timed > 0 ? `${o7.withinPct.toFixed(0)}%` : '—'}
+              sub={o7.timed > 0 ? `${o7.timed}/${o7.optouts} timed · ${o7.within === o7.timed ? 'all ' : ''}${o7.within} ≤ ${o7.days}d` : 'no timing yet'} />
             <RKpi label="Active escrows" value={kpis.active.toLocaleString()} valueClass="text-amber-600" />
             <RKpi label="Funded" value={kpis.funded.toLocaleString()} sub={`${pct(kpis.fr)} · ${formatCurrency(kpis.volume)}`} tone="good" />
           </div>
@@ -464,7 +464,7 @@ function ReportBody() {
         {/* Methodology */}
         <Section title="Definitions">
           <div className="text-[11px] text-slate-500 leading-relaxed space-y-1">
-            <p><b className="text-slate-700">Responded</b> — engaged at least once; Ghosted counts. <b className="text-slate-700">Opted out / DND</b> is its own bucket (shown as count · % of that source&apos;s leads). <b className="text-slate-700">Opt-out ≤ 7d</b> — share of timed opt-outs whose first logged opt-out event fell within 7 days of lead creation (forward-only stage log, so coverage is shown). <b className="text-slate-700">Funded</b> — Loan Funded / Broker Check Received / Loan Finalized; funded loans anchor on funded date, everything else on the date the lead was added.</p>
+            <p><b className="text-slate-700">Responded</b> — engaged at least once; Ghosted counts. <b className="text-slate-700">Opted out / DND</b> is its own bucket (shown as count · % of that source&apos;s leads). <b className="text-slate-700">Fast opt-outs (≤7d)</b> — of the opt-outs with a logged event, the share whose first opt-out fell within 7 days of lead creation (% is of timed opt-outs only; forward-only stage log, so the timed count is shown). <b className="text-slate-700">Funded</b> — Loan Funded / Broker Check Received / Loan Finalized; funded loans anchor on funded date, everything else on the date the lead was added.</p>
             <p><b className="text-slate-700">Spend</b> — Σ per-lead price (GHL) + flat monthly retainers × months in range. <b className="text-slate-700">Revenue</b> — Σ Arive compensation on funded loans only. <b className="text-slate-700">Net profit</b> = revenue − spend. <b className="text-slate-700">ROI</b> — revenue ÷ spend as a multiple ($ back per $1).</p>
             <p>Purchased scope covers {PURCHASED_SOURCES.join(', ')}. Stats are per-LO — this report is {lo} only.</p>
           </div>
