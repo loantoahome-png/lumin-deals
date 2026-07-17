@@ -1,5 +1,17 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-17] Lead ROI — Fast opt-outs → % of total leads + team-removed split by real contact
+**Status:** VERIFIED end-to-end against prod (see Result). tsc 7 pre-existing (0 in touched files), `next build` ✓ (/lead-roi, /lead-roi/report, /report-import prerender), lead-report-check **89/89**, lead-roi-check **62/62**.
+**Issue:** Efrain, on the Fast opt-outs KPI: "I want the percentage of fast opt out to be based off total leads, so [6]/646", "fix the truncation", "get rid of the 76 team-removed opt out from the stats/header", and — after I pulled the live data — "should team-removed count as responded?" → chose **split by real contact**.
+**Grounding (read-only prod query, 298 purchased team-removed leads):** only **55 (18.5%) have inbound** (`last_inbound_at`); **228 (76.5%) have NO comms at all**. So team-removed is NOT reliably "responded" — it's a bulk triage button (Remove from All Automations) fired on cold/junk leads. Premise held for <1 in 5.
+**Changes:**
+- **Fast opt-outs headline** now `within ÷ total leads` (6/646 ≈ 0.9%) instead of `within ÷ timed` (35%). Card sub reworded + a new `subWrap` prop on `Kpi` so it wraps instead of clipping (the truncation fix). Main + report cards, both summaries, both glossaries/legends updated to the ÷-total-leads basis (it's a FLOOR — only timed opt-outs count; coverage shown).
+- **Opt-out (customer) card** drops the "· N team-removed" tag (Efrain's "get rid of it from the header").
+- **Team-removed split by contact** ([lib/leadReport.ts](lib/leadReport.ts)): `isResponded(d)` now `isRespondedStatus(status) || (team-removed && last_inbound_at)`; `isCold(d)` now `isColdStatus(status) || (team-removed && !last_inbound_at)`. Added `hasInboundContact` + `last_inbound_at` to `LeadRow` (OPTIONAL, so /report-import's history-less MergedLead still compiles — absent ⇒ no-inbound ⇒ no-response). Added `last_inbound_at` to the page's `LEAD_COLS` fetch.
+**Load-bearing scoping:** the **bare-status** `isRespondedStatus`/`isColdStatus` are UNCHANGED — the stage webhook (lib/stageEvents.ts), cohortReport, and the stage-events API routes all key off those, so the split touches ONLY the row-level report classification (/lead-roi intended; /report-import benign — it shows no team-removed bucket, team-removed just folds into no-response). teamRemoved is now an OVERLAY, never added to a funnel/partition sum.
+**Result:** **VERIFIED** — ran the REAL leadReport predicates against prod (2,110 purchased leads): team-removed 298, of which 55 have inbound. BEFORE (status-only) responded 693 / no-response 915; AFTER (split) responded **748** / no-response **1,158** / customer-optout 204 — **partition sum = 2,110 = total** (exact, no double-count). Shift: responded **+55**, no-response **+243** (55+243 = 298 ✓). `last_inbound_at` confirmed fetched/read (responded_delta ≠ 0). Live badge/number check still needs Efrain's logged-in eyes (RLS).
+**Deployed:** (pending — see follow-up)
+
 ### [2026-07-17] Lead ROI — relabeled the confusing "Opt-out ≤ 7D" KPI to "Fast opt-outs"
 **Status:** CHANGED — tsc exactly 7 pre-existing errors (reports/underwriting/DealForm/next.config), **0 in the two touched files**; `next build` ✓ (`/lead-roi` + `/lead-roi/report` prerendered). No live-data browser check (RLS+auth; the card only populates logged-in on prod).
 **Issue:** Efrain, looking at the circled KPI: "this metric looks confusing, what is this measuring when it says 3 of 3 timed" → after I explained it, "re-label to fast opt outs and include that description."

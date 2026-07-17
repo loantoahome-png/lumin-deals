@@ -34,7 +34,7 @@ import {
   Filter, ArrowRight, Save, FileText,
 } from 'lucide-react'
 
-const LEAD_COLS = 'id,name,source,loan_officer,pipeline_group,status,loan_amount,state,loan_purpose,lead_price,compensation_amount,date_added_ghl,funded_date,created_at,ghl_opportunity_id'
+const LEAD_COLS = 'id,name,source,loan_officer,pipeline_group,status,loan_amount,state,loan_purpose,lead_price,compensation_amount,date_added_ghl,funded_date,created_at,ghl_opportunity_id,last_inbound_at'
 
 const PURPOSE_TABS: Purpose[] = ['All', 'Purchase', 'Refinance']
 const SCOPE_TABS: SourceScope[] = ['Purchased', 'All']
@@ -474,7 +474,7 @@ export default function LeadRoiPage() {
                       {kpis.optout > 0 && <>
                         <b className="text-slate-900">{kpis.optout}</b> opted out ({pct(kpis.orate)})
                         {o7.timed > 0
-                          ? <> — of the {o7.timed} with logged timing, <b className="text-slate-900">{o7.within} ({o7.withinPct.toFixed(0)}%)</b> opted out within {o7.days} days of creation{o7.coverage < 99.5 && <span className="text-slate-400"> (timing covers {o7.coverage.toFixed(0)}% of opt-outs)</span>}.</>
+                          ? <> — <b className="text-slate-900">{o7.within}</b> opted out within {o7.days} days of getting the lead (<b className="text-slate-900">{(100 * o7.within / (kpis.totalLeads || 1)).toFixed(1)}%</b> of all leads){o7.coverage < 99.5 && <span className="text-slate-400"> — a floor, since timing covers only {o7.timed} of {o7.optouts} opt-outs</span>}.</>
                           : <span className="text-slate-400"> — no opt-out timing logged yet (fills forward via the stage webhook).</span>}
                       </>}
                     </p>
@@ -514,10 +514,10 @@ export default function LeadRoiPage() {
                 <Kpi icon={<CheckCircle2 className="w-4 h-4 text-emerald-500" />} label="Responded" value={pct(kpis.rr)} sub={`${kpis.responded} leads`} valueClass={RR_COLOR[rrBand(kpis.rr)]} />
                 <Kpi icon={<X className="w-4 h-4 text-slate-400" />} label="No response" value={pct(kpis.crate)} sub={`${kpis.cold} leads`} />
                 <Kpi icon={<X className="w-4 h-4 text-rose-400" />} label="Opted out (customer)" value={pct(kpis.orate)}
-                  sub={`${kpis.optout} leads · ${kpis.teamRemoved} team-removed`} />
-                <Kpi icon={<Calendar className="w-4 h-4 text-rose-500" />} label="Fast opt-outs"
-                  value={o7.timed > 0 ? `${o7.withinPct.toFixed(0)}%` : '—'}
-                  sub={o7.timed > 0 ? `${o7.timed} of ${o7.optouts} opt-outs timed — ${o7.within === o7.timed ? 'all ' : ''}${o7.within} within ${o7.days} days` : 'no timing logged yet'} />
+                  sub={`${kpis.optout} leads`} />
+                <Kpi icon={<Calendar className="w-4 h-4 text-rose-500" />} label="Fast opt-outs" subWrap
+                  value={o7.timed > 0 ? `${(100 * o7.within / (kpis.totalLeads || 1)).toFixed(1)}%` : '—'}
+                  sub={o7.timed > 0 ? `${o7.within} of ${kpis.totalLeads} leads opted out ≤ ${o7.days}d · timing covers ${o7.timed}/${o7.optouts} opt-outs` : 'no timing logged yet'} />
                 <Kpi icon={<TrendingUp className="w-4 h-4 text-amber-500" />} label="Active escrows" value={kpis.active.toLocaleString()} />
                 <Kpi icon={<CheckCircle2 className="w-4 h-4 text-emerald-600" />} label="Funded" value={kpis.funded.toLocaleString()} sub={`${pct(kpis.fr)} · ${formatCurrency(kpis.volume)}`} highlight="good" />
               </div>
@@ -621,7 +621,7 @@ export default function LeadRoiPage() {
                           <th className="px-2 py-2.5">Source</th>
                           <th className="px-2 py-2.5 text-right">Leads</th>
                           <th className="px-2 py-2.5 text-right border-l border-slate-200" title="Engaged at least once — Ghosted counts">Resp %</th>
-                          <th className="px-2 py-2.5 text-right" title="CUSTOMER opt-outs only: STOP · DND-SMS. Team dispositions (Remove from All Automations) are counted separately — see the Opted out KPI.">Opt-out</th>
+                          <th className="px-2 py-2.5 text-right" title="CUSTOMER opt-outs only: STOP · DND-SMS. Team dispositions (Remove from All Automations) are NOT counted here — they fold into Responded or No-response by whether the borrower ever replied.">Opt-out</th>
                           <th className="px-2 py-2.5 text-right border-l border-slate-200">Open</th>
                           <th className="px-2 py-2.5 text-right">Active</th>
                           <th className="px-2 py-2.5 text-right">Lost</th>
@@ -961,8 +961,8 @@ export default function LeadRoiPage() {
                 <div className="px-4 pb-3 space-y-1.5">
                   <p><b>LO tabs:</b> stats are per-LO only — one loan officer at a time, matched via the canonical resolver, never combined.</p>
                   <p><b>Scope:</b> <b>Purchased</b> = vendor leads only ({PURCHASED_SOURCES.join(', ')}); <b>All sources</b> includes warm/organic (Self Source, Return Client, Referrals, Arive).</p>
-                  <p><b>Responded:</b> engaged at least once — <b>Ghosted counts</b>; only New Lead / Attempted Contact / Non-Responsive are &ldquo;no response.&rdquo; <b>Opted out / DND</b> is its own bucket; the table shows count · % of that source&apos;s leads.</p>
-                  <p><b>Fast opt-outs (≤7d):</b> of the CUSTOMER opt-outs (STOP / DND-SMS) that have a logged opt-out event, the share whose FIRST opt-out landed within 7 days of the lead&apos;s creation date — i.e. leads that bailed almost immediately. The headline % is of the <i>timed</i> opt-outs only, so the card also shows how many are timed (e.g. &ldquo;3 of 5 opt-outs timed&rdquo;). &ldquo;Remove from All Automations&rdquo; is excluded — that&apos;s a team disposition from the Hot Leads triage button, not the borrower opting out (it was 61% of the old merged bucket and rose with triage adoption, making lead quality look worse than it is). Forward-only log — opt-outs from before the webhook went live (~Jul 8) have no timing, hence the coverage count. The summary&apos;s best-performer picks: Best ROI needs ≥1 funded + real spend; rate picks need ≥20 leads.</p>
+                  <p><b>Responded:</b> engaged at least once — <b>Ghosted counts</b>; only New Lead / Attempted Contact / Non-Responsive are &ldquo;no response.&rdquo; Team-removed leads (Remove from All Automations) split by real contact — counted as Responded only if they have a logged inbound message, else No-response (verified 2026-07-17: ~18% had inbound). <b>Opted out / DND</b> is its own bucket; the table shows count · % of that source&apos;s leads.</p>
+                  <p><b>Fast opt-outs (≤7d):</b> of the CUSTOMER opt-outs (STOP / DND-SMS) that have a logged opt-out event, the share whose FIRST opt-out landed within 7 days of the lead&apos;s creation date — i.e. leads that bailed almost immediately. The headline % is those fast opt-outs ÷ <i>all leads</i> (e.g. 6 ÷ 646 ≈ 0.9%). It&apos;s a FLOOR — only opt-outs with a logged timestamp can be counted, so the card shows the coverage (e.g. &ldquo;17/81 opt-outs&rdquo; timed) and the real rate may be higher. &ldquo;Remove from All Automations&rdquo; is excluded — that&apos;s a team disposition from the Hot Leads triage button, not the borrower opting out (it was 61% of the old merged bucket and rose with triage adoption, making lead quality look worse than it is). Forward-only log — opt-outs from before the webhook went live (~Jul 8) have no timing, hence the coverage count. The summary&apos;s best-performer picks: Best ROI needs ≥1 funded + real spend; rate picks need ≥20 leads.</p>
                   <p><b>Funded:</b> Loan Funded / Broker Check Received / Loan Finalized (or the Funded group) — used for the pipeline tallies too. Funded loans anchor on <b>funded date</b>; everything else on the date the lead was added; date-less rows appear only under All time.</p>
                   <p><b>Spend:</b> Σ per-lead price (GHL) <b>plus</b> flat monthly retainers × months in range. <b>Revenue:</b> Σ Arive compensation on funded loans only. <b>Net profit</b> = revenue − spend.</p>
                   <p><b>ROI:</b> revenue ÷ spend as a multiple — 1.62× means $1.62 back per $1 (the old Lead Spend percent is this minus one). Lead price coverage is ~84%, so spend on price-less leads is understated — set a retainer for flat-billed sources.</p>
@@ -977,13 +977,14 @@ export default function LeadRoiPage() {
   )
 }
 
-function Kpi({ icon, label, value, sub, highlight, valueClass }: {
+function Kpi({ icon, label, value, sub, highlight, valueClass, subWrap }: {
   icon: React.ReactNode
   label: string
   value: string
   sub?: string
   highlight?: boolean | 'good' | 'bad'
   valueClass?: string
+  subWrap?: boolean   // let the sub wrap to 2 lines instead of truncating (for fuller captions)
 }) {
   const box =
     highlight === 'good' ? 'border-emerald-300 ring-1 ring-emerald-200' :
@@ -1002,7 +1003,7 @@ function Kpi({ icon, label, value, sub, highlight, valueClass }: {
         <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">{label}</span>
       </div>
       <p className={`text-lg font-bold tabular-nums ${text}`}>{value}</p>
-      {sub && <p className="text-[10px] text-slate-400 mt-0.5 truncate" title={sub}>{sub}</p>}
+      {sub && <p className={`text-[10px] text-slate-400 mt-0.5 ${subWrap ? 'leading-snug' : 'truncate'}`} title={sub}>{sub}</p>}
     </div>
   )
 }

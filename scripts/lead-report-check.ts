@@ -13,7 +13,7 @@ function eq(label: string, got: unknown, want: unknown) {
 }
 const row = (p: Partial<LeadRow>): LeadRow => ({
   loan_officer: null, pipeline_group: 'Leads', status: 'New Lead', source: 'FRU', state: 'CA',
-  lead_price: 0, compensation_amount: null, loan_purpose: 'Refinance', ...p,
+  lead_price: 0, compensation_amount: null, loan_purpose: 'Refinance', last_inbound_at: null, ...p,
 })
 
 // ── Purchased vs warm ──────────────────────────────────────────────
@@ -45,14 +45,22 @@ eq('Remove from All Automations IS team-removed',
    isTeamRemoved(row({ status: 'Remove from All Automations' })), true)
 eq('STOP is NOT team-removed', isTeamRemoved(row({ status: 'STOP' })), false)
 
-// THE REGRESSION GUARD: the union must stay broad. isRespondedStatus is
-// "not cold AND not optout", and Remove-from-All-Automations is not cold — so if
-// it ever drops out of the UNION it silently becomes "Responded" (~295 deals) and
-// inflates every responded rate + flips to_responded on stage_events.
+// THE REGRESSION GUARD: the bare-status UNION must stay broad. isRespondedStatus is
+// "not cold AND not optout", and Remove-from-All-Automations is not cold — so if it
+// ever drops out of the UNION it silently becomes "Responded" at the STATUS level
+// (the stage webhook keys off this) — ~295 deals — and flips to_responded.
 eq('union still covers team-removed', isOptoutStatus('Remove from All Automations'), true)
 eq('union still covers STOP', isOptoutStatus('STOP'), true)
-eq('team-removed must NOT count as responded',
-   isResponded(row({ status: 'Remove from All Automations' })), false)
+// Row-level split-by-contact (2026-07-17): a team-removed lead counts as responded
+// ONLY if it actually has inbound contact; otherwise it's a no-response lead.
+eq('team-removed WITHOUT inbound = not responded',
+   isResponded(row({ status: 'Remove from All Automations', last_inbound_at: null })), false)
+eq('team-removed WITHOUT inbound = cold (no response)',
+   isCold(row({ status: 'Remove from All Automations', last_inbound_at: null })), true)
+eq('team-removed WITH inbound = responded',
+   isResponded(row({ status: 'Remove from All Automations', last_inbound_at: '2026-06-01T00:00:00Z' })), true)
+eq('team-removed WITH inbound = NOT cold',
+   isCold(row({ status: 'Remove from All Automations', last_inbound_at: '2026-06-01T00:00:00Z' })), false)
 eq('customer optout not responded', isResponded(row({ status: 'DND - SMS' })), false)
 
 // ── Funded ─────────────────────────────────────────────────────────
@@ -101,26 +109,26 @@ eq('seg revenue', seg.revenue, 5000)
 eq('seg roi', seg.roi, 25)                 // 5000 comp ÷ 200 spend = 25×
 eq('empty seg roi null', segment([]).roi, null)
 
-// ── Segment partition after the opt-out split (2026-07-16) ─────────
-// optout and teamRemoved are now separate buckets. They must STILL partition the
-// set with responded+cold — if team-removed leaked into responded (or vanished),
-// the funnel would stop summing to n.
+// ── Segment partition after team-removed split-by-contact (2026-07-17) ─────
+// {responded, cold, customer-optout} partition the set (sum to n). teamRemoved is
+// now an OVERLAY: each team-removed lead folds into responded (had inbound) or cold
+// (never did), so it must NOT be added to the partition sum or it double-counts.
 const segSplit = segment([
-  row({ status: 'Pitching' }),                       // responded
-  row({ status: 'New Lead' }),                       // cold
-  row({ status: 'STOP' }),                           // customer optout
-  row({ status: 'DND - SMS' }),                      // customer optout
-  row({ status: 'Remove from All Automations' }),    // team removed
+  row({ status: 'Pitching' }),                                                             // responded
+  row({ status: 'New Lead' }),                                                             // cold
+  row({ status: 'STOP' }),                                                                 // customer optout
+  row({ status: 'Remove from All Automations', last_inbound_at: null }),                   // team-removed, no reply → cold
+  row({ status: 'Remove from All Automations', last_inbound_at: '2026-06-01T00:00:00Z' }), // team-removed, replied → responded
 ])
 eq('split: n', segSplit.n, 5)
-eq('split: responded excludes team-removed', segSplit.responded, 1)
-eq('split: cold', segSplit.cold, 1)
-eq('split: optout = customer only (STOP + DND-SMS)', segSplit.optout, 2)
-eq('split: teamRemoved counted separately', segSplit.teamRemoved, 1)
-eq('split: buckets still partition n',
-   segSplit.responded + segSplit.cold + segSplit.optout + segSplit.teamRemoved, segSplit.n)
-eq('split: orate is customer-only (2/5)', segSplit.orate, 40)
-eq('split: trate is team-only (1/5)', segSplit.trate, 20)
+eq('split: responded = Pitching + team-removed-with-inbound', segSplit.responded, 2)
+eq('split: cold = New Lead + team-removed-no-inbound', segSplit.cold, 2)
+eq('split: optout = customer only (STOP)', segSplit.optout, 1)
+eq('split: teamRemoved overlay counts both team-removed', segSplit.teamRemoved, 2)
+eq('split: {responded,cold,optout} partition n (teamRemoved is overlay)',
+   segSplit.responded + segSplit.cold + segSplit.optout, segSplit.n)
+eq('split: orate is customer-only (1/5)', segSplit.orate, 20)
+eq('split: trate is team-only (2/5)', segSplit.trate, 40)
 // Money cohort = priced leads only. A funded loan whose lead price was never
 // recorded is excluded from BOTH revenue and spend, so its comp can't inflate ROI.
 const segUnpriced = segment([

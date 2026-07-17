@@ -140,18 +140,20 @@ eq('projection funded', proj.projFunded, 4)
 const optBook: Deal[] = [
   deal({ id: 'o1', status: 'STOP', ghl_opportunity_id: 'opp1', date_added_ghl: '2026-06-01' }),
   deal({ id: 'o2', status: 'DND - SMS', ghl_opportunity_id: 'opp2', date_added_ghl: '2026-06-01' }),
-  deal({ id: 'o3', status: 'Remove from All Automations', ghl_opportunity_id: 'opp3', date_added_ghl: '2026-06-01' }),  // TEAM, not customer
+  deal({ id: 'o3', status: 'Remove from All Automations', ghl_opportunity_id: 'opp3', date_added_ghl: '2026-06-01', last_inbound_at: null }),  // TEAM, no reply → no-response
   deal({ id: 'o4', status: 'STOP', ghl_opportunity_id: null }),            // opt-out, no opp id → untimed
   deal({ id: 'o5', status: 'Pitching', ghl_opportunity_id: 'opp5' }),      // responded — neither
 ]
 const optStats = buildSourceStats(optBook, new Map(), 1)
 approx('per-source orate = CUSTOMER optout ÷ leads', optStats[0].orate, 60)   // o1,o2,o4 of 5
-approx('per-source trate = team-removed ÷ leads', optStats[0].trate, 20)      // o3 of 5
+approx('per-source trate = team-removed ÷ leads', optStats[0].trate, 20)      // o3 of 5 (overlay)
 eq('team-removed is NOT in optout', optStats[0].optout, 3)
-eq('team-removed counted separately', optStats[0].teamRemoved, 1)
-// buckets still partition: responded(o5) + cold(0) + optout(3) + teamRemoved(1) = 5
+eq('team-removed counted separately (overlay)', optStats[0].teamRemoved, 1)
+eq('team-removed w/o inbound folds into cold (no-response)', optStats[0].cold, 1)   // o3
+// {responded, cold, optout} partition the total; teamRemoved is now an OVERLAY (o3 is
+// ALSO in cold), so don't add it here: responded(o5) + cold(o3) + optout(o1,o2,o4) = 5.
 eq('per-source buckets partition total',
-   optStats[0].responded + optStats[0].cold + optStats[0].optout + optStats[0].teamRemoved,
+   optStats[0].responded + optStats[0].cold + optStats[0].optout,
    optStats[0].total)
 
 const firstOptout = {

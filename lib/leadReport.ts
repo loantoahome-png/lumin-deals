@@ -43,7 +43,13 @@ export const OPTOUT_STATUSES = new Set([...CUSTOMER_OPTOUT_STATUSES, ...TEAM_REM
 const FUNDED_STATUSES = new Set(['Loan Funded', 'Broker Check Received', 'Loan Finalized'])
 
 // Only the fields the report needs — keeps the page's select() slim.
-export type LeadRow = Pick<Deal, 'loan_officer' | 'pipeline_group' | 'status' | 'source' | 'state' | 'lead_price' | 'compensation_amount' | 'loan_purpose'>
+export type LeadRow = Pick<Deal, 'loan_officer' | 'pipeline_group' | 'status' | 'source' | 'state' | 'lead_price' | 'compensation_amount' | 'loan_purpose'> & {
+  // OPTIONAL. Present for live deals (splits team-removed into responded vs
+  // no-response by whether the borrower ever reached in — see isResponded).
+  // ABSENT for imported/merged report rows (/report-import), which carry no
+  // message history — so their team-removed leads default to no-response.
+  last_inbound_at?: Deal['last_inbound_at']
+}
 
 export const rawSource = (d: LeadRow): string => (d.source ?? '').trim()
 export const isPurchased = (d: LeadRow): boolean => PURCHASED_SET.has(rawSource(d).toLowerCase())
@@ -63,16 +69,37 @@ export const isCustomerOptoutStatus = (s: string | null | undefined): boolean =>
 export const isTeamRemovedStatus    = (s: string | null | undefined): boolean => TEAM_REMOVED_STATUSES.has(s ?? '')
 export const isRespondedStatus = (s: string | null | undefined): boolean => !isColdStatus(s) && !isOptoutStatus(s)
 
-export const isCold = (d: LeadRow): boolean => isColdStatus(d.status)
+// Did the borrower ever reach IN — a logged inbound message/call? This is what
+// splits a TEAM-REMOVED lead (the bulk "Remove from All Automations" triage
+// button) into responded vs no-response: the status alone can't tell whether we
+// parked an engaged lead or a cold one. Verified against prod (2026-07-17): only
+// ~18% of team-removed leads have inbound and 76% have NO comms at all, so
+// counting them all as responded would badly overstate engagement — Efrain's
+// call was to split by real contact. (last_inbound_message is a newer, unbackfilled
+// column, so last_inbound_at is the reliable historical signal.)
+export const hasInboundContact = (d: LeadRow): boolean => !!d.last_inbound_at
+
 // NOTE: there is deliberately no `isOptout` any more (removed 2026-07-16). It was
 // ambiguous once the bucket split — callers must say which question they're asking:
 //   isCustomerOptout → did the BORROWER opt out?   (lead quality)
 //   isTeamRemoved    → did WE stop working it?     (operations)
-//   isOptoutStatus   → is it out of play either way? (responded/funnel math)
+//   isOptoutStatus   → is it out of play either way? (bare-status funnel math)
 export const isCustomerOptout = (d: LeadRow): boolean => isCustomerOptoutStatus(d.status)
 export const isTeamRemoved    = (d: LeadRow): boolean => isTeamRemovedStatus(d.status)
+
+// Responded = the lead engaged at least once. The bare status decides it for
+// everything EXCEPT team-removed, which counts as responded only if it actually
+// has inbound contact (else it's a lead we parked without it ever replying).
 // Ghosted is intentionally NOT cold — it means the lead responded, then went dark.
-export const isResponded = (d: LeadRow): boolean => isRespondedStatus(d.status)
+// NB: the row-level rule intentionally diverges from bare-status isRespondedStatus
+// (which the stage webhook uses and must stay status-only) for team-removed leads.
+export const isResponded = (d: LeadRow): boolean =>
+  isRespondedStatus(d.status) || (isTeamRemovedStatus(d.status) && hasInboundContact(d))
+
+// No-response ("cold"): a cold status, OR a team-removed lead that never had any
+// inbound contact — we parked it without it ever engaging.
+export const isCold = (d: LeadRow): boolean =>
+  isColdStatus(d.status) || (isTeamRemovedStatus(d.status) && !hasInboundContact(d))
 export const isFunded = (d: LeadRow): boolean =>
   d.pipeline_group === 'Funded' || FUNDED_STATUSES.has(d.status ?? '')
 
@@ -129,10 +156,11 @@ export function segment(rows: LeadRow[], allFundedRevenue = false): Segment {
   const n = rows.length
   const responded = rows.filter(isResponded).length
   const cold = rows.filter(isCold).length
-  // optout + teamRemoved were one bucket until 2026-07-16. Together with responded
-  // and cold they still partition the whole set (responded = !cold && !either), so
-  // the funnel keeps summing to n — the team half just stops masquerading as a
-  // customer signal.
+  // {responded, cold, customer-optout} partition the whole set (sum to n). As of
+  // 2026-07-17 teamRemoved is an OVERLAY, not a partition member: isResponded/isCold
+  // already fold each team-removed lead into responded (had inbound) or cold (never
+  // did), so teamRemoved re-counts a subset of those two. Keep it for the "how many
+  // did WE park" stat — but NEVER add it to a funnel total or it double-counts.
   const optout = rows.filter(isCustomerOptout).length
   const teamRemoved = rows.filter(isTeamRemoved).length
   const funded = rows.filter(isFunded).length
