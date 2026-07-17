@@ -10,7 +10,7 @@
 - Both glossaries renamed to "Fast opt-outs (≤7d)" so the legend matches the card, and now spell out that the % is of timed opt-outs only.
 - `sub` renders single-line `truncate` + full-text tooltip (Kpi @ line 1005), so on the narrow 7-col card the tail may clip — full text on hover / wider breakpoints.
 **Test Method:** typecheck + build (done) + traced the template against his exact screen numbers. Live: open `/lead-roi` on prod → the circled card reads "Fast opt-outs / 100% / 3 of 5 opt-outs timed — all 3 within 7 days".
-**Deployed:** (pending — see follow-up)
+**Deployed:** commit `bc8432d` → `vercel --prod` (readyState **READY**, 55s), aliased to lumin-deals.vercel.app.
 
 ### [2026-07-17] Hot Leads — App Intake tab now shows Appointment Booked + App Intake
 **Status:** CHANGED — tsc unchanged (7 pre-existing errors in reports/underwriting/DealForm/next.config, **0 in the two touched files**), `next build` ✓ (`/hot-leads` prerendered). Live-data browser check NOT run: the page reads `deals` client-side under RLS+auth and anon reads return `[]` ([[deals-rls]]); appointment-booked leads are only visible logged-in on prod.
