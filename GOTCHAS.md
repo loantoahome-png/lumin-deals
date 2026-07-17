@@ -254,6 +254,41 @@ workflows (id/name/status/**version**/**updatedAt**) — enough to verify a save
 **Project:** lumin-deals / any GHL automation work
 **Date:** 2026-07-16
 
+### `vercel --prod` prints `ETIMEDOUT` but the deploy SUCCEEDS — on a delay (2026-07-16)
+**Tried:** `vercel --prod` → `Error: request to https://api.vercel.com/v13/deployments... read ETIMEDOUT`. Retried.
+Retried again. Pivoted to `--archive=tgz`. Every attempt printed the same error.
+**Failed because:** only the RESPONSE to the create-deployment POST times out. The upload completes and the
+deployment IS created server-side — but it can take **a minute or more to appear in `vercel ls`**. Checking
+immediately shows nothing new, which reads as "genuine failure" and invites another retry. Six attempts across
+two commits created **seven** redundant production deployments of identical code. (Plain reads are fine:
+`vercel ls` / `inspect` respond in ~100-400ms, so this isn't general network trouble.)
+**What works:** treat the error as **no information**. After ONE attempt, wait ~60-90s, then `vercel ls --prod`
+and `vercel inspect https://lumin-deals.vercel.app` (shows the deployment the prod alias actually serves).
+Only re-run if nothing appears after the wait. **The pile-up is not free:** the concurrent same-tree deployments
+race, and one of the three (`7nnai1c7u`) went to **status Error** — its build compiled fine in 29s and it died at
+"Deploying outputs...", i.e. lost the race, not a code fault. Prod was unaffected (the alias took a Ready one),
+but an errored deployment in the list is a retry artifact, not a signal to go bug-hunting. **Also: the `vercel-deploy succeeded` / `build-passed` session hooks
+fire on the COMMAND, not the outcome — they say "succeeded" on a failed deploy. Never use them as a result signal.**
+**Project:** lumin-deals (Vercel CLI 48.x, 2026-07-16 — may be transient Vercel-side)
+**Date:** 2026-07-16
+
+### Browser-pane preview renders NOTHING at viewport 0x0 (looks exactly like a hydration bug)
+**Tried:** `preview_start` → page showed only the app shell, stuck on the Suspense spinner. Spent ~10 min
+diagnosing: read console (clean), network waterfall (all chunks 200/304), curl'd the SSR HTML (content present,
+`$RC("B:0","S:0")` swap call present) — every layer said the app was fine.
+**Failed because:** the preview tab had **viewport 0x0**. Nothing lays out, so nothing renders or hydrates.
+`read_page` reports it (`Viewport: 0x0`) — but only if you look. Calling `resize_window` at START does NOT
+reliably fix it, and `innerWidth/innerHeight` keep reporting `[0,0]` even after rendering starts, so the JS
+probe lies too.
+**What works:** take a **screenshot** — that forces a layout pass and the page renders immediately. Do that
+FIRST on any "blank" preview, before touching a debugger. Tell: `document.body.innerText.length` is tiny
+(~299 = nav only) while `querySelectorAll` still FINDS the elements — DOM present, layout absent.
+**Broader lesson:** when every diagnostic layer says the code is fine, suspect the harness, not the code. A
+`git stash` isolation test (does it reproduce WITHOUT my change?) answers it in 30 seconds and prevents
+"fixing" working code.
+**Project:** lumin-deals / any Browser-pane verification
+**Date:** 2026-07-16
+
 ### `deals.updated_at` is NOT "when a webhook arrived" — the sync touches it (false-negative machine)
 **Tried:** verifying a GHL workflow config change by querying `deals` for rows with
 `updated_at >= <edit time>` and inspecting their `raw_ghl_data.customData` keys. Reported "the edit did not take
