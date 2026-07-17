@@ -448,9 +448,21 @@ export function matchRow(
   return { matched: false, reason: 'no_match' }
 }
 
+// The funded set. MUST stay in lockstep with the `clear_lock_expiration_on_funded`
+// DB trigger (supabase-clear-lock-on-funded.sql), which gates on these exact
+// statuses — see LOCK_CLEARED_ON_FUNDED below.
+export const FUNDED = new Set(['Loan Funded', 'Broker Check Received', 'Loan Finalized'])
+
+// Fields the DB refuses to store on a funded deal. `lock_expiration` is nulled by
+// a BEFORE INSERT OR UPDATE trigger the moment a row lands on a funded status (a
+// rate lock is meaningless once the loan funds). The planner must know this or it
+// proposes a write the DB silently swallows — which made every re-import of an
+// already-applied CSV report the same phantom "N blanks to fill", forever, and
+// inflated the "fields written" count by the same amount.
+const LOCK_CLEARED_ON_FUNDED = 'lock_expiration'
+
 // Map a dashboard status to its pipeline_group (mirrors lib/types.ts groupings).
 export function pipelineGroupForStatus(status: string): string {
-  const FUNDED = new Set(['Loan Funded', 'Broker Check Received', 'Loan Finalized'])
   const IN_PROCESS = new Set(['Loan Setup','Disclosed','Submitted to UW','Approved w/ Conditions','Re-Submittal','Clear to Close','Docs Out','Docs Signed'])
   const NOT_READY = new Set(['Not Qualified - Credit','Not Qualified - Income','Not Ready - Timeframe','DND - SMS','Not Ready - Rate','Lost to Competitor','Non-Responsive','Remove from All Automations','STOP'])
   if (FUNDED.has(status)) return 'Funded'
@@ -639,6 +651,10 @@ export function buildPlan(args: {
       if (typeof newLoan.status === 'string') {
         newLoan.pipeline_group = pipelineGroupForStatus(newLoan.status as string)
       }
+      // The trigger fires on INSERT too, and Arive routinely imports loans that
+      // already funded (status defaults to 'Loan Funded' above) — so drop the
+      // lock date instead of inserting one the DB nulls on the way in.
+      if (FUNDED.has(String(newLoan.status ?? ''))) delete newLoan[LOCK_CLEARED_ON_FUNDED]
       plan.action = 'create_loan'
       plan.borrowerId = borrowerId
       plan.newLoanData = newLoan
@@ -650,9 +666,18 @@ export function buildPlan(args: {
       plans.push(plan)
       continue
     }
+    // The status this row will END on — the trigger fires on NEW.status, so an
+    // import that funds the loan clears the lock in the same write.
+    const effectiveStatus = (patch.status as string | undefined) ?? (deal.status as string | undefined) ?? ''
+    const lockIsCleared = FUNDED.has(effectiveStatus)
+
     for (const [field, value] of Object.entries(patch)) {
       if (field.startsWith('__')) continue                 // skip carrier fields
       if (value === undefined || value === null) continue
+      // Don't propose what the DB will throw away (see LOCK_CLEARED_ON_FUNDED).
+      // Silently skipped rather than reported 'unchanged': the field isn't
+      // applicable to a funded loan, so listing it as a no-op change is noise.
+      if (field === LOCK_CLEARED_ON_FUNDED && lockIsCleared) continue
       const current = deal[field]
       const isBlank = current == null || current === ''
       const isSame  = sameFieldValue(field, current, value)
