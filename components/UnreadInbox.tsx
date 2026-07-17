@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { RefreshCw, Inbox, ExternalLink, Phone, MessageSquare, Mail, Send, Check, Sparkles, ChevronDown, ChevronRight } from 'lucide-react'
+import { LoFilter, useLoFilter, loSelected } from './LoFilter'
 
 export type UnreadItem = {
   conversationId: string | null
@@ -73,7 +74,9 @@ export default function UnreadInbox() {
   const [items, setItems] = useState<UnreadItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [loFilter, setLoFilter] = useState<'All' | 'Matt' | 'Moe' | 'Randy'>('All')
+  // Shared LO filter (multi-select, defaults to Moe + Matt — Randy opt-in), same
+  // control and semantics as the rest of the dashboard.
+  const { selectedLOs, toggleLO } = useLoFilter()
   const [collapsed, setCollapsed] = useState(false)
 
   const fetchUnread = useCallback(async () => {
@@ -113,11 +116,15 @@ export default function UnreadInbox() {
     return next
   })
 
-  const filtered = useMemo(() => {
-    if (loFilter === 'All') return items
-    const q = loFilter.toLowerCase()
-    return items.filter(i => (i.lo || '').toLowerCase().includes(q))
-  }, [items, loFilter])
+  // `lo` is always populated (the API falls back to the account's LO), and every
+  // deal's loan_officer is already canonical — so loSelected's resolveLO step is
+  // just a safety net here. NOTE: an LO outside LOAN_OFFICERS (there's 1 deal on
+  // "Brianne Han") has no pill, so its messages only show with all three checked
+  // — the same semantics as every other LO-filtered view.
+  const filtered = useMemo(
+    () => items.filter(i => loSelected(i.lo, selectedLOs)),
+    [items, selectedLOs],
+  )
 
   const totalUnread = filtered.reduce((s, i) => s + i.unreadCount, 0)
 
@@ -156,17 +163,7 @@ export default function UnreadInbox() {
           </span>
         </button>
         <div className="flex items-center gap-1.5">
-          {(['All', 'Matt', 'Moe', 'Randy'] as const).map(opt => (
-            <button
-              key={opt}
-              onClick={() => setLoFilter(opt)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                loFilter === opt ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-700 hover:border-slate-400'
-              }`}
-            >
-              {opt === 'All' ? 'All LOs' : opt}
-            </button>
-          ))}
+          <LoFilter selected={selectedLOs} onToggle={toggleLO} />
           <button onClick={fetchUnread} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg" title="Refresh (live)">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
