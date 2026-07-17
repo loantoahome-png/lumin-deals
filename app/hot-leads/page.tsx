@@ -19,14 +19,18 @@ const MS_PER_DAY = 86_400_000
 
 // The hottest, highest-intent stages — leads we cannot afford to let slip.
 // These are fetched WITH raw_ghl_data (the tracker's stage-time fallback reads it).
-const HOT_STATUSES = ['Responded', 'Pitching', 'App Intake']
+// Appointment Booked rides here too so the App Intake tab and its stage-time
+// metrics (avg days / stalled) treat it exactly like the other hot stages.
+const HOT_STATUSES = ['Responded', 'Pitching', 'Appointment Booked', 'App Intake']
 
 // The rest of the triage universe: undecided early stages (the 7-day decision
 // clock — spec: docs/specs/2026-07-14-lead-triage-spec.md) plus the parked
 // Not Ready - Timeframe leads that the Check-ins tab resurfaces. Fetched
-// without the raw blob — these views only read real columns.
+// without the raw blob — these views only read real columns. (Appointment
+// Booked is still undecided for the Triage clock — see UNDECIDED_STATUSES —
+// but it's fetched WITH the blob up in HOT_STATUSES now.)
 const TRIAGE_EXTRA_STATUSES = [
-  'New Lead', 'Attempted Contact', 'Ghosted', 'Appointment Booked', NOT_READY_TIMEFRAME,
+  'New Lead', 'Attempted Contact', 'Ghosted', NOT_READY_TIMEFRAME,
 ]
 // Statuses this page keeps in local state; moving a deal anywhere else drops it.
 const TRACKED_STATUSES = [...HOT_STATUSES, ...TRIAGE_EXTRA_STATUSES]
@@ -36,7 +40,7 @@ const TRACKED_STATUSES = [...HOT_STATUSES, ...TRIAGE_EXTRA_STATUSES]
 type LeadView = 'triage' | 'pitching' | 'intake' | 'checkins'
 const VIEW_STATUSES: Record<'pitching' | 'intake', string[]> = {
   pitching: ['Responded', 'Pitching'],
-  intake:   ['App Intake'],
+  intake:   ['Appointment Booked', 'App Intake'],
 }
 
 function HotLeadsPageInner() {
@@ -198,7 +202,7 @@ function HotLeadsPageInner() {
                 : view === 'pitching'
                 ? 'Responded & Pitching leads — bucketed by how long since the borrower last replied.'
                 : view === 'intake'
-                ? 'App Intake leads (application in) — bucketed by how long since the borrower last replied.'
+                ? 'Appointment Booked & App Intake leads — bucketed by how long since the borrower last replied.'
                 : 'Not Ready - Timeframe leads resurfacing on their promised check-in date.'}
             </p>
           </div>

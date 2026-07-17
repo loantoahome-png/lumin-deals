@@ -22,15 +22,18 @@ const STATUS_TO_GROUP: Record<string, string> = (() => {
   return m
 })()
 
-// The two "hot" stages this workspace watches. Each gets its own badge color
-// (matching STATUS_COLORS) and its own set of forward quick-actions.
-const HOT_STATUSES = ['Responded', 'Pitching', 'App Intake'] as const
+// The "hot" stages this workspace watches. Each gets its own badge color
+// (matching STATUS_COLORS) and its own set of forward quick-actions. Any deal
+// whose status isn't one of these falls back to the 'Pitching' visuals, so a
+// stage shown in a Hot Leads tab MUST be listed here or it gets mislabeled.
+const HOT_STATUSES = ['Responded', 'Pitching', 'Appointment Booked', 'App Intake'] as const
 type HotStatus = (typeof HOT_STATUSES)[number]
 
 const STAGE_BADGE: Record<HotStatus, string> = {
-  'Responded':  'bg-sky-100 text-sky-700 border border-sky-200',
-  'Pitching':   'bg-violet-100 text-violet-700 border border-violet-200',
-  'App Intake': 'bg-cyan-100 text-cyan-700 border border-cyan-200',
+  'Responded':          'bg-sky-100 text-sky-700 border border-sky-200',
+  'Pitching':           'bg-violet-100 text-violet-700 border border-violet-200',
+  'Appointment Booked': 'bg-purple-100 text-purple-700 border border-purple-200',
+  'App Intake':         'bg-cyan-100 text-cyan-700 border border-cyan-200',
 }
 
 // ── Age buckets (visual only — never written to the DB) ─────────────────────
@@ -146,6 +149,12 @@ const FORWARD_BY_STATUS: Record<HotStatus, Advance[]> = {
   'Pitching': [
     { status: 'App Intake',            label: 'App Intake', title: 'Move to App Intake',           group: 'Leads',     color: 'bg-cyan-100 hover:bg-cyan-200 text-cyan-800 border border-cyan-200' },
     { status: 'Ghosted',               label: 'Ghosted',    title: 'Mark Ghosted',                 group: 'Leads',     color: 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200' },
+    { status: 'Not Ready - Timeframe', label: 'Not Ready',  title: 'Move to Not Ready - Timeframe', group: 'Not Ready', color: 'bg-orange-100 hover:bg-orange-200 text-orange-800 border border-orange-200' },
+  ],
+  // From Appointment Booked: take the application, or close out.
+  'Appointment Booked': [
+    { status: 'App Intake',            label: 'App Intake', title: 'Move to App Intake',            group: 'Leads',     color: 'bg-cyan-100 hover:bg-cyan-200 text-cyan-800 border border-cyan-200' },
+    { status: 'Ghosted',               label: 'Ghosted',    title: 'Mark Ghosted',                  group: 'Leads',     color: 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200' },
     { status: 'Not Ready - Timeframe', label: 'Not Ready',  title: 'Move to Not Ready - Timeframe', group: 'Not Ready', color: 'bg-orange-100 hover:bg-orange-200 text-orange-800 border border-orange-200' },
   ],
   // From App Intake: convert into the loan, pre-approve, or close out.

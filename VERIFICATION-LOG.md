@@ -1,5 +1,16 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-17] Hot Leads — App Intake tab now shows Appointment Booked + App Intake
+**Status:** CHANGED — tsc unchanged (7 pre-existing errors in reports/underwriting/DealForm/next.config, **0 in the two touched files**), `next build` ✓ (`/hot-leads` prerendered). Live-data browser check NOT run: the page reads `deals` client-side under RLS+auth and anon reads return `[]` ([[deals-rls]]); appointment-booked leads are only visible logged-in on prod.
+**Issue:** Efrain: "one tab shows responded and pitching leads. Can we have the app intake tab also start showing appointment booked? So it will show both appointment booked and app intake leads."
+**Changes (`app/hot-leads/page.tsx` + `components/HotLeadsTracker.tsx`):**
+- `VIEW_STATUSES.intake` `['App Intake']` → `['Appointment Booked', 'App Intake']` — the tab (and its count badge + volume/stalled/avg-days metrics) now spans both stages.
+- Moved `'Appointment Booked'` from `TRIAGE_EXTRA_STATUSES` (no blob) to `HOT_STATUSES` (fetched WITH `raw_ghl_data`) so its stage-time metrics match the other hot stages. Data was already loaded either way; this just gives it the blob fallback.
+- **Tracker fix (the real trap):** `HotLeadsTracker`'s stage resolver is `HOT_STATUSES.includes(status) ? status : 'Pitching'`. Its LOCAL `HOT_STATUSES` did NOT include Appointment Booked, so a naive one-line page change would have rendered every appointment-booked card with a **violet "Pitching" badge**. Added `'Appointment Booked'` to the tracker's `HOT_STATUSES`/`HotStatus`, a purple `STAGE_BADGE` entry (matches `STATUS_COLORS`), and a `FORWARD_BY_STATUS['Appointment Booked']` set (→ App Intake / Ghosted / Not Ready). `Record<HotStatus,…>` totality means tsc would have failed if either map were missing the key — it didn't.
+**Left untouched on purpose:** `UNDECIDED_STATUSES` (triage.ts) still lists Appointment Booked, so the 7-day **Triage** tab + its decision-task cron are unchanged. Consequence: a recent (post-2026-07-14) appointment-booked lead now appears in **both** Triage and App Intake. That's the faithful reading of the request ("show both … in the app intake tab") and avoids silently reversing the just-shipped triage design — flagged to Efrain as an easy follow-up if he'd rather it leave Triage.
+**Test Method:** typecheck + prod build (done). Live: open `/hot-leads` → App Intake tab on prod; confirm appointment-booked cards show a purple "Appointment Booked" badge (not violet "Pitching") and the count rose.
+**Deployed:** (pending — see follow-up)
+
 ### [2026-07-17] Arive import — planner proposed `lock_expiration` writes the DB always swallowed ("phantom fills")
 **Status:** VERIFIED against the real CSV + live DB (see Result). `arive-lock-check` 10/10 (NEW), arive-match 12/12, lead-report 86/86, lead-roi 61/61, ghl-link 13/13, webhook-fields 32/32, tsc unchanged (7 pre-existing, 0 in touched files), `next build` ✓.
 **Issue:** Efrain re-imported an already-applied Arive CSV as a no-op sanity check and the preview still claimed **"WILL FILL BLANKS 69"**: *"why does it not show 0 changes since i barely imported the exact same report?"*
