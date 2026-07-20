@@ -3,7 +3,12 @@
 import { useCallback, useState, type ReactNode } from 'react'
 import { Check, Filter } from 'lucide-react'
 import { LOAN_OFFICERS } from '@/lib/types'
-import { resolveLO } from '@/lib/loanOfficer'
+import { resolveLO, DEFAULT_LOS } from '@/lib/loanOfficer'
+
+// DEFAULT_LOS now lives in lib/loanOfficer (server-safe, so the triage cron can
+// gate on the same Moe+Matt scope the UI defaults to). Re-exported here so the
+// existing `import { DEFAULT_LOS } from '@/components/LoFilter'` call sites keep working.
+export { DEFAULT_LOS }
 
 // Loan-officer checkbox swatches — the single source of truth for LO colors across
 // the whole app (dashboard, deals, lead-roi, lead-cohorts, hot-leads, …).
@@ -12,12 +17,6 @@ export const LO_COLORS: Record<string, string> = {
   'Moe Sefati': '#f59e0b',
   'Randy Mathis': '#8b5cf6',
 }
-
-// The default view everywhere is Moe + Matt — Randy is opt-in via his toggle
-// (Efrain, 2026-07-14: "the default views should include only Moe and Matt's
-// leads"). Randy's sub-account runs its own follow-up, so his 587 deals are
-// noise in the daily working views; his pill is one click away when needed.
-export const DEFAULT_LOS: string[] = ['Matt Park', 'Moe Sefati']
 
 /** Multi-select LO filter state, seeded to the Moe + Matt default view. */
 export function useLoFilter(initial: string[] = [...DEFAULT_LOS]) {
