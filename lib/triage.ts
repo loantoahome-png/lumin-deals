@@ -1,6 +1,13 @@
 // Lead triage — the 7-day decision clock + Not Ready check-in resurfacing.
-// Pure logic (no I/O) shared by the Hot Leads triage/check-in tabs and the
-// triage-tasks cron. Spec: docs/specs/2026-07-14-lead-triage-spec.md
+// Pure logic (no I/O) powering the Hot Leads Triage + Check-ins tabs, which is
+// how the team now works these leads. Spec: docs/specs/2026-07-14-lead-triage-spec.md
+//
+// NOTE: the auto-task generator (triage-tasks cron) was REMOVED 2026-07-20 —
+// Efrain works triage off the /hot-leads page, not task chips. The task-only
+// helpers below (needsDecisionTask / needsCheckinTask / decisionTaskTitle /
+// checkinTaskTitle / decideByIso) are now dormant (kept + fixture-tested so the
+// tasks can be revived without rebuilding the logic); the tab helpers
+// (isOpenLead / onTriageClock / triageTier / checkinTier) are the live path.
 //
 // Every OPEN lead in an undecided stage is "on the clock" from its creation
 // (date_added_ghl, else created_at). By day 7 the team commits a direction:
