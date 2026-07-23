@@ -7,7 +7,7 @@ type FieldChange = {
   field: string
   current: unknown
   next: unknown
-  action: 'fill' | 'overwrite' | 'unchanged'
+  action: 'fill' | 'overwrite' | 'unchanged' | 'blocked'
 }
 type RowPlan = {
   rowIndex: number
@@ -21,6 +21,8 @@ type RowPlan = {
   action?: 'update' | 'create_loan' | 'create_new'
   coborrower?: { name: string | null; email: string | null; phone: string | null }
   dedupWarning?: string
+  funded?: boolean
+  fundedRegressionBlocked?: boolean
 }
 type Summary = {
   total_rows: number
@@ -103,7 +105,7 @@ export default function AriveImportPage() {
   const [loading, setLoading]       = useState(false)
   const [createUnmatched, setCreateUnmatched] = useState(false)
   const [protectedFields, setProtectedFields] = useState<Set<string>>(new Set())
-  const [rowFilter, setRowFilter] = useState<'all' | 'overwrites' | 'new' | 'unmatched' | 'warnings'>('all')
+  const [rowFilter, setRowFilter] = useState<'all' | 'overwrites' | 'new' | 'funded' | 'unmatched' | 'warnings'>('all')
   const [rowSearch, setRowSearch] = useState('')
   const [hideNoChange, setHideNoChange] = useState(true)
   const [fieldFilter, setFieldFilter] = useState<string | null>(null)
@@ -215,6 +217,11 @@ export default function AriveImportPage() {
     return [...m.entries()].sort((a, b) => b[1] - a[1])
   })() : []
 
+  // Funded-loan awareness: how many closed loans are in play, and how many the
+  // regression guard is protecting from a backward status move.
+  const fundedCount = (preview?.plans ?? []).filter(p => p.funded).length
+  const fundedRegressionCount = (preview?.plans ?? []).filter(p => p.fundedRegressionBlocked).length
+
   // Rows to show after search + filter + hide-no-change.
   const totalRows = preview?.plans?.length ?? 0
   const visiblePlans = (preview?.plans ?? []).filter(p => {
@@ -228,8 +235,9 @@ export default function AriveImportPage() {
     const hasOverwrite = p.changes.some(c => c.action === 'overwrite' && mode === 'overwrite' && !protectedFields.has(c.field))
     if (rowFilter === 'overwrites') return hasOverwrite
     if (rowFilter === 'new')        return p.action === 'create_new' || p.action === 'create_loan'
+    if (rowFilter === 'funded')     return !!p.funded
     if (rowFilter === 'unmatched')  return !p.matched
-    if (rowFilter === 'warnings')   return !!p.dedupWarning
+    if (rowFilter === 'warnings')   return !!p.dedupWarning || !!p.fundedRegressionBlocked
     // 'all': optionally hide matched no-op rows (nothing written, no warning) —
     // but never hide when drilling a field (those rows are the whole point).
     if (!fieldFilter && hideNoChange && p.matched && p.action !== 'create_new' && p.action !== 'create_loan' && !p.dedupWarning && writes === 0) return false
@@ -320,6 +328,26 @@ export default function AriveImportPage() {
             </div>
           </div>
 
+          {/* Funded-regression guard — announce when it fires so it's never silent */}
+          {mode === 'overwrite' && fundedRegressionCount > 0 && (
+            <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 flex items-start gap-2.5">
+              <Shield className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div className="text-xs text-rose-900 flex-1">
+                <p className="font-semibold">
+                  {fundedRegressionCount} funded loan{fundedRegressionCount === 1 ? '' : 's'} protected from a status regression.
+                </p>
+                <p className="text-rose-800 mt-0.5">
+                  These Arive rows would move a closed loan back to a pre-funded or dead stage. The importer keeps the
+                  funded status and still applies their other fields — nothing gets un-funded.
+                </p>
+              </div>
+              <button onClick={() => setRowFilter('warnings')}
+                className="text-[11px] font-semibold text-rose-700 hover:text-rose-900 underline shrink-0 mt-0.5">
+                Review
+              </button>
+            </div>
+          )}
+
           {/* Mode toggle */}
           <div className="bg-white border border-slate-200 rounded-xl p-4">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Apply mode</h3>
@@ -407,7 +435,11 @@ export default function AriveImportPage() {
             <div className="px-4 py-2.5 flex flex-col gap-2.5">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Per-row preview</h3>
-                <span className="text-[11px] text-slate-400 tabular-nums">Showing {visiblePlans.length} of {totalRows} · click a row for field-by-field</span>
+                <span className="text-[11px] text-slate-400 tabular-nums">
+                  Showing {visiblePlans.length} of {totalRows}
+                  {fundedCount > 0 && <> · <span className="text-emerald-600 font-semibold">{fundedCount} funded</span></>}
+                  {' '}· click a row for field-by-field
+                </span>
               </div>
               {fieldFilter && (
                 <div className="flex items-center gap-2 rounded-lg bg-blue-50 border border-blue-200 px-2.5 py-1.5">
@@ -428,7 +460,7 @@ export default function AriveImportPage() {
                     className="pl-7 pr-2 py-1 text-xs border border-slate-200 rounded-lg w-52 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div className="flex bg-slate-100 rounded-lg p-0.5 gap-0.5">
-                  {([['all', 'All'], ['overwrites', 'Overwrites'], ['new', 'New loans'], ['unmatched', 'Unmatched'], ['warnings', 'Warnings']] as const).map(([key, label]) => (
+                  {([['all', 'All'], ['overwrites', 'Overwrites'], ['new', 'New loans'], ['funded', 'Funded'], ['unmatched', 'Unmatched'], ['warnings', 'Warnings']] as const).map(([key, label]) => (
                     <button key={key} onClick={() => setRowFilter(key)}
                       className={`text-[11px] font-semibold px-2 py-0.5 rounded ${rowFilter === key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                       {label}
@@ -473,6 +505,12 @@ export default function AriveImportPage() {
                         unmatched{p.reason ? ` · ${p.reason}` : ''}
                       </span>
                     )}
+                    {p.funded && (
+                      <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded shrink-0"
+                        title="Currently a funded/closed loan. Arive is authoritative here, so overwrites stick — and the importer will not let status regress out of Funded.">
+                        ● Funded
+                      </span>
+                    )}
                     <span className="font-medium text-slate-800 text-sm flex-1 truncate">{p.borrower}</span>
                     {p.arive_file_no && <span className="text-[11px] text-slate-400 font-mono">#{p.arive_file_no}</span>}
                     <span className="text-[11px] text-slate-500 tabular-nums">
@@ -481,11 +519,17 @@ export default function AriveImportPage() {
                         : willWriteCount > 0 ? `${willWriteCount} change${willWriteCount === 1 ? '' : 's'}` : (p.matched ? 'no change' : '—')}
                     </span>
                   </button>
-                  {(p.coborrower || p.dedupWarning) && (
+                  {(p.coborrower || p.dedupWarning || p.fundedRegressionBlocked) && (
                     <div className="mt-1 ml-7 flex flex-wrap items-center gap-1.5">
                       {p.coborrower && (
                         <span className="text-[10px] font-medium bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded">
                           + co-borrower: {p.coborrower.name || p.coborrower.email || p.coborrower.phone}
+                        </span>
+                      )}
+                      {p.fundedRegressionBlocked && (
+                        <span className="text-[10px] font-semibold bg-rose-100 text-rose-800 px-1.5 py-0.5 rounded"
+                          title="This Arive row would move a funded loan back to a pre-funded/dead stage. The importer blocks that — status is kept, other fields still apply.">
+                          🛡 status regression blocked — kept Funded
                         </span>
                       )}
                       {p.dedupWarning && (
@@ -512,22 +556,24 @@ export default function AriveImportPage() {
                           {p.changes.map((c, i) => {
                             const ariveWins = fieldWrites(c, mode, protectedFields)
                             const isOverwrite = c.action === 'overwrite'
+                            const isBlocked = c.action === 'blocked'
                             const isProtected = isOverwrite && mode === 'overwrite' && protectedFields.has(c.field)
                             const dashBlank = c.current == null || c.current === ''
                             const consequential = CONSEQUENTIAL.has(c.field) && ariveWins && isOverwrite
                             const focused = fieldFilter === c.field
                             return (
-                              <div key={i} className={`flex items-center gap-2 px-2.5 py-1 border-b border-slate-100 last:border-0 ${focused ? 'bg-blue-50 ring-1 ring-inset ring-blue-300' : consequential ? 'bg-amber-50/70' : ''}`}>
-                                {/* Field — bold/amber when a consequential field is being overwritten */}
-                                <span className={`font-mono text-[10px] uppercase w-28 shrink-0 truncate ${consequential ? 'text-amber-700 font-bold' : 'text-slate-400'}`} title={c.field}>{c.field}</span>
-                                {/* Dashboard value — bold when kept, muted when Arive overrides it */}
+                              <div key={i} className={`flex items-center gap-2 px-2.5 py-1 border-b border-slate-100 last:border-0 ${isBlocked ? 'bg-rose-50 ring-1 ring-inset ring-rose-200' : focused ? 'bg-blue-50 ring-1 ring-inset ring-blue-300' : consequential ? 'bg-amber-50/70' : ''}`}>
+                                {/* Field — bold/amber when consequential, bold/rose when a regression is blocked */}
+                                <span className={`font-mono text-[10px] uppercase w-28 shrink-0 truncate ${isBlocked ? 'text-rose-700 font-bold' : consequential ? 'text-amber-700 font-bold' : 'text-slate-400'}`} title={c.field}>{c.field}</span>
+                                {/* Dashboard value — bold when kept (incl. blocked), muted when Arive overrides it */}
                                 <span className={`flex-1 truncate ${!ariveWins && !dashBlank ? 'text-slate-800 font-semibold' : 'text-slate-400'}`}>{fmt(c.current)}</span>
                                 <span className="w-4 shrink-0 text-center text-slate-300">→</span>
-                                {/* Arive value — bold+colored when it wins, struck through when not */}
+                                {/* Arive value — bold+colored when it wins, struck through when kept/blocked */}
                                 <span className={`flex-1 truncate ${ariveWins ? `font-semibold ${isOverwrite ? 'text-amber-700' : 'text-emerald-700'}` : 'text-slate-300 line-through'}`}>{fmt(c.next)}</span>
                                 {/* Result — exactly what happens to this field */}
                                 <span className="w-16 shrink-0 text-right text-[9px] font-bold uppercase">
-                                  {ariveWins
+                                  {isBlocked ? <span className="text-rose-700">blocked</span>
+                                    : ariveWins
                                     ? (isOverwrite ? <span className="text-amber-700">overwrite</span> : <span className="text-emerald-700">fill</span>)
                                     : isProtected ? <span className="text-blue-600">protected</span>
                                     : <span className="text-slate-400">keep</span>}

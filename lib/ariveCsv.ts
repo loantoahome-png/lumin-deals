@@ -476,7 +476,9 @@ export type FieldChange = {
   field: string
   current: unknown
   next: unknown
-  action: 'fill' | 'overwrite' | 'unchanged'
+  //   'blocked' → an overwrite the importer refuses to apply (funded-regression
+  //               guard: never un-fund a closed loan). Shown in preview, never written.
+  action: 'fill' | 'overwrite' | 'unchanged' | 'blocked'
 }
 
 export type RowPlan = {
@@ -500,6 +502,9 @@ export type RowPlan = {
   // ── Co-borrower (deal_contacts role='co') ─────────────────────────────────
   coborrower?: { name: string | null; email: string | null; phone: string | null }
   dedupWarning?: string        // set when the co-borrower already has a separate deal
+  // ── Funded-loan awareness ─────────────────────────────────────────────────
+  funded?: boolean             // the matched deal is currently in the Funded group
+  fundedRegressionBlocked?: boolean  // an overwrite would have un-funded it → blocked
 }
 
 // "Arive" is our LOS, not a marketing lead source. When it shows up in the
@@ -671,6 +676,11 @@ export function buildPlan(args: {
     const effectiveStatus = (patch.status as string | undefined) ?? (deal.status as string | undefined) ?? ''
     const lockIsCleared = FUNDED.has(effectiveStatus)
 
+    // Is the deal being updated a currently-CLOSED loan? Drives the Funded badge
+    // in the preview and the regression guard below.
+    const dealIsFunded = FUNDED.has(String(deal.status ?? '')) || deal.pipeline_group === 'Funded'
+    if (dealIsFunded) plan.funded = true
+
     for (const [field, value] of Object.entries(patch)) {
       if (field.startsWith('__')) continue                 // skip carrier fields
       if (value === undefined || value === null) continue
@@ -686,6 +696,16 @@ export function buildPlan(args: {
       } else if (isBlank) {
         plan.changes.push({ field, current, next: value, action: 'fill' })
       } else {
+        // Funded-regression guard: Arive is authoritative for funded loans, but a
+        // stale/mis-matched row must NEVER knock a currently-Funded deal back to a
+        // pre-funded or dead stage. Flag it as 'blocked' (surfaced in the preview,
+        // never written) rather than applying — mirrors the sync's funded protection.
+        if (field === 'status' && mode === 'overwrite'
+            && FUNDED.has(String(current ?? '')) && !FUNDED.has(String(value ?? ''))) {
+          plan.changes.push({ field, current, next: value, action: 'blocked' })
+          plan.fundedRegressionBlocked = true
+          continue
+        }
         // Non-blank existing value — only overwrite in overwrite mode
         plan.changes.push({
           field, current, next: value,
