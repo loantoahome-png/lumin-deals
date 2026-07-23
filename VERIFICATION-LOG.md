@@ -2113,3 +2113,17 @@ hint + Save), then the four rate fields stacked (label above input), bigger inpu
 spaced `gap-x-10 gap-y-4`.
 **Test Method:** `npx tsc --noEmit` (radar page clean); `npm run build` (✓ `/radar`). Mockup shown.
 **Result:** Type-clean, build READY. **Deployed** commit `c39b389` → prod (dpl_6ijpx8gef), 2026-06-16.
+
+### [2026-07-23] File: app/import/arive/page.tsx
+**Status:** CHANGED (static-verified + deployed; interactive drill-down NOT click-tested — auth gate)
+**Issue:** "Overwrites by field" chips (STATUS 114, LOAN_AMOUNT 63, …) were inert <span>s — clicking showed no way to see which deals a field's change affects.
+**Changes:** Chips are now buttons. Clicking one sets fieldFilter → per-row preview filters to only the deals that field overwrites, auto-expands them, highlights the field in each diff, scrolls to the list. Added an always-visible "Clear field filter" pill. Filter clears on reset + on switch to fill-blanks. Import/commit logic untouched (preview UI only).
+**Test Method:** Log in → /import/arive → upload an Arive CSV → set mode "Overwrite from Arive" → click a field chip (e.g. STATUS) → confirm per-row list narrows to that count, rows expand, the field row is blue-highlighted; click again or "Clear field filter" to reset.
+**Result:** tsc clean (my file), eslint clean, `next build` OK (/import/arive prerendered), prod deploy READY (target=production, lumin-deals.vercel.app). Interactive path pending Efrain's browser test (couldn't authenticate).
+
+### [2026-07-23] Files: lib/ariveCsv.ts, app/import/arive/page.tsx
+**Status:** VERIFIED (logic) / CHANGED (UI — awaiting browser test behind auth gate)
+**Issue:** Funded loans should be updatable by the Arive import (2 stages after Loan Funded, Arive is authoritative for funded), but a stale Overwrite row must not un-fund a closed loan, and funded deals weren't visible in the preview.
+**Changes:** (1) buildPlan funded-regression guard — Overwrite that moves a currently-Funded deal to a non-funded status → action 'blocked', never written; status kept, other fields still apply; forward moves within Funded allowed. (2) Preview: `funded` flag → green "● Funded" badge + "Funded" filter + header count; blocked regressions → rose badge, "Warnings" filter, summary banner. Commit path unchanged (whitelist skips 'blocked').
+**Test Method:** Direct buildPlan test (scripts/_tmp-verify-funded-guard.ts, since removed): 4 cases × 13 assertions. Then browser: log in → /import/arive → upload Arive CSV → Overwrite mode → confirm Funded badges, Funded filter, and (if any stale rows) the rose "status regression blocked" banner + Warnings.
+**Result:** 13/13 logic assertions PASS (blocked / forward-allowed / in-process-normal / fill-blanks-safe). tsc clean, eslint clean, `next build` OK (/import/arive prerendered). UI rendering pending Efrain's authenticated test.
