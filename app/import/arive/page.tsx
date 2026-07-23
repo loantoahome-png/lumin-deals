@@ -106,7 +106,9 @@ export default function AriveImportPage() {
   const [rowFilter, setRowFilter] = useState<'all' | 'overwrites' | 'new' | 'unmatched' | 'warnings'>('all')
   const [rowSearch, setRowSearch] = useState('')
   const [hideNoChange, setHideNoChange] = useState(true)
+  const [fieldFilter, setFieldFilter] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const rowsSectionRef = useRef<HTMLDivElement>(null)
 
   function toggleProtected(field: string) {
     setProtectedFields(prev => {
@@ -163,7 +165,7 @@ export default function AriveImportPage() {
 
   function resetAll() {
     setCsvText(''); setFileName(''); setPreview(null); setCommitted(null); setError(null)
-    setExpandedRows(new Set())
+    setExpandedRows(new Set()); setFieldFilter(null)
     if (inputRef.current) inputRef.current.value = ''
   }
 
@@ -173,6 +175,20 @@ export default function AriveImportPage() {
       if (next.has(i)) next.delete(i); else next.add(i)
       return next
     })
+  }
+
+  // Drill into one field: filter the per-row list to the exact deals this field
+  // overwrites, expand each so the field is visible, and scroll to the list.
+  function drillField(field: string) {
+    const next = fieldFilter === field ? null : field
+    setFieldFilter(next)
+    if (next) {
+      const idxs = (preview?.plans ?? [])
+        .filter(p => p.matched && p.changes.some(c => c.field === next && c.action === 'overwrite'))
+        .map(p => p.rowIndex)
+      setExpandedRows(new Set(idxs))
+      requestAnimationFrame(() => rowsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    }
   }
 
   // Recompute the write counts under the current mode + field shields so the
@@ -206,14 +222,17 @@ export default function AriveImportPage() {
       const q = rowSearch.trim().toLowerCase()
       if (!`${p.borrower} ${p.arive_file_no ?? ''}`.toLowerCase().includes(q)) return false
     }
+    // Field drill-down: show only rows this field actually overwrites.
+    if (fieldFilter && !p.changes.some(c => c.field === fieldFilter && c.action === 'overwrite')) return false
     const writes = p.changes.filter(c => fieldWrites(c, mode, protectedFields)).length
     const hasOverwrite = p.changes.some(c => c.action === 'overwrite' && mode === 'overwrite' && !protectedFields.has(c.field))
     if (rowFilter === 'overwrites') return hasOverwrite
     if (rowFilter === 'new')        return p.action === 'create_new' || p.action === 'create_loan'
     if (rowFilter === 'unmatched')  return !p.matched
     if (rowFilter === 'warnings')   return !!p.dedupWarning
-    // 'all': optionally hide matched no-op rows (nothing written, no warning).
-    if (hideNoChange && p.matched && p.action !== 'create_new' && p.action !== 'create_loan' && !p.dedupWarning && writes === 0) return false
+    // 'all': optionally hide matched no-op rows (nothing written, no warning) —
+    // but never hide when drilling a field (those rows are the whole point).
+    if (!fieldFilter && hideNoChange && p.matched && p.action !== 'create_new' && p.action !== 'create_loan' && !p.dedupWarning && writes === 0) return false
     return true
   })
 
@@ -305,7 +324,7 @@ export default function AriveImportPage() {
           <div className="bg-white border border-slate-200 rounded-xl p-4">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Apply mode</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <ModeOption active={mode === 'fill_blanks'} onClick={() => setMode('fill_blanks')}
+              <ModeOption active={mode === 'fill_blanks'} onClick={() => { setMode('fill_blanks'); setFieldFilter(null) }}
                 title="Fill blanks only (recommended)"
                 desc="Only writes to dashboard fields that are currently empty. Never overwrites manual edits or values from GHL."
               />
@@ -355,19 +374,28 @@ export default function AriveImportPage() {
             </div>
           )}
 
-          {/* Overwrites by field — quiet reference so systemic changes are visible */}
+          {/* Overwrites by field — click a field to see the exact deals it changes */}
           {mode === 'overwrite' && overwritesByField.length > 0 && (
             <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Overwrites by field</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Overwrites by field</h3>
+              <p className="text-[11px] text-slate-500 mb-2.5">
+                Click a field to see the exact deals it overwrites — the per-row list below filters to just those rows.
+              </p>
               <div className="flex flex-wrap gap-1.5">
                 {overwritesByField.map(([field, count]) => {
                   const shielded = protectedFields.has(field)
+                  const active = fieldFilter === field
                   return (
-                    <span key={field} title={shielded ? 'Protected — will not overwrite' : undefined}
-                      className={`text-[11px] font-medium px-2 py-1 rounded-lg border inline-flex items-center gap-1.5 ${shielded ? 'bg-slate-50 border-slate-200 text-slate-400 line-through' : CONSEQUENTIAL.has(field) ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                    <button key={field} onClick={() => drillField(field)}
+                      title={`${shielded ? 'Protected — will not overwrite. ' : ''}Click to view the ${count} deal${count === 1 ? '' : 's'} this field changes`}
+                      className={`text-[11px] font-medium px-2 py-1 rounded-lg border inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+                        active ? 'bg-blue-600 border-blue-600 text-white ring-2 ring-blue-200'
+                        : shielded ? 'bg-slate-50 border-slate-200 text-slate-400 line-through hover:border-blue-300'
+                        : CONSEQUENTIAL.has(field) ? 'bg-amber-50 border-amber-200 text-amber-800 hover:border-amber-400'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-blue-300'}`}>
                       <span className="font-mono uppercase text-[10px]">{field}</span>
                       <span className="tabular-nums font-bold">{count}</span>
-                    </span>
+                    </button>
                   )
                 })}
               </div>
@@ -375,12 +403,24 @@ export default function AriveImportPage() {
           )}
 
           {/* Row plans */}
-          <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-200">
+          <div ref={rowsSectionRef} className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-200 scroll-mt-4">
             <div className="px-4 py-2.5 flex flex-col gap-2.5">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Per-row preview</h3>
                 <span className="text-[11px] text-slate-400 tabular-nums">Showing {visiblePlans.length} of {totalRows} · click a row for field-by-field</span>
               </div>
+              {fieldFilter && (
+                <div className="flex items-center gap-2 rounded-lg bg-blue-50 border border-blue-200 px-2.5 py-1.5">
+                  <span className="text-[11px] text-blue-900">
+                    Showing only deals where <span className="font-mono uppercase font-bold">{fieldFilter}</span> is overwritten
+                    <span className="text-blue-500"> · {visiblePlans.length} deal{visiblePlans.length === 1 ? '' : 's'}</span>
+                  </span>
+                  <button onClick={() => setFieldFilter(null)}
+                    className="ml-auto text-[11px] font-semibold text-blue-700 hover:text-blue-900 inline-flex items-center gap-1">
+                    <X className="w-3 h-3" /> Clear field filter
+                  </button>
+                </div>
+              )}
               <div className="flex items-center gap-2 flex-wrap">
                 <div className="relative">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
@@ -475,8 +515,9 @@ export default function AriveImportPage() {
                             const isProtected = isOverwrite && mode === 'overwrite' && protectedFields.has(c.field)
                             const dashBlank = c.current == null || c.current === ''
                             const consequential = CONSEQUENTIAL.has(c.field) && ariveWins && isOverwrite
+                            const focused = fieldFilter === c.field
                             return (
-                              <div key={i} className={`flex items-center gap-2 px-2.5 py-1 border-b border-slate-100 last:border-0 ${consequential ? 'bg-amber-50/70' : ''}`}>
+                              <div key={i} className={`flex items-center gap-2 px-2.5 py-1 border-b border-slate-100 last:border-0 ${focused ? 'bg-blue-50 ring-1 ring-inset ring-blue-300' : consequential ? 'bg-amber-50/70' : ''}`}>
                                 {/* Field — bold/amber when a consequential field is being overwritten */}
                                 <span className={`font-mono text-[10px] uppercase w-28 shrink-0 truncate ${consequential ? 'text-amber-700 font-bold' : 'text-slate-400'}`} title={c.field}>{c.field}</span>
                                 {/* Dashboard value — bold when kept, muted when Arive overrides it */}
