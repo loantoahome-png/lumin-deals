@@ -22,6 +22,7 @@ import RealEstateOwned from '@/components/RealEstateOwned'
 import ConversationThread from '@/components/ConversationThread'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { isChannelBlocked, dndLabel } from '@/lib/utils'
+import { isFunded } from '@/lib/leadReport'
 import DealTasks from '@/components/DealTasks'
 import { PROCESSORS } from '@/lib/types'
 import type { REOProperty } from '@/lib/types'
@@ -180,6 +181,34 @@ function ContingencyStatusBar({
           </span>
         )
       })}
+    </div>
+  )
+}
+
+/** Read-only compensation display. Comp is Arive-authoritative on funded loans
+ *  and re-synced every 15 min (see the sync's maybeSet overlay), so it's shown
+ *  here, not edited. Emerald once the loan is funded (realized revenue); muted
+ *  while the comp isn't yet realized. */
+function CompDisplay({ value, funded }: { value: number | null; funded: boolean }) {
+  const has = value != null && !isNaN(value)
+  const realized = has && funded
+  return (
+    <div
+      className="relative"
+      title={
+        realized
+          ? 'Realized compensation on this funded loan — sourced from Arive.'
+          : 'Compensation realizes when the loan funds. Sourced from Arive; read-only here.'
+      }
+    >
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 pointer-events-none">$</span>
+      <div className={`w-full pl-7 pr-3 py-2 border rounded-lg text-sm tabular-nums select-none ${
+        realized
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-700 font-semibold'
+          : 'border-slate-100 bg-slate-50 text-slate-500'
+      }`}>
+        {has ? value!.toLocaleString() : <span className="text-slate-400">—</span>}
+      </div>
     </div>
   )
 }
@@ -771,6 +800,9 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                     <option value="">—</option>
                     {sourceOptions.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
+                </Field>
+                <Field label="Compensation" hint="Your revenue on this loan — from Arive, realized on funding. Read-only.">
+                  <CompDisplay value={form.compensation_amount as number | null} funded={isFunded(form as Deal)} />
                 </Field>
               </div>
             </Section>

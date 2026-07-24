@@ -46,3 +46,4 @@ next-env.d.ts
 # local migration scratch + reversible undo backups (kept on disk, out of git)
 _bobrea.mjs
 _*-backup-*.json
+_tmp-*
