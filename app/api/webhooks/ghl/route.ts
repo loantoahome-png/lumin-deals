@@ -471,26 +471,25 @@ export async function POST(req: NextRequest) {
       }
       const maybeSet = (key: string, val: unknown) => { if (val !== null && val !== undefined) patch[key] = val }
 
-      // loan_amount is deliberately NOT written here. The GHL "Loan Amount" CUSTOM
-      // FIELD is an unreliable lead-intake number (it once put $610k on a $150k loan),
-      // and the payload carries no opportunity monetaryValue to use instead (verified
-      // 2026-07-16: 0 of 142 stored webhook bodies have one). loan_amount is SYNC-ONLY —
-      // the 15-min sync mirrors the opp value onto every non-funded deal
-      // (sync/ghl/route.ts:1223) and Arive stays authoritative for funded loans.
-      maybeSet('estimated_value',   fields.estimatedValue)
+      // ── Arive-authoritative LOAN/MONEY fields are NOT written here ──────────
+      // Arive writes the real underwritten numbers (loan_amount, estimated/property
+      // value, rate, existing balance, LTV, cash-out, down payment, credit score,
+      // lender) back into the GHL OPPORTUNITY custom fields — but the webhook payload
+      // only carries the CONTACT's stale lead-intake estimate (e.g. Property Value
+      // 475k vs the opp's real 539k). Writing those here re-stamped the stale numbers
+      // over the sync's good ones every time an event fired. So these are SYNC-ONLY:
+      // the 15-min sync reads them from the opportunity via mapOpportunityFields()
+      // (lib/ghlOpportunityFields.ts) — opp-preferred, contact-fallback for early
+      // leads. The webhook keeps the fields it's actually good at (real-time stage/
+      // status below, plus stable contact attributes + messaging/source/LO/tags).
+      // loan_amount was already sync-only (verified 2026-07-16: 0/142 bodies carry a
+      // monetaryValue); this extends the same rule to the rest of the money fields.
       maybeSet('loan_type',         fields.loanType)
       maybeSet('loan_purpose',      fields.loanPurpose)
       maybeSet('property_address',  fields.propertyAddress)
-      maybeSet('credit_score',      fields.creditScore)
       maybeSet('credit_rating',     fields.creditRating)
-      maybeSet('rate',              fields.rate)
-      maybeSet('investor',          fields.investor)
       maybeSet('occupancy',         fields.occupancy)
       maybeSet('property_type',     fields.propertyType)
-      maybeSet('current_balance',   fields.currentBalance)
-      maybeSet('ltv',               fields.ltv)
-      maybeSet('cash_out',          fields.cashOut)
-      maybeSet('down_payment',      fields.downPayment)
       maybeSet('is_military',       fields.isMilitary)
       maybeSet('current_va_loan',   fields.currentVaLoan)
       maybeSet('property_found',    fields.propertyFound)

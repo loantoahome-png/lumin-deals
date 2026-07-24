@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { normPhone, normEmail, resolveExistingLoan } from '@/lib/dealMatcher'
 import { titleCase } from '@/lib/utils'
 import { resolveLO } from '@/lib/loanOfficer'
+import { mapOpportunityFields, ariveLoanIdFromOpp as ariveLoanIdShared } from '@/lib/ghlOpportunityFields'
 
 const GHL_BASE = 'https://services.leadconnectorhq.com'
 
@@ -210,17 +211,11 @@ async function fetchCustomFieldDefs(locationId: string, apiKey: string): Promise
 // normal getCustomField() path can't see them. Read it directly, matched by the
 // field def's key/name so it's robust across the two sub-accounts' differing field ids.
 function ariveLoanIdFromOpp(opp: GHLOpportunity, defs: Map<string, CustomFieldDef>): string | null {
-  const cf = (opp.customFields as Array<{ id?: string; key?: string; fieldKey?: string; fieldValueString?: string; value?: string }>) || []
-  if (!Array.isArray(cf)) return null
-  for (const f of cf) {
-    const def = f.id ? defs.get(f.id) : undefined
-    const key = `${def?.fieldKey ?? f.fieldKey ?? ''} ${def?.name ?? ''} ${f.key ?? ''}`.toLowerCase()
-    if (key.includes('arive_loan_id') || key.includes('arive loan id')) {
-      const v = String(f.fieldValueString ?? f.value ?? '').trim()
-      if (v) return v
-    }
-  }
-  return null
+  // Delegates to the shared reader so the value-key handling (this org returns opp
+  // custom fields under `fieldValue`, NOT `fieldValueString`/`value`) lives in one
+  // place. Reading the wrong key here returned null for every account whose opps use
+  // `fieldValue` — which is why deals stopped linking to Arive. See lib/ghlOpportunityFields.ts.
+  return ariveLoanIdShared(opp as { customFields?: unknown }, defs)
 }
 
 /** Join an opportunity/contact's {id, value} custom-field entries with the
@@ -937,6 +932,15 @@ async function syncAccount(
           current_va_loan:  str(getCustomField(customFields, 'current_va_loan', 'va_loan', 'VA Loan')),
         }
 
+        // Overlay Arive's AUTHORITATIVE loan data from the OPPORTUNITY custom fields
+        // on top of the contact-sourced defaults above. Arive writes the real
+        // underwritten numbers (Property Value, Purchase Price, Note Rate, Compensation,
+        // PITI, LTV, balance…) into the opportunity; the contact only holds the stale
+        // lead-intake estimate. Opp wins when present; a lead not yet in Arive has no opp
+        // custom fields, so mapOpportunityFields returns {} and the contact value stands.
+        // loan_amount is deliberately NOT in the overlay (stays monetaryValue + funded guard).
+        Object.assign(dealData, mapOpportunityFields(opp, customFieldDefs))
+
         // ── Match by OPPORTUNITY id, then fall back to the ARIVE loan # ──────
         // The arive# fallback re-points a card when its GHL opportunity was
         // deleted + recreated (new id, same loan) — otherwise the sync sees an
@@ -980,6 +984,8 @@ async function syncAccount(
             'cash_out','down_payment','rate','investor','credit_rating','is_military',
             'current_va_loan','city','state','zip','first_name','last_name','email','phone',
             'source','lead_price','ghl_opportunity_id','dnd','dnd_settings','ghl_status',
+            // Arive-authoritative loan fields, sourced from the opportunity overlay above.
+            'purchase_price','compensation_amount','housing_payment','pi_payment',
           ].forEach(maybeSet)
           // In-process loans (Arive-backed or not): loan_amount mirrors the GHL
           // opportunity value — write it even when the opp value is 0/empty so a stale
