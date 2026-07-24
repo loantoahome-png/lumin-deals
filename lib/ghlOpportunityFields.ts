@@ -15,20 +15,27 @@
 
 export type OppCustomFieldEntry = {
   id?: string; key?: string; fieldKey?: string; name?: string
-  fieldValue?: unknown; fieldValueString?: string; fieldValueArray?: unknown[]
-  value?: unknown; field_value?: unknown
+  fieldValue?: unknown; fieldValueString?: string; fieldValueNumber?: number
+  fieldValueArray?: unknown[]; value?: unknown; field_value?: unknown
 }
 export type CustomFieldDef = { id: string; name: string; fieldKey: string }
 type OppLike = { customFields?: unknown } | null | undefined
 
 const norm = (s: string): string => s.toLowerCase().replace(/[\s_\-/.]+/g, '')
 
-// GHL scatters the value across keys depending on account/endpoint.
+// GHL scatters the value across keys by BOTH endpoint and value type:
+//   • /opportunities/{id} (single GET) → everything under `fieldValue`
+//   • /opportunities/search (what the sync uses) → numbers under `fieldValueNumber`,
+//     strings under `fieldValueString`, multi under `fieldValueArray`
+// Missing `fieldValueNumber` made every NUMERIC opp field read as null through the
+// search path (strings still worked) — verified 2026-07-24. Read all variants,
+// skipping null/undefined/'' so an empty typed key can't mask a populated one.
 function rawValue(f: OppCustomFieldEntry): unknown {
-  return (
-    f.fieldValueString ?? f.fieldValue ?? f.value ?? f.field_value ??
-    (Array.isArray(f.fieldValueArray) ? f.fieldValueArray[0] : undefined)
-  )
+  for (const v of [f.fieldValueString, f.fieldValueNumber, f.fieldValue, f.value, f.field_value]) {
+    if (v != null && v !== '') return v
+  }
+  if (Array.isArray(f.fieldValueArray) && f.fieldValueArray.length) return f.fieldValueArray[0]
+  return undefined
 }
 
 // Coerce a GHL custom-field value ("$190,454" | 190454 | "8.85" | "35.335%") → number | null.
