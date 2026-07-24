@@ -25,8 +25,15 @@ export type StageEventInput = {
   assignedTo?: string | null
   /** Event timestamp from the payload (ISO or epoch). Falls back to now(). */
   eventAt?: string | number | null
-  /** 'webhook' (live stage move, default) | 'backfill_comm' (historical inbound). */
+  /** 'webhook' (live stage move, default) | 'backfill_comm' (historical inbound)
+   *  | 'webhook_msg' (live message event) | 'webhook_status' (lost/abandoned
+   *  demotion) | 'dashboard' (push-stage). */
   source?: string
+  /** Override the isRespondedStatus(toStatus) default. Synthetic labels like
+   *  '(inbound Text)' aren't stage names, so live message events must set this
+   *  explicitly — inbound=true is exactly what the backfill writes for its
+   *  reconstructed first-response rows. */
+  toResponded?: boolean
 }
 
 /** GHL sends timestamps as ISO strings OR epoch (s/ms). Normalize to ISO, or null. */
@@ -46,7 +53,7 @@ export function normalizeEventTs(v: string | number | null | undefined): string 
 export async function logStageEvent(supabase: SupabaseClient, e: StageEventInput): Promise<void> {
   try {
     const eventAt = normalizeEventTs(e.eventAt) ?? new Date().toISOString()
-    const toResponded = isRespondedStatus(e.toStatus)
+    const toResponded = e.toResponded ?? isRespondedStatus(e.toStatus)
     const { error } = await supabase.from('stage_events').insert({
       opportunity_id:    e.opportunityId,
       contact_id:        e.contactId,

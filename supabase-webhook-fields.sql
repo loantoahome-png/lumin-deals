@@ -6,8 +6,12 @@
 
 ALTER TABLE deals ADD COLUMN IF NOT EXISTS vendor_lead_id text;
 ALTER TABLE deals ADD COLUMN IF NOT EXISTS last_inbound_message text;
+-- 2026-07-24 addition — safe to re-run the whole file (IF NOT EXISTS throughout).
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS lumin_lead_id text;
 
 COMMENT ON COLUMN deals.vendor_lead_id IS
   'The VENDOR''s own lead id (GHL "Lead ID" contact custom field, 92% fill) — Lendgo/FRU refund & dispute reconciliation. Written by the GHL webhook on each matched update.';
 COMMENT ON COLUMN deals.last_inbound_message IS
   'Latest inbound message text snippet (<=400 chars), written real-time by the GHL reply webhook (customData.event=inbound_message). Email bodies are noisy (footers/marketing); SMS is the signal. Channel enum: 1=Call 2=SMS 3=Email.';
+COMMENT ON COLUMN deals.lumin_lead_id IS
+  'The web funnel''s own UUID for this lead (GHL "Lumin Lead ID" contact custom field, 93% fill) — join key for website -> GHL -> funded attribution. Written by the GHL webhook on each matched update.';

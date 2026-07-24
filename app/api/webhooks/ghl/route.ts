@@ -256,6 +256,11 @@ function extractFields(body: Record<string, unknown>) {
   // sanitizeStr rejects GHL's "{…}"/"[…]" object-serialization junk.
   const vendorLeadId = sanitizeStr(pick(body, 'Lead ID'))
 
+  // The WEB FUNNEL's own UUID for this lead (GHL "Lumin Lead ID" contact CF,
+  // 93% fill) — the join key for website → GHL → funded attribution. Exact
+  // top-level key for the same substring-collision reason as vendorLeadId.
+  const luminLeadId = sanitizeStr(pick(body, 'Lumin Lead ID'))
+
   // Do-Not-Contact (compliance): master flag + per-channel settings.
   const dndRaw = contact.dnd ?? body.dnd
   const dnd = typeof dndRaw === 'boolean' ? dndRaw : null
@@ -269,7 +274,7 @@ function extractFields(body: Record<string, unknown>) {
     currentBalance, ltv, cashOut, downPayment, isMilitary, currentVaLoan,
     propertyFound, loanTimeframe, hasAcceptedOffer,
     city, state, zip, ghlTags, ghlAssignedUser, loanOfficer,
-    contactSource, campaign, leadSourceAgg, dateAddedGHL, vendorLeadId,
+    contactSource, campaign, leadSourceAgg, dateAddedGHL, vendorLeadId, luminLeadId,
     // Guard the LOS name out of `source`: Arive writes its own name into GHL's
     // native `source` attribute once a loan syncs back, which would clobber the
     // real vendor (LMB/OwnUp/…). cleanSource() nulls "Arive"/"unknown" — same
@@ -349,6 +354,34 @@ export async function POST(req: NextRequest) {
             if (msgErr) console.warn('[GHL Webhook] last_inbound_message skipped (run supabase-webhook-fields.sql?):', msgErr.message)
           }
         }
+        // Durable comm event → stage_events (source='webhook_msg'). Before this,
+        // messages only overwrote the 3 deals columns above — no history — so
+        // first-response timing leaned on the 30-min conversation sync + the
+        // one-row-per-opp backfill. Same '(inbound Text)' vocabulary as the
+        // backfill; toResponded=true on inbound is the LIVE version of exactly
+        // what backfill_comm reconstructs, and first-responded takes MIN(event_at)
+        // across sources, so history stays correct. One row per deal on the
+        // contact (a multi-loan borrower's reply is a touch on every loan —
+        // mirrors the deals update above). from_status = the stage they were on
+        // when the message happened ("where in the funnel do replies occur").
+        // Non-fatal by contract; event_at = now() (webhook latency ~227ms).
+        {
+          const { data: msgDeals } = await supabase.from('deals')
+            .select('id, ghl_opportunity_id, status, loan_officer')
+            .eq('ghl_contact_id', msgContactId)
+          for (const d of msgDeals ?? []) {
+            await logStageEvent(supabase, {
+              opportunityId: (d.ghl_opportunity_id as string | null) ?? null,
+              contactId:     msgContactId,
+              dealId:        d.id as string,
+              fromStatus:    (d.status as string | null) ?? null,
+              toStatus:      `(${isInbound ? 'inbound' : 'outbound'} ${channel})`,
+              toResponded:   isInbound,
+              loanOfficer:   (d.loan_officer as string | null) ?? null,
+              source:        'webhook_msg',
+            })
+          }
+        }
         console.log(`[GHL Webhook] ${isInbound ? 'inbound' : 'outbound'} message → contact ${msgContactId} (${channel})`)
         return NextResponse.json({ success: true, action: isInbound ? 'inbound_message' : 'outbound_message', contactId: msgContactId })
       }
@@ -416,6 +449,11 @@ export async function POST(req: NextRequest) {
           console.log('[GHL Webhook] lost/abandoned for unknown deal — sync will demote:', statusContactId)
           return NextResponse.json({ success: false, reason: 'no matching deal; sync will demote' })
         }
+        // Read state BEFORE the update — the from_status we log (the stage the
+        // lead died on) and the echo guard both need it.
+        const { data: cur } = await supabase.from('deals')
+          .select('status, pipeline_group, ghl_status, ghl_opportunity_id, ghl_contact_id, loan_officer')
+          .eq('id', existing.id).maybeSingle()
         const { error: deadErr } = await supabase.from('deals')
           .update({ pipeline_group: 'Not Ready', ghl_status: oppStatus })
           .eq('id', existing.id)
@@ -423,6 +461,31 @@ export async function POST(req: NextRequest) {
         if (deadErr) {
           console.error('[GHL Webhook] lost demotion error:', deadErr.message)
           return NextResponse.json({ error: deadErr.message }, { status: 500 })
+        }
+        // Log the DEATH to stage_events — before this, lost/abandoned flips were
+        // invisible to the event log ("where in the funnel do we lose people",
+        // time-to-death). Synthetic '(lost)'/'(abandoned)' label + its own source,
+        // mirroring the backfill's '(inbound X)' convention — deliberately NOT the
+        // retained stage name: a status flip leaves the stage alone, and logging
+        // the stage label would invent a move that never happened (the same rule
+        // push-stage enforces; see scripts/push-stage-log-check.ts). from_status
+        // carries the death stage. Guards mirror the update: never a Funded deal,
+        // and an echo (already Not Ready with this ghl_status — GHL double-fires)
+        // doesn't re-log. Non-fatal by contract.
+        if (cur && cur.pipeline_group !== 'Funded' &&
+            !(cur.pipeline_group === 'Not Ready' && cur.ghl_status === oppStatus)) {
+          await logStageEvent(supabase, {
+            opportunityId:   (cur.ghl_opportunity_id as string | null) ?? oppId ?? null,
+            contactId:       statusContactId ?? (cur.ghl_contact_id as string | null) ?? null,
+            dealId:          existing.id,
+            fromStatus:      (cur.status as string | null) ?? null,
+            toStatus:        `(${oppStatus})`,
+            toResponded:     false,
+            toPipelineGroup: 'Not Ready',
+            loanOfficer:     (cur.loan_officer as string | null) ?? null,
+            eventAt:         pick(body, 'dateUpdated', 'date_updated', 'updatedAt', 'timestamp'),
+            source:          'webhook_status',
+          })
         }
         console.log(`[GHL Webhook] status=${oppStatus} → Not Ready on deal ${existing.id} (matched by ${existing.matchedBy})`)
         return NextResponse.json({ success: true, action: 'status_demoted_not_ready', dealId: existing.id, status: oppStatus })
@@ -516,6 +579,14 @@ export async function POST(req: NextRequest) {
         const { error: vErr } = await supabase.from('deals')
           .update({ vendor_lead_id: fields.vendorLeadId }).eq('id', match.id)
         if (vErr) console.warn('[GHL Webhook] vendor_lead_id skipped (run supabase-webhook-fields.sql?):', vErr.message)
+      }
+
+      // Lumin lead id (web-funnel → funded attribution) — same best-effort
+      // pattern, its own update so one missing column can't block the other.
+      if (fields.luminLeadId) {
+        const { error: lErr } = await supabase.from('deals')
+          .update({ lumin_lead_id: fields.luminLeadId }).eq('id', match.id)
+        if (lErr) console.warn('[GHL Webhook] lumin_lead_id skipped (run supabase-webhook-fields.sql?):', lErr.message)
       }
 
       // Apply pipeline stage/status if the payload carries it. GHL opportunity
