@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { createHmac } from 'crypto'
 import { findExistingDeal } from '@/lib/dealMatcher'
-import { titleCase, cleanSource } from '@/lib/utils'
+import { titleCase, cleanSource, resolveLeadSource } from '@/lib/utils'
 import { resolveLO } from '@/lib/loanOfficer'
 import { logStageEvent } from '@/lib/stageEvents'
 import {
@@ -277,10 +277,11 @@ function extractFields(body: Record<string, unknown>) {
     contactSource, campaign, leadSourceAgg, dateAddedGHL, vendorLeadId, luminLeadId,
     // Guard the LOS name out of `source`: Arive writes its own name into GHL's
     // native `source` attribute once a loan syncs back, which would clobber the
-    // real vendor (LMB/OwnUp/…). cleanSource() nulls "Arive"/"unknown" — same
-    // guard the 15-min sync (route.ts) and Arive CSV import already enforce. Never
-    // default to the literal 'GHL'; fall back to 'Self Source' like the sync does.
-    source: cleanSource(contactSource || pick(contact, 'source')) || 'Self Source',
+    // real vendor (LMB/OwnUp/…). resolveLeadSource() cleans each candidate on its
+    // own, so a contact-level "Arive" falls through to the contact's native source
+    // instead of winning the `||` and being nulled after the fact. Never default to
+    // the literal 'GHL'; fall back to 'Self Source' like the sync does.
+    source: resolveLeadSource(contactSource, pick(contact, 'source')) || 'Self Source',
   }
 }
 

@@ -109,12 +109,37 @@ export function dndLabel(deal: DndCarrier | null | undefined): string | null {
 }
 
 // ── Lead source ──────────────────────────────────────────────────────────────
+/** Machine-written junk that lands in GHL's source attribute (e.g.
+ *  "loan-audit-reconciliation:<uuid>") — never a real lead source. */
+const JUNK_SOURCE_RE = /^loan-audit-reconciliation:/i
+
 /** A lead source worth displaying, or null. Filters empties, the "Unknown" bucket,
- *  and "Arive" — Arive is the LOS, never a real lead source (see project rules). */
+ *  "Arive" — Arive is the LOS, never a real lead source (see project rules) — and
+ *  machine-written junk.
+ *
+ *  This is the ONLY definition of "is this a real lead source". Do not declare a
+ *  second cleanSource() local to a route: a shadowing copy that filtered junk but
+ *  forgot "Arive" is how the sync re-stamped 199 deals with the LOS name while the
+ *  guard looked present at the call site. */
 export function cleanSource(s: string | null | undefined): string | null {
   const t = (s ?? '').trim()
   if (!t) return null
   const l = t.toLowerCase()
   if (l === 'unknown' || l === 'arive') return null
+  if (JUNK_SOURCE_RE.test(t)) return null
   return t
+}
+
+/** First real lead source among ordered candidates (best → fallback).
+ *
+ *  Cleans each candidate separately. Coalescing first and cleaning the winner
+ *  (`cleanSource(a ?? b)`) lets a present-but-rejected value like "Arive" shadow a
+ *  real vendor further down the chain — that is how FRU sat unused on the
+ *  opportunity while the contact's "Arive" won and got written. */
+export function resolveLeadSource(...candidates: Array<string | null | undefined>): string | null {
+  for (const c of candidates) {
+    const s = cleanSource(c)
+    if (s) return s
+  }
+  return null
 }

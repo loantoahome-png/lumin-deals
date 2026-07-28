@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { normPhone, normEmail, resolveExistingLoan } from '@/lib/dealMatcher'
-import { titleCase } from '@/lib/utils'
+import { titleCase, resolveLeadSource } from '@/lib/utils'
 import { resolveLO } from '@/lib/loanOfficer'
 import { mapOpportunityFields, ariveLoanIdFromOpp as ariveLoanIdShared } from '@/lib/ghlOpportunityFields'
 
@@ -243,15 +243,11 @@ function str(v: unknown): string | null {
   return s || null
 }
 
-// Reject junk lead-source values that some external GHL process writes (e.g.
-// "loan-audit-reconciliation:<uuid>"). These are not real lead sources and
-// would pollute Lead Spend. Returning null here means the sync won't overwrite
-// a good source with garbage, and the deal shows "(no source set)" instead.
-function cleanSource(v: string | null): string | null {
-  if (!v) return null
-  if (/^loan-audit-reconciliation:/i.test(v.trim())) return null
-  return v
-}
+// Lead-source filtering lives in lib/utils (cleanSource / resolveLeadSource) —
+// junk values AND the LOS name "Arive". This route used to define its own
+// cleanSource that only rejected the junk pattern; because the call site read
+// `cleanSource(...)` either way, the missing "Arive" guard was invisible and the
+// sync re-stamped the LOS name over real vendors on every pass. Keep it shared.
 
 // ── GHL API Fetchers ──────────────────────────────────────────────────────────
 
@@ -897,8 +893,16 @@ async function syncAccount(
           // (e.g. "Lendgo"). GHL's native `source` attribute is auto-attribution
           // (e.g. "Advertisements") and often disagrees, so it's only a fallback.
           // Do NOT default to the literal 'GHL'; leave null when GHL has nothing.
-          source:           cleanSource(str(getCustomField(customFields, 'lead_source', 'Lead Source', 'leadsource'))
-                            ?? str(fullContact.source) ?? str(opp.source) ?? str(embeddedContact?.source) ?? null),
+          // Each candidate is cleaned on its own — a rejected-but-present value
+          // (contact.source = "Arive", which the LOS stamps on sync-back) must fall
+          // through to the next candidate rather than winning the coalesce and
+          // being nulled afterward, which is what buried the real vendor on the opp.
+          source:           resolveLeadSource(
+                              str(getCustomField(customFields, 'lead_source', 'Lead Source', 'leadsource')),
+                              str(fullContact.source),
+                              str(opp.source),
+                              str(embeddedContact?.source),
+                            ),
           date_added_ghl:   str(fullContact.dateAdded ?? fullContact.createdAt ?? opp.createdAt),
           raw_ghl_data:     opp,
           city:             str(fullContact.city),

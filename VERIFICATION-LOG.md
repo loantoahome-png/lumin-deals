@@ -1,5 +1,22 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-28] Lead source — sync stopped re-stamping the LOS name "Arive" over real vendors
+**Status:** CHANGED — tsc exactly 7 pre-existing errors (reports/underwriting/DealForm/next.config), **0 in touched files**; `next build` ✓; new `lead-source-check` **21/21**; regression net green: lead-report-check 89/89, lead-roi-check 62/62, ghl-link-check 13/13, webhook-fields-check 32/32, arive-match-check 12/12.
+**Issue:** Efrain: "I just imported arive export… one of the loans has a source of Arive and it should be FRU, why did this not update when I pressed overwrite?" (Garry Swatzel, Arive #17063141, Randy, funded 7/27). Full writeup: [docs/diagnoses/2026-07-28-arive-source-restamp-diagnosis.md](docs/diagnoses/2026-07-28-arive-source-restamp-diagnosis.md).
+**Grounding (live row, before any change):** `lead_source_agg='FRU'` (the import DID land) · `source='Arive'` (what the dropdown reads) · `raw_ghl_data.source='FRU'` (the right answer was on the opportunity all along).
+**Root causes — three, stacked:**
+1. **The importer never writes `deals.source` on an existing deal, by design** ([lib/ariveCsv.ts:254](lib/ariveCsv.ts)) — CSV "Lead Source" → `lead_source_agg`; only the create-new path (`:538`) copies it into `source`. The deal page's dropdown binds to `source` ([app/deals/[id]/page.tsx:799](app/deals/[id]/page.tsx)). Two columns, one label ⇒ "the overwrite didn't work".
+2. **The sync's `cleanSource` was a SHADOWING copy** ([app/api/sync/ghl/route.ts:250](app/api/sync/ghl/route.ts)) that filtered only `loan-audit-reconciliation:*` and let **"Arive" through** — while `lib/utils.ts` held the real guard. The 7/08 fix was recorded as "sync already guarded"; it never was. `source` is in the update field list (`:986`) ⇒ re-stamped **every 15-min pass**, reverting any manual fix. Bucket regrew **17→1 (7/08) → 200 (7/28)**; one more row landed *during* the investigation.
+3. **Chain coalesced before cleaning** — `cleanSource(CF ?? contact.source ?? opp.source)`: `??` takes the first non-null, so contact-level "Arive" won and was nulled after the fact while the real vendor sat one slot down, unread.
+**Changes:**
+- [lib/utils.ts](lib/utils.ts): `cleanSource` absorbs the junk-value filter (one canonical definition, comment forbids route-local copies); NEW `resolveLeadSource(...candidates)` cleans each candidate individually and returns the first survivor.
+- [app/api/sync/ghl/route.ts](app/api/sync/ghl/route.ts): local `cleanSource` **deleted**; imports the shared pair; source chain → `resolveLeadSource(CF, contact.source, opp.source, embedded.source)`.
+- [app/api/webhooks/ghl/route.ts](app/api/webhooks/ghl/route.ts): insert path had the same `||`-then-clean shape → `resolveLeadSource(contactSource, pick(contact,'source')) || 'Self Source'`.
+- NEW [scripts/lead-source-check.ts](scripts/lead-source-check.ts) (21 fixtures, incl. the exact Garry case) + NEW [scripts/arive-source-backfill.ts](scripts/arive-source-backfill.ts) (dry-run default, backs up before-state).
+**Backfill plan (dry run):** 200 rows · 130 recovered (13 from the opportunity, 117 from `lead_source_agg`) · **70 nulled** as genuinely unknown. Purchased-vendor misattribution was only **LMB ×3 + FRU ×1**; the rest were organic categories parked in a phantom "Arive" bucket. Composite handling is segment-aware so real names with slashes ("Referral - Friend / Family" ×13) survive while "Purchase / Arive" is rejected.
+**Test Method:** deploy the guard FIRST (else the sync refills within 15 min), then `npx tsx scripts/arive-source-backfill.ts apply`, then re-query Garry's row + the `source='Arive'` count.
+**Result:** _(pending — see next entry)_
+
 ### [2026-07-17] Lead ROI — Fast opt-outs → % of total leads + team-removed split by real contact
 **Status:** VERIFIED end-to-end against prod (see Result). tsc 7 pre-existing (0 in touched files), `next build` ✓ (/lead-roi, /lead-roi/report, /report-import prerender), lead-report-check **89/89**, lead-roi-check **62/62**.
 **Issue:** Efrain, on the Fast opt-outs KPI: "I want the percentage of fast opt out to be based off total leads, so [6]/646", "fix the truncation", "get rid of the 76 team-removed opt out from the stats/header", and — after I pulled the live data — "should team-removed count as responded?" → chose **split by real contact**.

@@ -1,5 +1,19 @@
 # GOTCHAS — Lumin Deals
 
+### A route-local helper that SHADOWS a lib helper by name defeats review — the guard looks present at the call site
+**Tried:** Verifying the 2026-07-08 source-drift fix by reading the sync's call site, `source: cleanSource(...)`. It reads as guarded, so the sync was recorded as fixed and the webhook was blamed as the sole leak.
+**Failed because:** `app/api/sync/ghl/route.ts` declared its **own** `cleanSource()` (`:250`) that rejected only `loan-audit-reconciliation:*` junk and passed **"Arive"** straight through — while `lib/utils.ts` had the real guard that rejects the LOS name. Same identifier, different function, no import to give it away. The sync re-stamped "Arive" over real vendors on **every 15-min pass** (`source` is in the update field list, `:986`), so the July backfill's 17→1 regrew to **200 by 2026-07-28** — a row landed mid-investigation. A self-healing-looking bug that generates no error and reverts every manual fix within 15 minutes.
+**What works:** ONE exported definition; delete route-local copies and fold their extra filtering into the shared one. When auditing a guard, `grep -n "function <name>"` across the repo before trusting a call site — a bare call proves nothing about *which* function runs. Fixtures now pin it (`scripts/lead-source-check.ts`).
+**Project:** lumin-deals
+**Date:** 2026-07-28
+
+### `cleanSource(a ?? b ?? c)` is a bug shape — coalesce-then-clean lets a rejected value shadow a good one
+**Tried:** Resolving a lead source from GHL's candidate chain with `cleanSource(customField ?? contact.source ?? opp.source)`.
+**Failed because:** `??` picks the first **non-null** candidate and only the winner is cleaned. Arive writes its name into the contact-level `source` on sync-back, so `"Arive"` won the coalesce, cleaned to `null`, and the real vendor one position down (`opp.source = "FRU"` on Garry Swatzel) was never consulted. Combined with `maybeSet` skipping nulls, the deal kept its stale value indefinitely — no error, no log line.
+**What works:** clean each candidate **individually** and take the first survivor — `resolveLeadSource(...)` in `lib/utils.ts`. Applies to any filter-plus-fallback chain, not just sources: if a value can be *rejected*, rejecting it must fall through to the next candidate rather than ending the search.
+**Project:** lumin-deals
+**Date:** 2026-07-28
+
 ### A GHL opportunity STATUS flip (open→lost/won) is NOT caught by the 15-min incremental sync — only the 3-hourly maintenance pass
 **Tried:** Assumed a "lost" flip would demote to Not Ready within ~15 min (next incremental sync).
 **Failed because:** the 15-min cron ping runs a pure **incremental** sync (`fetchOpportunitiesSince`, `app/api/sync/ghl/route.ts:495`) that pages GHL opps by `updatedAt` DESC and **early-stops** once it passes the last cursor (`if (ms < sinceMs) break`). A GHL **status change does NOT bump `updatedAt`** — only `lastStatusChangeAt` moves — so the changed opp stays in its old (older) position, below the cursor, and the scan stops before ever reaching it. The `?? lastStatusChangeAt` fallback in the comparison is moot: discovery is by updatedAt order, so it never gets there. **Live-test proof (2026-07-10):** marked Laurie Shore lost at 20:33Z; the 20:45 incremental ran (sync_state stamped; only 3 deals touched) and did NOT demote her — still `Leads/open` 15+ min later. `ghl_maintenance_last` was 18:15, so no full pass ran at 20:45.
