@@ -118,7 +118,8 @@ function recover(deal: Record<string, unknown>): { next: string | null; via: str
 
   // Back up the before-state so any row can be restored by id.
   const stamp = process.env.BACKFILL_STAMP ?? 'run'
-  const backup = `/tmp/arive-source-backfill-${stamp}.json`
+  const dir = process.env.BACKFILL_BACKUP_DIR ?? '/tmp'
+  const backup = `${dir}/arive-source-backfill-${stamp}.json`
   writeFileSync(backup, JSON.stringify(
     plan.map(p => ({ id: p.deal.id, name: p.deal.name, before: p.deal.source, after: p.next, via: p.via })), null, 2))
   console.log(`\nbefore-state backed up → ${backup}`)
