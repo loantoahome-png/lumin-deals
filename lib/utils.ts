@@ -130,6 +130,24 @@ export function cleanSource(s: string | null | undefined): string | null {
   return t
 }
 
+// ── Loan purpose ─────────────────────────────────────────────────────────────
+/** GHL's free-text "Loan Purpose" → the dashboard's Purchase / Refinance / HELOC.
+ *
+ *  HELOC is a real purpose here, not a loan type. Dropping it to null discarded
+ *  the field on every sync-only lead: the webhook writes loan_purpose raw, so a
+ *  HELOC survived only where a webhook happened to touch the deal, and the rest
+ *  went untagged — 26 of Moe's 77 Lending Tree leads, all of which GHL held as
+ *  HELOC (verified against a contacts export, 2026-07-28). matchesPurpose groups
+ *  a HELOC purpose into Refinance, so preserving the value is all that is needed. */
+export function normalizeLoanPurpose(val: string | null | undefined): string | null {
+  if (!val) return null
+  const t = val.trim().toLowerCase()
+  if (t.includes('purchase')) return 'Purchase'
+  if (t.includes('refi'))     return 'Refinance'
+  if (t.includes('heloc') || t.includes('heloan') || t.includes('home equity')) return 'HELOC'
+  return null
+}
+
 /** First real lead source among ordered candidates (best → fallback).
  *
  *  Cleans each candidate separately. Coalescing first and cleaning the winner

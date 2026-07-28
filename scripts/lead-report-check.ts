@@ -5,6 +5,7 @@ import {
   isPurchased, isResponded, isCold, isCustomerOptout, isTeamRemoved, isOptoutStatus, isFunded, matchesLO, matchesPurpose,
   segment, groupBy, sourceKey, stateKey, purchasedBook, leadBook, rrBand, type LeadRow,
 } from '../lib/leadReport'
+import { normalizeLoanPurpose } from '../lib/utils'
 
 let pass = 0, fail = 0
 function eq(label: string, got: unknown, want: unknown) {
@@ -111,6 +112,30 @@ eq('explicit Purchase purpose + HELOC type still Purchase',
 // must behave exactly like null, never throw.
 eq('loan_type absent entirely → untagged, no throw',
   matchesPurpose(row({ loan_purpose: null }), 'Refinance'), false)
+
+// ── normalizeLoanPurpose (GHL "Loan Purpose" CF → dashboard value) ──────────
+// THE REGRESSION (2026-07-28): this returned null for HELOC, so the sync
+// DISCARDED the purpose. The webhook writes the field raw, so a HELOC survived
+// only where a webhook happened to touch the deal — 49 of Moe's 77 Lending Tree
+// leads kept it, the 26 the sync alone had seen went untagged, and Purchase +
+// Refinance stopped adding up. A GHL contacts export confirmed all 73 contacts
+// carried "HELOC".
+eq('HELOC preserved (was null)',        normalizeLoanPurpose('HELOC'), 'HELOC')
+eq('heloc lowercase',                   normalizeLoanPurpose('heloc'), 'HELOC')
+eq('HELOAN preserved',                  normalizeLoanPurpose('HELOAN'), 'HELOC')
+eq('"Home Equity Line" preserved',      normalizeLoanPurpose('Home Equity Line of Credit'), 'HELOC')
+eq('Purchase still maps',               normalizeLoanPurpose('Purchase'), 'Purchase')
+eq('Refinance via "refi" substring',    normalizeLoanPurpose('Cash-Out Refi'), 'Refinance')
+eq('purchase wins when both appear',    normalizeLoanPurpose('Purchase money HELOC'), 'Purchase')
+eq('unknown purpose → null',            normalizeLoanPurpose('Construction'), null)
+eq('empty → null',                      normalizeLoanPurpose(''), null)
+eq('null → null',                       normalizeLoanPurpose(null), null)
+eq('undefined → null',                  normalizeLoanPurpose(undefined), null)
+
+// End to end: a HELOC coming off the GHL custom field must now land in the
+// Refinance tab, which is the whole point of preserving it.
+eq('GHL "HELOC" CF → counted under Refinance',
+  matchesPurpose(row({ loan_purpose: normalizeLoanPurpose('HELOC') }), 'Refinance'), true)
 
 // ── Keys ───────────────────────────────────────────────────────────
 eq('stateKey upper/trim', stateKey(row({ state: ' ca ' })), 'CA')

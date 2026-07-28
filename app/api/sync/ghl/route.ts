@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { normPhone, normEmail, resolveExistingLoan } from '@/lib/dealMatcher'
-import { titleCase, resolveLeadSource } from '@/lib/utils'
+import { titleCase, resolveLeadSource, normalizeLoanPurpose } from '@/lib/utils'
 import { resolveLO } from '@/lib/loanOfficer'
 import { mapOpportunityFields, ariveLoanIdFromOpp as ariveLoanIdShared } from '@/lib/ghlOpportunityFields'
 
@@ -148,14 +148,9 @@ function normalizeGhlLoanType(val: string | null): string | null {
   return null  // unknown → don't write, keep dashboard value
 }
 
-/** Same — but for the loan_purpose custom field. Dashboard accepts only Purchase/Refinance. */
-function normalizeGhlLoanPurpose(val: string | null): string | null {
-  if (!val) return null
-  const t = val.trim().toLowerCase()
-  if (t.includes('purchase')) return 'Purchase'
-  if (t.includes('refi'))     return 'Refinance'
-  return null
-}
+// loan_purpose normalization lives in lib/utils (normalizeLoanPurpose) so it is
+// fixture-testable and shared. It used to be declared here, unexported and
+// untested, which is how it silently discarded every HELOC for months.
 
 function getCustomField(fields: GHLCustomField[], ...keys: string[]): string | null {
   if (!Array.isArray(fields)) return null
@@ -920,7 +915,7 @@ async function syncAccount(
           estimated_value:  parseAmount(getCustomField(customFields, 'estimated_value', 'property_value', 'home_value', 'Property Value')),
           credit_score:     parseAmount(getCustomField(customFields, 'credit_score', 'credit score', 'fico')),
           loan_type:        normalizeGhlLoanType(getCustomField(customFields, 'loan_type', 'loan type', 'Loan Type')),
-          loan_purpose:     normalizeGhlLoanPurpose(getCustomField(customFields, 'loan_purpose', 'loan purpose', 'Loan Purpose')),
+          loan_purpose:     normalizeLoanPurpose(getCustomField(customFields, 'loan_purpose', 'loan purpose', 'Loan Purpose')),
           occupancy:        str(getCustomField(customFields, 'occupancy', 'property use', 'Property Use')),
           property_type:    str(getCustomField(customFields, 'property_type', 'Property Type')),
           property_address: str(getCustomField(customFields, 'property_address', 'physical_address') ?? fullContact.address1),
