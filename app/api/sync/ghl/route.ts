@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { normPhone, normEmail, resolveExistingLoan } from '@/lib/dealMatcher'
 import { titleCase, resolveLeadSource, normalizeLoanPurpose } from '@/lib/utils'
 import { SOURCE_PINS_KEY, parseSourcePins, applySourcePin } from '@/lib/sourcePins'
+import { shouldProcessOpportunity } from '@/lib/syncCursor'
 import { resolveLO } from '@/lib/loanOfficer'
 import { mapOpportunityFields, ariveLoanIdFromOpp as ariveLoanIdShared } from '@/lib/ghlOpportunityFields'
 
@@ -575,6 +576,36 @@ async function fetchContactsByIds(
   return map
 }
 
+/** Every ghl_opportunity_id the dashboard already stores.
+ *
+ *  Used only on MAINTENANCE runs, to tell "we've seen this opportunity" from
+ *  "this one never made it in". Deliberately NOT scoped by ghl_location_id — a
+ *  deal whose location was never stamped would otherwise look unknown and be
+ *  re-ingested on every pass. One short column, a few paged reads, and it runs
+ *  on the ~3-hourly maintenance tick rather than every ping. */
+async function fetchKnownOpportunityIds(
+  supabase: ReturnType<typeof createServiceClient>,
+): Promise<Set<string>> {
+  const ids = new Set<string>()
+  const PAGE = 1000
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await supabase
+      .from('deals')
+      .select('ghl_opportunity_id')
+      .not('ghl_opportunity_id', 'is', null)
+      .order('ghl_opportunity_id', { ascending: true })
+      .range(offset, offset + PAGE - 1)
+    if (error) {
+      console.error('[GHL Sync] known-opp-id scan failed:', error.message)
+      break
+    }
+    const rows = (data ?? []) as Array<{ ghl_opportunity_id: string | null }>
+    for (const r of rows) if (r.ghl_opportunity_id) ids.add(r.ghl_opportunity_id)
+    if (rows.length < PAGE) break
+  }
+  return ids
+}
+
 // ── Main Sync Handler ─────────────────────────────────────────────────────────
 
 async function syncAccount(
@@ -645,18 +676,43 @@ async function syncAccount(
   // ── 1a. Pre-filter to opportunities that actually changed ────────────────
   // Was done per-iteration below; lifting it here lets us scope the contact
   // fetch + dedup-index query to just the changed set on incremental runs.
+  // On MAINTENANCE runs we already hold the COMPLETE opportunity list (needFullOpps),
+  // so we can also rescue opportunities that were never ingested at all.
+  //
+  // Without this, a miss is PERMANENT. GHL's opportunity search index lags the live
+  // record, and the only guard is INCREMENTAL_OVERLAP_MS; once an opportunity slips
+  // past that window its `updatedAt` never moves again, so every later run filters
+  // it out — including maintenance runs, which fetch everything but only for the
+  // PRUNE. Eleven of Randy's leads sat unseen for four days that way (one at
+  // Appointment Booked, most of them priced) until a manual ?full=1 recovered them.
+  //
+  // Cost is bounded: the extra work is exactly the set of opportunities with no
+  // deal, which is normally empty, and the id scan runs on the ~3-hourly
+  // maintenance tick rather than on every ping.
+  const knownOppIds = (!isFullSync && runMaintenance)
+    ? await fetchKnownOpportunityIds(supabase)
+    : null
+
   let changedOpps: GHLOpportunity[]
   if (isFullSync) {
     changedOpps = opportunities
   } else {
+    let rescued = 0
     changedOpps = opportunities.filter(opp => {
-      const u = str(opp.updatedAt ?? opp.dateUpdated ?? opp.lastStatusChangeAt)
-      const ms = u ? Date.parse(u) : 0
-      // No timestamp → process to be safe (rare). Otherwise apply the cursor.
-      return ms === 0 || ms >= lastSyncedMs
+      const d = shouldProcessOpportunity(
+        str(opp.updatedAt ?? opp.dateUpdated ?? opp.lastStatusChangeAt),
+        lastSyncedMs,
+        str(opp.id),
+        knownOppIds,
+      )
+      if (d.rescued) rescued++
+      return d.process
     })
     skipped += opportunities.length - changedOpps.length
     console.log(`[GHL Sync:${label}] Incremental: ${changedOpps.length}/${opportunities.length} opps changed since cursor`)
+    if (rescued > 0) {
+      console.log(`[GHL Sync:${label}] Rescued ${rescued} opportunit${rescued === 1 ? 'y' : 'ies'} with no deal — missed by an earlier run's cursor`)
+    }
   }
 
   // ── 1b. Fetch contacts (scoped on incremental, full on first/forced run) ──
