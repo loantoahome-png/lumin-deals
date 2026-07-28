@@ -6,6 +6,7 @@ import {
   type RowPlan,
 } from '@/lib/ariveCsv'
 import { linkCoborrowerFromImport } from '@/lib/dealContacts'
+import { OLD_DEALS_GROUP } from '@/lib/fetchAllDeals'
 
 // CSV imports can touch hundreds of rows + run sequential Supabase writes —
 // give the function room (Pro plans honor up to 300s).
@@ -194,6 +195,13 @@ export async function POST(req: NextRequest) {
     // would leave the deal stranded in its old tab.
     if (typeof patch.status === 'string') {
       patch.pipeline_group = pipelineGroupForStatus(patch.status)
+      // …unless the deal has been parked as an Old Deal. These are historical loans
+      // Efrain moved out of reporting, and 35 of the 77 still carry an arive_file_no,
+      // so a routine re-import would otherwise match them and put them straight back
+      // into Funded. Field updates still apply; only the parking is preserved.
+      if (dealsMap.get(plan.dealId)?.pipeline_group === OLD_DEALS_GROUP) {
+        patch.pipeline_group = OLD_DEALS_GROUP
+      }
     }
     const { error } = await supabase.from('deals').update(patch).eq('id', plan.dealId)
     if (error) {

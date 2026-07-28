@@ -6,6 +6,7 @@ import {
   segment, groupBy, sourceKey, stateKey, purchasedBook, leadBook, rrBand, type LeadRow,
 } from '../lib/leadReport'
 import { normalizeLoanPurpose } from '../lib/utils'
+import { mapOpportunityFields } from '../lib/ghlOpportunityFields'
 
 let pass = 0, fail = 0
 function eq(label: string, got: unknown, want: unknown) {
@@ -136,6 +137,23 @@ eq('undefined → null',                  normalizeLoanPurpose(undefined), null)
 // Refinance tab, which is the whole point of preserving it.
 eq('GHL "HELOC" CF → counted under Refinance',
   matchesPurpose(row({ loan_purpose: normalizeLoanPurpose('HELOC') }), 'Refinance'), true)
+
+// ── loan_purpose from the OPPORTUNITY overlay ───────────────────────────────
+// The contacts LIST endpoint omits custom fields, so a lead the sync only ever
+// saw through that path had no purpose at all — 16 of Moe's agg leads were HELOC
+// in GHL and blank on the dashboard (verified against an opportunities export,
+// 2026-07-28). GHL carries the purpose on the OPPORTUNITY too; read it there.
+const oppCf = (name: string, value: unknown) => ({ customFields: [{ name, fieldValue: value }] })
+eq('opportunity Loan Purpose is mapped',
+  mapOpportunityFields(oppCf('Loan Purpose', 'HELOC'), undefined).loan_purpose, 'HELOC')
+eq('opportunity purpose is normalized, not raw',
+  mapOpportunityFields(oppCf('Loan Purpose', 'Cash-Out Refi'), undefined).loan_purpose, 'Refinance')
+eq('unmappable opportunity purpose is omitted (contact value stands)',
+  'loan_purpose' in mapOpportunityFields(oppCf('Loan Purpose', 'Construction'), undefined), false)
+eq('no Loan Purpose on the opp → key omitted entirely',
+  'loan_purpose' in mapOpportunityFields(oppCf('Note Rate', 6.5), undefined), false)
+eq('empty opportunity → {} so the contact value stands',
+  'loan_purpose' in mapOpportunityFields(null, undefined), false)
 
 // ── Keys ───────────────────────────────────────────────────────────
 eq('stateKey upper/trim', stateKey(row({ state: ' ca ' })), 'CA')

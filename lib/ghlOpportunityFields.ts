@@ -13,6 +13,8 @@
 // EVERY opportunity field, including the "Arive Loan ID" (which is why deals never
 // linked to Arive). We read all known variants below.
 
+import { normalizeLoanPurpose } from './utils'
+
 export type OppCustomFieldEntry = {
   id?: string; key?: string; fieldKey?: string; name?: string
   fieldValue?: unknown; fieldValueString?: string; fieldValueNumber?: number
@@ -110,5 +112,16 @@ export function mapOpportunityFields(
   num('housing_payment',     'Total PITI')
   num('pi_payment',          'Principal And Interest', 'First Mortgage Principal And Interest Monthly Amount')
   str('investor',            'Lender Name')
+  // Loan purpose also lives on the OPPORTUNITY, and reading it only from the
+  // contact left real purposes unread: the contacts LIST endpoint omits custom
+  // fields, so a lead the sync had only ever seen through that path stayed
+  // untagged. Verified 2026-07-28 against a GHL opportunities export — 16 of Moe's
+  // agg leads were HELOC in GHL and blank here, which was his entire untagged
+  // bucket. Normalized through the same helper the contact path uses, so
+  // "HELOC"/"Cash-Out Refi"/… land on the dashboard's Purchase|Refinance|HELOC.
+  const oppPurpose = normalizeLoanPurpose(
+    oppCustomField(cf, defs, 'Loan Purpose', 'loan_purpose') as string | null,
+  )
+  if (oppPurpose) out.loan_purpose = oppPurpose
   return out
 }

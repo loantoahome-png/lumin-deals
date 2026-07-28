@@ -39,6 +39,22 @@ export const DEAL_COLUMNS = [
   'created_at', 'updated_at',
 ].join(',')
 
+// ── Old deals ────────────────────────────────────────────────────────────────
+// Historical loans that exist only in the dashboard — imported from Arive, never
+// present in GHL (no ghl_opportunity_id), mostly the funded book brought over in
+// May 2026. Efrain, 2026-07-28: park them on their own page and take them out of
+// every report.
+//
+// They are marked by `pipeline_group`, which costs no schema change, and the
+// exclusion lives HERE rather than in each page: fetchAllDeals is the single read
+// path for every list and report surface, so one filter covers all of them and a
+// new page cannot forget to opt out. `/old-deals` opts back IN explicitly.
+//
+// SAFE AS A .neq: there are zero rows with a NULL pipeline_group (checked
+// 2026-07-28), so this cannot silently drop group-less deals the way a bare .neq
+// against a nullable column would.
+export const OLD_DEALS_GROUP = 'Old Deals'
+
 // PostgREST caps a single .select() at 1000 rows. Any page that loads the full
 // deal set for analysis/display must paginate or it silently truncates.
 // This helper walks pages until exhausted. Use it instead of a bare
@@ -55,12 +71,15 @@ type DealQuery = any
 export async function fetchAllDeals(
   refine?: (q: DealQuery) => DealQuery,
   columns: string = '*',
+  opts: { includeOld?: boolean } = {},
 ): Promise<Deal[]> {
   const all: Deal[] = []
   const PAGE = 1000
   let offset = 0
   for (;;) {
     let q: DealQuery = supabase.from('deals').select(columns)
+    // Old deals are out of every report unless a caller explicitly asks for them.
+    if (!opts.includeOld) q = q.neq('pipeline_group', OLD_DEALS_GROUP)
     if (refine) q = refine(q)
     const { data, error } = await q.range(offset, offset + PAGE - 1)
     if (error) {

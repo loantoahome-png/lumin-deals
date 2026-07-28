@@ -7,6 +7,7 @@ import { scoreFundedBook, PLAY_LABEL, DEFAULT_PAR, RadarDeal, RefiPlay, ParRates
 import { findReturningClients, ReturningClient } from '@/lib/repeatReferral'
 import Link from 'next/link'
 import { RefreshCw, Ban, UserCheck } from 'lucide-react'
+import { OLD_DEALS_GROUP } from '@/lib/fetchAllDeals'
 
 const PLAY_PILL: Record<RefiPlay, string> = {
   'second-lien': 'bg-amber-100 text-amber-800',
@@ -43,6 +44,7 @@ export default function RadarPage() {
       for (let from = 0; ; from += 1000) {
         const { data, error } = await supabase
           .from('deals').select(RADAR_COLS)
+          .neq('pipeline_group', OLD_DEALS_GROUP)   // parked historical loans — out of every report
           .order('id', { ascending: true }).range(from, from + 999)
         if (error) { console.error('[radar] fetch failed:', error.message); break }
         const rows = (data ?? []) as RadarRow[]

@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   Landmark,
   FileText,
+  Archive,
 } from 'lucide-react'
 import GlobalSearch from './GlobalSearch'
 import NotificationBell from './NotificationBell'
@@ -73,6 +74,9 @@ const navGroups = [
       { href: '/import/arive', label: 'Import Arive', icon: FileUp },
       { href: '/health', label: 'Data Health', icon: Activity },
       { href: '/duplicates', label: 'Duplicates', icon: GitMerge },
+      // Last item on purpose — parked historical loans, kept for the record and
+      // out of every report. Nothing routine lives here.
+      { href: '/old-deals', label: 'Old Deals', icon: Archive },
     ],
   },
 ]

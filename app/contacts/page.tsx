@@ -7,6 +7,7 @@ import { findReturningClients, RepeatDeal } from '@/lib/repeatReferral'
 import { formatCurrency, titleCase, cleanSource } from '@/lib/utils'
 import Link from 'next/link'
 import { RefreshCw, Search, Copy, Check, Download, ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react'
+import { OLD_DEALS_GROUP } from '@/lib/fetchAllDeals'
 
 // ── Lifecycle (FUB-style "Stage") ────────────────────────────────────────────
 const LIFECYCLES = ['In Process', 'Past Client', 'Lead', 'Not Ready'] as const
@@ -107,6 +108,7 @@ export default function ContactsPage() {
       for (let from = 0; ; from += PAGE) {
         const { data, error } = await supabase
           .from('deals').select('id, borrower_id, name, pipeline_group, status, source, created_at, funded_date, lead_price')
+          .neq('pipeline_group', OLD_DEALS_GROUP)   // parked historical loans — out of every report
           .order('id', { ascending: true })
           .range(from, from + PAGE - 1)
         if (error) { console.error('[contacts] deal-meta fetch failed:', error.message); break }
