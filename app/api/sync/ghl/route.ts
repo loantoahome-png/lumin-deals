@@ -883,19 +883,27 @@ async function syncAccount(
           // UUID is used; on UPDATE it's excluded from maybeSet so the existing
           // borrower grouping is preserved.
           borrower_id:      crypto.randomUUID(),
-          // Real lead source from GHL. PREFER the "Lead Source" custom field
-          // (contact.lead_source) — that's the field the team actually maintains
-          // (e.g. "Lendgo"). GHL's native `source` attribute is auto-attribution
-          // (e.g. "Advertisements") and often disagrees, so it's only a fallback.
+          // Real lead source from GHL, credited to THE VENDOR ON THE OPPORTUNITY
+          // (Efrain, 2026-07-28). An opportunity is one purchased lead and one
+          // spend event, so its own `source` is the vendor that actually sold it.
+          // The CONTACT is a person, and a person resold by two aggregators keeps
+          // only whichever "Lead Source" was written to them last — that ordering
+          // credited 7 of Moe's Lending Tree leads to Lending Tree when the
+          // opportunities were bought from FRU, LeadPoint and LMB.
+          //
+          // The contact's "Lead Source" custom field stays as the FALLBACK: it is
+          // the field the team maintains by hand, so it is the best answer when the
+          // opportunity carries nothing usable.
+          //
+          // Each candidate is cleaned on its own, which is what makes this order
+          // safe: Arive stamps the LOS name onto the OPPORTUNITY too (185 of 200
+          // rows in the 7/28 audit), and those fall through to the contact field
+          // instead of winning and being nulled afterward.
           // Do NOT default to the literal 'GHL'; leave null when GHL has nothing.
-          // Each candidate is cleaned on its own — a rejected-but-present value
-          // (contact.source = "Arive", which the LOS stamps on sync-back) must fall
-          // through to the next candidate rather than winning the coalesce and
-          // being nulled afterward, which is what buried the real vendor on the opp.
           source:           resolveLeadSource(
+                              str(opp.source),
                               str(getCustomField(customFields, 'lead_source', 'Lead Source', 'leadsource')),
                               str(fullContact.source),
-                              str(opp.source),
                               str(embeddedContact?.source),
                             ),
           date_added_ghl:   str(fullContact.dateAdded ?? fullContact.createdAt ?? opp.createdAt),

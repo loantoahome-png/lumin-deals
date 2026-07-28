@@ -58,7 +58,9 @@ eq('THE REGRESSION: "Arive" falls through to the real vendor behind it',
 eq('junk also falls through to the vendor behind it',
   resolveLeadSource('loan-audit-reconciliation:abc', 'OwnUp'), 'OwnUp')
 
-eq('custom field beats contact + opportunity',
+// Generic precedence only — the FIRST real candidate wins, whatever it is.
+// Which field occupies which slot is the sync's business, pinned in section 3.
+eq('first real candidate wins over later real ones',
   resolveLeadSource('Lendgo', 'Arive', 'FRU'), 'Lendgo')
 
 eq('every candidate rejected → null (caller keeps existing value / defaults)',
@@ -66,9 +68,38 @@ eq('every candidate rejected → null (caller keeps existing value / defaults)',
 
 eq('no candidates → null', resolveLeadSource(), null)
 
-// Mirrors the sync's real call shape: CF → contact → opp → embedded contact.
-eq('sync chain: only the embedded contact has a vendor',
-  resolveLeadSource(null, 'Arive', null, 'LMB'), 'LMB')
+// ── 3. The sync's candidate ORDER (2026-07-28: opportunity first) ────────────
+// Mirrors app/api/sync/ghl/route.ts. resolveLeadSource is generic, so this is
+// where the ORDER itself is pinned — change the route, change these.
+const syncChain = (
+  oppSource: string | null,
+  contactLeadSourceCF: string | null,
+  contactSource: string | null,
+  embeddedContactSource: string | null = null,
+) => resolveLeadSource(oppSource, contactLeadSourceCF, contactSource, embeddedContactSource)
+
+// THE POLICY (Efrain): an opportunity is one purchased lead and one spend event,
+// so credit the vendor on the OPPORTUNITY. A person resold by two aggregators
+// keeps only the last-written contact "Lead Source", which mis-credited 7 of
+// Moe's Lending Tree leads that were really bought from FRU / LeadPoint / LMB.
+eq('opportunity vendor beats the contact custom field',
+  syncChain('FRU', 'Lending Tree', 'Lending Tree'), 'FRU')
+eq('opportunity vendor beats the contact native source',
+  syncChain('LeadPoint', null, 'Lending Tree'), 'LeadPoint')
+
+// What makes that order safe: Arive stamps the LOS name onto the OPPORTUNITY too
+// (185 of 200 rows in the 7/28 audit), and a rejected candidate must fall through
+// rather than win the chain and be nulled afterward.
+eq('opp "Arive" falls through to the contact custom field',
+  syncChain('Arive', 'Lendgo', 'Arive'), 'Lendgo')
+eq('opp blank falls through to the contact custom field',
+  syncChain(null, 'OwnUp', 'Advertisements'), 'OwnUp')
+eq('opp and CF both unusable → contact native source',
+  syncChain('Arive', null, 'Advertisements'), 'Advertisements')
+eq('only the embedded contact has a vendor',
+  syncChain('Arive', null, null, 'LMB'), 'LMB')
+eq('nothing usable anywhere → null (caller keeps existing value)',
+  syncChain('Arive', 'Unknown', null, ''), null)
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} lead-source-check: ${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)
