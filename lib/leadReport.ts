@@ -49,6 +49,10 @@ export type LeadRow = Pick<Deal, 'loan_officer' | 'pipeline_group' | 'status' | 
   // ABSENT for imported/merged report rows (/report-import), which carry no
   // message history — so their team-removed leads default to no-response.
   last_inbound_at?: Deal['last_inbound_at']
+  // OPTIONAL, same reason. Lets matchesPurpose read an equity second (HELOC /
+  // HELOAN) as a refinance when loan_purpose was never recorded. Absent ⇒ the
+  // deal simply stays untagged, which is the old behaviour.
+  loan_type?: Deal['loan_type']
 }
 
 export const rawSource = (d: LeadRow): string => (d.source ?? '').trim()
@@ -119,13 +123,24 @@ export function matchesLO(d: LeadRow, lo: LO): boolean {
   return lo === 'Matt' ? l.includes('matt') : lo === 'Moe' ? l.includes('moe') : l.includes('randy') || l.includes('mathis')
 }
 
-// loan_purpose buckets in the data: Refinance, Purchase, HELOC (+ ~8% untagged that
+// loan_purpose buckets in the data: Refinance, Purchase, HELOC (+ untagged that
 // only appear under 'All'). 'Refinance' GROUPS true refinances AND HELOCs together
 // (a HELOC is an equity refinance).
 export type Purpose = 'All' | 'Purchase' | 'Refinance'
+
+/** Equity seconds. As a loan_TYPE these imply an equity refinance, which lets a
+ *  deal with no loan_purpose recorded still land in a tab. */
+const EQUITY_LOAN_TYPES = new Set(['heloc', 'heloan'])
+
 export function matchesPurpose(d: LeadRow, p: Purpose): boolean {
   if (p === 'All') return true
   const lp = (d.loan_purpose ?? '').trim().toLowerCase()
+  // No purpose recorded, but the loan TYPE is an equity second → treat as a
+  // refinance. Without this these match NEITHER tab and are visible only under
+  // "All purposes", which reads as the tabs not adding up. A piggyback second on
+  // a purchase would be misfiled here, but that is rarer than the equity refi and
+  // strictly better than the deal appearing in no tab at all.
+  if (!lp) return p === 'Refinance' && EQUITY_LOAN_TYPES.has((d.loan_type ?? '').trim().toLowerCase())
   if (p === 'Refinance') return lp === 'refinance' || lp === 'heloc'
   return lp === p.toLowerCase()
 }

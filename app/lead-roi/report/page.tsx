@@ -20,7 +20,7 @@ import {
 } from '@/lib/leadRoi'
 import { Printer } from 'lucide-react'
 
-const LEAD_COLS = 'id,name,source,loan_officer,pipeline_group,status,loan_amount,state,loan_purpose,lead_price,compensation_amount,date_added_ghl,funded_date,created_at,ghl_opportunity_id'
+const LEAD_COLS = 'id,name,source,loan_officer,pipeline_group,status,loan_amount,state,loan_purpose,loan_type,lead_price,compensation_amount,date_added_ghl,funded_date,created_at,ghl_opportunity_id'
 
 const pct = (x: number) => x.toFixed(1) + '%'
 const roiFmt = (x: number | null) => (x == null ? '—' : x.toFixed(2) + '×')
@@ -113,7 +113,7 @@ function ReportBody() {
   const filterChips = [
     `LO: ${lo}`,
     `Range: ${rangeLabel}${range === 'custom' && (customFrom || customTo) ? ` (${customFrom || '…'} → ${customTo || '…'})` : ''}`,
-    `Scope: ${scope === 'All' ? 'All sources' : 'Purchased'}`,
+    `Scope: ${scope === 'All' ? 'All sources' : 'Agg leads'}`,
     `Purpose: ${purpose === 'All' ? 'All purposes' : purpose}`,
     stage ? `Stage: ${stage}` : 'Stage: All',
     sourcesParam ? `${sourcesParam.split('|').length} sources selected` : 'All sources',
@@ -221,7 +221,7 @@ function ReportBody() {
             </div>
           )}
           <div className="grid grid-cols-3 sm:grid-cols-7 gap-2.5">
-            <RKpi label={scope === 'All' ? 'Total leads' : 'Purchased leads'} value={kpis.totalLeads.toLocaleString()} />
+            <RKpi label={scope === 'All' ? 'Total leads' : 'Agg leads'} value={kpis.totalLeads.toLocaleString()} />
             <RKpi label="Responded" value={pct(kpis.rr)} sub={`${kpis.responded} leads`} valueClass={RR_TXT[rrBand(kpis.rr)]} />
             <RKpi label="No response" value={pct(kpis.crate)} sub={`${kpis.cold} leads`} />
             <RKpi label="Opted out / DND" value={pct(kpis.orate)} sub={`${kpis.optout} leads`} />

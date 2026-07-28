@@ -85,6 +85,33 @@ eq('HELOC grouped into Refinance', matchesPurpose(row({ loan_purpose: 'HELOC' })
 eq('Purchase is not Refinance', matchesPurpose(row({ loan_purpose: 'Purchase' }), 'Refinance'), false)
 eq('null purpose excluded from Purchase', matchesPurpose(row({ loan_purpose: null }), 'Purchase'), false)
 
+// Blank purpose + equity loan TYPE → Refinance (2026-07-28). Without this these
+// matched neither tab and showed only under "All purposes", so Purchase +
+// Refinance visibly failed to add up to the total.
+eq('blank purpose + HELOC type → Refinance',
+  matchesPurpose(row({ loan_purpose: null, loan_type: 'HELOC' }), 'Refinance'), true)
+eq('blank purpose + HELOAN type → Refinance',
+  matchesPurpose(row({ loan_purpose: null, loan_type: 'HELOAN' }), 'Refinance'), true)
+eq('blank purpose + heloc lowercase → Refinance',
+  matchesPurpose(row({ loan_purpose: '', loan_type: ' heloc ' }), 'Refinance'), true)
+eq('blank purpose + HELOC type is NOT Purchase',
+  matchesPurpose(row({ loan_purpose: null, loan_type: 'HELOC' }), 'Purchase'), false)
+// Only equity types infer. A blank purpose on a Conv/FHA loan stays untagged —
+// inferring "refinance" from a first-lien type would be a guess, not a grouping.
+eq('blank purpose + Conv type stays untagged',
+  matchesPurpose(row({ loan_purpose: null, loan_type: 'Conv' }), 'Refinance'), false)
+eq('blank purpose + no type stays untagged',
+  matchesPurpose(row({ loan_purpose: null, loan_type: null }), 'Refinance'), false)
+// An explicit purpose always wins over the type inference.
+eq('explicit Purchase purpose beats HELOC type',
+  matchesPurpose(row({ loan_purpose: 'Purchase', loan_type: 'HELOC' }), 'Refinance'), false)
+eq('explicit Purchase purpose + HELOC type still Purchase',
+  matchesPurpose(row({ loan_purpose: 'Purchase', loan_type: 'HELOC' }), 'Purchase'), true)
+// LeadRow.loan_type is optional (/report-import rows carry no type) — absent
+// must behave exactly like null, never throw.
+eq('loan_type absent entirely → untagged, no throw',
+  matchesPurpose(row({ loan_purpose: null }), 'Refinance'), false)
+
 // ── Keys ───────────────────────────────────────────────────────────
 eq('stateKey upper/trim', stateKey(row({ state: ' ca ' })), 'CA')
 eq('stateKey null', stateKey(row({ state: null })), '(no state)')

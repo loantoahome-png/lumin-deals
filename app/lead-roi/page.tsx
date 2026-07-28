@@ -34,7 +34,7 @@ import {
   Filter, ArrowRight, Save, FileText,
 } from 'lucide-react'
 
-const LEAD_COLS = 'id,name,source,loan_officer,pipeline_group,status,loan_amount,state,loan_purpose,lead_price,compensation_amount,date_added_ghl,funded_date,created_at,ghl_opportunity_id,last_inbound_at'
+const LEAD_COLS = 'id,name,source,loan_officer,pipeline_group,status,loan_amount,state,loan_purpose,loan_type,lead_price,compensation_amount,date_added_ghl,funded_date,created_at,ghl_opportunity_id,last_inbound_at'
 
 const PURPOSE_TABS: Purpose[] = ['All', 'Purchase', 'Refinance']
 const SCOPE_TABS: SourceScope[] = ['Purchased', 'All']
@@ -301,7 +301,7 @@ export default function LeadRoiPage() {
               <Target className="w-5 h-5 text-blue-600" /> Lead ROI
             </h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              What leads cost, how they responded, what they earned — {scope === 'All' ? 'all sources' : 'purchased only'} · {lo}
+              What leads cost, how they responded, what they earned — {scope === 'All' ? 'all sources' : 'agg leads only'} · {lo}
               {dateWindow && <span className="text-slate-400"> · {dateWindow}</span>}
             </p>
           </div>
@@ -365,11 +365,11 @@ export default function LeadRoiPage() {
           <div className="flex items-center gap-1">
             {SCOPE_TABS.map(t => (
               <button key={t} onClick={() => setScope(t)}
-                title={t === 'Purchased' ? `Vendor-bought leads only (${PURCHASED_SOURCES.join(', ')})` : 'Every source, incl. Return Client / Referrals'}
+                title={t === 'Purchased' ? `Aggregator-bought leads only (${PURCHASED_SOURCES.join(', ')})` : 'Every source, incl. Return Client / Referrals'}
                 className={`px-3 py-1.5 text-xs font-medium rounded-full transition ${
                   scope === t ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}>
-                {t === 'Purchased' ? 'Purchased' : 'All sources'}
+                {t === 'Purchased' ? 'Agg leads' : 'All sources'}
               </button>
             ))}
           </div>
@@ -460,7 +460,7 @@ export default function LeadRoiPage() {
                 <div className="bg-white border border-indigo-200 rounded-xl overflow-hidden">
                   <div className="border-l-4 border-indigo-500 px-4 py-3.5">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500 mb-1.5">
-                      Summary · {lo} · {rangeLabel}{scope === 'Purchased' ? ' · purchased leads' : ' · all sources'}
+                      Summary · {lo} · {rangeLabel}{scope === 'Purchased' ? ' · agg leads' : ' · all sources'}
                     </p>
                     <p className="text-sm text-slate-700 leading-relaxed">
                       <b className="text-slate-900">{kpis.totalLeads.toLocaleString()} leads</b> —{' '}
@@ -510,7 +510,7 @@ export default function LeadRoiPage() {
             {/* KPIs */}
             <div className="px-6 py-4 bg-slate-50/60 border-b border-slate-200 space-y-3">
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-                <Kpi icon={<Users className="w-4 h-4 text-blue-500" />} label={scope === 'All' ? 'Total leads' : 'Purchased leads'} value={kpis.totalLeads.toLocaleString()} />
+                <Kpi icon={<Users className="w-4 h-4 text-blue-500" />} label={scope === 'All' ? 'Total leads' : 'Agg leads'} value={kpis.totalLeads.toLocaleString()} />
                 <Kpi icon={<CheckCircle2 className="w-4 h-4 text-emerald-500" />} label="Responded" value={pct(kpis.rr)} sub={`${kpis.responded} leads`} valueClass={RR_COLOR[rrBand(kpis.rr)]} />
                 <Kpi icon={<X className="w-4 h-4 text-slate-400" />} label="No response" value={pct(kpis.crate)} sub={`${kpis.cold} leads`} />
                 <Kpi icon={<X className="w-4 h-4 text-rose-400" />} label="Opted out (customer)" value={pct(kpis.orate)}
@@ -960,13 +960,13 @@ export default function LeadRoiPage() {
                 </summary>
                 <div className="px-4 pb-3 space-y-1.5">
                   <p><b>LO tabs:</b> stats are per-LO only — one loan officer at a time, matched via the canonical resolver, never combined.</p>
-                  <p><b>Scope:</b> <b>Purchased</b> = vendor leads only ({PURCHASED_SOURCES.join(', ')}); <b>All sources</b> includes warm/organic (Self Source, Return Client, Referrals, Arive).</p>
+                  <p><b>Scope:</b> <b>Agg leads</b> = aggregator-bought leads only ({PURCHASED_SOURCES.join(', ')}); <b>All sources</b> includes warm/organic (Self Source, Return Client, Referrals, Arive).</p>
                   <p><b>Responded:</b> engaged at least once — <b>Ghosted counts</b>; only New Lead / Attempted Contact / Non-Responsive are &ldquo;no response.&rdquo; Team-removed leads (Remove from All Automations) split by real contact — counted as Responded only if they have a logged inbound message, else No-response (verified 2026-07-17: ~18% had inbound). <b>Opted out / DND</b> is its own bucket; the table shows count · % of that source&apos;s leads.</p>
                   <p><b>Fast opt-outs (≤7d):</b> of the CUSTOMER opt-outs (STOP / DND-SMS) that have a logged opt-out event, the share whose FIRST opt-out landed within 7 days of the lead&apos;s creation date — i.e. leads that bailed almost immediately. The headline % is those fast opt-outs ÷ <i>all leads</i> (e.g. 6 ÷ 646 ≈ 0.9%). It&apos;s a FLOOR — only opt-outs with a logged timestamp can be counted, so the card shows the coverage (e.g. &ldquo;17/81 opt-outs&rdquo; timed) and the real rate may be higher. &ldquo;Remove from All Automations&rdquo; is excluded — that&apos;s a team disposition from the Hot Leads triage button, not the borrower opting out (it was 61% of the old merged bucket and rose with triage adoption, making lead quality look worse than it is). Forward-only log — opt-outs from before the webhook went live (~Jul 8) have no timing, hence the coverage count. The summary&apos;s best-performer picks: Best ROI needs ≥1 funded + real spend; rate picks need ≥20 leads.</p>
                   <p><b>Funded:</b> Loan Funded / Broker Check Received / Loan Finalized (or the Funded group) — used for the pipeline tallies too. Funded loans anchor on <b>funded date</b>; everything else on the date the lead was added; date-less rows appear only under All time.</p>
                   <p><b>Spend:</b> Σ per-lead price (GHL) <b>plus</b> flat monthly retainers × months in range. <b>Revenue:</b> Σ Arive compensation on funded loans only. <b>Net profit</b> = revenue − spend.</p>
                   <p><b>ROI:</b> revenue ÷ spend as a multiple — 1.62× means $1.62 back per $1 (the old Lead Spend percent is this minus one). Lead price coverage is ~84%, so spend on price-less leads is understated — set a retainer for flat-billed sources.</p>
-                  <p><b>Purpose:</b> Refinance includes HELOCs; ~8% of leads are untagged and appear only under &ldquo;All purposes.&rdquo;</p>
+                  <p><b>Purpose:</b> Refinance includes HELOCs — both a HELOC <i>purpose</i> and, when no purpose was recorded, a HELOC/HELOAN loan <i>type</i>. Leads with neither still count only under &ldquo;All purposes,&rdquo; so Purchase + Refinance can be less than the total.</p>
                 </div>
               </details>
             </div>
