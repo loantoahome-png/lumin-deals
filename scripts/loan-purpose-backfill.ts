@@ -15,9 +15,12 @@
 // Only ever FILLS BLANKS — an existing purpose is never overwritten, so a value
 // a human or the webhook set cannot be clobbered by a stale export.
 //
-// The CSV needs a "Contact Id" column and a "Loan Purpose" column; it is matched
-// to deals on ghl_contact_id, so one contact with several opportunities fills
-// every one of that person's loans.
+// Accepts EITHER GHL export shape, auto-detected from the header:
+//   • an OPPORTUNITIES export — matched on "Opportunity ID" → ghl_opportunity_id.
+//     Preferred: the purpose is filled per LOAN, so a contact with two
+//     opportunities at different purposes stays correct.
+//   • a CONTACTS export — matched on "Contact Id" → ghl_contact_id, which fills
+//     every loan belonging to that person with the same value.
 import { createClient } from '@supabase/supabase-js'
 import { readFileSync, writeFileSync } from 'fs'
 import { normalizeLoanPurpose } from '../lib/utils'
@@ -63,19 +66,26 @@ function parseCsv(text: string): Array<Record<string, string>> {
   if (!csvPath) { console.error('usage: loan-purpose-backfill.ts <export.csv> [apply]'); process.exit(1) }
 
   const csv = parseCsv(readFileSync(csvPath, 'utf8'))
-  const wanted = new Map<string, string>()   // contactId → normalized purpose
+
+  // Opportunity-keyed is preferred (per-loan); fall back to contact-keyed.
+  const byOpp = csv.some(r => (r['Opportunity ID'] ?? '').trim())
+  const idCol   = byOpp ? 'Opportunity ID' : 'Contact Id'
+  const dealCol = byOpp ? 'ghl_opportunity_id' : 'ghl_contact_id'
+
+  const wanted = new Map<string, string>()   // csv id → normalized purpose
   for (const r of csv) {
-    const id = r['Contact Id']
+    const id = (r[idCol] ?? '').trim()
     const purpose = normalizeLoanPurpose(r['Loan Purpose'])
     if (id && purpose) wanted.set(id, purpose)
   }
-  console.log(`CSV rows: ${csv.length} · contacts with a usable purpose: ${wanted.size}`)
+  console.log(`CSV rows: ${csv.length} · matching on ${idCol} → deals.${dealCol}`)
+  console.log(`rows with a usable purpose: ${wanted.size}`)
 
   const deals: Array<Record<string, unknown>> = []
   for (let off = 0; ; off += 1000) {
     const { data, error } = await sb
       .from('deals')
-      .select('id, name, ghl_contact_id, loan_purpose')
+      .select('id, name, ghl_contact_id, ghl_opportunity_id, loan_purpose')
       .order('id', { ascending: true })
       .range(off, off + 999)
     if (error) throw new Error(error.message)
@@ -86,15 +96,15 @@ function parseCsv(text: string): Array<Record<string, string>> {
 
   const plan = deals
     .filter(d => {
-      const cid = (d.ghl_contact_id as string | null) ?? ''
+      const k = (d[dealCol] as string | null) ?? ''
       const blank = !((d.loan_purpose as string | null) ?? '').trim()
-      return blank && wanted.has(cid)      // FILL BLANKS ONLY
+      return blank && wanted.has(k)      // FILL BLANKS ONLY
     })
-    .map(d => ({ id: d.id as string, name: d.name as string, next: wanted.get(d.ghl_contact_id as string)! }))
+    .map(d => ({ id: d.id as string, name: d.name as string, next: wanted.get(d[dealCol] as string)! }))
 
   const already = deals.filter(d => {
-    const cid = (d.ghl_contact_id as string | null) ?? ''
-    return wanted.has(cid) && ((d.loan_purpose as string | null) ?? '').trim()
+    const k = (d[dealCol] as string | null) ?? ''
+    return wanted.has(k) && ((d.loan_purpose as string | null) ?? '').trim()
   }).length
 
   console.log(`MODE: ${apply ? 'APPLY' : 'DRY RUN (no writes)'}`)

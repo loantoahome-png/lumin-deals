@@ -1,5 +1,20 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-28] Randy's loan purposes filled from an opportunities export — all three LOs now add up
+**Status:** VERIFIED against prod. tsc 7 pre-existing.
+**Issue:** Randy's 151 untagged leads couldn't be fixed by the full sync — his sub-account key (`GHL_API_KEY_2`) is prod-only, so his location wasn't in the local run. Efrain supplied `opportunities (5).csv` (481 rows, all assigned Randy).
+**Change:** [scripts/loan-purpose-backfill.ts](scripts/loan-purpose-backfill.ts) now auto-detects the export shape — an **opportunities** export matches on `Opportunity ID` → `ghl_opportunity_id` (per LOAN, so a contact with two opportunities at different purposes stays correct), a **contacts** export still matches on `Contact Id`. Fill-blanks only, unchanged.
+**Result:** `filled 152/152` (150 HELOC, 1 Refinance, 1 Purchase), 320 already had a purpose and were left alone, backup written. **All three LOs now reconcile exactly:**
+| LO | Agg leads | Purchase | Refinance | Untagged |
+|---|---|---|---|---|
+| Moe | 968 | 118 | 850 | **0** |
+| Matt | 873 | 91 | 782 | **0** |
+| Randy | 476 | 1 | 474 | **1** |
+Repo-wide blank `loan_purpose` on live deals: **217** (was 369 before this fill, 571 at the start of the day).
+**Reconciliation of the export vs the dashboard (473 matched):** source differs on only **3**, all `Arive` → a real vendor, i.e. the dashboard is the correct one. Purpose differed on 152 — exactly the set filled.
+**⚠️ OPEN — 9 of Randy's leads are MISSING from the dashboard entirely.** Created 2026-07-24 → 07-28: Mika Mcdaniel, Richard Mckillop, Steve Huynh, Phil Cochren, George Alexander, Ricky Beltran (**Appointment Booked**), Phillip Belmont, David Gallardo, Marc Callon. Sources Lendgo / Lending Tree / MRC. **Their GHL contacts are absent too**, so nothing about them reached the dashboard — this is an ingest gap, not a matching bug. Randy's location DOES sync in prod (`ghl_sync_last:arZ4QDCzS0Vkj0ZvLZdv` stamped 18:00 today), so the cause is not obvious and is NOT diagnosed here — I can't query his sub-account without the prod key. First step is a **Full Sync from the sidebar** (forces `full=1` across all three accounts); if they still don't appear, it needs a real investigation of the opportunity-search path for that location.
+**Also unexplained (not a dashboard error):** the export holds 481 opportunities while the dashboard has 755 live Randy deals, 282 of which aren't in the export at all — all in Randy's location, added June–July, inside the export's own date range. The likeliest reading is that the export was capped or filtered, since prod's maintenance pass would have pruned them if GHL no longer had them. **Unverified** — flagged rather than assumed.
+
 ### [2026-07-28] loan_purpose read from the OPPORTUNITY + "Old Deals" page; 98 historical loans parked out of reporting
 **Status:** CHANGED — tsc exactly 7 pre-existing (0 in touched files), `next build` ✓ (`/old-deals` prerendered), lead-report-check **115/115** (+5), lead-roi-check 62/62, lead-source-check 39/39, report-merge-check 27/27, cohort-report-check 83/83, arive-match-check 12/12, ghl-link-check 13/13, webhook-fields-check 32/32.
 **Issue:** Efrain: "ship the loan purpose overlay. Also get rid of the 77 dashboard deals with no GHL opportunity, create a tab all the way at the bottom that is titled old deals and move them all there and get rid of them from all reporting done on this dashboard."
