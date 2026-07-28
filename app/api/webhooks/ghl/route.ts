@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { createHmac } from 'crypto'
 import { findExistingDeal } from '@/lib/dealMatcher'
-import { titleCase, cleanSource, resolveLeadSource } from '@/lib/utils'
+import { titleCase, resolveLeadSource } from '@/lib/utils'
 import { resolveLO } from '@/lib/loanOfficer'
 import { logStageEvent } from '@/lib/stageEvents'
 import {
@@ -565,9 +565,13 @@ export async function POST(req: NextRequest) {
       maybeSet('state',             fields.state)
       maybeSet('zip',               fields.zip)
       maybeSet('lead_source_agg',   fields.leadSourceAgg)
-      // cleanSource() → null for "Arive"/"unknown", and maybeSet skips nulls, so a
-      // drifted webhook can never re-stamp the LOS name over a real vendor source.
-      maybeSet('source',            cleanSource(fields.contactSource))
+      // `source` is deliberately NOT written here (2026-07-28). Attribution now
+      // credits the vendor on the OPPORTUNITY, and this payload carries the
+      // CONTACT's source — writing it would contradict the policy for up to 15
+      // minutes until the sync corrected it, and would clobber a manual pin
+      // (lib/sourcePins.ts) in the same window. The sync owns this column; a
+      // genuine source change in GHL lands on its next pass. The INSERT path still
+      // sets an initial value, because a brand-new deal needs one.
       maybeSet('dnd',               fields.dnd)
       maybeSet('dnd_settings',      fields.dndSettings)
 

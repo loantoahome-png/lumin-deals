@@ -1,5 +1,22 @@
 # Verification Log — Lumin Deals
 
+### [2026-07-28] Source pins built + webhook stops writing `source` — but the two requested pins were NOT set (premise was wrong)
+**Status:** CHANGED — tsc exactly 7 pre-existing (0 in touched files), `next build` ✓, lead-source-check **39/39** (+12 for pins), lead-report-check 110/110, lead-roi-check 62/62, webhook-fields-check 32/32, report-merge-check 27/27, cohort-report-check 83/83, ghl-link-check 13/13.
+**Issue:** Efrain: "pin those two back to the vendor that billed us" — Gailon Greene Sr (Lendgo → Discovery Call, lead_price 25.50) and Tanya Spencer (LMB → Meta Lead Ad, 39.80), the two that left purchased-lead reporting in the opportunity-first re-credit.
+**⚠️ DID NOT PIN THEM — my own earlier framing was incomplete and the instruction rests on it.** Pulling the full rows shows each person has **TWO deals on the SAME GHL contact**, and the vendor-billed one is *still correctly attributed*:
+| person | opp | source | lead_price | vendor_lead_id |
+|---|---|---|---|---|
+| Gailon Greene Sr | FXfxdHS0… | **Lendgo** (kept) | 25.50 | `17166494` |
+| Gailon Greene Sr | UPjBys3f… | Discovery Call | 25.50 | **none** |
+| Tanya Spencer | ey46BsTk… | **LMB** (kept) | 39.80 | `3c8208d1-…` |
+| Tanya Spencer | mtiByqOM… | Meta Lead Ad | 39.80 | `3c8208d1-…` (SAME) |
+The price is stamped on **both** opportunities of one contact, so while both read "Lendgo"/"LMB" the spend was counted **twice** for a lead bought once. The re-credit didn't lose a paid lead — **it removed a double charge**. Pinning them back would re-add **$65.30** of phantom spend. Left as-is; Efrain decides with the full picture.
+**Wider finding (same root cause, measured):** across **2,305** priced purchased deals totalling **$74,777.50**, **63 rows are a duplicate charge worth $1,995.70 — 2.7% of counted spend** (LMB $879.70, Lendgo $446, FRU $344.50, Lending Tree $222, LeadPoint $103.50). Verified by `vendor_lead_id`, not inferred: **63/63 duplicates share the SAME vendor_lead_id** (one purchase, two opportunities) and **0 have distinct ids** (i.e. zero are legitimate repeat buys). Fixing it means counting spend once per `vendor_lead_id` rather than per deal — a change to ROI math, so it is Efrain's call, not shipped here.
+**Changes shipped anyway (both stand on their own):**
+- NEW [lib/sourcePins.ts](lib/sourcePins.ts) + sync support — `sync_state` key `source_pins` (same team-shared pattern as tools_list/lenders_list, **no schema change**), keyed by GHL opportunity id, applied where `source` is computed so INSERT and UPDATE both honour it. **No pins are configured, so behaviour is unchanged today.** It exists because the sync rewrites `source` every pass, which means a manual correction on the deal page silently reverts within 15 minutes — a real trap independent of this request. Load failure is caught: a bad pins row can never take a sync down.
+- [app/api/webhooks/ghl/route.ts](app/api/webhooks/ghl/route.ts) **no longer writes `source` on update.** It writes the CONTACT's source, which now contradicts opportunity-first attribution and would have clobbered any pin for up to 15 minutes until the sync corrected it. The INSERT path still sets an initial value, since a brand-new deal needs one. Cheaper and safer than threading pins through a polymorphic webhook payload (the 7/16 opp-id bug class).
+**Result:** _(pending deploy)_
+
 ### [2026-07-28] Lead attribution now credits THE VENDOR ON THE OPPORTUNITY
 **Status:** CHANGED — tsc exactly 7 pre-existing (0 in touched files), `next build` ✓, lead-source-check **27/27** (+6 pinning the new order), lead-report-check 110/110, lead-roi-check 62/62, cohort-report-check 83/83, report-merge-check 27/27, webhook-fields-check 32/32.
 **Issue:** Efrain, after the 70-vs-77 reconciliation: "credit each lead to the vendor on the opportunity." Previously the sync ranked the CONTACT's "Lead Source" custom field first, so a person resold by two aggregators was credited to whichever Lead Source was written to them last — 7 of Moe's Lending Tree leads were really bought from FRU ×4, LeadPoint ×2, LMB ×1.

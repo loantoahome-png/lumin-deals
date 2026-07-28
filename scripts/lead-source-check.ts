@@ -15,6 +15,7 @@
 //      the whole time, hidden behind the contact's "Arive".
 // See docs/diagnoses/2026-07-28-arive-source-restamp-diagnosis.md
 import { cleanSource, resolveLeadSource } from '../lib/utils'
+import { parseSourcePins, applySourcePin } from '../lib/sourcePins'
 
 let pass = 0, fail = 0
 function eq(label: string, got: unknown, want: unknown) {
@@ -100,6 +101,39 @@ eq('only the embedded contact has a vendor',
   syncChain('Arive', null, null, 'LMB'), 'LMB')
 eq('nothing usable anywhere → null (caller keeps existing value)',
   syncChain('Arive', 'Unknown', null, ''), null)
+
+// ── 4. Manual source pins ────────────────────────────────────────────────────
+// A pin is the one thing that overrules GHL. It exists because the sync rewrites
+// `source` on every pass, so a human correction cannot otherwise survive: two
+// leads Efrain PAID for had their opportunity re-created off a later touchpoint,
+// leaving no GHL field naming the aggregator that billed him.
+const PINS = parseSourcePins([
+  { opportunity_id: 'oppA', source: 'Lendgo', reason: 'billed by Lendgo' },
+  { opportunity_id: 'oppB', source: 'LMB' },
+])
+
+eq('pin overrules the opportunity vendor',
+  applySourcePin(PINS, 'oppA', 'Discovery Call'), 'Lendgo')
+eq('pin applies even when resolution found nothing',
+  applySourcePin(PINS, 'oppB', null), 'LMB')
+eq('unpinned opportunity keeps the resolved vendor',
+  applySourcePin(PINS, 'oppC', 'FRU'), 'FRU')
+eq('unpinned + unresolved stays null',
+  applySourcePin(PINS, 'oppC', null), null)
+eq('missing opportunity id → resolved value, no throw',
+  applySourcePin(PINS, null, 'FRU'), 'FRU')
+eq('blank opportunity id → resolved value',
+  applySourcePin(PINS, '   ', 'FRU'), 'FRU')
+eq('no pins configured → always the resolved value',
+  applySourcePin(new Map(), 'oppA', 'Discovery Call'), 'Discovery Call')
+
+// A malformed pins row must never take the sync down — it just applies no pins.
+eq('junk pin payload → empty map',        parseSourcePins('not-an-array').size, 0)
+eq('null payload → empty map',            parseSourcePins(null).size, 0)
+eq('pin without a source is dropped',     parseSourcePins([{ opportunity_id: 'x' }]).size, 0)
+eq('pin without an opportunity is dropped', parseSourcePins([{ source: 'LMB' }]).size, 0)
+eq('valid pins survive alongside junk',
+  parseSourcePins([null, 'x', { opportunity_id: 'ok', source: 'FRU' }]).get('ok'), 'FRU')
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} lead-source-check: ${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)

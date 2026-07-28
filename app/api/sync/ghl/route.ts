@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { normPhone, normEmail, resolveExistingLoan } from '@/lib/dealMatcher'
 import { titleCase, resolveLeadSource, normalizeLoanPurpose } from '@/lib/utils'
+import { SOURCE_PINS_KEY, parseSourcePins, applySourcePin } from '@/lib/sourcePins'
 import { resolveLO } from '@/lib/loanOfficer'
 import { mapOpportunityFields, ariveLoanIdFromOpp as ariveLoanIdShared } from '@/lib/ghlOpportunityFields'
 
@@ -591,6 +592,18 @@ async function syncAccount(
   // than the alternative of missing changes).
   const runStartedAt = new Date().toISOString()
 
+  // Manual lead-source pins — the few opportunities where a human overrules GHL
+  // (see lib/sourcePins.ts). Read once per run; a failure here must never stop a
+  // sync, it just means no pins are applied this pass.
+  let sourcePins = new Map<string, string>()
+  try {
+    const { data } = await supabase.from('sync_state').select('value').eq('key', SOURCE_PINS_KEY).maybeSingle()
+    sourcePins = parseSourcePins(data?.value)
+    if (sourcePins.size) console.log(`[GHL Sync:${label}] ${sourcePins.size} manual source pin(s) loaded`)
+  } catch (e) {
+    console.error(`[GHL Sync:${label}] source pins unavailable:`, e)
+  }
+
   // Load the last successful run timestamp for this location (null if first
   // run, table missing, or ?full=1 was passed). Anything older than this in
   // GHL will be skipped — that's the incremental-sync trick.
@@ -900,12 +913,18 @@ async function syncAccount(
           // rows in the 7/28 audit), and those fall through to the contact field
           // instead of winning and being nulled afterward.
           // Do NOT default to the literal 'GHL'; leave null when GHL has nothing.
-          source:           resolveLeadSource(
+          //
+          // A manual pin overrules all of it — the handful of opportunities where
+          // GHL simply does not carry the truth (a lead that was paid for, then had
+          // its opportunity re-created off a later touchpoint, so the aggregator that
+          // billed us appears nowhere). Applied here so the insert AND update paths
+          // both honour it.
+          source:           applySourcePin(sourcePins, str(opp.id), resolveLeadSource(
                               str(opp.source),
                               str(getCustomField(customFields, 'lead_source', 'Lead Source', 'leadsource')),
                               str(fullContact.source),
                               str(embeddedContact?.source),
-                            ),
+                            )),
           date_added_ghl:   str(fullContact.dateAdded ?? fullContact.createdAt ?? opp.createdAt),
           raw_ghl_data:     opp,
           city:             str(fullContact.city),
