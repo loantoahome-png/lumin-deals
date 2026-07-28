@@ -1,4 +1,20 @@
+
 # Verification Log — Lumin Deals
+
+### [2026-07-28] "Cash Out" recognized as a refinance; the 282-deal export gap explained (dashboard was right)
+**Status:** VERIFIED against prod. tsc 7 pre-existing, lead-report-check **119/119** (+4), lead-source-check 39/39, lead-roi-check 62/62, report-merge-check 27/27, cohort-report-check 83/83.
+**Issue:** Efrain supplied a fuller Randy export (`opportunities (6).csv`, **766** rows vs the previous 481).
+**1. The 282 "dashboard-only" deals — RESOLVED, the dashboard was correct.** The earlier export was missing two whole pipelines, **"4) Personal Leads" (208)** and **"5) account Executive" (34)**. Against the fuller export, deals **in the dashboard but not in the CSV = 0** and 283 of the 285 newly-appearing rows were already stored. The earlier export was pipeline-filtered; nothing was wrong here. Recorded because I had flagged it as unverified rather than asserting a cause.
+**2. NEW BUG — `normalizeLoanPurpose` discarded "Cash Out".** GHL puts the refinance TYPE in the Loan Purpose field. `R/T Refi` survived on the "refi" substring, but **`Cash Out` (86 rows) contained none of the known tokens and returned null**, so the purpose was thrown away exactly like HELOC was this morning. Fixed in [lib/utils.ts](lib/utils.ts): `cash out` / `cashout` → **Refinance**. `Other` (5) deliberately still returns null — that is a real absence of information, not an inferable purpose. +4 fixtures.
+**3. Backfill re-run** with the fuller export: `filled 87/87` (86 Refinance from Cash Out, 1 Purchase), 539 existing purposes left untouched, backup written.
+**Result — purpose coverage now, verified live:**
+| | Agg leads | Untagged | All sources | Untagged |
+|---|---|---|---|---|
+| Moe | 969 | **0** | 1,073 | **0** |
+| Matt | 873 | **0** | 958 | 2 |
+| Randy | 476 | **1** | 755 | 127 |
+Repo-wide blank `loan_purpose` on live deals: **130** (was 571 at the start of today). **Randy's remaining 127 are unfillable, not a gap** — checked one by one against the export: **122 are blank in GHL itself and 5 are "Other"**, and 108 of them sit in the Personal Leads / account Executive pipelines rather than the agg-lead flow. There is no data to recover.
+**⚠️ STILL OPEN — 11 of Randy's opportunities are absent from the dashboard** (was 9; the fuller export adds `Tim Boettcher` and one contact named only by phone number, `(206) 235-5302`, in App Intake). Their GHL contacts are missing too, so nothing was ingested. Unchanged diagnosis: needs a Full Sync from the sidebar first, and his prod-only sub-account key to investigate properly.
 
 ### [2026-07-28] Randy's loan purposes filled from an opportunities export — all three LOs now add up
 **Status:** VERIFIED against prod. tsc 7 pre-existing.

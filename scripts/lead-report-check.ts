@@ -128,6 +128,14 @@ eq('"Home Equity Line" preserved',      normalizeLoanPurpose('Home Equity Line o
 eq('Purchase still maps',               normalizeLoanPurpose('Purchase'), 'Purchase')
 eq('Refinance via "refi" substring',    normalizeLoanPurpose('Cash-Out Refi'), 'Refinance')
 eq('purchase wins when both appear',    normalizeLoanPurpose('Purchase money HELOC'), 'Purchase')
+// GHL puts the refinance TYPE in the Loan Purpose field. "R/T Refi" survives on
+// the "refi" substring; "Cash Out" does not contain it and was being discarded —
+// 86 of Randy's opportunities (2026-07-28 export).
+eq('"Cash Out" is a refinance',          normalizeLoanPurpose('Cash Out'), 'Refinance')
+eq('"cashout" one word',                 normalizeLoanPurpose('cashout'), 'Refinance')
+eq('"R/T Refi" still maps',              normalizeLoanPurpose('R/T Refi'), 'Refinance')
+// "Other" stays null on purpose — absence of information, not an inferable purpose.
+eq('"Other" → null (not a purpose)',     normalizeLoanPurpose('Other'), null)
 eq('unknown purpose → null',            normalizeLoanPurpose('Construction'), null)
 eq('empty → null',                      normalizeLoanPurpose(''), null)
 eq('null → null',                       normalizeLoanPurpose(null), null)

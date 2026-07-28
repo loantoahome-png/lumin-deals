@@ -145,6 +145,12 @@ export function normalizeLoanPurpose(val: string | null | undefined): string | n
   if (t.includes('purchase')) return 'Purchase'
   if (t.includes('refi'))     return 'Refinance'
   if (t.includes('heloc') || t.includes('heloan') || t.includes('home equity')) return 'HELOC'
+  // GHL's Loan Purpose field also carries the refinance TYPE as the purpose —
+  // "Cash Out" and "R/T Refi" are both refinances, but only the latter contains
+  // "refi". 86 of Randy's opportunities said "Cash Out" and were being discarded
+  // (verified against his 2026-07-28 export). "Other" is deliberately still null:
+  // it is a real absence of information, not a purpose we can infer.
+  if (t.includes('cash out') || t.includes('cashout')) return 'Refinance'
   return null
 }
 
