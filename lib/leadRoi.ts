@@ -11,6 +11,11 @@
 //   • Spend         — Σ per-lead lead_price PLUS flat monthly retainers × months in range.
 //                     (Retainers previously fed cost-per-funded only, so retainer-billed
 //                     sources looked artificially profitable.)
+//                     EVERY opportunity's lead_price is a real, separate charge. The same
+//                     person IS bought more than once, and repeat buys bill at the vendor's
+//                     going rate, so an identical amount on two opportunities is normal —
+//                     never dedupe spend by contact or vendor_lead_id. See the note at the
+//                     leadCost accumulator before touching this.
 //   • Revenue       — Σ Arive compensation_amount on FUNDED loans only (priced or not).
 //   • ROI           — revenue ÷ spend as a multiple; null when spend is 0.
 //   • LO            — single LO at a time via resolveLO (Efrain 2026-07-13: no combined
@@ -159,6 +164,22 @@ export function buildSourceStats(deals: Deal[], costs: Map<string, CostRow>, mon
     if (isCold(d)) s.cold++
     if (isCustomerOptout(d)) s.optout++
     if (isTeamRemoved(d)) s.teamRemoved++
+    // EVERY opportunity's lead_price is a REAL, SEPARATE charge — never dedupe it.
+    // Efrain, 2026-07-28: "there are definitely leads that are purchased twice,
+    // each opportunity with a cost is a REAL cost… there are never going to be
+    // duplicates of the same charge… it is normal to have the same lead cost for
+    // the opportunity."
+    //
+    // Aggregators resell the same person, so one contact legitimately produces
+    // several priced opportunities, and repeat buys from one vendor bill at that
+    // vendor's going rate — so an identical amount on two opportunities is the
+    // NORMAL case, not a duplicate. A shared vendor_lead_id does not merge them
+    // either; it identifies the person at the vendor, not a single invoice.
+    //
+    // Do not "fix" this by counting spend once per contact or per vendor_lead_id.
+    // That was proposed on 2026-07-28 off exactly that misreading and was wrong:
+    // it would have erased ~$2k of spend Efrain actually paid and inflated every
+    // vendor's ROI. Summing per deal is correct.
     s.leadCost += d.lead_price ?? 0
     if (isFunded(d)) {
       s.funded++
