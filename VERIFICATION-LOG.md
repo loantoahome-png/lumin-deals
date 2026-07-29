@@ -1,6 +1,16 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-07-29] Per-person time toggle on the Tasks board
+**Status:** VERIFIED in a local browser session.
+**Issue:** Efrain: "Is there a way we can toggle the view of the tasks per individual? I want to be able to see in one view: Overdue & Due today, Future tasks, and All tasks." The only time controls were the global chips, so narrowing to what's on fire narrowed *everyone* at once.
+**Change:** [app/tasks/page.tsx](app/tasks/page.tsx) — each `AssigneeColumn` gets its own 3-way cut (**Overdue & today / Future / All**) with live counts, in a sub-bar under the column header. Purely additive: every column defaults to `All`, so the board is unchanged until a segment is clicked. Choices persist per column in `localStorage` under `tasks:columnViews`, read in a `useEffect` (not the state initializer) so SSR and first client render agree.
+**Two deliberate boundaries:**
+- The cut is by **due date only** — completion stays owned by the global chips, so a column view never silently re-filters done/not-done and the two controls can't fight.
+- "Now" is `due_at <= end of today`; **everything else, including tasks with no due date, falls to "Future"** so the two cuts partition the column and no task can drop out of both. (Confirmed live: Brianne's Future shows the Aug 24 task *plus* her two undated ones.)
+**Test Method:** `next dev` at :3000, `/tasks`, temporary middleware auth bypass (reverted — `git checkout middleware.ts`, login gate re-confirmed).
+**Result:** Counts partition correctly (Efrain 3 + 6 = 9, Brianne 3 + 3 = 6, Moe 1 + 3 = 4, Matt 0/0/0 → "No tasks"). Efrain set to "Overdue & today" renders exactly the 2 overdue + 1 due-today rows, header badge follows the visible count. Columns are independent — Brianne on "Future" while Moe/Matt stayed on "All". Both survived a full reload. 0 console errors, no hydration warning. tsc exactly 7 pre-existing errors (0 in touched files), `next build` ✓.
+
 ### [2026-07-28] Maintenance sync now rescues opportunities that were never ingested
 **Status:** CHANGED — tsc exactly 7 pre-existing (0 in touched files), `next build` ✓, NEW **sync-cursor-check 13/13**, lead-report-check 119/119, lead-source-check 39/39, lead-roi-check 62/62, report-merge-check 27/27, cohort-report-check 83/83, ghl-link-check 13/13, webhook-fields-check 32/32, arive-match-check 12/12.
 **Issue:** Efrain: "ship the maintenance sync fix." A missed opportunity was missed FOREVER — see the GOTCHAS entry and the 11 of Randy's leads that sat unseen for four days.

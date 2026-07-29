@@ -87,6 +87,28 @@ const PRIORITY_STYLES: Record<string, string> = {
 // hidden just because it doesn't belong to one of the four.
 const BOARD_COLUMNS = ['Efrain Ramirez', 'Brianne Han', 'Moe Sefati', 'Matt Park'] as const
 const OTHER_COLUMN = 'Unassigned & other'
+
+// Each column carries its own time cut on top of the global chips, so you can
+// park one person on "what's on fire" while another shows everything — all in
+// the same screen. Completion is owned entirely by the chips above; a column
+// view only ever slices by due date, never by done/not-done.
+type ColumnView = 'now' | 'future' | 'all'
+const COLUMN_VIEWS: { key: ColumnView; label: string }[] = [
+  { key: 'now',    label: 'Overdue & today' },
+  { key: 'future', label: 'Future' },
+  { key: 'all',    label: 'All' },
+]
+const COLUMN_VIEWS_KEY = 'tasks:columnViews'
+const DEFAULT_COLUMN_VIEW: ColumnView = 'all'
+
+// "Now" = anything already due or due before midnight tonight. Everything else
+// — later dates AND tasks with no due date at all — falls to "Future", so the
+// two cuts partition the column and nothing can drop out of both.
+function isDueNow(t: DealTask, todayEnd: number): boolean {
+  if (!t.due_at) return false
+  const due = new Date(t.due_at).getTime()
+  return !isNaN(due) && due <= todayEnd
+}
 const COLUMN_STYLES: Record<string, string> = {
   'Efrain Ramirez':    'text-blue-800 bg-blue-50 border-blue-100',
   'Brianne Han':       'text-violet-800 bg-violet-50 border-violet-100',
@@ -105,6 +127,22 @@ function TasksSection() {
   // Which column's "+" is open (its name), pre-assigning the new task to that
   // person. Only one form is ever open — opening either closes the other.
   const [composeFor, setComposeFor] = useState<string | null>(null)
+  // Per-column time cut, keyed by column name. Read from localStorage after
+  // mount (not in the initializer) so the server and first client render agree.
+  const [columnViews, setColumnViews] = useState<Record<string, ColumnView>>({})
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(COLUMN_VIEWS_KEY)
+      if (raw) setColumnViews(JSON.parse(raw))
+    } catch { /* ignore corrupt/blocked storage — falls back to the default */ }
+  }, [])
+  const setColumnView = useCallback((name: string, view: ColumnView) => {
+    setColumnViews(prev => {
+      const next = { ...prev, [name]: view }
+      try { localStorage.setItem(COLUMN_VIEWS_KEY, JSON.stringify(next)) } catch { /* ignore */ }
+      return next
+    })
+  }, [])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -373,6 +411,8 @@ function TasksSection() {
                 key={name}
                 name={name}
                 tasks={columns.byPerson.get(name)!}
+                view={columnViews[name] ?? DEFAULT_COLUMN_VIEW}
+                onViewChange={v => setColumnView(name, v)}
                 renderTask={renderTask}
                 onAdd={() => openComposer(name)}
                 composing={composerFor(name)}
@@ -386,6 +426,8 @@ function TasksSection() {
               <AssigneeColumn
                 name={OTHER_COLUMN}
                 tasks={columns.other}
+                view={columnViews[OTHER_COLUMN] ?? DEFAULT_COLUMN_VIEW}
+                onViewChange={v => setColumnView(OTHER_COLUMN, v)}
                 renderTask={renderTask}
                 onAdd={() => openComposer(OTHER_COLUMN)}
                 composing={composerFor(OTHER_COLUMN)}
@@ -398,13 +440,25 @@ function TasksSection() {
   )
 }
 
-function AssigneeColumn({ name, tasks, renderTask, onAdd, composing }: {
+function AssigneeColumn({ name, tasks, view, onViewChange, renderTask, onAdd, composing }: {
   name: string
   tasks: DealTask[]
+  view: ColumnView
+  onViewChange: (v: ColumnView) => void
   renderTask: (t: DealTask) => React.ReactNode
   onAdd?: () => void
   composing?: React.ReactNode
 }) {
+  // Stable within the day, so it's a safe memo dep — the board doesn't need to
+  // re-slice on every render just because the clock ticked.
+  const todayEnd = endOfDay().getTime()
+  const { now, future } = useMemo(() => ({
+    now:    tasks.filter(t => isDueNow(t, todayEnd)),
+    future: tasks.filter(t => !isDueNow(t, todayEnd)),
+  }), [tasks, todayEnd])
+  const counts: Record<ColumnView, number> = { now: now.length, future: future.length, all: tasks.length }
+  const visible = view === 'now' ? now : view === 'future' ? future : tasks
+
   return (
     <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
       <div className={`flex items-center justify-between gap-2 px-4 py-2.5 border-b ${COLUMN_STYLES[name]}`}>
@@ -425,18 +479,53 @@ function AssigneeColumn({ name, tasks, renderTask, onAdd, composing }: {
             </button>
           )}
           <span className="text-[11px] font-bold tabular-nums rounded-full px-2 py-0.5 bg-white/70">
-            {tasks.length}
+            {visible.length}
           </span>
         </div>
       </div>
+
+      {/* This person's own time cut — independent of every other column. */}
+      <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-slate-100 bg-slate-50/70">
+        {COLUMN_VIEWS.map(v => {
+          const active = view === v.key
+          const urgent = v.key === 'now' && counts.now > 0
+          return (
+            <button
+              key={v.key}
+              onClick={() => onViewChange(v.key)}
+              className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold transition ${
+                active
+                  ? urgent
+                    ? 'bg-white text-red-700 shadow-sm ring-1 ring-red-200'
+                    : 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200'
+                  : 'text-slate-500 hover:text-slate-800 hover:bg-white/70'
+              }`}
+            >
+              {v.label}
+              <span className={`text-[10px] tabular-nums ${
+                active ? 'opacity-70' : urgent ? 'text-red-500' : 'text-slate-400'
+              }`}>
+                {counts[v.key]}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
       {composing && <div className="p-2 pb-0">{composing}</div>}
-      {tasks.length === 0 ? (
-        !composing && <p className="text-xs text-slate-400 text-center py-8">No tasks</p>
+      {visible.length === 0 ? (
+        !composing && (
+          <p className="text-xs text-slate-400 text-center py-8">
+            {tasks.length === 0
+              ? 'No tasks'
+              : view === 'now' ? 'Nothing due through today' : 'Nothing scheduled later'}
+          </p>
+        )
       ) : (
         // Capped so one long column (Brianne's auto-tasks under "Completed"/"All"
         // run to ~1,900px) can't push the bottom row off-screen — each column
         // scrolls in place and the 2×2 stays a quadrant.
-        <div className="p-2 space-y-1.5 max-h-[30rem] overflow-y-auto">{tasks.map(renderTask)}</div>
+        <div className="p-2 space-y-1.5 max-h-[30rem] overflow-y-auto">{visible.map(renderTask)}</div>
       )}
     </section>
   )
