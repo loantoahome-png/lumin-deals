@@ -1,6 +1,21 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-07-29] Env-gated local auth bypass, so UI verification stops hand-editing middleware
+**Status:** VERIFIED in both directions, live prod re-checked after deploy.
+**Issue:** Efrain: "How can I get you access to go into the dashboard?" Verifying a UI change locally meant editing `middleware.ts` to `return NextResponse.next()` and remembering to revert it. That pattern is the real risk — it depends on someone correctly undoing an auth bypass every single time.
+**Change:** [middleware.ts](middleware.ts) — an explicit branch that returns early only when `NODE_ENV === 'development'` **and** `LOCAL_AUTH_BYPASS === '1'`.
+**Why it cannot leak to production (verified, not assumed):**
+- `next build` / `next start` / Vercel all set `NODE_ENV=production`, so the first gate is false on the deployed app no matter what is configured in the Vercel dashboard.
+- The flag lives outside the repo — `.gitignore:34` is `.env*`, so `.env.local` is never part of a deploy.
+**Test Method:** two real dev servers, one with the flag and one without; then `curl` against prod after deploy.
+**Result:**
+- **Without** the flag → `/tasks` still renders the Sign in page. Gate holds.
+- **With** `LOCAL_AUTH_BYPASS=1` → `/tasks` renders the full board with live data.
+- **Production after deploy** → `curl https://lumin-deals.vercel.app/tasks` returns `307 → /login?next=%2Ftasks`. Gate intact.
+- tsc unchanged at 7 pre-existing errors (0 in this file), `next build` ✓, deployment ● Ready.
+**How to use it:** the workspace launch config **`lumin-deals-dev-bypass`** (`~/1/.claude/launch.json`) sets the env var inline for that one server start. Nothing needs to go in `.env.local`, and a plain `npm run dev` still shows the login gate as normal.
+
 ### [2026-07-29] Per-person time toggle on the Tasks board
 **Status:** VERIFIED in a local browser session.
 **Issue:** Efrain: "Is there a way we can toggle the view of the tasks per individual? I want to be able to see in one view: Overdue & Due today, Future tasks, and All tasks." The only time controls were the global chips, so narrowing to what's on fire narrowed *everyone* at once.
