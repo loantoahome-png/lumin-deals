@@ -4,6 +4,20 @@ import { NextResponse, type NextRequest } from 'next/server'
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
+  // Local-only auth bypass, so nobody has to hand-edit (and then remember to
+  // revert) the auth check below just to look at a page in a local browser.
+  //
+  // Double-gated, and NEITHER gate can be opened in production:
+  //   - `next build` / `next start` / Vercel all set NODE_ENV=production, so the
+  //     first condition is false on the deployed app no matter what env vars are
+  //     configured in the Vercel dashboard.
+  //   - the flag lives in `.env.local`, which `.gitignore`'s `.env*` keeps out of
+  //     git entirely — it is never part of a deploy.
+  // Set `LOCAL_AUTH_BYPASS=1` in `.env.local` to enable it under `next dev`.
+  if (process.env.NODE_ENV === 'development' && process.env.LOCAL_AUTH_BYPASS === '1') {
+    return NextResponse.next()
+  }
+
   // Allow login page, static assets, and GHL webhook through without auth.
   // The reset paths must be public too: /auth/confirm is where the emailed token_hash
   // becomes a session (there isn't one yet), and /reset-password renders its own
