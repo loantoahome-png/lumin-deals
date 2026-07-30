@@ -50,6 +50,8 @@ export type QueueDealLike = {
   next_action?: string | null
   last_inbound_at?: string | null
   last_outbound_at?: string | null
+  last_communication_at?: string | null
+  last_contacted?: string | null
   last_inbound_message?: string | null
   loan_amount?: number | null
   ghl_contact_id?: string | null
@@ -447,6 +449,75 @@ export function buildTaskQueue(opts: {
   return {
     overdue, today: todayList, next7,
     counts: { overdue: overdue.length, today: todayList.length, next7: next7.length },
+  }
+}
+
+// ── GHL leads in play (Pitching + App Intake) ────────────────────────────────
+// Efrain 2026-07-30: a section for the GHL leads in Pitching and App Intake,
+// split by last activity — worked in the last 7 days vs gone quiet longer than
+// that. These are the deals actually in motion; /hot-leads has the same stages
+// in a team-wide tracker, this is the LO's personal working list.
+//
+// "Last activity" coalesces every touch timestamp the sync maintains. On live
+// data `last_communication_at` and `last_outbound_at` are populated on 143/143
+// open rows, so no lead lands in an "unknown" hole.
+
+export const IN_PLAY_STATUSES = ['Pitching', 'App Intake'] as const
+export const ACTIVITY_SPLIT_DAYS = 7
+
+export type LeadSections = {
+  recent: QueueItem[]        // activity within the last 7 days
+  older: QueueItem[]         // quiet for more than 7 days (incl. never-touched)
+  counts: { recent: number; older: number; pitching: number; appIntake: number }
+}
+
+export function lastActivityMs(d: QueueDealLike): number | null {
+  const ts = [d.last_communication_at, d.last_inbound_at, d.last_outbound_at, d.last_contacted]
+    .map(v => (v ? Date.parse(v) : NaN))
+    .filter(t => !isNaN(t))
+  return ts.length ? Math.max(...ts) : null
+}
+
+export function buildLeadSections(opts: { deals: QueueDealLike[]; lo: string; now?: number }): LeadSections {
+  const now = opts.now ?? Date.now()
+  const cutoff = now - ACTIVITY_SPLIT_DAYS * MS_PER_DAY
+  const mine = opts.deals.filter(d =>
+    d.loan_officer === opts.lo &&
+    isOpenLead(d) &&
+    (IN_PLAY_STATUSES as readonly string[]).includes(d.status))
+
+  // Carry the coalesced activity timestamp alongside each item so the sort uses
+  // the SAME signal that chose the bucket (QueueItem.idleDays looks at a
+  // narrower set of columns and would order rows inconsistently).
+  const recentRows: { item: QueueItem; act: number }[] = []
+  const olderRows: { item: QueueItem; act: number | null }[] = []
+  for (const d of mine) {
+    const act = lastActivityMs(d)
+    const days = act == null ? null : Math.max(0, Math.floor((now - act) / MS_PER_DAY))
+    const inbound = d.last_inbound_at && d.last_outbound_at
+      ? Date.parse(d.last_inbound_at) > Date.parse(d.last_outbound_at)
+      : !!d.last_inbound_at
+    const reason = act == null
+      ? 'no activity recorded'
+      : `${days === 0 ? 'today' : `${days}d ago`}${inbound ? ' · they replied last' : ''}`
+    const item = { ...dealItem(d, reason, now), idleDays: days }
+    if (act != null && act >= cutoff) recentRows.push({ item, act })
+    else olderRows.push({ item, act })
+  }
+  // Recent: freshest first. Older: quietest first — those are the ones slipping.
+  recentRows.sort((a, b) => b.act - a.act)
+  olderRows.sort((a, b) => (a.act ?? -Infinity) - (b.act ?? -Infinity))
+  const recent = recentRows.map(r => r.item)
+  const older = olderRows.map(r => r.item)
+
+  return {
+    recent, older,
+    counts: {
+      recent: recent.length,
+      older: older.length,
+      pitching: mine.filter(d => d.status === 'Pitching').length,
+      appIntake: mine.filter(d => d.status === 'App Intake').length,
+    },
   }
 }
 

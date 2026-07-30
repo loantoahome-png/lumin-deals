@@ -10,7 +10,8 @@ import {
   type FubPersonRaw, type ExistingFubRow,
 } from '../lib/followUpBoss'
 import {
-  buildFollowUpQueue, buildTaskQueue, fubIdleDays, snoozeIso, isReplyWaiting, localYmd, ymdDiffDays,
+  buildFollowUpQueue, buildTaskQueue, buildLeadSections, lastActivityMs,
+  fubIdleDays, snoozeIso, isReplyWaiting, localYmd, ymdDiffDays,
   type QueueDealLike, type QueueFubLike, type QueueTaskLike,
 } from '../lib/followUpQueue'
 
@@ -175,6 +176,40 @@ eq('queue: stale reason format', q.stale.b7_30[0].reason, 'idle 10d · Pre Appro
 const qm = buildFollowUpQueue({ deals, fub, lo: 'Matt Park', now: NOW })
 eq('queue: Matt gets his reply-waiting', qm.replyWaiting.map(i => i.key), ['deal:d-matt'])
 eq('queue: Matt gets his FUB stale', qm.stale.b31_90.map(i => i.key), ['fub:13'])
+
+// ── GHL leads in play: Pitching + App Intake, split by last activity ────────
+
+const leadDeals: QueueDealLike[] = [
+  deal({ id: 'p-fresh', status: 'Pitching', last_communication_at: iso(1 * D), last_outbound_at: iso(1 * D) }),
+  deal({ id: 'p-6d', status: 'Pitching', last_communication_at: iso(6 * D), last_outbound_at: iso(6 * D) }),
+  deal({ id: 'p-8d', status: 'Pitching', last_communication_at: iso(8 * D), last_outbound_at: iso(8 * D) }),
+  deal({ id: 'a-today', status: 'App Intake', last_communication_at: iso(2 * H), last_outbound_at: iso(2 * H) }),
+  deal({ id: 'a-40d', status: 'App Intake', last_communication_at: iso(40 * D), last_outbound_at: iso(40 * D) }),
+  deal({ id: 'a-none', status: 'App Intake' }),                                            // no activity at all
+  // newest signal wins the bucket: stale outbound but a fresh inbound reply
+  deal({ id: 'p-inbound', status: 'Pitching', last_outbound_at: iso(30 * D), last_inbound_at: iso(2 * D), last_communication_at: iso(30 * D) }),
+  deal({ id: 'p-lost', status: 'Pitching', ghl_status: 'lost', last_communication_at: iso(1 * D) }),
+  deal({ id: 'p-matt', status: 'Pitching', loan_officer: 'Matt Park', last_communication_at: iso(1 * D) }),
+  deal({ id: 'x-other', status: 'New Lead', last_communication_at: iso(1 * D) }),           // wrong status
+]
+const ls = buildLeadSections({ deals: leadDeals, lo: 'Moe Sefati', now: NOW })
+
+eq('leads: recent = activity within 7d, freshest first', ls.recent.map(i => i.key), ['deal:a-today', 'deal:p-fresh', 'deal:p-inbound', 'deal:p-6d'])
+eq('leads: older = quiet >7d, quietest first', ls.older.map(i => i.key), ['deal:a-none', 'deal:a-40d', 'deal:p-8d'])
+eq('leads: never-touched lands in older', ls.older[0].key, 'deal:a-none')
+eq('leads: no-activity reason', ls.older[0].reason, 'no activity recorded')
+eq('leads: fresh inbound beats stale outbound for bucketing', ls.recent.some(i => i.key === 'deal:p-inbound'), true)
+eq('leads: inbound reply is flagged in the reason', ls.recent.find(i => i.key === 'deal:p-inbound')?.reason, '2d ago · they replied last')
+eq('leads: today reads "today"', ls.recent[0].reason, 'today')
+eq('leads: lost excluded', JSON.stringify(ls).includes('p-lost'), false)
+eq('leads: other LO excluded', JSON.stringify(ls).includes('p-matt'), false)
+eq('leads: other statuses excluded', JSON.stringify(ls).includes('x-other'), false)
+eq('leads: counts', ls.counts, { recent: 4, older: 3, pitching: 4, appIntake: 3 })
+eq('leads: 7-day boundary is inclusive of day 6, exclusive past day 7',
+  [ls.recent.some(i => i.key === 'deal:p-6d'), ls.older.some(i => i.key === 'deal:p-8d')], [true, true])
+eq('lastActivityMs: coalesces to the newest touch',
+  lastActivityMs({ id: 'x', status: 'Pitching', last_outbound_at: iso(30 * D), last_inbound_at: iso(2 * D) }), NOW - 2 * D)
+eq('lastActivityMs: null when nothing recorded', lastActivityMs({ id: 'x', status: 'Pitching' }), null)
 
 // ── FUB tasks (Efrain 2026-07-30: "tasks due within the next 7 days") ───────
 // Dates are LOCAL YMD strings so these assertions hold in any timezone.

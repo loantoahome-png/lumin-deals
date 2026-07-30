@@ -269,6 +269,22 @@ export async function fetchOpenFubTasks(apiKey: string, label: FubKeyLabel): Pro
   return all
 }
 
+/** Mark a task complete in FUB. Verified 2026-07-30 against a live task:
+ *  `PUT /v1/tasks/:id` with `{isCompleted: true}` → 200 + the updated task.
+ *  (FUB returns isCompleted as 0/1, not a boolean.) Runs in the global
+ *  125 req/10s bucket, so single clicks need no pacing. */
+export async function completeFubTask(apiKey: string, taskId: number): Promise<void> {
+  const res = await fetch(`${FUB_BASE}/tasks/${taskId}`, {
+    method: 'PUT',
+    headers: { ...fubHeaders(apiKey), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ isCompleted: true }),
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`FUB ${res.status} completing task ${taskId}: ${body.slice(0, 160)}`)
+  }
+}
+
 /** Last-write-wins dedupe by task id — a paginated sweep can still re-serve a
  *  row if tasks are created mid-sweep, and one duplicate rejects the whole batch. */
 export function dedupeTasks(rows: FubTaskRow[]): FubTaskRow[] {
