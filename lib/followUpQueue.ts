@@ -26,8 +26,9 @@ export const FUB_OPEN_STAGES = [
   'Nurture - Income', 'App Link Sent', 'App Review', 'Pre Approved', 'In Escrow', 'Contact',
 ]
 export const FUB_PAST_STAGES = ['Past Client', 'Closed']
-export const FUB_COLD_STAGES = ['Unresponsive', 'Inactive']
-export const FUB_EXCLUDED_STAGES = ['Trash', 'Referred Out']
+// Unresponsive/Inactive are no longer PULLED at all (Efrain 2026-07-30 — not
+// follow-up material); listing them here is defense-in-depth for stale rows.
+export const FUB_EXCLUDED_STAGES = ['Trash', 'Referred Out', 'Unresponsive', 'Inactive']
 
 export const REPLY_WINDOW_H = 48       // inbound within this window counts as "reply waiting"
 export const NEW_GHL_DAYS = 3          // GHL lead is "new" for 72h
@@ -101,10 +102,9 @@ export type FollowUpQueue = {
   dueToday: QueueItem[]
   stale: StaleBuckets
   pastClients: StaleBuckets
-  cold: QueueItem[]
   counts: {
     replyWaiting: number; newLeads: number; dueToday: number; overdue: number
-    stale: number; pastClients: number; cold: number
+    stale: number; pastClients: number
   }
 }
 
@@ -304,16 +304,11 @@ export function buildFollowUpQueue(opts: {
   const queuedFub = new Set([...replyKeys, ...newKeys, ...dueToday.map(i => i.key)])
   const staleRows: { item: QueueItem; idle: number }[] = []
   const pastRows: { item: QueueItem; idle: number }[] = []
-  const cold: QueueItem[] = []
   for (const f of fub) {
     const key = `fub:${f.fub_id}`
     if (queuedFub.has(key) || hasFutureSnooze(f, now)) continue
     const stage = f.stage ?? ''
     const idle = fubIdleDays(f, now)
-    if (FUB_COLD_STAGES.includes(stage)) {
-      cold.push(fubItem(f, `${stage.toLowerCase()} · idle ${idle ?? '?'}d`, now))
-      continue
-    }
     if (idle == null || idle < STALE_MIN_DAYS) continue   // actively engaged
     const money = fmtMoney(f.deal_price ?? f.price)
     const bits = [`idle ${idle}d`, stage, ...(money ? [money] : [])]
@@ -321,22 +316,18 @@ export function buildFollowUpQueue(opts: {
     if (FUB_PAST_STAGES.includes(stage)) pastRows.push(entry)
     else if (FUB_OPEN_STAGES.includes(stage)) staleRows.push(entry)
   }
-  cold.sort(byPriceThenIdle)
   const stale = bucketize(staleRows)
   const pastClients = bucketize(pastRows)
 
-  const staleCount = staleRows.length
-  const pastCount = pastRows.length
   return {
-    replyWaiting, newLeads, dueToday, stale, pastClients, cold,
+    replyWaiting, newLeads, dueToday, stale, pastClients,
     counts: {
       replyWaiting: replyWaiting.length,
       newLeads: newLeads.length,
       dueToday: dueToday.length,
       overdue: dueToday.filter(i => i.overdue).length,
-      stale: staleCount,
-      pastClients: pastCount,
-      cold: cold.length,
+      stale: staleRows.length,
+      pastClients: pastRows.length,
     },
   }
 }

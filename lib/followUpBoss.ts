@@ -209,6 +209,34 @@ export function mergeSweeps(moe: FubPersonRaw[], matt: FubPersonRaw[]): FubPerso
   return [...byId.values()].map(({ raw, seen }) => mapFubPerson(raw, seen))
 }
 
+// ── Pull filter — what deserves to be STORED at all ──────────────────────────
+// Efrain 2026-07-30: "I do not want all contacts to be pulled since a lot of
+// contacts will not be necessary to follow up on." The sweep therefore keeps
+// only follow-up-worthy people; everything else never enters fub_people:
+//   • must be ASSIGNED to a cockpit LO (Moe 72 / Matt 13) — pond/unassigned/
+//     other agents' people never render anyway (993 dead rows at decision time),
+//   • junk + dead-by-definition stages are dropped entirely,
+//   • raw lead stages (never-worked purchased leads) qualify only with activity
+//     in the last 90 days — of ~1,800 raw leads only 37 passed that bar.
+
+export const SYNC_LO_USER_IDS = [72, 13]              // Moe, Matt (Randy=35 would join here)
+export const SYNC_EXCLUDED_STAGES = ['Trash', 'Referred Out', 'Unresponsive', 'Inactive']
+export const RAW_LEAD_STAGES = ['Lead', 'Attempting Contact']
+export const RAW_LEAD_MAX_IDLE_DAYS = 90
+
+export function shouldStoreFubPerson(row: FubPersonRow, now?: number): boolean {
+  if (row.assigned_user_id == null || !SYNC_LO_USER_IDS.includes(row.assigned_user_id)) return false
+  if (!row.stage || SYNC_EXCLUDED_STAGES.includes(row.stage)) return false
+  if (RAW_LEAD_STAGES.includes(row.stage)) {
+    const ts = [row.last_activity_at, row.fub_created_at]
+      .map(v => (v ? Date.parse(v) : NaN))
+      .filter(t => !isNaN(t))
+    if (ts.length === 0) return false
+    if ((now ?? Date.now()) - Math.max(...ts) > RAW_LEAD_MAX_IDLE_DAYS * 86_400_000) return false
+  }
+  return true
+}
+
 // ── Diff against existing table state ────────────────────────────────────────
 
 /** The slice of an existing DB row the differ compares against. */

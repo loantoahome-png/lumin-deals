@@ -202,7 +202,6 @@ export default function FollowUpCockpit() {
           <CountChip label={`Due today${c.overdue ? ` (${c.overdue} overdue)` : ''}`} n={c.dueToday} cls="bg-amber-50 text-amber-800 border-amber-200" />
           <CountChip label="Stale nurture" n={c.stale} cls="bg-sky-50 text-sky-700 border-sky-200" />
           <CountChip label="Past clients" n={c.pastClients} cls="bg-violet-50 text-violet-700 border-violet-200" />
-          <CountChip label="Cold" n={c.cold} cls="bg-slate-50 text-slate-500 border-slate-200" />
         </div>
       </div>
 
@@ -220,16 +219,6 @@ export default function FollowUpCockpit() {
             buckets={queue.stale} renderActions={rowActions} />
           <BucketSection title="💤 Past clients & closed (FUB)" subtitle="The farming pool — refis, referrals, anniversaries"
             buckets={queue.pastClients} renderActions={rowActions} />
-          <details className="group">
-            <summary className="cursor-pointer text-sm font-semibold text-slate-500 flex items-center gap-1">
-              <ChevronDown className="w-4 h-4 group-open:rotate-180 transition-transform" />
-              🧊 Cold (Unresponsive / Inactive) — {queue.cold.length}
-            </summary>
-            <div className="mt-2 space-y-1.5">
-              {queue.cold.slice(0, 100).map(i => <Row key={i.key} item={i} actions={rowActions(i)} />)}
-              {queue.cold.length > 100 && <p className="text-xs text-slate-400">…and {queue.cold.length - 100} more</p>}
-            </div>
-          </details>
         </div>
       )}
 

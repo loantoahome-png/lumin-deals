@@ -6,7 +6,7 @@
 // so the suite passes in any timezone the runner uses.
 
 import {
-  mapFubPerson, mergeSweeps, diffSweep,
+  mapFubPerson, mergeSweeps, diffSweep, shouldStoreFubPerson,
   type FubPersonRaw, type ExistingFubRow,
 } from '../lib/followUpBoss'
 import {
@@ -160,7 +160,7 @@ eq('queue: stale 7–30 bucket', q.stale.b7_30.map(i => i.key), ['fub:2'])
 eq('queue: stale 31–90 bucket', q.stale.b31_90.map(i => i.key), ['fub:3'])
 eq('queue: stale 90+ bucket', q.stale.b90.map(i => i.key), ['fub:4'])
 eq('queue: past clients bucketed', q.pastClients.b90.map(i => i.key), ['fub:6'])
-eq('queue: cold holds unresponsive', q.cold.map(i => i.key), ['fub:7'])
+eq('queue: unresponsive fully suppressed', JSON.stringify(q).includes('"fub:7"'), false)
 eq('queue: engaged (<7d idle) not stale', JSON.stringify(q.stale).includes('fub:5'), false)
 eq('queue: matched-active suppressed', JSON.stringify(q).includes('"fub:9"'), false)
 eq('queue: missing suppressed', JSON.stringify(q).includes('"fub:10"'), false)
@@ -175,6 +175,29 @@ eq('queue: stale reason format', q.stale.b7_30[0].reason, 'idle 10d · Pre Appro
 const qm = buildFollowUpQueue({ deals, fub, lo: 'Matt Park', now: NOW })
 eq('queue: Matt gets his reply-waiting', qm.replyWaiting.map(i => i.key), ['deal:d-matt'])
 eq('queue: Matt gets his FUB stale', qm.stale.b31_90.map(i => i.key), ['fub:13'])
+
+// ── shouldStoreFubPerson (the sync pull filter — Efrain 2026-07-30) ──────────
+
+const storable = (over: Partial<Parameters<typeof shouldStoreFubPerson>[0]>) =>
+  shouldStoreFubPerson({
+    ...mapFubPerson({ id: 1, stage: 'Nurture', assignedUserId: 72, lastActivity: iso(200 * D) }, ['moe']),
+    ...over,
+  }, NOW)
+
+eq('pull: nurture person assigned to Moe stored', storable({}), true)
+eq('pull: Matt (13) stored', storable({ assigned_user_id: 13 }), true)
+eq('pull: other agent (999) dropped', storable({ assigned_user_id: 999 }), false)
+eq('pull: unassigned dropped', storable({ assigned_user_id: null }), false)
+eq('pull: Unresponsive dropped', storable({ stage: 'Unresponsive' }), false)
+eq('pull: Inactive dropped', storable({ stage: 'Inactive' }), false)
+eq('pull: Trash dropped', storable({ stage: 'Trash' }), false)
+eq('pull: null stage dropped', storable({ stage: null }), false)
+eq('pull: raw Lead active 30d ago stored', storable({ stage: 'Lead', last_activity_at: iso(30 * D) }), true)
+eq('pull: raw Lead idle 200d dropped', storable({ stage: 'Lead', last_activity_at: iso(200 * D) }), false)
+eq('pull: raw Lead no activity but CREATED 10d ago stored', storable({ stage: 'Lead', last_activity_at: null, fub_created_at: iso(10 * D) }), true)
+eq('pull: Attempting Contact idle 91d dropped', storable({ stage: 'Attempting Contact', last_activity_at: iso(91 * D), fub_created_at: iso(300 * D) }), false)
+eq('pull: deep-idle Nurture STILL stored (only raw stages age out)', storable({ stage: 'Nurture', last_activity_at: iso(400 * D) }), true)
+eq('pull: Past Client stored regardless of idle', storable({ stage: 'Past Client', last_activity_at: iso(400 * D) }), true)
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 

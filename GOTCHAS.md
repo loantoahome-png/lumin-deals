@@ -328,3 +328,17 @@ a new deal in the set) as the fresh-webhook signal. For stage moves specifically
 class of error as the opp-id bug (querying a column the bug itself poisons).
 **Project:** lumin-deals
 **Date:** 2026-07-16
+
+### PostgREST timestamptz format breaks string-compare diffs
+**Tried:** Sync differ compared stored vs freshly-mapped timestamps as strings to detect changed rows.
+**Failed because:** PostgREST returns timestamptz as `2026-07-30T18:04:51+00:00`; `new Date().toISOString()` emits `2026-07-30T18:04:51.000Z`. Same instant, different strings → every row "changed" (re-sweep updated 5,212/5,212).
+**What works:** Compare `Date.parse()` epochs (null/NaN-safe) — `tsEq()` in `lib/followUpBoss.ts`; fixture "pg timestamp format is not a change" locks it.
+**Project:** lumin-deals
+**Date:** 2026-07-30
+
+### FollowUpBoss API: undocumented params are SILENTLY wrong, not errors
+**Tried:** `GET /v1/people?updatedAfter=…` for incremental sync; `/v1/tasks?assignedUserId=…&status=…` for task filtering.
+**Failed because:** FUB ignores/misapplies undocumented params without erroring — `updatedAfter` returned `total: 0` (looks like "no changes"!), tasks filters returned the identical unfiltered total. Both would corrupt logic silently.
+**What works:** Only documented params (`lastActivityAfter`, `assignedUserId` on /people, `sort=-updated` + cursor walk for incremental). Verify every new param against a known-count probe first. Also: webhooks are account-OWNER-only (agent/broker keys 403) — polling is the only option with Moe/Matt keys; rate limit 125 req/10s unregistered.
+**Project:** lumin-deals
+**Date:** 2026-07-30

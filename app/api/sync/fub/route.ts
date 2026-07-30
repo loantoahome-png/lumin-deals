@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import {
-  fetchAllFubPeople, mergeSweeps, diffSweep,
+  fetchAllFubPeople, mergeSweeps, diffSweep, shouldStoreFubPerson,
   type ExistingFubRow, type FubPersonRow, type FubKeyLabel,
 } from '@/lib/followUpBoss'
 import { isOpenLead } from '@/lib/triage'
@@ -110,10 +110,15 @@ export async function runFubSync(opts: { force?: boolean } = {}): Promise<FubSyn
   for (const { label, key } of keys) {
     sweeps[label] = await fetchAllFubPeople(key, label)   // throws on failure → caught by POST/cron caller
   }
-  const merged = mergeSweeps(sweeps.moe ?? [], sweeps.matt ?? [])
+  // Pull filter: only follow-up-worthy people are stored (see shouldStoreFubPerson).
+  // Rows already in the table that stop qualifying fall out via the normal
+  // missing_since flow — the queue never shows flagged rows.
+  const raw = mergeSweeps(sweeps.moe ?? [], sweeps.matt ?? [])
+  const merged = raw.filter(r => shouldStoreFubPerson(r))
   if (merged.length < 100) {
-    return { ok: false, errors: [`sweep suspiciously small (${merged.length} people) — aborting before diff`] }
+    return { ok: false, errors: [`sweep suspiciously small (${merged.length} of ${raw.length} kept) — aborting before diff`] }
   }
+  console.log(`[FUB sync] pull filter: ${merged.length} of ${raw.length} visible people qualify`)
 
   // ── Cross-match against deals by normalized email/phone (identity link).
   const deals = await fetchDealsForMatching(supabase)
