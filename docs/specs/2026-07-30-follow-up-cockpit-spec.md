@@ -15,6 +15,29 @@ One bookmarkable page per LO that merges both systems into a prioritized daily q
 one-click snooze / log-touch. Complements — never duplicates — `/hot-leads` (team lead triage):
 the cockpit pulls GHL **due/urgent items** and owns the **FUB book lifecycle**.
 
+## Addendum 2026-07-30 (b) — Section restructure + Done button (SHIPPED, `f250bda`)
+
+Efrain: "this page looks like a mess … I want there to be separate sections." The page is now four
+`Panel` cards, each holding collapsible `Drawer` groups (label + count + chevron), replacing the flat
+scroll of headings:
+
+1. **FollowUpBoss tasks** — Overdue / Due today / Next 7 days. Each row: **Done** (completes in FUB) +
+   Open in FUB.
+2. **GHL leads — Pitching & App Intake** — the deals actually in play, split by last activity:
+   *Activity in the last 7 days* vs *No activity in over 7 days*. Activity coalesces
+   communication/inbound/outbound/contacted (all 143 open rows have at least one), so a fresh inbound
+   reply pulls a lead into the recent group even when our last outbound is old.
+3. **Dashboard tasks** — this LO's own `deal_tasks` (`assignee` = full name), grouped Overdue / Due
+   today / Upcoming / No due date. Completing writes `completed_at` **and** fires the same
+   `notifyTask('completed')` email `/tasks` sends, so the two surfaces can't drift.
+4. **More follow-ups** — collapsed: replies, new leads, check-ins, FUB nurture + past clients. Nothing
+   from the earlier build was deleted. Reply-waiting also raises a header banner (time-critical).
+
+**Done button:** `POST /api/fub/tasks/complete` → `PUT /v1/tasks/:id {isCompleted:true}`. The key is
+chosen from the STORED task's `assigned_user_id` (tasks are per-key in FUB — Moe's key cannot write
+Matt's task), and an id we don't hold is rejected 404 instead of forwarded. `fub_tasks` holds open
+tasks only, so the row is deleted on success rather than waiting for the sweep.
+
 ## Addendum 2026-07-30 — FUB tasks (SHIPPED, `dd3bfe2`)
 
 Efrain: "show the FUB tasks due within the next 7 days on that page, and include a button on the task
