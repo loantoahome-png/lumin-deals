@@ -3,11 +3,15 @@
 // Per-LO Follow-Up Cockpit — "who do I contact today, in what order, and why?"
 // Spec: docs/specs/2026-07-30-follow-up-cockpit-spec.md
 // Restructured 2026-07-30 (Efrain: "this page looks like a mess … I want there
-// to be separate sections") into three panels, each with collapsible groups:
+// to be separate sections") into four sections, each with a prominent heading
+// and a rule between them:
 //
-//   1. FollowUpBoss tasks  — Overdue / Due today / Next 7 days (+ Done, Open in FUB)
-//   2. GHL leads in play   — Pitching + App Intake, split by last activity (≤7d / >7d)
-//   3. Dashboard tasks     — this LO's own deal_tasks, mirroring /tasks
+//   1. Tasks               — this LO's deal_tasks, rendered with the SHARED
+//                            components/TaskBoard card so it is literally the
+//                            same design as /tasks ("mimic the main tasks page"),
+//                            and first on the page.
+//   2. FollowUpBoss tasks  — Overdue / Due today / Next 7 days (+ Done, Open in FUB)
+//   3. GHL leads in play   — Pitching + App Intake, split by last activity (≤7d / >7d)
 //   4. More follow-ups     — collapsed: replies, new leads, check-ins, the FUB book
 //
 // Write paths from this page (client-side, authenticated):
@@ -29,6 +33,7 @@ import { ghlContactUrl } from '@/lib/ghlLinks'
 import { notifyTask } from '@/lib/notifyTask'
 import { LO_COLORS } from '@/components/LoFilter'
 import TriageDateModal from '@/components/TriageDateModal'
+import { NewDashTaskModal, NewFubTaskModal } from '@/components/FollowUpTaskModals'
 import type { DealTask } from '@/lib/types'
 import {
   buildFollowUpQueue, buildTaskQueue, buildLeadSections, snoozeIso, SNOOZE_PRESETS,
@@ -36,9 +41,10 @@ import {
   type FollowUpQueue, type TaskQueue, type LeadSections, type QueueDealLike,
   type QueueFubLike, type QueueTaskLike, type QueueItem, type StaleBuckets, type TaskItem,
 } from '@/lib/followUpQueue'
+import { AssigneeColumn, TaskRow, type ColumnView } from '@/components/TaskBoard'
 import {
-  Flame, RefreshCw, CheckCircle2, Circle, Clock, ChevronDown, ExternalLink,
-  PhoneCall, ListTodo, Target, ClipboardList, AlertCircle,
+  Flame, RefreshCw, CheckCircle2, Clock, ChevronDown, ExternalLink,
+  PhoneCall, ListTodo, Target, ClipboardList, AlertCircle, Plus,
 } from 'lucide-react'
 
 const LO_SLUGS: Record<string, string> = { moe: 'Moe Sefati', matt: 'Matt Park' }
@@ -110,23 +116,6 @@ const fmtSynced = (iso: string | null): string => {
   return `${Math.floor(mins / 60)}h ${mins % 60}m ago`
 }
 
-// Dashboard tasks are grouped the way /tasks buckets them.
-const MS_DAY = 86_400_000
-function groupDashboardTasks(tasks: DealTask[], now: number) {
-  const endToday = new Date(now); endToday.setHours(23, 59, 59, 999)
-  const startToday = new Date(now); startToday.setHours(0, 0, 0, 0)
-  const overdue: DealTask[] = [], today: DealTask[] = [], upcoming: DealTask[] = [], someday: DealTask[] = []
-  for (const t of tasks) {
-    if (!t.due_at) { someday.push(t); continue }
-    const due = Date.parse(t.due_at)
-    if (isNaN(due)) { someday.push(t); continue }
-    if (due < startToday.getTime()) overdue.push(t)
-    else if (due <= endToday.getTime()) today.push(t)
-    else upcoming.push(t)
-  }
-  return { overdue, today, upcoming, someday }
-}
-
 export default function FollowUpCockpit() {
   const params = useParams<{ lo: string }>()
   const slug = (params.lo ?? '').toLowerCase()
@@ -137,12 +126,18 @@ export default function FollowUpCockpit() {
   const [fubTasks, setFubTasks] = useState<QueueTaskLike[]>([])
   const [dashTasks, setDashTasks] = useState<DealTask[]>([])
   const [dealNames, setDealNames] = useState<Record<string, string>>({})
+  const [dealGhlUrls, setDealGhlUrls] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [syncedAt, setSyncedAt] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [busy, setBusy] = useState<Set<string>>(new Set())
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [modalFor, setModalFor] = useState<QueueItem | null>(null)
+  // Task composers: null = closed. `dealId`/`personId` pre-fill from a row.
+  const [newDashTask, setNewDashTask] = useState<{ dealId: string | null } | null>(null)
+  const [newFubTask, setNewFubTask] = useState<{ personId: number | null } | null>(null)
+  // Same 'Overdue & today / Future / All' cut the /tasks column uses.
+  const [dashView, setDashView] = useState<ColumnView>('all')
 
   const load = useCallback(async () => {
     if (!lo) return
@@ -161,6 +156,13 @@ export default function FollowUpCockpit() {
     setFubTasks(ft)
     setDashTasks(dt)
     setDealNames(Object.fromEntries(dl.map(x => [x.id, x.name ?? 'Deal'])))
+    // Task cards show a GHL button when the linked deal has a contact.
+    setDealGhlUrls(Object.fromEntries(dl.flatMap(x => {
+      const u = ghlContactUrl({
+        ghl_contact_id: x.ghl_contact_id, ghl_location_id: x.ghl_location_id, loan_officer: x.loan_officer,
+      })
+      return u ? [[x.id, u] as [string, string]] : []
+    })))
     setSyncedAt((s as { last_at?: string } | null)?.last_at ?? null)
     setLoading(false)
   }, [lo])
@@ -170,7 +172,6 @@ export default function FollowUpCockpit() {
   const queue: FollowUpQueue = useMemo(() => buildFollowUpQueue({ deals, fub, lo: lo ?? '' }), [deals, fub, lo])
   const taskQueue: TaskQueue = useMemo(() => buildTaskQueue({ tasks: fubTasks, people: fub, lo: lo ?? '' }), [fubTasks, fub, lo])
   const leads: LeadSections = useMemo(() => buildLeadSections({ deals, lo: lo ?? '' }), [deals, lo])
-  const dash = useMemo(() => groupDashboardTasks(dashTasks, Date.now()), [dashTasks])
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -224,6 +225,34 @@ export default function FollowUpCockpit() {
     } finally {
       mark(task.key, false)
     }
+  }
+
+  /** Create a dashboard task — same insert + 'assigned' email as the /tasks page. */
+  async function createDashTask(payload: Omit<DealTask, 'id' | 'created_at'>) {
+    const { data, error } = await supabase.from('deal_tasks').insert(payload).select().single()
+    if (error) { alert('Could not save that task: ' + error.message); return }
+    const created = data as DealTask
+    // Only surface it here if it's this LO's — you can assign to someone else,
+    // and that task belongs on THEIR page, not this one.
+    if (created.assignee === lo) setDashTasks(prev => [created, ...prev])
+    notifyTask('assigned', created)
+  }
+
+  /** Create a real FollowUpBoss task on one of this LO's people. */
+  async function createFubTask(t: { personId: number; name: string; type: string; dueDate: string | null }): Promise<boolean> {
+    const res = await fetch('/api/fub/tasks/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(t),
+    })
+    const body = await res.json().catch(() => null)
+    if (!res.ok || !body?.ok) {
+      console.error('[follow-up] FUB task create failed:', body)
+      alert(`Could not create that task in FollowUpBoss: ${body?.error ?? res.status}`)
+      return false
+    }
+    setFubTasks(prev => [...prev, body.task as QueueTaskLike])
+    return true
   }
 
   /** Complete a dashboard task — same write + notification as the /tasks page. */
@@ -312,12 +341,41 @@ export default function FollowUpCockpit() {
       {loading ? (
         <div className="p-10 text-slate-500 text-sm">Loading your queue…</div>
       ) : (
-        <div className="p-6 space-y-5 max-w-5xl w-full">
+        <div className="p-6 space-y-8 max-w-5xl w-full">
 
-          {/* ── 1. FollowUpBoss tasks ─────────────────────────────────────── */}
-          <Panel icon={<ListTodo className="w-4 h-4" />} accent="#6366f1"
+          {/* ── 1. Dashboard tasks — same card as /tasks, first thing you see ── */}
+          <Panel icon={<ClipboardList className="w-5 h-5" />} accent="#10b981"
+            title="Tasks" subtitle="Your task list, same as the Tasks page"
+            badge={`${dashOpen} open`}
+            action={<Link href="/tasks" className="text-xs text-slate-400 hover:text-slate-700 hidden sm:inline">/tasks →</Link>}
+            bare>
+            <AssigneeColumn
+              name={lo}
+              tasks={dashTasks}
+              view={dashView}
+              onViewChange={setDashView}
+              onAdd={() => setNewDashTask({ dealId: null })}
+              maxHeightClass="max-h-[40rem]"
+              renderTask={t => (
+                <TaskRow
+                  key={t.id}
+                  task={t}
+                  hideAssignee
+                  dealName={t.deal_id ? dealNames[t.deal_id] : undefined}
+                  ghlUrl={t.deal_id ? dealGhlUrls[t.deal_id] : undefined}
+                  onToggle={() => completeDashTask(t)}
+                />
+              )}
+            />
+          </Panel>
+
+          <SectionBreak />
+
+          {/* ── 2. FollowUpBoss tasks ─────────────────────────────────────── */}
+          <Panel icon={<ListTodo className="w-5 h-5" />} accent="#6366f1"
             title="FollowUpBoss tasks" subtitle="Your own FUB reminders"
-            badge={`${fubDue} due within ${TASK_WINDOW_DAYS} days`}>
+            badge={`${fubDue} due within ${TASK_WINDOW_DAYS} days`}
+            action={<AddButton label="New FUB task" tone="indigo" onClick={() => setNewFubTask({ personId: null })} />}>
             <Drawer label="Overdue" count={taskQueue.counts.overdue} tone="danger">
               {taskQueue.overdue.map(t => (
                 <FubTaskRow key={t.key} task={t} busy={busy.has(t.key)} onDone={() => completeFubTask(t)} />
@@ -335,8 +393,10 @@ export default function FollowUpCockpit() {
             </Drawer>
           </Panel>
 
-          {/* ── 2. GHL leads in play ──────────────────────────────────────── */}
-          <Panel icon={<Target className="w-4 h-4" />} accent="#0ea5e9"
+          <SectionBreak />
+
+          {/* ── 3. GHL leads in play ──────────────────────────────────────── */}
+          <Panel icon={<Target className="w-5 h-5" />} accent="#0ea5e9"
             title="GHL leads — Pitching & App Intake" subtitle="Deals in play, split by last activity"
             badge={`${leads.counts.pitching} pitching · ${leads.counts.appIntake} app intake`}>
             <Drawer label={`Activity in the last ${ACTIVITY_SPLIT_DAYS} days`} count={leads.counts.recent} tone="good" defaultOpen>
@@ -347,27 +407,10 @@ export default function FollowUpCockpit() {
             </Drawer>
           </Panel>
 
-          {/* ── 3. Dashboard tasks ────────────────────────────────────────── */}
-          <Panel icon={<ClipboardList className="w-4 h-4" />} accent="#10b981"
-            title="Dashboard tasks" subtitle={`Your task list from /tasks`}
-            badge={`${dashOpen} open`}
-            action={<Link href="/tasks" className="text-xs text-emerald-700 hover:underline">open /tasks →</Link>}>
-            <Drawer label="Overdue" count={dash.overdue.length} tone="danger" defaultOpen>
-              {dash.overdue.map(t => <DashTaskRow key={t.id} task={t} dealName={t.deal_id ? dealNames[t.deal_id] : null} busy={busy.has(`dash:${t.id}`)} onDone={() => completeDashTask(t)} />)}
-            </Drawer>
-            <Drawer label="Due today" count={dash.today.length} tone="warn" defaultOpen>
-              {dash.today.map(t => <DashTaskRow key={t.id} task={t} dealName={t.deal_id ? dealNames[t.deal_id] : null} busy={busy.has(`dash:${t.id}`)} onDone={() => completeDashTask(t)} />)}
-            </Drawer>
-            <Drawer label="Upcoming" count={dash.upcoming.length}>
-              {dash.upcoming.map(t => <DashTaskRow key={t.id} task={t} dealName={t.deal_id ? dealNames[t.deal_id] : null} busy={busy.has(`dash:${t.id}`)} onDone={() => completeDashTask(t)} />)}
-            </Drawer>
-            <Drawer label="No due date" count={dash.someday.length}>
-              {dash.someday.map(t => <DashTaskRow key={t.id} task={t} dealName={t.deal_id ? dealNames[t.deal_id] : null} busy={busy.has(`dash:${t.id}`)} onDone={() => completeDashTask(t)} />)}
-            </Drawer>
-          </Panel>
+          <SectionBreak />
 
           {/* ── 4. Everything else, one click away ────────────────────────── */}
-          <Panel icon={<Clock className="w-4 h-4" />} accent="#a855f7"
+          <Panel icon={<Clock className="w-5 h-5" />} accent="#a855f7"
             title="More follow-ups" subtitle="Replies, new leads, check-ins, and the FUB book"
             badge={`${moreCount}`} collapsible defaultCollapsed>
             <Drawer label="Replied — waiting on you" count={c.replyWaiting} tone="danger" defaultOpen>
@@ -394,6 +437,25 @@ export default function FollowUpCockpit() {
           onClose={() => setModalFor(null)}
         />
       )}
+
+      {newDashTask && (
+        <NewDashTaskModal
+          lo={lo}
+          deals={deals.map(d => ({ id: d.id, name: d.name ?? null }))}
+          initialDealId={newDashTask.dealId}
+          onCreate={createDashTask}
+          onClose={() => setNewDashTask(null)}
+        />
+      )}
+
+      {newFubTask && (
+        <NewFubTaskModal
+          people={fub.map(p => ({ fub_id: p.fub_id, name: p.name ?? null, stage: p.stage ?? null }))}
+          initialPersonId={newFubTask.personId}
+          onCreate={createFubTask}
+          onClose={() => setNewFubTask(null)}
+        />
+      )}
     </div>
   )
 
@@ -401,6 +463,16 @@ export default function FollowUpCockpit() {
     const open = menuFor === item.key
     return (
       <div className="flex items-center gap-1 shrink-0">
+        {/* Quick-add with this lead already attached: a GHL deal becomes a
+            dashboard task, a FUB person becomes a task in FollowUpBoss. */}
+        <button
+          onClick={() => item.system === 'ghl'
+            ? setNewDashTask({ dealId: item.dealId ?? null })
+            : setNewFubTask({ personId: item.fubId ?? null })}
+          title={item.system === 'ghl' ? 'New dashboard task for this deal' : 'New FollowUpBoss task for this contact'}
+          className="text-[10px] font-semibold text-slate-600 bg-slate-50 border border-slate-200 rounded px-1.5 py-1 hover:bg-slate-100 flex items-center gap-0.5">
+          <Plus className="w-3 h-3" /> Task
+        </button>
         {item.system === 'fub' && (
           <button onClick={() => markTouched(item)} title="Mark touched today — clears it from the queue"
             className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-1 hover:bg-emerald-100 flex items-center gap-0.5">
@@ -434,31 +506,55 @@ export default function FollowUpCockpit() {
 
 // ── Section chrome ───────────────────────────────────────────────────────────
 
-function Panel({ icon, accent, title, subtitle, badge, action, children, collapsible, defaultCollapsed }: {
+const ADD_TONES = {
+  indigo: 'text-indigo-700 bg-indigo-50 border-indigo-200 hover:bg-indigo-100',
+  emerald: 'text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100',
+} as const
+
+function AddButton({ label, tone, onClick }: { label: string; tone: keyof typeof ADD_TONES; onClick: () => void }) {
+  return (
+    <button onClick={onClick}
+      className={`text-[11px] font-semibold rounded-lg border px-2 py-1 flex items-center gap-1 ${ADD_TONES[tone]}`}>
+      <Plus className="w-3 h-3" /> {label}
+    </button>
+  )
+}
+
+/** A page section: a big, prominent heading above its own content card.
+ *  `bare` skips the card wrapper for content that brings its own (the task
+ *  board column). Sections are separated by a rule in the layout below. */
+function Panel({ icon, accent, title, subtitle, badge, action, children, collapsible, defaultCollapsed, bare }: {
   icon: React.ReactNode; accent: string; title: string; subtitle: string; badge?: string
-  action?: React.ReactNode; children: React.ReactNode; collapsible?: boolean; defaultCollapsed?: boolean
+  action?: React.ReactNode; children: React.ReactNode
+  collapsible?: boolean; defaultCollapsed?: boolean; bare?: boolean
 }) {
   const [open, setOpen] = useState(!defaultCollapsed)
   return (
-    <section className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-100" style={{ borderLeft: `3px solid ${accent}` }}>
-        <span style={{ color: accent }}>{icon}</span>
-        <h2 className="text-sm font-bold text-slate-900">{title}</h2>
-        <span className="text-xs text-slate-400 hidden sm:inline">{subtitle}</span>
+    <section>
+      <div className="flex items-center gap-2.5 mb-3 flex-wrap">
+        <span className="shrink-0" style={{ color: accent }}>{icon}</span>
+        <h2 className="text-xl font-bold text-slate-900 tracking-tight">{title}</h2>
+        <span className="text-xs text-slate-400 hidden md:inline">{subtitle}</span>
         <div className="ml-auto flex items-center gap-3">
-          {badge && <span className="text-xs font-semibold text-slate-600">{badge}</span>}
+          {badge && <span className="text-xs font-semibold text-slate-500">{badge}</span>}
           {action}
           {collapsible && (
             <button onClick={() => setOpen(v => !v)} className="text-slate-400 hover:text-slate-700" aria-label={open ? 'Collapse' : 'Expand'}>
-              <ChevronDown className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} />
+              <ChevronDown className={`w-5 h-5 transition-transform ${open ? 'rotate-180' : ''}`} />
             </button>
           )}
         </div>
       </div>
-      {open && <div className="divide-y divide-slate-100">{children}</div>}
+      {open && (bare
+        ? children
+        : <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm divide-y divide-slate-100">{children}</div>
+      )}
     </section>
   )
 }
+
+/** Visual break between sections, so they read as distinct blocks. */
+const SectionBreak = () => <hr className="border-slate-200" />
 
 const TONES = {
   danger: 'text-red-700',
@@ -551,39 +647,6 @@ function FubTaskRow({ task, busy, onDone }: { task: TaskItem; busy: boolean; onD
             Open in FUB <ExternalLink className="w-3 h-3" />
           </a>
         )}
-      </div>
-    </div>
-  )
-}
-
-const PRIORITY_PILL: Record<string, string> = {
-  high: 'text-red-700 bg-red-50 border-red-200',
-  low: 'text-slate-500 bg-slate-50 border-slate-200',
-}
-
-function DashTaskRow({ task, dealName, busy, onDone }: { task: DealTask; dealName: string | null; busy: boolean; onDone: () => void }) {
-  const due = task.due_at ? new Date(task.due_at) : null
-  const overdue = !!due && due.getTime() < Date.now()
-  return (
-    <div className={`flex items-center gap-2 border rounded-lg px-3 py-2 ${overdue ? 'border-red-200 bg-red-50/40' : 'border-slate-200 bg-white'}`}>
-      <button onClick={onDone} disabled={busy} title="Mark complete"
-        className="shrink-0 text-slate-300 hover:text-emerald-600 disabled:opacity-40">
-        {busy ? <Circle className="w-4 h-4 animate-pulse" /> : <Circle className="w-4 h-4" />}
-      </button>
-      <span className="text-sm text-slate-900 truncate">{task.title}</span>
-      {task.priority && PRIORITY_PILL[task.priority] && (
-        <span className={`shrink-0 text-[9px] font-bold uppercase rounded px-1 py-0.5 border ${PRIORITY_PILL[task.priority]}`}>{task.priority}</span>
-      )}
-      {task.deal_id && (
-        <Link href={`/deals/${task.deal_id}`} className="shrink-0 text-[10px] text-blue-700 hover:underline truncate max-w-[9rem]">
-          {dealName ?? 'Deal'}
-        </Link>
-      )}
-      <div className="ml-auto flex items-center gap-2 shrink-0">
-        {task.assigned_by && <span className="text-[10px] text-slate-400 hidden md:inline">by {task.assigned_by}</span>}
-        <span className={`text-[11px] font-medium ${overdue ? 'text-red-700' : 'text-slate-500'}`}>
-          {due ? due.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'no date'}
-        </span>
       </div>
     </div>
   )

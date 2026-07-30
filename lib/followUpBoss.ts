@@ -285,6 +285,34 @@ export async function completeFubTask(apiKey: string, taskId: number): Promise<v
   }
 }
 
+/** Create a task in FUB. Verified 2026-07-30 end-to-end: `POST /v1/tasks` with
+ *  {personId, name, type, dueDate, assignedUserId} returns the created task.
+ *  dueDate is date-only (YYYY-MM-DD) — FUB's own task model has no time. */
+export async function createFubTask(apiKey: string, t: {
+  personId: number
+  name: string
+  type?: string
+  dueDate?: string | null
+  assignedUserId: number
+}): Promise<FubTaskRaw> {
+  const res = await fetch(`${FUB_BASE}/tasks`, {
+    method: 'POST',
+    headers: { ...fubHeaders(apiKey), 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      personId: t.personId,
+      name: t.name,
+      type: t.type ?? 'Follow Up',
+      assignedUserId: t.assignedUserId,
+      ...(t.dueDate ? { dueDate: t.dueDate } : {}),
+    }),
+  })
+  const body = await res.json().catch(() => null) as FubTaskRaw | null
+  if (!res.ok || !body?.id) {
+    throw new Error(`FUB ${res.status} creating task: ${JSON.stringify(body ?? {}).slice(0, 160)}`)
+  }
+  return body
+}
+
 /** Last-write-wins dedupe by task id — a paginated sweep can still re-serve a
  *  row if tasks are created mid-sweep, and one duplicate rejects the whole batch. */
 export function dedupeTasks(rows: FubTaskRow[]): FubTaskRow[] {
