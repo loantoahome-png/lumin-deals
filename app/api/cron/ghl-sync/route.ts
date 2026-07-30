@@ -4,6 +4,7 @@ import { runGhlSync } from '@/app/api/sync/ghl/route'
 import { refreshConversations } from '@/app/api/sync/conversations/route'
 import { runSecondCallbackCheck } from '@/app/api/cron/second-callback/route'
 import { runIdentityResolutionPass } from '@/lib/identityResolver'
+import { runFubSync } from '@/app/api/sync/fub/route'
 
 // Scheduled GHL sync — pinged by an external cron (cron-job.org).
 // Reuses the exact same logic as the manual "Sync GHL" button.
@@ -31,6 +32,8 @@ const MAINTENANCE_KEY = 'ghl_maintenance_last'
 const MAINTENANCE_INTERVAL_MS = 3 * 60 * 60 * 1000    // 3 h — prune/reconcile pass (full-opp scan; Fluid CPU saver, widened 2026-06-17 from 60 min)
 const IDENTITY_RESOLVE_KEY = 'identity_resolve_last'
 const IDENTITY_RESOLVE_INTERVAL_MS = 3 * 60 * 60 * 1000   // 3 h — collapse split borrower_ids (full deal-table scan; Fluid CPU saver, widened 2026-06-17 from 30 min). Force anytime with ?full=1 or POST /api/resolve-identities
+const FUB_SYNC_KEY = 'fub_sync_last'
+const FUB_SYNC_INTERVAL_MS = 55 * 60 * 1000   // ~hourly FUB sweep (piggyback — no new cron job). Force with ?fub=1; runFubSync re-checks this key itself, so the double gate is harmless.
 
 type LockClient = ReturnType<typeof createServiceClient>
 
@@ -104,6 +107,8 @@ export async function GET(req: NextRequest) {
   // Optional ?full=1 — escape hatch to force a full sync from the cron URL too
   const url = new URL(req.url)
   const full = url.searchParams.get('full') === '1' || url.searchParams.get('full') === 'true'
+  // ?fub=1 — force the FollowUpBoss sweep this ping regardless of its hourly gate.
+  const forceFub = url.searchParams.get('fub') === '1'
 
   // ── Skip if a previous run is still in progress ──────────────────────────
   const supabase = createServiceClient()
@@ -168,6 +173,17 @@ export async function GET(req: NextRequest) {
           console.log(`[Cron GHL Sync] 2nd-callback check:`, JSON.stringify(secondCallback))
         } catch (e) {
           console.error('[Cron GHL Sync] 2nd-callback check failed (non-fatal):', e)
+        }
+      }
+
+      // FollowUpBoss sweep for the /follow-up cockpit — ~hourly. Non-fatal.
+      // (runFubSync marks fub_sync_last itself after a successful run.)
+      if (forceFub || await isDue(supabase, FUB_SYNC_KEY, FUB_SYNC_INTERVAL_MS)) {
+        try {
+          const fub = await runFubSync({ force: forceFub })
+          console.log(`[Cron GHL Sync] FUB sweep:`, JSON.stringify(fub))
+        } catch (e) {
+          console.error('[Cron GHL Sync] FUB sweep failed (non-fatal):', e)
         }
       }
     } catch (err) {

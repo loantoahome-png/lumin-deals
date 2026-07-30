@@ -25,6 +25,7 @@ import {
   Landmark,
   FileText,
   Archive,
+  PhoneCall,
 } from 'lucide-react'
 import GlobalSearch from './GlobalSearch'
 import NotificationBell from './NotificationBell'
@@ -43,6 +44,7 @@ const navGroups = [
       { href: '/pipeline', label: 'Pipeline', icon: Kanban },
       { href: '/deals', label: 'Active Escrows', icon: Table2 },
       { href: '/hot-leads', label: 'Hot Leads', icon: Target },
+      { href: '/follow-up', label: 'Follow-Up', icon: PhoneCall },
       { href: '/funded', label: 'Funded', icon: DollarSign },
       { href: '/radar', label: 'Opportunity Radar', icon: Radar },
     ],

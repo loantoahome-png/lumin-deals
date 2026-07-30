@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "dev:bypass": "LOCAL_AUTH_BYPASS=1 next dev"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
