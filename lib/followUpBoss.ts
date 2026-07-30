@@ -435,10 +435,18 @@ export type FubUnanswered = {
   assignedUserId: number | null
 }
 
-// 3 pages ≈ 300 messages each way, which reached ~2 weeks back for both LOs at
-// build time. Deeper paging costs requests on every page load for rows that are
-// long past "waiting on you".
-const INBOX_PAGES = 3
+// ⚠️ Page to a TIME cutoff, never to a fixed page count.
+//
+// A fixed 3 pages each way shipped first and was wrong: outbound volume is much
+// higher than inbound (drips, mass sends), so equal page counts cover UNEQUAL
+// time. Measured live on Moe: 300 inbound reached 62 days back, 300 outbound
+// only 52. Every reply older than that 52-day horizon was invisible, so anyone
+// whose inbound landed in the 52–62 day gap looked unanswered forever — Tami
+// Boteilho was flagged "texted 59d ago, nobody answered" when Moe had in fact
+// replied 98 SECONDS later. Both directions must span the same window.
+export const INBOX_LOOKBACK_DAYS = 90
+const MAX_INBOX_PAGES = 14              // ≈1,400 msgs/direction; live 90d ≈ 7 pages
+const MAX_VERIFY_LOOKUPS = 25           // per-person fallback when the cap bites
 
 /** Digits-only US number ('(949) 868-9588' → '9498689588'), or null. */
 export function normalizeFubNumber(raw: unknown): string | null {
@@ -447,21 +455,34 @@ export function normalizeFubNumber(raw: unknown): string | null {
   return trimmed.length === 10 ? trimmed : null
 }
 
-async function fetchTextPage(apiKey: string, query: string): Promise<FubTextMessage[]> {
+const msgMs = (m: FubTextMessage) => Date.parse(m.sent || m.created)
+
+/** Page newest-first until the oldest row is at/older than `untilMs`.
+ *  `reached` is false when the page cap stopped us first — the caller must not
+ *  trust "no reply" for anything older than `oldestMs` in that case. */
+async function fetchTextsUntil(apiKey: string, query: string, untilMs: number): Promise<{
+  msgs: FubTextMessage[]; oldestMs: number; reached: boolean
+}> {
   const all: FubTextMessage[] = []
   let url = `${FUB_BASE}/textMessages?${query}&limit=${PAGE_LIMIT}&sort=-created`
-  for (let page = 0; page < INBOX_PAGES; page++) {
+  let oldestMs = Infinity
+  for (let page = 0; page < MAX_INBOX_PAGES; page++) {
     const data = await fubGet(url, apiKey)
     // The collection key is lower-case 'textmessages' (not textMessages).
     const msgs = (data.textmessages as FubTextMessage[] | undefined)
       ?? (data.textMessages as FubTextMessage[] | undefined) ?? []
     all.push(...msgs)
+    for (const m of msgs) {
+      const t = msgMs(m)
+      if (!isNaN(t) && t < oldestMs) oldestMs = t
+    }
     const meta = data._metadata as { nextLink?: string } | undefined
-    if (!meta?.nextLink || msgs.length === 0) break
+    if (!meta?.nextLink || msgs.length === 0) return { msgs: all, oldestMs, reached: true }
+    if (oldestMs <= untilMs) return { msgs: all, oldestMs, reached: true }
     url = meta.nextLink
     await sleep(PACE_MS)
   }
-  return all
+  return { msgs: all, oldestMs, reached: false }
 }
 
 /** This key's own FUB calling number, digits only. */
@@ -516,22 +537,64 @@ export function unansweredFromMessages(
   return out.sort((a, b) => Date.parse(b.lastInboundAt) - Date.parse(a.lastInboundAt))
 }
 
+/** Pure: does this person's own thread carry an outbound at/after `inboundIso`?
+ *  The authoritative check — used to clear candidates the paged feeds can't
+ *  vouch for, so a deep-history reply can never masquerade as "no answer". */
+export function threadShowsReply(thread: FubTextMessage[], inboundIso: string): boolean {
+  const at = Date.parse(inboundIso)
+  if (isNaN(at)) return false
+  return thread.some(m => !m.isIncoming && msgMs(m) >= at)
+}
+
 /** Live "waiting on you" list for one agent key. Attribution is by the LO's own
  *  calling number, not by assignee: a text sent to Matt's number is Matt's
  *  conversation to answer even if the person is assigned to someone else. */
-export async function fetchFubUnanswered(apiKey: string, label: FubKeyLabel): Promise<FubUnanswered[]> {
+export async function fetchFubUnanswered(apiKey: string, label: FubKeyLabel, now = Date.now()): Promise<FubUnanswered[]> {
   const number = await fetchFubCallingNumber(apiKey)
   if (!number) {
     console.warn(`[FUB] inbox '${label}': no calling number on /me — skipping`)
     return []
   }
+  const cutoff = now - INBOX_LOOKBACK_DAYS * 86_400_000
   await sleep(PACE_MS)
-  const inbound = await fetchTextPage(apiKey, `toNumber=${number}`)
+  const inb = await fetchTextsUntil(apiKey, `toNumber=${number}`, cutoff)
+  // Only consider inbound we can actually adjudicate.
+  const inbound = inb.msgs.filter(m => msgMs(m) >= cutoff)
+  const oldestInbound = inbound.reduce((min, m) => Math.min(min, msgMs(m)), Infinity)
+
   await sleep(PACE_MS)
-  const outbound = await fetchTextPage(apiKey, `fromNumber=${number}`)
-  const items = unansweredFromMessages(inbound, outbound)
-  console.log(`[FUB] inbox '${label}': ${inbound.length} in / ${outbound.length} out → ${items.length} unanswered`)
-  return items
+  // Outbound must reach at least as far back as the oldest inbound we kept —
+  // that equality is the whole correctness argument for the comparison below.
+  const out = await fetchTextsUntil(apiKey, `fromNumber=${number}`, Math.min(cutoff, oldestInbound))
+
+  const items = unansweredFromMessages(inbound, out.msgs)
+
+  // Anything whose inbound predates the outbound horizon is UNPROVEN, not
+  // unanswered — verify those against the person's own thread. Normally empty.
+  const suspect = items.filter(i => Date.parse(i.lastInboundAt) < out.oldestMs)
+  const cleared = new Set<number>()
+  if (suspect.length > 0) {
+    console.warn(`[FUB] inbox '${label}': outbound horizon ${new Date(out.oldestMs).toISOString()} — verifying ${suspect.length} older candidate(s)`)
+    for (const s of suspect.slice(0, MAX_VERIFY_LOOKUPS)) {
+      try {
+        const data = await fubGet(`${FUB_BASE}/textMessages?personId=${s.fubId}&limit=${PAGE_LIMIT}&sort=-created`, apiKey)
+        const thread = (data.textmessages as FubTextMessage[] | undefined) ?? []
+        if (threadShowsReply(thread, s.lastInboundAt)) cleared.add(s.fubId)
+      } catch (e) {
+        // Can't prove they were answered → leave them listed. A false "waiting"
+        // costs a glance; a false "all clear" loses the client.
+        console.warn(`[FUB] inbox '${label}': verify failed for ${s.fubId}:`, e instanceof Error ? e.message : e)
+      }
+      await sleep(PACE_MS)
+    }
+    if (suspect.length > MAX_VERIFY_LOOKUPS) {
+      console.warn(`[FUB] inbox '${label}': ${suspect.length - MAX_VERIFY_LOOKUPS} candidate(s) left UNVERIFIED (lookup cap)`)
+    }
+  }
+
+  const final = items.filter(i => !cleared.has(i.fubId))
+  console.log(`[FUB] inbox '${label}': ${inbound.length} in (to ${new Date(inb.oldestMs).toISOString().slice(0, 10)}) / ${out.msgs.length} out (to ${new Date(out.oldestMs).toISOString().slice(0, 10)}) → ${final.length} unanswered, ${cleared.size} cleared on verify`)
+  return final
 }
 
 // ── Diff against existing table state ────────────────────────────────────────

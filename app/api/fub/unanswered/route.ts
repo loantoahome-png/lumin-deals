@@ -33,6 +33,11 @@ export type FubUnansweredItem = FubUnanswered & {
    *  Closed + task-holders only). Snooze/Touched write to that table, so the UI
    *  must not offer those buttons on a row that has no row to write. */
   stored: boolean
+  /** Cockpit-state columns. "Touched" after their last message clears the row;
+   *  a future next_action_due snoozes it. Both are UI-owned — the FUB sweep
+   *  never writes them, so they survive every sweep. */
+  lastTouchedAt: string | null
+  nextActionDue: string | null
 }
 
 export async function GET(req: NextRequest) {
@@ -57,19 +62,25 @@ export async function GET(req: NextRequest) {
 
   // Enrich from fub_people — stage for the row chip, matched_deal_active so the
   // page can suppress people the GHL side already lists.
-  const items: FubUnansweredItem[] = unanswered.map(u => ({ ...u, stage: null, matchedDealActive: false, stored: false }))
+  const items: FubUnansweredItem[] = unanswered.map(u => ({
+    ...u, stage: null, matchedDealActive: false, stored: false,
+    lastTouchedAt: null, nextActionDue: null,
+  }))
   if (items.length > 0) {
     const supabase = createServiceClient()
     const { data, error } = await supabase
       .from('fub_people')
-      .select('fub_id, name, stage, matched_deal_active')
+      .select('fub_id, name, stage, matched_deal_active, last_touched_at, next_action_due')
       .in('fub_id', items.map(i => i.fubId))
     if (error) {
       console.warn('[FUB unanswered] enrichment skipped:', error.message)
     } else {
       const byId = new Map((data ?? []).map(r => [
         (r as { fub_id: number }).fub_id,
-        r as { name: string | null; stage: string | null; matched_deal_active: boolean | null },
+        r as {
+          name: string | null; stage: string | null; matched_deal_active: boolean | null
+          last_touched_at: string | null; next_action_due: string | null
+        },
       ]))
       for (const i of items) {
         const row = byId.get(i.fubId)
@@ -77,6 +88,8 @@ export async function GET(req: NextRequest) {
         i.stored = true
         i.stage = row.stage
         i.matchedDealActive = !!row.matched_deal_active
+        i.lastTouchedAt = row.last_touched_at
+        i.nextActionDue = row.next_action_due
         if (row.name) i.name = row.name
       }
     }

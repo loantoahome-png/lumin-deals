@@ -180,6 +180,11 @@ export default function FollowUpCockpit() {
   const [liveUnread, setLiveUnread] = useState<LiveUnreadLike[]>([])
   const [fubUnanswered, setFubUnanswered] = useState<FubUnansweredLike[]>([])
   const [inboxLoading, setInboxLoading] = useState(true)
+  // Reply-inbox rows actioned this session. The two feeds behind that section
+  // are LIVE upstream reads, so a Touched/Snooze/Done write lands in Supabase
+  // but wouldn't change the fetched list until the next refresh — without this
+  // the buttons look broken. The write is still what makes it stick on reload.
+  const [inboxDone, setInboxDone] = useState<Set<string>>(new Set())
   const [syncedAt, setSyncedAt] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [busy, setBusy] = useState<Set<string>>(new Set())
@@ -236,8 +241,8 @@ export default function FollowUpCockpit() {
 
   const queue: FollowUpQueue = useMemo(() => buildFollowUpQueue({ deals, fub, lo: lo ?? '' }), [deals, fub, lo])
   const inbox: ReplyInbox = useMemo(
-    () => buildReplyInbox({ deals, live: liveUnread, fubUnanswered, lo: lo ?? '' }),
-    [deals, liveUnread, fubUnanswered, lo])
+    () => buildReplyInbox({ deals, live: liveUnread, fubUnanswered, lo: lo ?? '', dismissed: inboxDone }),
+    [deals, liveUnread, fubUnanswered, lo, inboxDone])
   const taskQueue: TaskQueue = useMemo(() => buildTaskQueue({ tasks: fubTasks, people: fub, lo: lo ?? '' }), [fubTasks, fub, lo])
   const leads: LeadSections = useMemo(() => buildLeadSections({ deals, lo: lo ?? '' }), [deals, lo])
 
@@ -251,27 +256,63 @@ export default function FollowUpCockpit() {
     if (item.system === 'ghl' && item.dealId) {
       const patch: Record<string, unknown> = { next_action_due: dueIso }
       if (note) patch.next_action = `Check in: ${note}`
-      const { error } = await supabase.from('deals').update(patch).eq('id', item.dealId)
-      if (error) { console.error('[follow-up] deal snooze failed:', error.message); return }
+      // .select() so an RLS-blocked write can't pass as saved (see markTouched).
+      const { data, error } = await supabase.from('deals').update(patch).eq('id', item.dealId).select('id')
+      if (error || !data?.length) { console.error('[follow-up] deal snooze failed:', error?.message ?? 'no row updated'); alert(`Could not snooze ${item.name} — nothing was saved.${error ? ' ' + error.message : ''}`); return }
       setDeals(prev => prev.map(d => d.id === item.dealId ? { ...d, next_action_due: dueIso, ...(note ? { next_action: `Check in: ${note}` } : {}) } : d))
     } else if (item.fubId != null) {
       const patch: Record<string, unknown> = { next_action_due: dueIso, updated_at: new Date().toISOString() }
       if (note) patch.next_action = note
-      const { error } = await supabase.from('fub_people').update(patch).eq('fub_id', item.fubId)
-      if (error) { console.error('[follow-up] fub snooze failed:', error.message); return }
+      const { data, error } = await supabase.from('fub_people').update(patch).eq('fub_id', item.fubId).select('fub_id')
+      if (error || !data?.length) { console.error('[follow-up] fub snooze failed:', error?.message ?? 'no row updated'); alert(`Could not snooze ${item.name} — nothing was saved.${error ? ' ' + error.message : ''}`); return }
       setFub(prev => prev.map(f => f.fub_id === item.fubId ? { ...f, next_action_due: dueIso, ...(note ? { next_action: note } : {}) } : f))
+      setFubUnanswered(prev => prev.map(f => f.fubId === item.fubId ? { ...f, nextActionDue: dueIso } : f))
     }
+    // A snooze is "not now" — it must clear the reply inbox until that date.
+    dismissFromInbox(item)
   }
 
-  /** FUB people only — log that the LO reached out today. */
+  /** FUB people only — log that the LO reached out today. In the reply inbox
+   *  this doubles as "I answered them", so the row clears. */
   async function markTouched(item: QueueItem) {
     if (item.fubId == null) return
     const nowIso = new Date().toISOString()
-    const { error } = await supabase.from('fub_people')
+    // .select() is load-bearing: PostgREST returns SUCCESS WITH ZERO ROWS when
+    // RLS filters the row out, so a blocked write looks identical to a saved
+    // one. Counting the returned rows is the only way to know it landed.
+    const { data, error } = await supabase.from('fub_people')
       .update({ last_touched_at: nowIso, next_action_due: null, updated_at: nowIso })
       .eq('fub_id', item.fubId)
-    if (error) { console.error('[follow-up] touch failed:', error.message); return }
+      .select('fub_id')
+    if (error || !data?.length) { console.error('[follow-up] touch failed:', error?.message ?? 'no row updated'); alert(`Could not mark ${item.name} touched — nothing was saved.${error ? ' ' + error.message : ''}`); return }
     setFub(prev => prev.map(f => f.fub_id === item.fubId ? { ...f, last_touched_at: nowIso, next_action_due: null } : f))
+    setFubUnanswered(prev => prev.map(f => f.fubId === item.fubId ? { ...f, lastTouchedAt: nowIso } : f))
+    dismissFromInbox(item)
+  }
+
+  /** Reply inbox: "Done" on a GHL row. GHL has no working mark-read endpoint,
+   *  so we record the ack in comm_read_acks — which /api/ghl/unread already
+   *  honors until a NEWER message arrives. Same write the dashboard inbox uses. */
+  async function markGhlRead(item: QueueItem) {
+    dismissFromInbox(item)
+    if (!item.conversationId) return          // synced-only row: nothing to ack
+    const res = await fetch('/api/ghl/mark-read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conversationId: item.conversationId,
+        contactId: item.ghlContactId,
+        locationId: item.ghlLocationId,
+        lastMessageAt: item.inboundAt,
+      }),
+    })
+    const body = await res.json().catch(() => null)
+    if (!res.ok || !body?.ok) console.error('[follow-up] mark-read failed:', body)
+  }
+
+  /** Hide a reply-inbox row immediately (the persisted write is separate). */
+  function dismissFromInbox(item: QueueItem) {
+    setInboxDone(prev => new Set(prev).add(item.key))
   }
 
   /** Complete a FUB task — the server picks the right API key and writes to FUB. */
@@ -496,14 +537,14 @@ export default function FollowUpCockpit() {
                 </p>
               ) : (
                 <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-3 space-y-1.5">
-                  {inbox.fresh.map(i => <Row key={i.key} item={i} showStage actions={rowActions(i)} />)}
+                  {inbox.fresh.map(i => <Row key={i.key} item={i} showStage actions={inboxActions(i)} />)}
                 </div>
               )}
               {inbox.older.length > 0 && (
                 <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                   <Drawer label={`Still unanswered, older than ${REPLY_INBOX_FRESH_DAYS} days`}
                     count={inbox.counts.older} tone="warn">
-                    {inbox.older.map(i => <Row key={i.key} item={i} showStage actions={rowActions(i)} />)}
+                    {inbox.older.map(i => <Row key={i.key} item={i} showStage actions={inboxActions(i)} />)}
                   </Drawer>
                 </div>
               )}
@@ -611,6 +652,26 @@ export default function FollowUpCockpit() {
       )}
     </div>
   )
+
+  /** Reply-inbox variant: GHL rows get "Done" (a comm_read_acks ack) where FUB
+   *  rows get "Touched". Both mean the same thing here — I handled it. */
+  function inboxActions(item: QueueItem) {
+    if (item.system === 'fub') return rowActions(item)
+    // Done writes a comm_read_acks row keyed on the CONVERSATION id, so it's
+    // only offered where we have one. A synced-only row (no live conversation)
+    // would dismiss for this session and come back on reload — that silent
+    // no-op is the exact complaint this pass is fixing, so no button.
+    if (!item.conversationId) return rowActions(item)
+    return (
+      <div className="flex items-center gap-1 shrink-0">
+        <button onClick={() => markGhlRead(item)} title="I've answered this — clear it from the inbox"
+          className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-1 hover:bg-emerald-100 flex items-center gap-0.5">
+          <CheckCircle2 className="w-3 h-3" /> Done
+        </button>
+        {rowActions(item)}
+      </div>
+    )
+  }
 
   function rowActions(item: QueueItem) {
     const open = menuFor === item.key

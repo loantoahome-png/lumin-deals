@@ -1,5 +1,26 @@
 # GOTCHAS — Lumin Deals
 
+### Paging two feeds by PAGE COUNT gives them different TIME horizons — anchor to a cutoff instead
+**Tried:** Reconstructing "who texted and nobody answered" from FollowUpBoss by pulling 3 pages (300 messages) of inbound and 3 pages of outbound, then comparing the newest of each per person.
+**Failed because:** outbound volume is far higher than inbound (drips, mass sends), so equal page counts span **unequal time**. Measured live on Moe: 300 inbound reached **62 days** back, 300 outbound only **52**. Every reply older than that 52-day horizon was invisible, so anyone whose inbound landed in the 52–62 day gap was reported as ignored forever. **Live proof:** Tami Boteilho showed as "texted 59d ago, nobody answered" when Moe had in fact replied — with a 😂 — **98 seconds later**. The failure is silent and one-directional: it can only ever invent work, never hide it, so nothing looks broken.
+**What works:** page each direction to a **time cutoff** (`fetchTextsUntil`, `INBOX_LOOKBACK_DAYS = 90`), and make the outbound window reach at least as far back as the oldest inbound kept — that equality IS the correctness argument for the comparison. Because a page cap can still bite, anything whose inbound predates the outbound horizon is treated as **unproven, not unanswered**, and verified against that person's own `/textMessages?personId=` thread (`threadShowsReply`). Generalizes: whenever two paginated streams are compared, equal page counts are not equal coverage.
+**Project:** lumin-deals
+**Date:** 2026-07-30
+
+### A Supabase write blocked by RLS returns SUCCESS WITH ZERO ROWS — `error` is null
+**Tried:** `await supabase.from('fub_people').update({...}).eq('fub_id', id)` from the browser, checking only `if (error)`.
+**Failed because:** PostgREST applies RLS as a row **filter**, not a permission error. A blocked update matches nothing, updates nothing, and returns `{ error: null }` — byte-identical to a successful write. The button appears to work and silently does nothing (Efrain: *"this touched button does not do anything"*). Verified directly: an anon-key `update` on `fub_people` returned `error: null` with **0 rows**, while the same write from a logged-in session persisted fine. It also means **the local `LOCAL_AUTH_BYPASS` dev server cannot exercise any client write path** — there's no Supabase session behind the bypass, so every browser-side write silently no-ops locally while working in prod.
+**What works:** append **`.select('id')`** to every client-side update and treat `!data?.length` as failure, same as an error — that is the only way to distinguish "saved" from "silently filtered". Verify write paths against prod state (or a service-role script), never against a bypassed local session.
+**Project:** lumin-deals
+**Date:** 2026-07-30
+
+### An action button on a LIVE-fed list must feed its result back, or it looks broken
+**Tried:** Reusing the cockpit's shared `rowActions` (Task / Touched / Snooze) for the reply-inbox section.
+**Failed because:** every other section is built from Supabase state the page already holds, so a write plus a local `setState` visibly updates the row. The reply inbox is built from **live upstream reads** (`/api/ghl/unread`, `/api/fub/unanswered`), which those writes don't touch — so Touched wrote `last_touched_at` correctly and the row just sat there. Correct data, zero feedback.
+**What works:** give each action an explicit suppression rule in the builder AND an optimistic session dismissal. `buildReplyInbox` now drops a FUB row whose `last_touched_at` is at/after their last inbound (a touch from BEFORE their message must NOT clear it — that's the reply they're waiting on), drops anything with a future `next_action_due` (snooze), and honors a `dismissed` key set for the current session. GHL rows get **Done**, which writes `comm_read_acks` — the ack `/api/ghl/unread` already respects — and is only offered where a `conversationId` exists, since without one the dismissal couldn't persist.
+**Project:** lumin-deals
+**Date:** 2026-07-30
+
 ### A "leave that to the other page" exclusion can cancel a feature outright — check what's LEFT, not what's removed
 **Tried:** The Follow-Up cockpit's "Replied — waiting on you" skipped deals whose status was in `HOT_WORKING_STATUSES` (Responded / Pitching / Appointment Booked / App Intake), reasoning that /hot-leads already works those tabs. Sensible in isolation, reviewed as such, shipped.
 **Failed because:** those are **exactly the statuses a lead occupies when they reply** — GHL's workflow moves a replying lead to `Responded` before the message reaches us. Everything the filter left behind was either parked in `Not Ready` (also excluded, correctly) or a New Lead/Ghosted row with no inbound. The section therefore matched **0 rows for BOTH LOs**, and read as a cheerful "Inbox zero — no unanswered replies" while GHL showed 5 unread. A filter that removes 100% of the population looks identical to an empty population.

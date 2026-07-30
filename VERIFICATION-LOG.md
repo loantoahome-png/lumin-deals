@@ -1,6 +1,25 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-07-30] Reply inbox, second pass — a false "unanswered", and buttons that did nothing
+**Status:** VERIFIED live (Tami cleared, Touched-cleared row confirmed gone, Done button rendering on GHL rows).
+**Issue 1 — false positive.** Efrain: "Moe responded with an emoji, why does it say that we havent responded to Tami Boteilho". FUB's own thread shows Tami inbound `2026-06-01T19:29:35Z` and Moe outbound `19:31:13Z` — answered in **98 seconds**.
+**Root cause 1:** the feeds were paged by a fixed PAGE COUNT (3 each way). Outbound volume is much higher, so 300 inbound reached **62 days** back while 300 outbound reached only **52** — any reply older than that horizon was invisible. Every "unanswered" row older than ~52 days was suspect.
+**Issue 2 — dead buttons.** Efrain: "this touched button does not do anything, what is the logic behind the snooze button?" Touched wrote `fub_people.last_touched_at` and Snooze wrote `next_action_due`, but the reply inbox is built from LIVE upstream reads that those writes don't touch, so the row never moved. Separately, a client write blocked by RLS returns `{error: null}` with 0 rows — indistinguishable from success.
+**Change:**
+- [lib/followUpBoss.ts](lib/followUpBoss.ts) — `fetchTextsUntil` pages to a TIME cutoff (`INBOX_LOOKBACK_DAYS = 90`); the outbound window is forced to reach at least the oldest inbound kept; anything still older than the outbound horizon is verified against that person's own thread via `threadShowsReply` before being called unanswered.
+- [lib/followUpQueue.ts](lib/followUpQueue.ts) — `buildReplyInbox` now suppresses: FUB rows touched at/after their last inbound, rows with a future `next_action_due` (both systems), and a per-session `dismissed` key set.
+- [app/api/fub/unanswered/route.ts](app/api/fub/unanswered/route.ts) — returns `lastTouchedAt` + `nextActionDue`.
+- [app/follow-up/[lo]/page.tsx](app/follow-up/[lo]/page.tsx) — GHL rows get **Done** (writes `comm_read_acks`, the ack `/api/ghl/unread` already honors; offered only where a `conversationId` exists so it always persists); Touched/Snooze/Done all clear the row instantly; **every client update now carries `.select()` and treats 0 rows as failure with a visible alert**.
+**Test Method:** `scripts/follow-up-check.ts` 134 → **147** assertions (new: touched-before vs touched-after, snooze both systems, dismissal, conversation-id passthrough, 4 `threadShowsReply` cases); live `/api/fub/unanswered` for both LOs; browser session on both pages incl. a real Touched click.
+**Result:**
+- **Tami Boteilho no longer listed** (and Gus Magana / Melanie Nuno / Yesenia Bonilla, same 52–62 day gap). Moe's window now reaches 2026-05-04 (~87d) and the route returns in ~7 s.
+- **Joanne Yuen — Efrain's own click that "did nothing" — had `last_touched_at` set in prod all along**; with the suppression rule she is correctly gone from the inbox.
+- Clicking Touched removes the row immediately (verified in-browser).
+- GHL rows render **Done**; Shante Barnes (live conversation, no deal row) correctly shows Done only.
+- ⚠️ Discovered: the `LOCAL_AUTH_BYPASS` dev server has no Supabase session, so **client-side writes silently no-op locally** while working in prod. The new `.select()` guard now surfaces that instead of hiding it.
+- 18/18 suites exit 0, `npx tsc --noEmit` exactly 7 pre-existing errors (0 in touched files), `next build` ✓.
+
 ### [2026-07-30] Reply inbox — the "Replied — waiting on you" section could never show anything
 **Status:** VERIFIED live in a browser session on both LO pages.
 **Issue:** Efrain: "Why does matt not have anything in his inbox when it shows 4 unread messages on GHL, also can you put unread messages from FUB on this section on both Matt and Moes page?" The section rendered "Inbox zero" for **both** LOs while GHL's team inbox showed unread conversations.

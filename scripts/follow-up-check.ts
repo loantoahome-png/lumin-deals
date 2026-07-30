@@ -7,7 +7,7 @@
 
 import {
   mapFubPerson, mapFubTask, dedupeTasks, mergeSweeps, diffSweep, shouldStoreFubPerson,
-  unansweredFromMessages, normalizeFubNumber, messagePreview,
+  unansweredFromMessages, normalizeFubNumber, messagePreview, threadShowsReply,
   type FubPersonRaw, type ExistingFubRow, type FubTextMessage,
 } from '../lib/followUpBoss'
 import {
@@ -382,7 +382,7 @@ eq('fub inbox: number normalizer',
 // ── buildReplyInbox — the three-source merge ─────────────────────────────────
 
 const liveRow = (over: Partial<LiveUnreadLike>): LiveUnreadLike => ({
-  contactId: 'c1', locationId: 'loc1', name: 'Live Lucy', unreadCount: 1, channel: 'Text',
+  conversationId: 'conv1', contactId: 'c1', locationId: 'loc1', name: 'Live Lucy', unreadCount: 1, channel: 'Text',
   lastMessageAt: iso(1 * H), preview: 'call me', lo: 'Moe Sefati',
   dealId: null, dealStatus: null, dealPipelineGroup: 'Leads', ...over,
 })
@@ -436,6 +436,66 @@ const dedupInbox = buildReplyInbox({
   fubUnanswered: [], lo: 'Moe Sefati', now: NOW,
 })
 eq('inbox: live + synced same deal listed once, live wins', dedupInbox.fresh.map(i => i.reason), ['unread text · 1h ago'])
+
+// ── Touched / Snooze / Done must actually clear a reply-inbox row ────────────
+// The two feeds behind this section are LIVE upstream reads, so a write that
+// doesn't feed back into the builder leaves the row sitting there and the
+// button reads as broken (Efrain 2026-07-30: "this touched button does not do
+// anything"). Each action has a persisted suppression rule.
+
+const ackBase = {
+  deals: [
+    deal({ id: 'd-snoozed', ghl_contact_id: 'c-sn', last_inbound_at: iso(2 * H), last_outbound_at: iso(9 * H),
+      next_action_due: new Date(NOW + 3 * D).toISOString() }),
+    deal({ id: 'd-open', ghl_contact_id: 'c-op', last_inbound_at: iso(2 * H), last_outbound_at: iso(9 * H) }),
+  ],
+  live: [] as LiveUnreadLike[],
+  lo: 'Moe Sefati', now: NOW,
+}
+eq('inbox: a future check-in date snoozes a synced GHL row out',
+  buildReplyInbox({ ...ackBase, fubUnanswered: [] }).fresh.map(i => i.key), ['deal:d-open'])
+eq('inbox: a future check-in date snoozes a LIVE GHL row out',
+  buildReplyInbox({ ...ackBase, fubUnanswered: [],
+    live: [liveRow({ contactId: 'c-sn', dealId: 'd-snoozed' }), liveRow({ contactId: 'c-op', dealId: 'd-open' })] })
+    .fresh.map(i => i.key), ['deal:d-open'])
+
+const touchCase = (over: Partial<FubUnansweredLike>) => buildReplyInbox({
+  deals: [], live: [], lo: 'Moe Sefati', now: NOW,
+  fubUnanswered: [fubRowUn({ fubId: 950, lastInboundAt: iso(4 * H), ...over })],
+}).fresh.length
+eq('inbox: Touched AFTER their message clears the row', touchCase({ lastTouchedAt: iso(1 * H) }), 0)
+eq('inbox: Touched BEFORE their message does NOT clear it', touchCase({ lastTouchedAt: iso(9 * H) }), 1)
+eq('inbox: a future snooze clears a FUB row', touchCase({ nextActionDue: new Date(NOW + 2 * D).toISOString() }), 0)
+eq('inbox: a PAST snooze does not clear a FUB row', touchCase({ nextActionDue: iso(2 * D) }), 1)
+eq('inbox: untouched, unsnoozed FUB row stays', touchCase({}), 1)
+
+eq('inbox: session dismissals hide rows and leave the counts consistent',
+  (() => {
+    const d = buildReplyInbox({ ...ackBase, fubUnanswered: [], dismissed: new Set(['deal:d-open']) })
+    return [d.fresh.map(i => i.key), d.counts.total]
+  })(), [[], 0])
+
+// The GHL "Done" button writes comm_read_acks, keyed on the CONVERSATION id —
+// so the id has to survive onto the item or the button has nothing to write.
+eq('inbox: live rows carry the conversation id for the Done ack',
+  buildReplyInbox({ deals: [], fubUnanswered: [], lo: 'Moe Sefati', now: NOW,
+    live: [liveRow({ conversationId: 'conv-xyz' })] }).fresh[0].conversationId, 'conv-xyz')
+
+// ── threadShowsReply — the per-person verification fallback ─────────────────
+// Guards the false-positive that shipped first: paging a fixed number of pages
+// gave the outbound feed a SHALLOWER time horizon than the inbound feed (higher
+// outbound volume), so a reply older than that horizon was invisible and the
+// person looked ignored. Tami Boteilho was flagged "texted 59d ago, unanswered"
+// when Moe had replied 98 seconds later.
+const tami = [
+  txt({ id: 20, personId: 53283, sent: '2026-06-01T19:31:13Z', isIncoming: false }),
+  txt({ id: 21, personId: 53283, sent: '2026-06-01T19:29:35Z', isIncoming: true }),
+]
+eq('verify: an outbound after their message proves a reply', threadShowsReply(tami, '2026-06-01T19:29:35Z'), true)
+eq('verify: only OLDER outbound is not a reply', threadShowsReply(tami, '2026-06-02T10:00:00Z'), false)
+eq('verify: an inbound-only thread is not a reply',
+  threadShowsReply([txt({ personId: 1, sent: '2026-06-01T19:29:35Z' })], '2026-06-01T19:29:35Z'), false)
+eq('verify: unparseable timestamp never falsely clears', threadShowsReply(tami, 'not-a-date'), false)
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 

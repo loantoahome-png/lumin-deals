@@ -102,6 +102,9 @@ export type QueueItem = {
    *  FUB person the sweep doesn't store. Snooze/Touched would silently update
    *  zero rows, so the UI hides those actions. */
   readOnly?: boolean
+  /** GHL conversation id — the key `comm_read_acks` is written against, so a
+   *  "Done" on a reply-inbox row can clear the live unread feed. */
+  conversationId?: string | null
 }
 
 export type StaleBuckets = { b7_30: QueueItem[]; b31_90: QueueItem[]; b90: QueueItem[] }
@@ -574,6 +577,7 @@ export function buildLeadSections(opts: { deals: QueueDealLike[]; lo: string; no
 
 /** One row of /api/ghl/unread (the fields this builder reads). */
 export type LiveUnreadLike = {
+  conversationId: string | null
   contactId: string | null
   locationId: string
   name: string
@@ -598,6 +602,9 @@ export type FubUnansweredLike = {
   matchedDealActive?: boolean
   /** Present in fub_people — required for the snooze/touched writes. */
   stored?: boolean
+  /** UI-owned cockpit state (the FUB sweep never writes these). */
+  lastTouchedAt?: string | null
+  nextActionDue?: string | null
 }
 
 /** Rows older than this drop into the "older, still unanswered" drawer rather
@@ -615,6 +622,7 @@ function liveItem(u: LiveUnreadLike, now: number): QueueItem {
   return {
     key: u.dealId ? `deal:${u.dealId}` : `conv:${u.contactId ?? u.name}`,
     system: 'ghl',
+    conversationId: u.conversationId,
     dealId: u.dealId ?? undefined,
     ghlContactId: u.contactId,
     ghlLocationId: u.locationId,
@@ -653,19 +661,34 @@ function fubUnansweredItem(f: FubUnansweredLike, now: number): QueueItem {
   }
 }
 
+/** A future check-in date means "I've dealt with this, come back then" — the
+ *  row must leave the inbox until that date, or Snooze is a no-op button. */
+const snoozedPast = (dueIso: string | null | undefined, now: number): boolean => {
+  const due = parse(dueIso)
+  return due != null && due > now
+}
+
 export function buildReplyInbox(opts: {
   deals: QueueDealLike[]
   live: LiveUnreadLike[]
   fubUnanswered: FubUnansweredLike[]
   lo: string
   now?: number
+  /** Rows the user just actioned this session — hidden immediately, before the
+   *  live feeds are re-fetched, so a click has a visible effect. */
+  dismissed?: Set<string>
 }): ReplyInbox {
   const now = opts.now ?? Date.now()
+  const dismissed = opts.dismissed ?? new Set<string>()
+  const dealById = new Map(opts.deals.map(d => [d.id, d]))
 
   // 1 — live GHL unread for this LO, minus the parked pipeline (Efrain: the
   // replied section "does not include leads that are in the not ready pipeline").
+  // A snoozed deal is out until its check-in date. ("Done" is handled upstream:
+  // /api/ghl/unread already drops conversations with a comm_read_acks ack.)
   const live = opts.live
     .filter(u => u.lo === opts.lo && u.dealPipelineGroup !== NOT_READY_GROUP)
+    .filter(u => !snoozedPast(u.dealId ? dealById.get(u.dealId)?.next_action_due : null, now))
     .map(u => liveItem(u, now))
 
   const seenDeals = new Set(live.map(i => i.dealId).filter(Boolean) as string[])
@@ -674,6 +697,7 @@ export function buildReplyInbox(opts: {
   // 2 — synced deals the live feed didn't already cover.
   const fromDb = opts.deals
     .filter(d => d.loan_officer === opts.lo && isReplyWaiting(d, now))
+    .filter(d => !snoozedPast(d.next_action_due, now))
     .filter(d => !seenDeals.has(d.id) && !(d.ghl_contact_id && seenContacts.has(d.ghl_contact_id)))
     .map(d => dealItem(d, `replied ${fmtAgo(d.last_inbound_at, now)}`, now))
 
@@ -686,9 +710,22 @@ export function buildReplyInbox(opts: {
   // Tiffany Dukes texted Moe's FUB number 4h earlier and vanished from the
   // inbox). Two rows for one human is the honest answer when two channels are
   // both waiting; each row links to the system its message lives in.
-  const fub = opts.fubUnanswered.map(f => fubUnansweredItem(f, now))
+  //
+  // "Touched" is the FUB equivalent of Done: a touch logged AFTER their last
+  // message means someone handled it, so the row leaves. A touch from BEFORE
+  // their message must not — that's the reply they're waiting on.
+  const fub = opts.fubUnanswered
+    .filter(f => {
+      const touched = parse(f.lastTouchedAt)
+      const inbound = parse(f.lastInboundAt)
+      if (touched != null && inbound != null && touched >= inbound) return false
+      return !snoozedPast(f.nextActionDue, now)
+    })
+    .map(f => fubUnansweredItem(f, now))
 
-  const all = [...live, ...fromDb, ...fub].sort(byInboundDesc)
+  const all = [...live, ...fromDb, ...fub]
+    .filter(i => !dismissed.has(i.key))
+    .sort(byInboundDesc)
   const cutoff = now - REPLY_INBOX_FRESH_DAYS * MS_PER_DAY
   const isFresh = (i: QueueItem) => {
     const t = parse(i.inboundAt)
