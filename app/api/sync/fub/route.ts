@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import {
-  fetchAllFubPeople, mergeSweeps, diffSweep, shouldStoreFubPerson,
-  type ExistingFubRow, type FubPersonRow, type FubKeyLabel,
+  fetchAllFubPeople, fetchOpenFubTasks, mapFubTask, dedupeTasks, mergeSweeps, diffSweep, shouldStoreFubPerson,
+  type ExistingFubRow, type FubPersonRow, type FubKeyLabel, type FubTaskRow,
 } from '@/lib/followUpBoss'
 import { isOpenLead } from '@/lib/triage'
 
@@ -35,6 +35,8 @@ export type FubSyncResult = {
   matchOnly?: number
   missingFlagged?: number
   matchedActive?: number
+  tasks?: number
+  tasksRemoved?: number
   duration_ms?: number
   errors: string[]
 }
@@ -107,14 +109,21 @@ export async function runFubSync(opts: { force?: boolean } = {}): Promise<FubSyn
   // ── Sweep both keys. A failed sweep aborts the whole run BEFORE any diff —
   // a partial sweep must never mass-flag the other book as missing.
   const sweeps: Partial<Record<FubKeyLabel, Awaited<ReturnType<typeof fetchAllFubPeople>>>> = {}
+  const sweptTasks: FubTaskRow[] = []
   for (const { label, key } of keys) {
     sweeps[label] = await fetchAllFubPeople(key, label)   // throws on failure → caught by POST/cron caller
+    // Tasks are per-key in FUB, so each key contributes only its own LO's tasks.
+    sweptTasks.push(...(await fetchOpenFubTasks(key, label)).map(mapFubTask))
   }
+  const taskRows = dedupeTasks(sweptTasks)
+  // People with an open task are follow-up-worthy by definition — they bypass
+  // the stage/idle rules below.
+  const taskPersonIds = new Set(taskRows.map(t => t.person_id).filter((id): id is number => id != null))
   // Pull filter: only follow-up-worthy people are stored (see shouldStoreFubPerson).
   // Rows already in the table that stop qualifying fall out via the normal
   // missing_since flow — the queue never shows flagged rows.
   const raw = mergeSweeps(sweeps.moe ?? [], sweeps.matt ?? [])
-  const merged = raw.filter(r => shouldStoreFubPerson(r))
+  const merged = raw.filter(r => shouldStoreFubPerson(r, Date.now(), taskPersonIds))
   if (merged.length < 100) {
     return { ok: false, errors: [`sweep suspiciously small (${merged.length} of ${raw.length} kept) — aborting before diff`] }
   }
@@ -204,9 +213,33 @@ export async function runFubSync(opts: { force?: boolean } = {}): Promise<FubSyn
     else missingFlagged += slice.length
   }
 
+  // ── Open tasks: full replace. Only INCOMPLETE tasks are swept, so a task that
+  // vanished was completed or deleted — either way it leaves the follow-up list.
+  let tasksRemoved = 0
+  {
+    const { error } = await supabase.from('fub_tasks').upsert(
+      taskRows.map(t => ({ ...t, last_seen_at: nowIso, updated_at: nowIso })),
+      { onConflict: 'fub_task_id' },
+    )
+    if (error) errors.push(`tasks upsert: ${error.message}`)
+    else {
+      const { data: stale, error: e2 } = await supabase
+        .from('fub_tasks').select('fub_task_id').lt('last_seen_at', nowIso)
+      if (e2) errors.push(`tasks stale read: ${e2.message}`)
+      else if (stale?.length) {
+        const ids = (stale as { fub_task_id: number }[]).map(r => r.fub_task_id)
+        for (let i = 0; i < ids.length; i += MISSING_CHUNK) {
+          const { error: e3 } = await supabase.from('fub_tasks').delete().in('fub_task_id', ids.slice(i, i + MISSING_CHUNK))
+          if (e3) errors.push(`tasks delete: ${e3.message}`)
+          else tasksRemoved += Math.min(MISSING_CHUNK, ids.length - i)
+        }
+      }
+    }
+  }
+
   await supabase.from('sync_state').upsert({
     key: FUB_SYNC_KEY,
-    value: { last_at: nowIso, people: merged.length },
+    value: { last_at: nowIso, people: merged.length, tasks: taskRows.length },
     updated_at: nowIso,
   })
 
@@ -215,6 +248,7 @@ export async function runFubSync(opts: { force?: boolean } = {}): Promise<FubSyn
     ok: errors.length === 0,
     people: merged.length,
     inserted, updated, matchOnly, missingFlagged, matchedActive,
+    tasks: taskRows.length, tasksRemoved,
     duration_ms: Date.now() - t0,
     errors,
   }

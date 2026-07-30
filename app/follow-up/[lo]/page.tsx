@@ -23,10 +23,11 @@ import { ghlContactUrl } from '@/lib/ghlLinks'
 import { LO_COLORS } from '@/components/LoFilter'
 import TriageDateModal from '@/components/TriageDateModal'
 import {
-  buildFollowUpQueue, snoozeIso, SNOOZE_PRESETS,
-  type FollowUpQueue, type QueueDealLike, type QueueFubLike, type QueueItem, type StaleBuckets,
+  buildFollowUpQueue, buildTaskQueue, snoozeIso, SNOOZE_PRESETS, TASK_WINDOW_DAYS,
+  type FollowUpQueue, type TaskQueue, type QueueDealLike, type QueueFubLike, type QueueTaskLike,
+  type QueueItem, type StaleBuckets, type TaskItem,
 } from '@/lib/followUpQueue'
-import { Flame, RefreshCw, CheckCircle2, Clock, ChevronDown, ExternalLink, PhoneCall } from 'lucide-react'
+import { Flame, RefreshCw, CheckCircle2, Clock, ChevronDown, ExternalLink, PhoneCall, ListTodo } from 'lucide-react'
 
 const LO_SLUGS: Record<string, string> = { moe: 'Moe Sefati', matt: 'Matt Park' }
 
@@ -42,6 +43,16 @@ const FUB_COLUMNS = [
   'last_activity_at', 'fub_created_at', 'next_action_due', 'next_action',
   'last_touched_at', 'matched_deal_active', 'missing_since',
 ].join(',')
+
+const TASK_COLUMNS = 'fub_task_id,person_id,loan_officer,name,type,due_date,due_date_time'
+
+async function fetchFubTasks(lo: string): Promise<QueueTaskLike[]> {
+  const { data, error } = await supabase
+    .from('fub_tasks').select(TASK_COLUMNS).eq('loan_officer', lo)
+    .order('due_date', { ascending: true }).limit(1000)
+  if (error) { console.error('[follow-up] task fetch failed:', error.message); return [] }
+  return (data as unknown as QueueTaskLike[]) ?? []
+}
 
 async function fetchFubRows(lo: string): Promise<QueueFubLike[]> {
   const all: QueueFubLike[] = []
@@ -64,6 +75,10 @@ async function fetchFubRows(lo: string): Promise<QueueFubLike[]> {
 // Account subdomain verified from the team's own FUB session (nova.followupboss.com).
 const fubUrl = (fubId: number) => `https://nova.followupboss.com/2/people/view/${fubId}`
 
+const TASK_TYPE_ICON: Record<string, string> = {
+  'Follow Up': '↩', Call: '📞', Text: '💬', Email: '✉', Appointment: '📅', Showing: '🏠', Closing: '🔑', 'Thank You': '🙏',
+}
+
 const fmtSynced = (iso: string | null): string => {
   if (!iso) return 'never'
   const mins = Math.floor((Date.now() - Date.parse(iso)) / 60_000)
@@ -79,6 +94,7 @@ export default function FollowUpCockpit() {
 
   const [deals, setDeals] = useState<QueueDealLike[]>([])
   const [fub, setFub] = useState<QueueFubLike[]>([])
+  const [tasks, setTasks] = useState<QueueTaskLike[]>([])
   const [loading, setLoading] = useState(true)
   const [syncedAt, setSyncedAt] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
@@ -89,14 +105,16 @@ export default function FollowUpCockpit() {
   const load = useCallback(async () => {
     if (!lo) return
     setLoading(true)
-    const [d, f, s] = await Promise.all([
+    const [d, f, t, s] = await Promise.all([
       fetchAllDeals(q => q.eq('loan_officer', lo), FU_DEAL_COLUMNS),
       fetchFubRows(lo),
+      fetchFubTasks(lo),
       // sync_state is server-only (no client RLS policies) — read via the API.
       fetch('/api/sync/fub').then(r => r.ok ? r.json() : null).catch(() => null),
     ])
     setDeals(d as unknown as QueueDealLike[])
     setFub(f)
+    setTasks(t)
     setSyncedAt((s as { last_at?: string } | null)?.last_at ?? null)
     setLoading(false)
   }, [lo])
@@ -106,6 +124,10 @@ export default function FollowUpCockpit() {
   const queue: FollowUpQueue = useMemo(
     () => buildFollowUpQueue({ deals, fub, lo: lo ?? '' }),
     [deals, fub, lo],
+  )
+  const taskQueue: TaskQueue = useMemo(
+    () => buildTaskQueue({ tasks, people: fub, lo: lo ?? '' }),
+    [tasks, fub, lo],
   )
 
   // ── Actions ────────────────────────────────────────────────────────────────
@@ -200,6 +222,7 @@ export default function FollowUpCockpit() {
           <CountChip label="Reply waiting" n={c.replyWaiting} cls="bg-red-50 text-red-700 border-red-200" />
           <CountChip label="New" n={c.newLeads} cls="bg-emerald-50 text-emerald-700 border-emerald-200" />
           <CountChip label={`Due today${c.overdue ? ` (${c.overdue} overdue)` : ''}`} n={c.dueToday} cls="bg-amber-50 text-amber-800 border-amber-200" />
+          <CountChip label="FUB tasks (7d)" n={taskQueue.counts.today + taskQueue.counts.next7} cls="bg-indigo-50 text-indigo-700 border-indigo-200" />
           <CountChip label="Stale nurture" n={c.stale} cls="bg-sky-50 text-sky-700 border-sky-200" />
           <CountChip label="Past clients" n={c.pastClients} cls="bg-violet-50 text-violet-700 border-violet-200" />
         </div>
@@ -215,6 +238,7 @@ export default function FollowUpCockpit() {
             empty="No new leads right now." renderActions={rowActions} />
           <Section title="📅 Due today" subtitle="Check-ins and follow-ups you promised" items={queue.dueToday}
             empty="Nothing due. Get ahead with the stale list below." renderActions={rowActions} />
+          <TaskSection queue={taskQueue} />
           <BucketSection title="🕳 Stale nurture (FUB)" subtitle="Open pipeline going quiet — highest value first"
             buckets={queue.stale} renderActions={rowActions} />
           <BucketSection title="💤 Past clients & closed (FUB)" subtitle="The farming pool — refis, referrals, anniversaries"
@@ -268,6 +292,89 @@ export default function FollowUpCockpit() {
       </div>
     )
   }
+}
+
+// ── FUB tasks ───────────────────────────────────────────────────────────────
+// The LO's own FollowUpBoss reminders: due today, the next 7 days, and the
+// overdue backlog (Matt's is 583 deep, so it's capped with a show-all).
+const TASK_PREVIEW = 10
+
+function TaskSection({ queue }: { queue: TaskQueue }) {
+  const [showAllOverdue, setShowAllOverdue] = useState(false)
+  const inWindow = queue.counts.today + queue.counts.next7
+  const overdueShown = showAllOverdue ? queue.overdue : queue.overdue.slice(0, TASK_PREVIEW)
+  return (
+    <section>
+      <div className="flex items-baseline gap-2 mb-2">
+        <h2 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+          <ListTodo className="w-4 h-4 text-indigo-600" /> FollowUpBoss tasks
+        </h2>
+        <span className="text-xs text-slate-400">Your own FUB reminders — next {TASK_WINDOW_DAYS} days</span>
+        <span className="text-xs font-semibold text-slate-500 ml-auto">{inWindow}</span>
+      </div>
+
+      {queue.overdue.length > 0 && (
+        <div className="mb-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-red-500 mb-1">
+            Overdue · {queue.overdue.length} <span className="normal-case font-normal text-slate-400">(most recent first)</span>
+          </p>
+          <div className="space-y-1.5">{overdueShown.map(t => <TaskRow key={t.key} task={t} />)}</div>
+          {queue.overdue.length > TASK_PREVIEW && (
+            <button onClick={() => setShowAllOverdue(v => !v)} className="text-xs text-blue-700 hover:underline mt-1">
+              {showAllOverdue ? 'Show fewer' : `Show all ${queue.overdue.length} overdue`}
+            </button>
+          )}
+        </div>
+      )}
+
+      {queue.today.length > 0 && (
+        <div className="mb-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 mb-1">Due today · {queue.today.length}</p>
+          <div className="space-y-1.5">{queue.today.map(t => <TaskRow key={t.key} task={t} />)}</div>
+        </div>
+      )}
+
+      {queue.next7.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1">Next {TASK_WINDOW_DAYS} days · {queue.next7.length}</p>
+          <div className="space-y-1.5">{queue.next7.map(t => <TaskRow key={t.key} task={t} />)}</div>
+        </div>
+      )}
+
+      {inWindow === 0 && queue.overdue.length === 0 && (
+        <p className="text-xs text-slate-400 border border-dashed border-slate-200 rounded-lg px-3 py-2.5">
+          No FollowUpBoss tasks due in the next {TASK_WINDOW_DAYS} days.
+        </p>
+      )}
+    </section>
+  )
+}
+
+function TaskRow({ task }: { task: TaskItem }) {
+  const link = task.personId != null ? fubUrl(task.personId) : null
+  return (
+    <div className={`flex items-center gap-2 bg-white border rounded-lg px-3 py-2 ${task.overdueDays > 0 ? 'border-red-200 bg-red-50/40' : 'border-slate-200'}`}>
+      <span className="shrink-0 text-[9px] font-bold rounded px-1 py-0.5 border text-indigo-700 bg-indigo-50 border-indigo-200"
+        title={task.type}>
+        {TASK_TYPE_ICON[task.type] ?? '•'} FUB
+      </span>
+      <span className="font-semibold text-sm text-slate-900 truncate shrink-0 max-w-[11rem]">{task.personName}</span>
+      {task.personStage && <span className="shrink-0 text-[10px] text-slate-500 bg-slate-100 rounded px-1.5 py-0.5">{task.personStage}</span>}
+      <span className="text-xs text-slate-600 truncate" title={task.title}>{task.title}</span>
+      <div className="ml-auto flex items-center gap-2 shrink-0">
+        <span className={`text-[11px] font-medium ${task.overdueDays > 0 ? 'text-red-700' : task.dueLabel === 'due today' ? 'text-amber-700' : 'text-slate-500'}`}>
+          {task.dueLabel}
+        </span>
+        {link && (
+          <a href={link} target="_blank" rel="noopener noreferrer"
+            title="Open this lead in FollowUpBoss"
+            className="text-[10px] font-semibold text-violet-700 bg-violet-50 border border-violet-200 rounded px-1.5 py-1 hover:bg-violet-100 flex items-center gap-0.5">
+            Open in FUB <ExternalLink className="w-3 h-3" />
+          </a>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function CountChip({ label, n, cls }: { label: string; n: number; cls: string }) {

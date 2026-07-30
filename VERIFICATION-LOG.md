@@ -2333,3 +2333,10 @@ spaced `gap-x-10 gap-y-4`.
 **Changes:** `supabase-fub-people.sql` (new table, applied to prod), `lib/followUpBoss.ts` (API client/mapper/differ), `lib/followUpQueue.ts` (queue model), `app/api/sync/fub/route.ts` (sweep + cross-match + GET last-sync), cron piggyback in `app/api/cron/ghl-sync/route.ts` (55-min gate, `?fub=1` force), `app/follow-up/page.tsx` + `app/follow-up/[lo]/page.tsx`, Sidebar item, `scripts/follow-up-check.ts` (47 assertions). Env: FUB keys in `.env.local` + Vercel prod.
 **Test Method:** fixture suite + `tsc` (7 pre-existing errors only) + `next build`; live sweep ×3 (insert 5,212 → idempotent 0/0); prod DOM read via logged-in session.
 **Result:** Prod `/follow-up/moe`: reply-waiting 2, new 26, stale 813, past clients 114, synced 3m ago. `/follow-up/matt`: new 12, due 2 (2 overdue — pre-existing GHL check-ins flowing through), stale 2,696. Commit `335b6af`.
+
+### [2026-07-30] Fix: FUB pull filter — only follow-up-worthy people stored
+**Status:** VERIFIED
+**Issue:** Efrain: the sync pulled ALL 5,212 key-visible FUB people; most (unassigned/other agents, dead raw leads, Unresponsive/Inactive) are not follow-up material and bloated the stale buckets (Matt 2,696).
+**Changes:** `shouldStoreFubPerson()` gate in `lib/followUpBoss.ts` (Moe/Matt-assigned only; Trash/Referred Out/Unresponsive/Inactive dropped; raw Lead/Attempting Contact only with ≤90d activity), applied in `/api/sync/fub`; Cold section removed from queue model + both pages; one-time purge of 3,172 flagged rows (state-carrying guard = 0); `scripts/_tmp-fub-census.ts` + `_tmp-fub-purge.ts` kept for reruns.
+**Test Method:** 61-assertion fixture suite; sweep ×2 (flags 3,172 → post-purge 0/0/0 idempotent); census (2,040 rows, Other column all-zero, no junk stages); prod DOM read.
+**Result:** Prod `/follow-up/matt`: stale 2,696 → 1,193, Cold gone, due/new/past unchanged. Commit `1865b41`.

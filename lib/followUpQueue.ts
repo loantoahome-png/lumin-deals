@@ -332,6 +332,124 @@ export function buildFollowUpQueue(opts: {
   }
 }
 
+// ── FUB tasks ────────────────────────────────────────────────────────────────
+// The LO's own FollowUpBoss reminders (fub_tasks), surfaced alongside the queue
+// so the cockpit shows the work they already scheduled in FUB, not just what we
+// inferred. Efrain 2026-07-30: "show the FUB tasks due within the next 7 days"
+// + a button through to the lead in FUB.
+//
+// Dates are compared as LOCAL YYYY-MM-DD strings, never as parsed instants:
+// FUB's dueDate is date-only, and Date.parse('2026-07-30') is UTC midnight,
+// which reads as "yesterday" for anyone west of Greenwich (i.e. all of PT).
+
+export const TASK_WINDOW_DAYS = 7
+
+export type QueueTaskLike = {
+  fub_task_id: number
+  person_id?: number | null
+  loan_officer?: string | null
+  name?: string | null
+  type?: string | null
+  due_date?: string | null
+  due_date_time?: string | null
+}
+
+export type TaskItem = {
+  key: string                  // 'task:<id>'
+  taskId: number
+  personId: number | null
+  personName: string           // resolved from fub_people, else 'FUB contact #id'
+  personStage: string | null
+  title: string                // the task text
+  type: string
+  dueDate: string | null
+  dueLabel: string             // 'overdue 12d' | 'due today' | 'Sat Aug 1'
+  overdueDays: number          // 0 unless overdue
+}
+
+export type TaskQueue = {
+  overdue: TaskItem[]
+  today: TaskItem[]
+  next7: TaskItem[]
+  counts: { overdue: number; today: number; next7: number }
+}
+
+/** Local YYYY-MM-DD, `offsetDays` from now. */
+export function localYmd(now: number, offsetDays = 0): string {
+  const d = new Date(now)
+  d.setDate(d.getDate() + offsetDays)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+/** Whole days between two YMD strings (b - a). */
+export function ymdDiffDays(a: string, b: string): number {
+  const [ay, am, ad] = a.split('-').map(Number)
+  const [by, bm, bd] = b.split('-').map(Number)
+  return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / MS_PER_DAY)
+}
+
+function weekdayLabel(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number)
+  const dt = new Date(y, m - 1, d)
+  return dt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
+export function buildTaskQueue(opts: {
+  tasks: QueueTaskLike[]
+  people: QueueFubLike[]        // for name/stage resolution
+  lo: string
+  now?: number
+  windowDays?: number
+}): TaskQueue {
+  const now = opts.now ?? Date.now()
+  const today = localYmd(now)
+  const horizon = localYmd(now, opts.windowDays ?? TASK_WINDOW_DAYS)
+  const byId = new Map(opts.people.map(p => [p.fub_id, p]))
+
+  const toItem = (t: QueueTaskLike): TaskItem => {
+    const person = t.person_id != null ? byId.get(t.person_id) : undefined
+    const due = t.due_date ? t.due_date.slice(0, 10) : null
+    const overdueDays = due && due < today ? ymdDiffDays(due, today) : 0
+    return {
+      key: `task:${t.fub_task_id}`,
+      taskId: t.fub_task_id,
+      personId: t.person_id ?? null,
+      personName: person?.name || (t.person_id != null ? `FUB contact #${t.person_id}` : 'No contact'),
+      personStage: person?.stage ?? null,
+      title: (t.name || 'Follow up').trim(),
+      type: t.type || 'Follow Up',
+      dueDate: due,
+      dueLabel: !due ? 'no due date'
+        : overdueDays > 0 ? `overdue ${overdueDays}d`
+        : due === today ? 'due today'
+        : weekdayLabel(due),
+      overdueDays,
+    }
+  }
+
+  const mine = opts.tasks.filter(t => t.loan_officer === opts.lo && t.due_date)
+  const overdue: TaskItem[] = [], todayList: TaskItem[] = [], next7: TaskItem[] = []
+  for (const t of mine) {
+    const due = t.due_date!.slice(0, 10)
+    if (due < today) overdue.push(toItem(t))
+    else if (due === today) todayList.push(toItem(t))
+    else if (due <= horizon) next7.push(toItem(t))
+  }
+  // Overdue: most-recently-due first — a task 2 days late is far more actionable
+  // than one from last October (Matt has 583, oldest 2025-10-27).
+  overdue.sort((a, b) => a.overdueDays - b.overdueDays)
+  const byDueAscThenName = (a: TaskItem, b: TaskItem) =>
+    (a.dueDate ?? '').localeCompare(b.dueDate ?? '') || a.personName.localeCompare(b.personName)
+  todayList.sort(byDueAscThenName)
+  next7.sort(byDueAscThenName)
+
+  return {
+    overdue, today: todayList, next7,
+    counts: { overdue: overdue.length, today: todayList.length, next7: next7.length },
+  }
+}
+
 // ── Snooze presets (shared by the UI) ────────────────────────────────────────
 
 export const SNOOZE_PRESETS: { label: string; days: number }[] = [

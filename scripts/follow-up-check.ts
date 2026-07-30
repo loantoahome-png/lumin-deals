@@ -6,12 +6,12 @@
 // so the suite passes in any timezone the runner uses.
 
 import {
-  mapFubPerson, mergeSweeps, diffSweep, shouldStoreFubPerson,
+  mapFubPerson, mapFubTask, dedupeTasks, mergeSweeps, diffSweep, shouldStoreFubPerson,
   type FubPersonRaw, type ExistingFubRow,
 } from '../lib/followUpBoss'
 import {
-  buildFollowUpQueue, fubIdleDays, snoozeIso, isReplyWaiting,
-  type QueueDealLike, type QueueFubLike,
+  buildFollowUpQueue, buildTaskQueue, fubIdleDays, snoozeIso, isReplyWaiting, localYmd, ymdDiffDays,
+  type QueueDealLike, type QueueFubLike, type QueueTaskLike,
 } from '../lib/followUpQueue'
 
 let pass = 0, fail = 0
@@ -176,6 +176,69 @@ const qm = buildFollowUpQueue({ deals, fub, lo: 'Matt Park', now: NOW })
 eq('queue: Matt gets his reply-waiting', qm.replyWaiting.map(i => i.key), ['deal:d-matt'])
 eq('queue: Matt gets his FUB stale', qm.stale.b31_90.map(i => i.key), ['fub:13'])
 
+// ── FUB tasks (Efrain 2026-07-30: "tasks due within the next 7 days") ───────
+// Dates are LOCAL YMD strings so these assertions hold in any timezone.
+
+const T_TODAY = localYmd(NOW)
+const ymdOff = (n: number) => localYmd(NOW, n)
+
+const task = (over: Partial<QueueTaskLike>): QueueTaskLike => ({
+  fub_task_id: over.fub_task_id ?? 1, person_id: 1, loan_officer: 'Moe Sefati',
+  name: 'App yet?', type: 'Follow Up', due_date: T_TODAY, ...over,
+})
+
+const taskPeople: QueueFubLike[] = [
+  fubRow({ fub_id: 1, name: 'Ana Alvarez', stage: 'Nurture' }),
+  fubRow({ fub_id: 2, name: 'Bob Baker', stage: 'Pre Approved' }),
+]
+
+const tq = buildTaskQueue({
+  lo: 'Moe Sefati', people: taskPeople, now: NOW,
+  tasks: [
+    task({ fub_task_id: 10, due_date: ymdOff(-1) }),                                   // overdue 1d
+    task({ fub_task_id: 11, due_date: ymdOff(-45), person_id: 2 }),                    // overdue 45d
+    task({ fub_task_id: 12, due_date: T_TODAY, name: 'Call about rate' , type: 'Call' }), // today
+    task({ fub_task_id: 13, due_date: ymdOff(3) }),                                    // in window
+    task({ fub_task_id: 14, due_date: ymdOff(7) }),                                    // window edge (inclusive)
+    task({ fub_task_id: 15, due_date: ymdOff(8) }),                                    // just past window
+    task({ fub_task_id: 16, due_date: ymdOff(180) }),                                  // far future
+    task({ fub_task_id: 17, due_date: null }),                                         // undated → excluded
+    task({ fub_task_id: 18, due_date: T_TODAY, loan_officer: 'Matt Park' }),           // Matt's
+    task({ fub_task_id: 19, due_date: ymdOff(2), person_id: 999 }),                    // person not stored
+  ],
+})
+
+eq('tasks: overdue captured', tq.overdue.map(t => t.taskId), [10, 11])
+eq('tasks: overdue sorted most-recent-first', tq.overdue.map(t => t.overdueDays), [1, 45])
+eq('tasks: due today', tq.today.map(t => t.taskId), [12])
+eq('tasks: next 7 days incl. day-7 edge', tq.next7.map(t => t.taskId).sort((a, b) => a - b), [13, 14, 19])
+eq('tasks: day 8 excluded', tq.next7.some(t => t.taskId === 15), false)
+eq('tasks: undated excluded', JSON.stringify(tq).includes('"taskId":17'), false)
+eq('tasks: other LO excluded', JSON.stringify(tq).includes('"taskId":18'), false)
+eq('tasks: counts', tq.counts, { overdue: 2, today: 1, next7: 3 })
+eq('tasks: person name resolved', tq.today[0].personName, 'Ana Alvarez')
+eq('tasks: person stage resolved', tq.today[0].personStage, 'Nurture')
+eq('tasks: unknown person falls back to id', tq.next7.find(t => t.taskId === 19)?.personName, 'FUB contact #999')
+eq('tasks: due label today', tq.today[0].dueLabel, 'due today')
+eq('tasks: due label overdue', tq.overdue[1].dueLabel, 'overdue 45d')
+eq('tasks: title carried through', tq.today[0].title, 'Call about rate')
+eq('tasks: type carried through', tq.today[0].type, 'Call')
+eq('tasks: personId kept for the FUB link', tq.overdue[1].personId, 2)
+eq('tasks: Matt sees only his', buildTaskQueue({ lo: 'Matt Park', people: taskPeople, now: NOW, tasks: [task({ fub_task_id: 18, due_date: T_TODAY, loan_officer: 'Matt Park' })] }).today.map(t => t.taskId), [18])
+
+// mapFubTask + dedupe (a re-served page once rejected the whole upsert batch)
+const mappedTask = mapFubTask({ id: 7, personId: 4, assignedUserId: 13, AssignedTo: 'Matt Park', name: 'App yet?', type: 'Follow Up', dueDate: '2026-08-01T00:00:00Z', dueDateTime: null, created: iso(5 * D), updated: iso(1 * D) })
+eq('mapTask: LO from assignedUserId', mappedTask.loan_officer, 'Matt Park')
+eq('mapTask: due_date truncated to YMD', mappedTask.due_date, '2026-08-01')
+eq('mapTask: null dueDateTime stays null', mappedTask.due_date_time, null)
+eq('dedupeTasks: keeps one row per id, last wins', dedupeTasks([
+  { ...mappedTask, name: 'first' }, { ...mappedTask, name: 'second' }, { ...mappedTask, fub_task_id: 8 },
+]).map(t => [t.fub_task_id, t.name]), [[7, 'second'], [8, 'App yet?']])
+
+eq('ymdDiffDays: across a month boundary', ymdDiffDays('2026-07-28', '2026-08-03'), 6)
+eq('ymdDiffDays: same day', ymdDiffDays('2026-07-30', '2026-07-30'), 0)
+eq('localYmd: offset math', ymdDiffDays(localYmd(NOW), localYmd(NOW, 7)), 7)
+
 // ── shouldStoreFubPerson (the sync pull filter — Efrain 2026-07-30) ──────────
 
 const storable = (over: Partial<Parameters<typeof shouldStoreFubPerson>[0]>) =>
@@ -198,6 +261,14 @@ eq('pull: raw Lead no activity but CREATED 10d ago stored', storable({ stage: 'L
 eq('pull: Attempting Contact idle 91d dropped', storable({ stage: 'Attempting Contact', last_activity_at: iso(91 * D), fub_created_at: iso(300 * D) }), false)
 eq('pull: deep-idle Nurture STILL stored (only raw stages age out)', storable({ stage: 'Nurture', last_activity_at: iso(400 * D) }), true)
 eq('pull: Past Client stored regardless of idle', storable({ stage: 'Past Client', last_activity_at: iso(400 * D) }), true)
+
+// An OPEN TASK overrides stage/idle — the LO explicitly scheduled follow-up.
+const withTask = (over: Partial<Parameters<typeof shouldStoreFubPerson>[0]>, ids: number[]) =>
+  shouldStoreFubPerson({ ...mapFubPerson({ id: 55, stage: 'Lead', assignedUserId: 13, lastActivity: iso(400 * D) }, ['matt']), ...over }, NOW, new Set(ids))
+eq('pull: dead raw lead WITH an open task is stored', withTask({}, [55]), true)
+eq('pull: same lead without a task still dropped', withTask({}, [999]), false)
+eq('pull: task cannot rescue another agent\'s person', withTask({ assigned_user_id: 999 }, [55]), false)
+eq('pull: task rescues an Inactive person', withTask({ stage: 'Inactive' }, [55]), true)
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 

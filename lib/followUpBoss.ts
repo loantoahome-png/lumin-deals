@@ -209,6 +209,92 @@ export function mergeSweeps(moe: FubPersonRaw[], matt: FubPersonRaw[]): FubPerso
   return [...byId.values()].map(({ raw, seen }) => mapFubPerson(raw, seen))
 }
 
+// ── Tasks ────────────────────────────────────────────────────────────────────
+// The LO's own FUB follow-up reminders. Tasks are strictly PER KEY (Moe's key
+// returns only Moe's 277, Matt's only his 698 — verified 2026-07-30), so no
+// dedupe and loan_officer is unambiguous.
+//
+// ⚠️ Filter params must be the DOCUMENTED ones: `isCompleted`, `due`
+// (today|overdue|upcoming), `dueStart`/`dueEnd`. An earlier probe using
+// `status=`/`dueDateFrom=` was silently ignored and returned the unfiltered
+// 6,949 — which is what made tasks look unfilterable. They are not.
+
+export type FubTaskRaw = {
+  id: number
+  personId?: number | null
+  assignedUserId?: number | null
+  AssignedTo?: string | null
+  name?: string | null
+  type?: string | null
+  dueDate?: string | null          // 'YYYY-MM-DD'
+  dueDateTime?: string | null      // set only when the task has a time
+  isCompleted?: number | boolean | null
+  created?: string | null
+  updated?: string | null
+}
+
+export type FubTaskRow = {
+  fub_task_id: number
+  person_id: number | null
+  assigned_user_id: number | null
+  loan_officer: string | null
+  name: string | null
+  type: string | null
+  due_date: string | null
+  due_date_time: string | null
+  fub_created_at: string | null
+  fub_updated_at: string | null
+}
+
+/** Sweep this key's INCOMPLETE tasks (975 across both LOs — ~10 requests).
+ *
+ * ⚠️ NO `sort=` here. Sorting by a non-unique column (dueDate) drops FUB off
+ * keyset pagination onto offsets, and the pages then drift — the first run
+ * re-served rows and Postgres rejected the batch with "ON CONFLICT DO UPDATE
+ * command cannot affect row a second time". Default id-descending order is
+ * keyset-stable; the display sort happens locally anyway. */
+export async function fetchOpenFubTasks(apiKey: string, label: FubKeyLabel): Promise<FubTaskRaw[]> {
+  const all: FubTaskRaw[] = []
+  let url = `${FUB_BASE}/tasks?limit=${PAGE_LIMIT}&isCompleted=false`
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const data = await fubGet(url, apiKey)
+    const tasks = (data.tasks as FubTaskRaw[] | undefined) ?? []
+    all.push(...tasks)
+    const meta = data._metadata as { nextLink?: string } | undefined
+    if (!meta?.nextLink || tasks.length === 0) break
+    url = meta.nextLink
+    await sleep(PACE_MS)
+  }
+  console.log(`[FUB] tasks '${label}': ${all.length} open`)
+  return all
+}
+
+/** Last-write-wins dedupe by task id — a paginated sweep can still re-serve a
+ *  row if tasks are created mid-sweep, and one duplicate rejects the whole batch. */
+export function dedupeTasks(rows: FubTaskRow[]): FubTaskRow[] {
+  const byId = new Map<number, FubTaskRow>()
+  for (const r of rows) byId.set(r.fub_task_id, r)
+  return [...byId.values()]
+}
+
+export function mapFubTask(t: FubTaskRaw): FubTaskRow {
+  const lo = (t.assignedUserId != null && FUB_USER_TO_LO[t.assignedUserId])
+    || resolveLO(t.AssignedTo)
+    || null
+  return {
+    fub_task_id: t.id,
+    person_id: t.personId ?? null,
+    assigned_user_id: t.assignedUserId ?? null,
+    loan_officer: lo,
+    name: t.name ?? null,
+    type: t.type ?? null,
+    due_date: t.dueDate ? String(t.dueDate).slice(0, 10) : null,
+    due_date_time: isoOrNull(t.dueDateTime),
+    fub_created_at: isoOrNull(t.created),
+    fub_updated_at: isoOrNull(t.updated),
+  }
+}
+
 // ── Pull filter — what deserves to be STORED at all ──────────────────────────
 // Efrain 2026-07-30: "I do not want all contacts to be pulled since a lot of
 // contacts will not be necessary to follow up on." The sweep therefore keeps
@@ -224,8 +310,12 @@ export const SYNC_EXCLUDED_STAGES = ['Trash', 'Referred Out', 'Unresponsive', 'I
 export const RAW_LEAD_STAGES = ['Lead', 'Attempting Contact']
 export const RAW_LEAD_MAX_IDLE_DAYS = 90
 
-export function shouldStoreFubPerson(row: FubPersonRow, now?: number): boolean {
+// An OPEN TASK overrides the stage/idle rules: the LO explicitly scheduled a
+// follow-up on that person, so they belong in the cockpit whatever their stage
+// says (55 of Matt's task people were being filtered out before this).
+export function shouldStoreFubPerson(row: FubPersonRow, now?: number, taskPersonIds?: Set<number>): boolean {
   if (row.assigned_user_id == null || !SYNC_LO_USER_IDS.includes(row.assigned_user_id)) return false
+  if (taskPersonIds?.has(row.fub_id)) return true
   if (!row.stage || SYNC_EXCLUDED_STAGES.includes(row.stage)) return false
   if (RAW_LEAD_STAGES.includes(row.stage)) {
     const ts = [row.last_activity_at, row.fub_created_at]
