@@ -41,10 +41,12 @@ import TriageDateModal from '@/components/TriageDateModal'
 import { DashTaskModal, NewFubTaskModal } from '@/components/FollowUpTaskModals'
 import type { Deal, DealTask } from '@/lib/types'
 import {
-  buildFollowUpQueue, buildTaskQueue, buildLeadSections, snoozeIso, SNOOZE_PRESETS,
-  TASK_WINDOW_DAYS, ACTIVITY_SPLIT_DAYS,
-  type FollowUpQueue, type TaskQueue, type LeadSections, type QueueDealLike,
+  buildFollowUpQueue, buildTaskQueue, buildLeadSections, buildReplyInbox,
+  snoozeIso, SNOOZE_PRESETS,
+  TASK_WINDOW_DAYS, ACTIVITY_SPLIT_DAYS, REPLY_INBOX_FRESH_DAYS,
+  type FollowUpQueue, type TaskQueue, type LeadSections, type ReplyInbox, type QueueDealLike,
   type QueueFubLike, type QueueTaskLike, type QueueItem, type StaleBuckets, type TaskItem,
+  type LiveUnreadLike, type FubUnansweredLike,
 } from '@/lib/followUpQueue'
 import { AssigneeColumn, TaskRow, type ColumnView } from '@/components/TaskBoard'
 import {
@@ -117,6 +119,36 @@ async function fetchFubRows(lo: string): Promise<QueueFubLike[]> {
 // Account subdomain verified from the team's own FUB session (nova.followupboss.com).
 const fubUrl = (fubId: number) => `https://nova.followupboss.com/2/people/view/${fubId}`
 
+/** Live GHL unread conversations — the same feed the dashboard inbox uses. It
+ *  covers every stage, which the synced last_inbound_at column does not. */
+async function fetchLiveUnread(): Promise<LiveUnreadLike[]> {
+  try {
+    const res = await fetch('/api/ghl/unread')
+    if (!res.ok) return []
+    const body = await res.json() as { items?: LiveUnreadLike[] }
+    return body.items ?? []
+  } catch (e) {
+    console.error('[follow-up] live unread fetch failed:', e)
+    return []
+  }
+}
+
+/** Live FollowUpBoss "they texted, nobody answered" list for this LO. */
+async function fetchFubUnanswered(slug: string): Promise<FubUnansweredLike[]> {
+  try {
+    const res = await fetch(`/api/fub/unanswered?lo=${encodeURIComponent(slug)}`)
+    if (!res.ok) {
+      console.warn('[follow-up] FUB unanswered fetch failed:', await res.text().catch(() => res.status))
+      return []
+    }
+    const body = await res.json() as { items?: FubUnansweredLike[] }
+    return body.items ?? []
+  } catch (e) {
+    console.error('[follow-up] FUB unanswered fetch failed:', e)
+    return []
+  }
+}
+
 const TASK_TYPE_ICON: Record<string, string> = {
   'Follow Up': '↩', Call: '📞', Text: '💬', Email: '✉', Appointment: '📅', Showing: '🏠', Closing: '🔑', 'Thank You': '🙏',
 }
@@ -141,6 +173,13 @@ export default function FollowUpCockpit() {
   const [dealNames, setDealNames] = useState<Record<string, string>>({})
   const [dealGhlUrls, setDealGhlUrls] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
+  // The two LIVE feeds behind the reply inbox. They hit GHL/FUB directly (~8
+  // upstream requests), so they load on their own clock — the page renders from
+  // Supabase immediately and the inbox fills in a beat later instead of holding
+  // the whole cockpit hostage to an upstream API.
+  const [liveUnread, setLiveUnread] = useState<LiveUnreadLike[]>([])
+  const [fubUnanswered, setFubUnanswered] = useState<FubUnansweredLike[]>([])
+  const [inboxLoading, setInboxLoading] = useState(true)
   const [syncedAt, setSyncedAt] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [busy, setBusy] = useState<Set<string>>(new Set())
@@ -183,9 +222,22 @@ export default function FollowUpCockpit() {
     setLoading(false)
   }, [lo])
 
+  const loadInbox = useCallback(async () => {
+    if (!lo || !LO_SLUGS[slug]) return
+    setInboxLoading(true)
+    const [u, f] = await Promise.all([fetchLiveUnread(), fetchFubUnanswered(slug)])
+    setLiveUnread(u)
+    setFubUnanswered(f)
+    setInboxLoading(false)
+  }, [lo, slug])
+
   useEffect(() => { load() }, [load])
+  useEffect(() => { loadInbox() }, [loadInbox])
 
   const queue: FollowUpQueue = useMemo(() => buildFollowUpQueue({ deals, fub, lo: lo ?? '' }), [deals, fub, lo])
+  const inbox: ReplyInbox = useMemo(
+    () => buildReplyInbox({ deals, live: liveUnread, fubUnanswered, lo: lo ?? '' }),
+    [deals, liveUnread, fubUnanswered, lo])
   const taskQueue: TaskQueue = useMemo(() => buildTaskQueue({ tasks: fubTasks, people: fub, lo: lo ?? '' }), [fubTasks, fub, lo])
   const leads: LeadSections = useMemo(() => buildLeadSections({ deals, lo: lo ?? '' }), [deals, lo])
 
@@ -419,20 +471,43 @@ export default function FollowUpCockpit() {
 
           <SectionBreak />
 
-          {/* ── 2. Replies waiting — promoted out of "More follow-ups" ─────── */}
+          {/* ── 2. Replies waiting — promoted out of "More follow-ups" ───────
+                 Live GHL unread + synced deals + live FollowUpBoss texts, so a
+                 reply shows up whatever stage the loan is in and whichever
+                 system it landed in. ─────────────────────────────────────── */}
           <Panel icon={<AlertCircle className="w-5 h-5" />} accent="#ef4444"
-            title="Replied — waiting on you" subtitle="They messaged and nobody has answered yet"
-            badge={c.replyWaiting === 0 ? 'all clear' : `${c.replyWaiting} waiting`}
+            title="Replied — waiting on you" subtitle="They messaged and nobody has answered yet — GHL + FollowUpBoss"
+            badge={inboxLoading ? 'checking GHL + FUB…'
+              : inbox.counts.total === 0 ? 'all clear'
+              : `${inbox.counts.fresh} waiting — ${inbox.counts.ghl} GHL, ${inbox.counts.fub} FUB`}
+            action={
+              <button onClick={loadInbox} disabled={inboxLoading} title="Re-check both inboxes"
+                className="text-[11px] font-semibold text-slate-600 bg-white border border-slate-300 rounded-lg px-2 py-1 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1">
+                <RefreshCw className={`w-3 h-3 ${inboxLoading ? 'animate-spin' : ''}`} /> Refresh
+              </button>
+            }
             bare>
-            {queue.replyWaiting.length === 0 ? (
-              <p className="text-xs text-slate-400 bg-white border border-dashed border-slate-200 rounded-xl px-4 py-4">
-                Inbox zero — no unanswered replies. (Leads parked in Not Ready are excluded.)
-              </p>
-            ) : (
-              <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-3 space-y-1.5">
-                {queue.replyWaiting.map(i => <Row key={i.key} item={i} showStage actions={rowActions(i)} />)}
-              </div>
-            )}
+            <div className="space-y-2">
+              {inbox.fresh.length === 0 ? (
+                <p className="text-xs text-slate-400 bg-white border border-dashed border-slate-200 rounded-xl px-4 py-4">
+                  {inboxLoading
+                    ? 'Checking the GHL inbox and FollowUpBoss texts…'
+                    : 'Inbox zero — no unanswered replies in the last 7 days. (Leads parked in Not Ready are excluded.)'}
+                </p>
+              ) : (
+                <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-3 space-y-1.5">
+                  {inbox.fresh.map(i => <Row key={i.key} item={i} showStage actions={rowActions(i)} />)}
+                </div>
+              )}
+              {inbox.older.length > 0 && (
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                  <Drawer label={`Still unanswered, older than ${REPLY_INBOX_FRESH_DAYS} days`}
+                    count={inbox.counts.older} tone="warn">
+                    {inbox.older.map(i => <Row key={i.key} item={i} showStage actions={rowActions(i)} />)}
+                  </Drawer>
+                </div>
+              )}
+            </div>
           </Panel>
 
           <SectionBreak />
@@ -539,6 +614,9 @@ export default function FollowUpCockpit() {
 
   function rowActions(item: QueueItem) {
     const open = menuFor === item.key
+    // Nothing of ours to write to (live GHL conversation with no deal row, or a
+    // FUB person the sweep doesn't store) — show the link only.
+    if (item.readOnly) return null
     return (
       <div className="flex items-center gap-1 shrink-0">
         {/* Quick-add with this lead already attached: a GHL deal becomes a
@@ -776,8 +854,13 @@ function Row({ item, actions, showStage, showContact }: {
           className="font-semibold text-sm text-slate-900 hover:text-blue-700 truncate min-w-0 max-w-[14rem]">
           {item.name}
         </Link>
+      ) : item.fubId == null ? (
+        // A live GHL unread whose contact has no deal in our DB — there's
+        // nowhere to link to on the dashboard; the GHL button below still goes
+        // straight to the conversation.
+        <span className="font-semibold text-sm text-slate-900 truncate min-w-0 max-w-[14rem]">{item.name}</span>
       ) : (
-        <a href={fubUrl(item.fubId!)} target="_blank" rel="noopener noreferrer"
+        <a href={fubUrl(item.fubId)} target="_blank" rel="noopener noreferrer"
           className="font-semibold text-sm text-slate-900 hover:text-violet-700 truncate min-w-0 max-w-[14rem] flex items-center gap-1">
           <span className="truncate">{item.name}</span>
           <ExternalLink className="w-3 h-3 text-slate-300 shrink-0" />

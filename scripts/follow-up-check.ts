@@ -7,12 +7,14 @@
 
 import {
   mapFubPerson, mapFubTask, dedupeTasks, mergeSweeps, diffSweep, shouldStoreFubPerson,
-  type FubPersonRaw, type ExistingFubRow,
+  unansweredFromMessages, normalizeFubNumber, messagePreview,
+  type FubPersonRaw, type ExistingFubRow, type FubTextMessage,
 } from '../lib/followUpBoss'
 import {
-  buildFollowUpQueue, buildTaskQueue, buildLeadSections, lastActivityMs,
+  buildFollowUpQueue, buildTaskQueue, buildLeadSections, buildReplyInbox, lastActivityMs,
   fubIdleDays, snoozeIso, isReplyWaiting, localYmd, ymdDiffDays,
   type QueueDealLike, type QueueFubLike, type QueueTaskLike,
+  type LiveUnreadLike, type FubUnansweredLike,
 } from '../lib/followUpQueue'
 
 let pass = 0, fail = 0
@@ -113,7 +115,8 @@ const deals: QueueDealLike[] = [
   deal({ id: 'd-reply', name: 'Reply Rita', last_inbound_at: iso(3 * H), last_outbound_at: iso(9 * H), last_inbound_message: 'yes call me' }),
   // answered: outbound AFTER inbound → not waiting
   deal({ id: 'd-answered', last_inbound_at: iso(5 * H), last_outbound_at: iso(1 * H) }),
-  // inbound but status already worked in /hot-leads
+  // inbound on a "hot working" status — MUST still count as reply-waiting
+  // (the old HOT_WORKING_STATUSES exclusion zeroed the section for both LOs)
   deal({ id: 'd-hot', status: 'Pitching', last_inbound_at: iso(2 * H) }),
   // stale inbound (3 days) → not waiting
   deal({ id: 'd-oldmsg', last_inbound_at: iso(3 * D) }),
@@ -152,14 +155,21 @@ const fub: QueueFubLike[] = [
 
 const q = buildFollowUpQueue({ deals, fub, lo: 'Moe Sefati', now: NOW })
 
-eq('queue: reply-waiting exactly the unanswered one', q.replyWaiting.map(i => i.key), ['deal:d-reply'])
+eq('queue: reply-waiting = every unanswered inbound, newest first', q.replyWaiting.map(i => i.key), ['deal:d-hot', 'deal:d-reply'])
+// Regression guard for the 2026-07-30 bug: Responded / Pitching / Appointment
+// Booked / App Intake are the statuses a lead is IN when they reply. Excluding
+// them made the section render 0 rows for both LOs.
+eq('queue: hot-working statuses still count as reply-waiting',
+  ['Responded', 'Pitching', 'Appointment Booked', 'App Intake'].map(status =>
+    isReplyWaiting(deal({ id: 's', status, last_inbound_at: iso(2 * H) }), NOW)),
+  [true, true, true, true])
 eq('queue: Not Ready pipeline never counts as reply-waiting',
   [isReplyWaiting(deal({ id: 'x', pipeline_group: 'Not Ready', status: 'Remove from All Automations', last_inbound_at: iso(1 * H) }), NOW),
    isReplyWaiting(deal({ id: 'y', pipeline_group: 'Not Ready', status: 'Not Ready - Timeframe', last_inbound_at: iso(1 * H) }), NOW)],
   [false, false])
 eq('queue: Not Ready replies absent from the whole queue',
   JSON.stringify(q).includes('d-notready'), false)
-eq('queue: reply reason mentions recency', q.replyWaiting[0].reason, 'replied 3h ago')
+eq('queue: reply reason mentions recency', q.replyWaiting[1].reason, 'replied 3h ago')
 eq('queue: new leads = GHL new + FUB new', q.newLeads.map(i => i.key).sort(), ['deal:d-new', 'fub:1'])
 eq('queue: due today = due + overdue + fub overdue', q.dueToday.map(i => i.key).sort(), ['deal:d-due', 'deal:d-overdue', 'fub:12'])
 eq('queue: overdue sorts before later due', q.dueToday[0].key, 'deal:d-overdue')
@@ -332,6 +342,100 @@ eq('map: no contact at all → nulls',
 
 eq('idle: contact date drives the bucket, not lastActivity',
   fubIdleDays({ fub_id: 1, last_activity_at: iso(300 * D), last_outbound_at: iso(12 * D) }, NOW), 12)
+
+// ── FUB unanswered texts (the FollowUpBoss half of the reply inbox) ─────────
+// FUB's real unread inbox is owner-only and the per-message `read` flag is
+// meaningless (false on 300/300 inbound, true on 300/300 outbound — verified
+// live 2026-07-30), so "waiting on you" is reconstructed from the message feeds.
+
+const txt = (over: Partial<FubTextMessage>): FubTextMessage => ({
+  id: over.id ?? 1, personId: over.personId ?? 1, created: over.created ?? iso(1 * H),
+  isIncoming: true, archived: false, ...over,
+})
+
+const inboundMsgs: FubTextMessage[] = [
+  txt({ id: 1, personId: 100, name: 'Waiting Wanda', sent: iso(2 * H), message: '  hey are  you there?\n ' }),
+  txt({ id: 2, personId: 100, name: 'Waiting Wanda', sent: iso(30 * H) }),          // older, same person
+  txt({ id: 3, personId: 200, name: 'Answered Andy', sent: iso(6 * H) }),
+  txt({ id: 4, personId: 300, name: 'Archived Ann', sent: iso(1 * H), archived: true }),
+  txt({ id: 5, personId: 400, name: 'Old Otto', sent: iso(20 * D) }),
+]
+const outboundMsgs: FubTextMessage[] = [
+  txt({ id: 6, personId: 200, name: 'Answered Andy', sent: iso(1 * H), isIncoming: false }),   // replied after
+  txt({ id: 7, personId: 100, name: 'Waiting Wanda', sent: iso(40 * H), isIncoming: false }),  // replied BEFORE the inbound
+]
+
+const unanswered = unansweredFromMessages(inboundMsgs, outboundMsgs)
+eq('fub inbox: only people whose last message is inbound', unanswered.map(u => u.fubId), [100, 400])
+eq('fub inbox: keeps the newest inbound per person', unanswered[0].lastInboundAt, iso(2 * H))
+eq('fub inbox: carries the prior outbound', unanswered[0].lastOutboundAt, iso(40 * H))
+eq('fub inbox: preview is whitespace-collapsed', unanswered[0].preview, 'hey are you there?')
+eq('fub inbox: FUB\'s redaction placeholder is not a preview',
+  [messagePreview('* Body is hidden for privacy reasons *'), messagePreview('  '), messagePreview('real text')],
+  [null, null, 'real text'])
+eq('fub inbox: archived threads are not waiting', unanswered.some(u => u.fubId === 300), false)
+eq('fub inbox: names fall back to the id', unansweredFromMessages([txt({ personId: 7, name: null, sent: iso(1 * H) })], [])[0].name, 'FUB contact #7')
+eq('fub inbox: number normalizer',
+  [normalizeFubNumber('(949) 868-9588'), normalizeFubNumber('+19515833140'), normalizeFubNumber('123'), normalizeFubNumber(null)],
+  ['9498689588', '9515833140', null, null])
+
+// ── buildReplyInbox — the three-source merge ─────────────────────────────────
+
+const liveRow = (over: Partial<LiveUnreadLike>): LiveUnreadLike => ({
+  contactId: 'c1', locationId: 'loc1', name: 'Live Lucy', unreadCount: 1, channel: 'Text',
+  lastMessageAt: iso(1 * H), preview: 'call me', lo: 'Moe Sefati',
+  dealId: null, dealStatus: null, dealPipelineGroup: 'Leads', ...over,
+})
+const fubRowUn = (over: Partial<FubUnansweredLike>): FubUnansweredLike => ({
+  fubId: 900, name: 'Fub Fran', stage: 'Past Client', lastInboundAt: iso(4 * H),
+  lastOutboundAt: null, preview: null, matchedDealActive: false, stored: true, ...over,
+})
+
+const inbox = buildReplyInbox({
+  deals,
+  live: [
+    liveRow({ contactId: 'c-live', dealId: 'd-live', dealStatus: 'Docs Signed', dealPipelineGroup: 'Loans in Process', lastMessageAt: iso(30 * (60_000)) }),
+    liveRow({ contactId: 'c-parked', dealId: 'd-parked', dealPipelineGroup: 'Not Ready' }),   // parked → excluded
+    liveRow({ contactId: 'c-matt', dealId: 'd-mattlive', lo: 'Matt Park' }),                  // other LO
+    liveRow({ contactId: 'c-nodeal', dealId: null, name: 'No Deal Ned' }),                    // no deal row of ours
+  ],
+  fubUnanswered: [
+    fubRowUn({}),
+    // Has an active GHL deal — still listed: the FUB text is its own thread and
+    // GHL has no record of it (regression guard, 2026-07-30).
+    fubRowUn({ fubId: 901, name: 'Also In Ghl Al', matchedDealActive: true, lastInboundAt: iso(3 * H) }),
+    fubRowUn({ fubId: 902, name: 'Unstored Uma', stored: false, lastInboundAt: iso(5 * H) }),
+    fubRowUn({ fubId: 903, name: 'Cold Carl', lastInboundAt: iso(20 * D) }),                  // older drawer
+  ],
+  lo: 'Moe Sefati',
+  now: NOW,
+})
+
+eq('inbox: newest first across all three sources',
+  inbox.fresh.map(i => i.key),
+  ['deal:d-live', 'conv:c-nodeal', 'deal:d-hot', 'deal:d-reply', 'fub:901', 'fub:900', 'fub:902'])
+eq('inbox: a Loans-in-Process unread surfaces (stale last_inbound_at cannot hide it)',
+  inbox.fresh[0].reason, 'unread text · 30m ago')
+eq('inbox: parked (Not Ready) live rows excluded', JSON.stringify(inbox).includes('d-parked'), false)
+eq('inbox: other LO excluded', JSON.stringify(inbox).includes('d-mattlive'), false)
+eq('inbox: FUB text still listed when the person also has a GHL deal',
+  inbox.fresh.some(i => i.key === 'fub:901'), true)
+eq('inbox: older-than-7d goes to the drawer', inbox.older.map(i => i.key), ['fub:903'])
+// ghl/fub are scoped to the fresh list — the drawer has its own count.
+eq('inbox: counts', [inbox.counts.fresh, inbox.counts.older, inbox.counts.total, inbox.counts.ghl, inbox.counts.fub], [7, 1, 8, 4, 3])
+eq('inbox: read-only when there is nothing of ours to write',
+  [inbox.fresh.find(i => i.key === 'conv:c-nodeal')?.readOnly,
+   inbox.fresh.find(i => i.key === 'fub:902')?.readOnly,
+   inbox.fresh.find(i => i.key === 'fub:900')?.readOnly],
+  [true, true, false])
+
+// A deal present in BOTH the live feed and the synced columns is listed once.
+const dedupInbox = buildReplyInbox({
+  deals: [deal({ id: 'd-reply', ghl_contact_id: 'c-reply', last_inbound_at: iso(3 * H), last_outbound_at: iso(9 * H) })],
+  live: [liveRow({ contactId: 'c-reply', dealId: 'd-reply', lastMessageAt: iso(1 * H) })],
+  fubUnanswered: [], lo: 'Moe Sefati', now: NOW,
+})
+eq('inbox: live + synced same deal listed once, live wins', dedupInbox.fresh.map(i => i.reason), ['unread text · 1h ago'])
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 

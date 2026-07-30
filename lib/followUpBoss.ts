@@ -391,6 +391,149 @@ export function shouldStoreFubPerson(row: FubPersonRow, _now?: number, taskPerso
   return !!row.stage && SYNC_KEEP_STAGES.includes(row.stage)
 }
 
+// ── Unanswered inbound texts ("who messaged and nobody answered") ────────────
+//
+// FUB's real unread inbox is NOT reachable with agent keys (verified live
+// 2026-07-30, probes in scratchpad/_probe-fub-unread*.ts):
+//   • GET /v1/threads, /v1/conversations, /v1/notifications → 403 "You do not
+//     have access to this API endpoint" (owner-only).
+//   • GET /v1/me exposes `unreadConversationCount` — one integer, no drill-down.
+//   • ⚠️ the per-message `read` flag is WORTHLESS as an unread signal: it was
+//     false on 300/300 inbound messages (including weeks-old, certainly-read
+//     ones) and true on 300/300 outbound. It's a delivery receipt, not the inbox.
+//
+// What DOES work: /v1/textMessages accepts `toNumber` / `fromNumber`, and the
+// LO's own FUB calling number is on /v1/me. Paging both directions and comparing
+// the newest inbound against the newest outbound per person reconstructs
+// "waiting on you" — the same semantic the GHL half of the section uses.
+//
+// Not covered: FUB email (/v1/emails also demands a personId/threadId) and
+// inbound calls (/v1/calls IS listable account-wide with isIncoming, if we ever
+// want to fold missed calls in).
+
+/** The slice of a /v1/textMessages row we read. */
+export type FubTextMessage = {
+  id: number
+  personId: number
+  name?: string | null
+  created: string
+  sent?: string | null
+  isIncoming: boolean
+  archived?: boolean
+  message?: string | null
+  userId?: number | null
+  userName?: string | null
+}
+
+/** One person whose last text is inbound — nobody has answered them. */
+export type FubUnanswered = {
+  fubId: number
+  name: string
+  lastInboundAt: string
+  lastOutboundAt: string | null
+  preview: string | null
+  assignedUserId: number | null
+}
+
+// 3 pages ≈ 300 messages each way, which reached ~2 weeks back for both LOs at
+// build time. Deeper paging costs requests on every page load for rows that are
+// long past "waiting on you".
+const INBOX_PAGES = 3
+
+/** Digits-only US number ('(949) 868-9588' → '9498689588'), or null. */
+export function normalizeFubNumber(raw: unknown): string | null {
+  const digits = String(raw ?? '').replace(/\D/g, '')
+  const trimmed = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
+  return trimmed.length === 10 ? trimmed : null
+}
+
+async function fetchTextPage(apiKey: string, query: string): Promise<FubTextMessage[]> {
+  const all: FubTextMessage[] = []
+  let url = `${FUB_BASE}/textMessages?${query}&limit=${PAGE_LIMIT}&sort=-created`
+  for (let page = 0; page < INBOX_PAGES; page++) {
+    const data = await fubGet(url, apiKey)
+    // The collection key is lower-case 'textmessages' (not textMessages).
+    const msgs = (data.textmessages as FubTextMessage[] | undefined)
+      ?? (data.textMessages as FubTextMessage[] | undefined) ?? []
+    all.push(...msgs)
+    const meta = data._metadata as { nextLink?: string } | undefined
+    if (!meta?.nextLink || msgs.length === 0) break
+    url = meta.nextLink
+    await sleep(PACE_MS)
+  }
+  return all
+}
+
+/** This key's own FUB calling number, digits only. */
+export async function fetchFubCallingNumber(apiKey: string): Promise<string | null> {
+  const me = await fubGet(`${FUB_BASE}/me`, apiKey)
+  return normalizeFubNumber(me.callingPhoneNumber ?? me.outboundNumber)
+}
+
+/** FUB redacts message bodies on some plans — it returns the literal string
+ *  "* Body is hidden for privacy reasons *" (same treatment as recordingUrl).
+ *  Rendering that in the inbox is worse than showing no preview at all. */
+export function messagePreview(raw: string | null | undefined): string | null {
+  const text = (raw ?? '').replace(/\s+/g, ' ').trim()
+  if (!text) return null
+  if (/^\*.*hidden for privacy reasons.*\*$/i.test(text)) return null
+  return text.slice(0, 140)
+}
+
+/** Pure: newest inbound per person that has no newer outbound. */
+export function unansweredFromMessages(
+  inbound: FubTextMessage[],
+  outbound: FubTextMessage[],
+): FubUnanswered[] {
+  const ts = (m: FubTextMessage) => Date.parse(m.sent || m.created)
+  const newest = (msgs: FubTextMessage[]) => {
+    const by = new Map<number, FubTextMessage>()
+    for (const m of msgs) {
+      const t = ts(m)
+      if (isNaN(t)) continue
+      const cur = by.get(m.personId)
+      if (!cur || t > ts(cur)) by.set(m.personId, m)
+    }
+    return by
+  }
+  // An archived thread was deliberately cleared — it isn't waiting on anyone.
+  const lastIn = newest(inbound.filter(m => m.isIncoming && !m.archived))
+  const lastOut = newest(outbound.filter(m => !m.isIncoming))
+
+  const out: FubUnanswered[] = []
+  for (const [personId, m] of lastIn) {
+    const reply = lastOut.get(personId)
+    if (reply && ts(reply) >= ts(m)) continue
+    out.push({
+      fubId: personId,
+      name: m.name?.trim() || `FUB contact #${personId}`,
+      lastInboundAt: new Date(ts(m)).toISOString(),
+      lastOutboundAt: reply ? new Date(ts(reply)).toISOString() : null,
+      preview: messagePreview(m.message),
+      assignedUserId: m.userId ?? null,
+    })
+  }
+  return out.sort((a, b) => Date.parse(b.lastInboundAt) - Date.parse(a.lastInboundAt))
+}
+
+/** Live "waiting on you" list for one agent key. Attribution is by the LO's own
+ *  calling number, not by assignee: a text sent to Matt's number is Matt's
+ *  conversation to answer even if the person is assigned to someone else. */
+export async function fetchFubUnanswered(apiKey: string, label: FubKeyLabel): Promise<FubUnanswered[]> {
+  const number = await fetchFubCallingNumber(apiKey)
+  if (!number) {
+    console.warn(`[FUB] inbox '${label}': no calling number on /me — skipping`)
+    return []
+  }
+  await sleep(PACE_MS)
+  const inbound = await fetchTextPage(apiKey, `toNumber=${number}`)
+  await sleep(PACE_MS)
+  const outbound = await fetchTextPage(apiKey, `fromNumber=${number}`)
+  const items = unansweredFromMessages(inbound, outbound)
+  console.log(`[FUB] inbox '${label}': ${inbound.length} in / ${outbound.length} out → ${items.length} unanswered`)
+  return items
+}
+
 // ── Diff against existing table state ────────────────────────────────────────
 
 /** The slice of an existing DB row the differ compares against. */

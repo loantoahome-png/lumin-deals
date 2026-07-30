@@ -1,5 +1,26 @@
 # GOTCHAS — Lumin Deals
 
+### A "leave that to the other page" exclusion can cancel a feature outright — check what's LEFT, not what's removed
+**Tried:** The Follow-Up cockpit's "Replied — waiting on you" skipped deals whose status was in `HOT_WORKING_STATUSES` (Responded / Pitching / Appointment Booked / App Intake), reasoning that /hot-leads already works those tabs. Sensible in isolation, reviewed as such, shipped.
+**Failed because:** those are **exactly the statuses a lead occupies when they reply** — GHL's workflow moves a replying lead to `Responded` before the message reaches us. Everything the filter left behind was either parked in `Not Ready` (also excluded, correctly) or a New Lead/Ghosted row with no inbound. The section therefore matched **0 rows for BOTH LOs**, and read as a cheerful "Inbox zero — no unanswered replies" while GHL showed 5 unread. A filter that removes 100% of the population looks identical to an empty population.
+**What works:** when adding an exclusion, run the predicate over the real table with and without it and compare counts (`scripts/`-style probe, 30 seconds). Here: with 0/0, without Matt 2 / Moe 3. Fixtures now assert all four hot statuses DO count as reply-waiting.
+**Project:** lumin-deals
+**Date:** 2026-07-30
+
+### `deals.last_inbound_at` / `last_outbound_at` are stale outside the lead stages — the webhook never writes them
+**Tried:** Treating those columns as the live "who messaged last" signal for any deal.
+**Failed because:** they are written by **one** path — `app/api/sync/conversations` on the 30-min tick — and only for `['Responded','Pitching','App Intake']` plus the early triage stages bounded to 10 days. The GHL webhook writes `last_communication_at`, `last_communication_type`, `comm_unread_count` and `last_inbound_message`, and **nothing else**. So every deal past App Intake (Loans in Process, Funded, Pre-Approved, an older Appointment Booked) has frozen inbound/outbound timestamps. Live: Scot Gordon had `comm_unread_count` 1 with `last_communication_at` = today and `last_inbound_at` = **15 days earlier**.
+**What works:** for a "who is waiting on us" question spanning all stages, use the LIVE feed `/api/ghl/unread` (one conversations-search per account, `status=unread`, already powering the dashboard inbox) and keep the synced columns as a supplementary source. `last_communication_at` is fresh everywhere; the directional pair is not.
+**Project:** lumin-deals
+**Date:** 2026-07-30
+
+### FollowUpBoss: the unread inbox is owner-only, and the per-message `read` flag is a lie
+**Tried:** Reading FUB "unread messages" with the agent-level API keys (`FUB_API_KEY_MOE` / `FUB_API_KEY_MATT`).
+**Failed because:** `GET /v1/threads`, `/v1/conversations` and `/v1/notifications` all return **403 "You do not have access to this API endpoint"** for agent keys. `/v1/me` exposes only `unreadConversationCount` — a single integer with no drill-down. And the message-level `read` boolean is worthless: across 300 inbound texts per LO it was `false` on **300/300** (including weeks-old, certainly-read ones) and `true` on 300/300 outbound — it is a delivery receipt, not the inbox. Building on it would have marked every inbound message forever unread.
+**What works:** `/v1/textMessages` requires one of `personId, threadId, phone, toNumber, fromNumber, sharedInboxId, groupTextId, participants, id` — and **`toNumber` / `fromNumber` with the LO's own calling number (`/v1/me.callingPhoneNumber`) are honored** (verified 300/300 correctly directional). Page both, group by `personId`, and a person whose newest inbound has no newer outbound is waiting on you. That's `fetchFubUnanswered()` in `lib/followUpBoss.ts`. Also note FUB may redact bodies to the literal string `* Body is hidden for privacy reasons *` — strip it (`messagePreview`) rather than render it. Not reachable this way: FUB email (`/v1/emails` also demands a personId/threadId); inbound calls ARE listable account-wide via `/v1/calls` with `isIncoming`.
+**Project:** lumin-deals
+**Date:** 2026-07-30
+
 ### An opportunity missed ONCE by the incremental sync is missed FOREVER — the maintenance pass does not rescue it
 **Tried:** Assumed the ~3-hourly maintenance pass would pick up any opportunity the 15-min incremental sync had skipped, since maintenance sets `needFullOpps` and fetches the COMPLETE opportunity list.
 **Failed because:** fetching everything is not the same as processing everything. `changedOpps` is filtered by the cursor whenever `isFullSync` is false (`app/api/sync/ghl/route.ts:648-659`), and **the create/update loop iterates `changedOpps`, not `opportunities`** (`:782`). Maintenance runs pull the full list only so the PRUNE has the live set — creation still obeys the cursor. So an opportunity whose `updatedAt` slipped below the cursor once (GHL's opportunity SEARCH index lags the live record, and the only protection is `INCREMENTAL_OVERLAP_MS = 10 min`, `:618`) is filtered out on every subsequent run forever, because its `updatedAt` never moves again. **Live proof 2026-07-28:** 11 of Randy's leads created 7/24–7/28 — one at *Appointment Booked*, several priced — were absent from the dashboard for four days across dozens of incremental AND maintenance runs. A single `?full=1` ingested all 11 immediately, with correct source, purpose and lead price.

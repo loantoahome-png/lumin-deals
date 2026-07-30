@@ -1,6 +1,25 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-07-30] Reply inbox — the "Replied — waiting on you" section could never show anything
+**Status:** VERIFIED live in a browser session on both LO pages.
+**Issue:** Efrain: "Why does matt not have anything in his inbox when it shows 4 unread messages on GHL, also can you put unread messages from FUB on this section on both Matt and Moes page?" The section rendered "Inbox zero" for **both** LOs while GHL's team inbox showed unread conversations.
+**Root cause (two, compounding — full write-up in [docs/diagnoses/2026-07-30-replied-waiting-empty-diagnosis.md](docs/diagnoses/2026-07-30-replied-waiting-empty-diagnosis.md)):**
+1. `isReplyWaiting` excluded `HOT_WORKING_STATUSES` (Responded / Pitching / Appointment Booked / App Intake) — **exactly the statuses a lead is in when they reply**, since GHL's workflow moves them to Responded before the message reaches us. Measured over all 2,994 deals: predicate matched **0** rows for Matt AND Moe; without the clause, Matt 2 / Moe 3.
+2. `deals.last_inbound_at` / `last_outbound_at` are written **only** by the 30-min conversations refresh, and only for the lead stages (the GHL webhook never touches them). Anything past App Intake has frozen timestamps — Scot Gordon: `comm_unread_count` 1 and `last_communication_at` today, `last_inbound_at` **7/15**.
+**Change:**
+- [lib/followUpQueue.ts](lib/followUpQueue.ts) — dropped the hot-status clause (with a do-not-re-add comment); NEW `buildReplyInbox()` merges three sources and splits ≤7 days from an older drawer; `fmtAgo` gained minute granularity under an hour.
+- NEW [app/api/fub/unanswered/route.ts](app/api/fub/unanswered/route.ts) + `fetchFubUnanswered` / `unansweredFromMessages` / `messagePreview` in [lib/followUpBoss.ts](lib/followUpBoss.ts) — FollowUpBoss unanswered inbound texts.
+- [app/api/ghl/unread/route.ts](app/api/ghl/unread/route.ts) — now returns `dealPipelineGroup` so consumers can honor the Not Ready exclusion.
+- [app/follow-up/[lo]/page.tsx](app/follow-up/[lo]/page.tsx) — the two live feeds load on their own clock (the page still renders from Supabase immediately), a Refresh button re-checks both, rows with no row of ours to write to hide their action buttons.
+**Test Method:** `scripts/follow-up-check.ts` (133 → **134** assertions, incl. regression guards for both root causes); `lumin-deals-dev-bypass` dev server, both `/follow-up/matt` and `/follow-up/moe` read out of the DOM and screenshotted.
+**Result:**
+- **Matt: 0 → 8 waiting (4 GHL, 4 FUB)** + 11 older. Includes Scot Gordon (`Docs Signed`, the stale-timestamp case), Leo Scholz (`Responded`) and Richard Lewis (`Pitching`) — the exact rows from Efrain's screenshot. Yvonne Schell correctly stays out: we answered her; GHL flags the thread unread only because nobody *opened* it.
+- **Moe: 0 → 7 waiting (2 GHL, 5 FUB)** + 15 older.
+- Shante Barnes surfaces on Matt's page from the live feed with **no deal row** — she exists as a separate contact in Matt's GHL sub-account; the deal we store is Moe's. Previously invisible in both directions.
+- Caught during verification: suppressing FUB rows on `matched_deal_active` hid Tiffany Dukes, who texted Moe's FUB number 4 h earlier — that text exists ONLY in FUB. Suppression removed, fixture added.
+- 18/18 fixture suites green (602 assertions), `npx tsc --noEmit` exactly **7 pre-existing** errors (0 in any touched file), `next build` ✓, 0 console errors.
+
 ### [2026-07-29] Env-gated local auth bypass, so UI verification stops hand-editing middleware
 **Status:** VERIFIED in both directions, live prod re-checked after deploy.
 **Issue:** Efrain: "How can I get you access to go into the dashboard?" Verifying a UI change locally meant editing `middleware.ts` to `return NextResponse.next()` and remembering to revert it. That pattern is the real risk — it depends on someone correctly undoing an auth bypass every single time.

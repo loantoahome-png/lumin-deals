@@ -16,8 +16,9 @@ import { isOpenLead } from './triage'
 
 const MS_PER_DAY = 86_400_000
 
-// Statuses already worked via the /hot-leads tabs — replies on these are NOT
-// re-surfaced by the cockpit (the pitching/intake tabs own them).
+// Statuses worked via the /hot-leads tabs. Kept as documentation of the
+// grouping — deliberately NOT used to filter the reply inbox any more
+// (see isReplyWaiting).
 export const HOT_WORKING_STATUSES = ['Responded', 'Pitching', 'Appointment Booked', 'App Intake']
 
 // FUB stage buckets (all 17 live stages accounted for — see research doc census).
@@ -97,6 +98,10 @@ export type QueueItem = {
   lastMessage: string | null
   note: string | null              // existing next_action note
   reason: string                   // plain-English "why is this here"
+  /** No row of ours to write to — a live GHL conversation with no deal, or a
+   *  FUB person the sweep doesn't store. Snooze/Touched would silently update
+   *  zero rows, so the UI hides those actions. */
+  readOnly?: boolean
 }
 
 export type StaleBuckets = { b7_30: QueueItem[]; b31_90: QueueItem[]; b90: QueueItem[] }
@@ -147,7 +152,12 @@ const fmtAgo = (iso: string | null | undefined, now: number): string => {
   const t = parse(iso)
   if (t == null) return 'just now'
   const h = Math.floor((now - t) / 3_600_000)
-  if (h < 1) return 'just now'
+  // Minute granularity under an hour: in the reply inbox the difference between
+  // "just now" and "50m ago" is the difference between fine and neglected.
+  if (h < 1) {
+    const m = Math.floor((now - t) / 60_000)
+    return m < 1 ? 'just now' : `${m}m ago`
+  }
   if (h < 24) return `${h}h ago`
   return `${Math.floor(h / 24)}d ago`
 }
@@ -224,11 +234,19 @@ const loMatch = (lo: string | null | undefined, target: string) => lo === target
 // not ready pipeline". Their check-ins resurface through Hot Leads instead.
 export const NOT_READY_GROUP = 'Not Ready'
 
-/** Unanswered inbound within the reply window, on a status /hot-leads isn't already working. */
+/** Unanswered inbound within the reply window.
+ *
+ * ⚠️ Do NOT re-add a HOT_WORKING_STATUSES exclusion here. It shipped that way on
+ * 2026-07-30 (reasoning: /hot-leads already works those tabs) and it silently
+ * zeroed this section for BOTH LOs — Responded / Pitching / Appointment Booked /
+ * App Intake are exactly the statuses a lead is in *when they reply*, since GHL's
+ * workflow moves them to Responded before the message reaches us. Measured live
+ * the same day: predicate 0/0, without the clause Matt 2 / Moe 3.
+ * Diagnosis: docs/diagnoses/2026-07-30-replied-waiting-empty-diagnosis.md
+ */
 export function isReplyWaiting(d: QueueDealLike, now: number): boolean {
   if (!isOpenLead(d)) return false
   if (d.pipeline_group === NOT_READY_GROUP) return false
-  if (HOT_WORKING_STATUSES.includes(d.status)) return false
   const inbound = parse(d.last_inbound_at)
   if (inbound == null || now - inbound > REPLY_WINDOW_H * 3_600_000) return false
   const outbound = parse(d.last_outbound_at)
@@ -531,6 +549,164 @@ export function buildLeadSections(opts: { deals: QueueDealLike[]; lo: string; no
       older: older.length,
       pitching: mine.filter(d => d.status === 'Pitching').length,
       appIntake: mine.filter(d => d.status === 'App Intake').length,
+    },
+  }
+}
+
+// ── The reply inbox — "they messaged and nobody has answered yet" ───────────
+//
+// Three sources, because no single one is complete (see the 2026-07-30
+// diagnosis; the section rendered 0 rows for both LOs before this existed):
+//
+//   1. LIVE GHL unread  — /api/ghl/unread, one conversations-search per GHL
+//      account, ALL stages. The only source that sees a reply on a deal past
+//      App Intake, because deals.last_inbound_at is written solely by the
+//      30-min conversations refresh and only for the lead stages (the webhook
+//      never touches it), so it's frozen everywhere else.
+//   2. DB deals         — isReplyWaiting over the synced columns. Catches a
+//      reply GHL no longer flags unread (someone opened the thread and never
+//      answered), which the live feed cannot see.
+//   3. LIVE FUB         — /api/fub/unanswered, reconstructed from the LO's own
+//      text feeds (FUB's unread inbox is owner-only).
+//
+// GHL rows dedupe by deal id, then by contact id, so a lead that appears in
+// both GHL sources is listed once — live wins, its timestamp is the fresh one.
+
+/** One row of /api/ghl/unread (the fields this builder reads). */
+export type LiveUnreadLike = {
+  contactId: string | null
+  locationId: string
+  name: string
+  unreadCount: number
+  channel: string
+  lastMessageAt: string | null
+  preview: string
+  lo: string
+  dealId: string | null
+  dealStatus: string | null
+  dealPipelineGroup: string | null
+}
+
+/** One row of /api/fub/unanswered. */
+export type FubUnansweredLike = {
+  fubId: number
+  name: string
+  stage: string | null
+  lastInboundAt: string
+  lastOutboundAt: string | null
+  preview: string | null
+  matchedDealActive?: boolean
+  /** Present in fub_people — required for the snooze/touched writes. */
+  stored?: boolean
+}
+
+/** Rows older than this drop into the "older, still unanswered" drawer rather
+ *  than the main list — they're real, but they're not today's inbox. */
+export const REPLY_INBOX_FRESH_DAYS = 7
+
+export type ReplyInbox = {
+  fresh: QueueItem[]
+  older: QueueItem[]
+  counts: { fresh: number; older: number; total: number; ghl: number; fub: number }
+}
+
+function liveItem(u: LiveUnreadLike, now: number): QueueItem {
+  const at = u.lastMessageAt
+  return {
+    key: u.dealId ? `deal:${u.dealId}` : `conv:${u.contactId ?? u.name}`,
+    system: 'ghl',
+    dealId: u.dealId ?? undefined,
+    ghlContactId: u.contactId,
+    ghlLocationId: u.locationId,
+    name: u.name,
+    stage: u.dealStatus || u.channel || '—',
+    price: null,
+    idleDays: daysBetween(at, now),
+    dueAt: null,
+    overdue: false,
+    inboundAt: at,
+    outboundAt: null,
+    lastMessage: u.preview || null,
+    note: null,
+    reason: `unread ${u.channel.toLowerCase()} · ${fmtAgo(at, now)}`,
+    readOnly: !u.dealId,
+  }
+}
+
+function fubUnansweredItem(f: FubUnansweredLike, now: number): QueueItem {
+  return {
+    key: `fub:${f.fubId}`,
+    system: 'fub',
+    fubId: f.fubId,
+    name: f.name,
+    stage: f.stage || 'FUB',
+    price: null,
+    idleDays: daysBetween(f.lastInboundAt, now),
+    dueAt: null,
+    overdue: false,
+    inboundAt: f.lastInboundAt,
+    outboundAt: f.lastOutboundAt,
+    lastMessage: f.preview,
+    note: null,
+    reason: `texted ${fmtAgo(f.lastInboundAt, now)}`,
+    readOnly: !f.stored,
+  }
+}
+
+export function buildReplyInbox(opts: {
+  deals: QueueDealLike[]
+  live: LiveUnreadLike[]
+  fubUnanswered: FubUnansweredLike[]
+  lo: string
+  now?: number
+}): ReplyInbox {
+  const now = opts.now ?? Date.now()
+
+  // 1 — live GHL unread for this LO, minus the parked pipeline (Efrain: the
+  // replied section "does not include leads that are in the not ready pipeline").
+  const live = opts.live
+    .filter(u => u.lo === opts.lo && u.dealPipelineGroup !== NOT_READY_GROUP)
+    .map(u => liveItem(u, now))
+
+  const seenDeals = new Set(live.map(i => i.dealId).filter(Boolean) as string[])
+  const seenContacts = new Set(live.map(i => i.ghlContactId).filter(Boolean) as string[])
+
+  // 2 — synced deals the live feed didn't already cover.
+  const fromDb = opts.deals
+    .filter(d => d.loan_officer === opts.lo && isReplyWaiting(d, now))
+    .filter(d => !seenDeals.has(d.id) && !(d.ghl_contact_id && seenContacts.has(d.ghl_contact_id)))
+    .map(d => dealItem(d, `replied ${fmtAgo(d.last_inbound_at, now)}`, now))
+
+  // 3 — FUB.
+  //
+  // NOTE: unlike the past-client book, matched_deal_active does NOT suppress a
+  // row here. A text to the LO's FUB number is a different thread from their
+  // GHL conversation — GHL has no record of it — so suppressing "this person
+  // also has a GHL deal" hid real unanswered messages (caught live 2026-07-30:
+  // Tiffany Dukes texted Moe's FUB number 4h earlier and vanished from the
+  // inbox). Two rows for one human is the honest answer when two channels are
+  // both waiting; each row links to the system its message lives in.
+  const fub = opts.fubUnanswered.map(f => fubUnansweredItem(f, now))
+
+  const all = [...live, ...fromDb, ...fub].sort(byInboundDesc)
+  const cutoff = now - REPLY_INBOX_FRESH_DAYS * MS_PER_DAY
+  const isFresh = (i: QueueItem) => {
+    const t = parse(i.inboundAt)
+    return t == null || t >= cutoff       // unknown age sorts with the fresh set
+  }
+  const fresh = all.filter(isFresh)
+  const older = all.filter(i => !isFresh(i))
+
+  return {
+    fresh, older,
+    counts: {
+      fresh: fresh.length,
+      older: older.length,
+      total: all.length,
+      // Scoped to `fresh` on purpose: the badge sits next to "N waiting", and a
+      // split that silently included the older drawer read as a contradiction.
+      ghl: fresh.filter(i => i.system === 'ghl').length,
+      fub: fresh.filter(i => i.system === 'fub').length,
     },
   }
 }

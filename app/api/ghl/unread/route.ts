@@ -55,6 +55,9 @@ type UnreadItem = {
   lo: string
   dealId: string | null
   dealStatus: string | null
+  // Consumers that hide parked leads (the Follow-Up cockpit's reply inbox
+  // excludes the Not Ready pipeline) need the group, not just the status.
+  dealPipelineGroup: string | null
   ghlUrl: string | null
   replyBlocked: boolean        // contact is Do-Not-Contact for SMS — block the reply composer
   dndNote: string | null       // badge label, e.g. "Do Not Contact" / "DND: SMS"
@@ -97,18 +100,18 @@ export async function GET() {
 
     // Enrich with the matching deal (link, status, real LO) when we have it.
     const contactIds = Array.from(new Set(raw.map(r => r.conv.contactId).filter(Boolean))) as string[]
-    type DealLite = { id: string; status: string | null; loan_officer: string | null; name: string | null; dnd: boolean | null; dnd_settings: Record<string, unknown> | null }
+    type DealLite = { id: string; status: string | null; pipeline_group: string | null; loan_officer: string | null; name: string | null; dnd: boolean | null; dnd_settings: Record<string, unknown> | null }
     const dealByContact = new Map<string, DealLite>()
     if (contactIds.length > 0) {
       const supabase = createServiceClient()
       const { data } = await supabase
         .from('deals')
-        .select('id,status,loan_officer,name,ghl_contact_id,dnd,dnd_settings')
+        .select('id,status,pipeline_group,loan_officer,name,ghl_contact_id,dnd,dnd_settings')
         .in('ghl_contact_id', contactIds)
       for (const d of (data ?? []) as Array<DealLite & { ghl_contact_id: string }>) {
         // Keep the first match per contact (a contact may have multiple loans)
         if (!dealByContact.has(d.ghl_contact_id)) {
-          dealByContact.set(d.ghl_contact_id, { id: d.id, status: d.status, loan_officer: d.loan_officer, name: d.name, dnd: d.dnd, dnd_settings: d.dnd_settings })
+          dealByContact.set(d.ghl_contact_id, { id: d.id, status: d.status, pipeline_group: d.pipeline_group, loan_officer: d.loan_officer, name: d.name, dnd: d.dnd, dnd_settings: d.dnd_settings })
         }
       }
     }
@@ -130,6 +133,7 @@ export async function GET() {
         lo: deal?.loan_officer || ACCOUNT_LO[account] || account,
         dealId: deal?.id ?? null,
         dealStatus: deal?.status ?? null,
+        dealPipelineGroup: deal?.pipeline_group ?? null,
         ghlUrl: ghlConversationUrl(locationId, conv.id ?? null, conv.contactId ?? null),
         replyBlocked: isChannelBlocked(deal, 'SMS'),
         dndNote: dndLabel(deal),
