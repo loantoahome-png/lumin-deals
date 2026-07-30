@@ -342,3 +342,17 @@ class of error as the opp-id bug (querying a column the bug itself poisons).
 **What works:** Only documented params (`lastActivityAfter`, `assignedUserId` on /people, `sort=-updated` + cursor walk for incremental). Verify every new param against a known-count probe first. Also: webhooks are account-OWNER-only (agent/broker keys 403) — polling is the only option with Moe/Matt keys; rate limit 125 req/10s unregistered.
 **Project:** lumin-deals
 **Date:** 2026-07-30
+
+### FUB /tasks filters DO work — an earlier "silently ignored" verdict was wrong param names
+**Tried:** `GET /v1/tasks?assignedUserId=72&status=incomplete&dueDateFrom=…&dueDateTo=…` → every variant returned the unfiltered 6,949, so tasks were written off as unfilterable (and left out of v1 of the cockpit).
+**Failed because:** `status`, `dueDateFrom`, `dueDateTo` are NOT FUB parameters. Undocumented params are ignored silently, so a wrong name looks exactly like a broken filter.
+**What works:** the documented set — `isCompleted=false`, `due=today|overdue|upcoming`, `dueStart=`/`dueEnd=`, `personId`, `type`. With those: Moe 277 open tasks, Matt 698. Lesson: before concluding "the API ignores filters", diff your param names against the docs — `docs.followupboss.com/llms.txt` indexes every endpoint as markdown.
+**Project:** lumin-deals
+**Date:** 2026-07-30
+
+### Sorting a paginated FUB sweep by a non-unique column re-serves rows
+**Tried:** `GET /v1/tasks?limit=100&isCompleted=false&sort=dueDate`, walking `_metadata.nextLink`, then bulk-upserting the result.
+**Failed because:** sorting by a non-unique column drops FUB off keyset pagination onto offsets; pages drift and the same task comes back twice. Postgres then rejects the ENTIRE batch: `ON CONFLICT DO UPDATE command cannot affect row a second time` — one duplicate, zero rows written.
+**What works:** sweep in the default id-descending order (keyset-stable) and sort locally; plus `dedupeTasks()` as a guard, since a row created mid-sweep can still double up. Same risk applies to any `sort=` on a paginated FUB collection.
+**Project:** lumin-deals
+**Date:** 2026-07-30

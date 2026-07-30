@@ -15,12 +15,26 @@ One bookmarkable page per LO that merges both systems into a prioritized daily q
 one-click snooze / log-touch. Complements — never duplicates — `/hot-leads` (team lead triage):
 the cockpit pulls GHL **due/urgent items** and owns the **FUB book lifecycle**.
 
+## Addendum 2026-07-30 — FUB tasks (SHIPPED, `dd3bfe2`)
+
+Efrain: "show the FUB tasks due within the next 7 days on that page, and include a button on the task
+that will take you to that lead on FUB." Delivered as a fourth section (below Due today):
+
+- **`fub_tasks` table** — OPEN tasks only (977). Full-replace each sweep: a task missing from the sweep
+  was completed or deleted, so it's removed. Tasks are per-key in FUB → `loan_officer` unambiguous.
+- **Three groups:** Overdue (preview 10 + show-all; sorted most-recently-due first — Matt's backlog is
+  583 deep and a 2-day-late task beats one from last October), Due today, Next 7 days.
+- **Row:** task text (real notes, e.g. "Aarons credit tanked…"), person name + stage, due label, and an
+  **Open in FUB** button → `nova.followupboss.com/2/people/view/<personId>`.
+- **Pull filter is now task-aware:** an open task overrides the stage/idle rules (a scheduled task IS
+  intent to follow up) — restored 53 people, 2,040 → 2,093.
+- **Dates compare as LOCAL YMD strings** — `Date.parse('2026-07-30')` is UTC midnight = "yesterday" in PT.
+
 ## Non-goals (v1)
 
-- No write-back to FUB or GHL (phase 2; FUB notes are rate-limited 10/10s).
+- No write-back to FUB or GHL (phase 2; FUB notes are rate-limited 10/10s) — including completing a
+  task from the dashboard (`PUT /v1/tasks/:id`), the obvious next step now that tasks are visible.
 - No FUB webhooks (owner-only — polling integration, verified).
-- No FUB-native task ingestion (its filter params are silently ignored — needs a full 6,949-task
-  sweep + local filtering; phase 1.5 if wanted).
 - No cadence-config UI (fixed sensible defaults; `sync_state` config later).
 - No Randy page (architecture keeps the slot open; he's FUB user 35).
 - No new cron jobs (piggybacks the existing ghl-sync cron — Efrain's standing preference).

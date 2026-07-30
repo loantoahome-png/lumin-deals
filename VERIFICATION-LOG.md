@@ -2340,3 +2340,10 @@ spaced `gap-x-10 gap-y-4`.
 **Changes:** `shouldStoreFubPerson()` gate in `lib/followUpBoss.ts` (Moe/Matt-assigned only; Trash/Referred Out/Unresponsive/Inactive dropped; raw Lead/Attempting Contact only with ≤90d activity), applied in `/api/sync/fub`; Cold section removed from queue model + both pages; one-time purge of 3,172 flagged rows (state-carrying guard = 0); `scripts/_tmp-fub-census.ts` + `_tmp-fub-purge.ts` kept for reruns.
 **Test Method:** 61-assertion fixture suite; sweep ×2 (flags 3,172 → post-purge 0/0/0 idempotent); census (2,040 rows, Other column all-zero, no junk stages); prod DOM read.
 **Result:** Prod `/follow-up/matt`: stale 2,696 → 1,193, Cold gone, due/new/past unchanged. Commit `1865b41`.
+
+### [2026-07-30] Feature: FUB tasks on the Follow-Up Cockpit
+**Status:** VERIFIED
+**Issue:** Efrain — surface the LOs' own FollowUpBoss tasks due in the next 7 days, each with a button through to that lead in FUB.
+**Changes:** `supabase-fub-tasks.sql` (new table, applied to prod); `fetchOpenFubTasks`/`mapFubTask`/`dedupeTasks` in `lib/followUpBoss.ts`; `buildTaskQueue` + local-YMD date helpers in `lib/followUpQueue.ts`; task sweep + full-replace + task-aware pull filter in `/api/sync/fub`; `TaskSection`/`TaskRow` with "Open in FUB" deep links on `/follow-up/[lo]`; 24 new fixtures.
+**Test Method:** 89-assertion suite; `tsc` (7 pre-existing only); `next build`; sync ×2 (977 tasks, second run 0 inserted/0 updated/0 removed); prod DOM read + show-all click test through the logged-in session.
+**Result:** Prod Moe — 29 overdue, 20 due today, 55 next 7 days (chip "FUB tasks (7d): 75"). Matt — 583 overdue (capped at 10, "Show all 583" expands 39→612 rows), 1 today, 28 next 7. Deep links resolve to `nova.followupboss.com/2/people/view/<id>`. Task-aware filter restored 53 people (2,040 → 2,093). Commit `dd3bfe2`.
