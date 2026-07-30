@@ -3,8 +3,9 @@
 // Task composers for the Follow-Up Cockpit. Two systems live on that page, so
 // there are two composers and each task lands where it belongs:
 //
-//   • NewDashTaskModal — a dashboard task (deal_tasks), same shape and the same
-//     23:59 "all day" convention the /tasks page uses, so both surfaces agree.
+//   • DashTaskModal    — a dashboard task (deal_tasks). The body is the SHARED
+//     NewTaskForm from components/TaskBoard, so create AND edit are identical
+//     to /tasks; this file only supplies the popup shell.
 //   • NewFubTaskModal  — a real FollowUpBoss task on one of that LO's people,
 //     created through /api/fub/tasks/create (the server holds the API keys).
 //
@@ -12,26 +13,15 @@
 // the deal/person pre-filled.
 
 import { useEffect, useMemo, useState } from 'react'
-import { X, ListTodo, ClipboardList, Search } from 'lucide-react'
-import { TASK_ASSIGNEES, type DealTask } from '@/lib/types'
-
-const ALL_DAY_TIME = '23:59'   // matches app/tasks/page.tsx — blank time = all day
+import { X, ListTodo, Search } from 'lucide-react'
+import { NewTaskForm } from '@/components/TaskBoard'
+import type { Deal, DealTask } from '@/lib/types'
 
 /** Local YYYY-MM-DD (never toISOString, which shifts the date west of UTC). */
 export function todayYmdLocal(d = new Date()): string {
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
-
-function combineDateTime(date: string, time: string): string | null {
-  if (!date) return null
-  const d = new Date(`${date}T${time || ALL_DAY_TIME}`)
-  return isNaN(d.getTime()) ? null : d.toISOString()
-}
-
-const TIME_OPTIONS = [
-  '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00',
-].map(v => ({ value: v, label: new Date(`2000-01-01T${v}`).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) }))
 
 function Shell({ title, icon, accent, onClose, children }: {
   title: string; icon: React.ReactNode; accent: string; onClose: () => void; children: React.ReactNode
@@ -58,138 +48,47 @@ function Shell({ title, icon, accent, onClose, children }: {
 const inputCls = 'w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
 const labelCls = 'block text-[10px] font-medium text-slate-500 mb-0.5'
 
-// ── Dashboard task (deal_tasks) ──────────────────────────────────────────────
+// ── Dashboard task (deal_tasks) — the SHARED /tasks form, in a popup ─────────
+// Efrain 2026-07-30: "make a pop up that is made when creating a new task".
+// The body IS components/TaskBoard's NewTaskForm, so create and edit look and
+// behave exactly like they do on /tasks. Passing `initialTask` turns it into
+// the edit form (its own "Edit Task" heading and "Save changes" button).
 
-export type DealOption = { id: string; name: string | null }
-
-export function NewDashTaskModal({ lo, deals, initialDealId, onCreate, onClose }: {
-  lo: string
-  deals: DealOption[]
+export function DashTaskModal({ deals, initialTask, initialAssignee, initialDealId, onSubmit, onClose }: {
+  deals: Deal[]
+  initialTask?: DealTask
+  initialAssignee?: string
   initialDealId?: string | null
-  onCreate: (t: Omit<DealTask, 'id' | 'created_at'>) => Promise<void>
+  onSubmit: (t: Omit<DealTask, 'id' | 'created_at'>) => Promise<void> | void
   onClose: () => void
 }) {
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-  const [date, setDate] = useState('')
-  const [time, setTime] = useState('')
-  const [assignee, setAssignee] = useState(lo)
-  const [priority, setPriority] = useState('normal')
-  const [dealId, setDealId] = useState(initialDealId ?? '')
-  const [dealSearch, setDealSearch] = useState('')
-  const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
-  const matching = useMemo(() => {
-    const q = dealSearch.toLowerCase().trim()
-    const list = q ? deals.filter(d => d.name?.toLowerCase().includes(q)) : deals
-    return list.slice(0, 20)
-  }, [deals, dealSearch])
-  const selected = deals.find(d => d.id === dealId)
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!title.trim() || saving) return
-    setSaving(true)
-    try {
-      await onCreate({
-        deal_id: dealId || null,
-        title: title.trim(),
-        description: description.trim() || null,
-        due_at: combineDateTime(date, time),
-        assignee: assignee || null,
-        // Created from this LO's own cockpit — record who it came from so the
-        // completion email has an assigner, matching /tasks behavior.
-        assigned_by: lo,
-        priority,
-        completed_at: null,
-      })
-      onClose()
-    } finally {
-      setSaving(false)
-    }
-  }
+  // A pre-filled deal is modelled as a partial task so the shared form seeds it
+  // without needing a separate prop.
+  const seeded: DealTask | undefined = initialTask
+    ?? (initialDealId
+      ? ({ id: '', deal_id: initialDealId, title: '', description: null, due_at: null,
+           assignee: initialAssignee ?? null, assigned_by: null, priority: 'normal',
+           completed_at: null, created_at: '' } as DealTask)
+      : undefined)
 
   return (
-    <Shell title="New dashboard task" icon={<ClipboardList className="w-4 h-4" />} accent="#10b981" onClose={onClose}>
-      <form onSubmit={submit} className="p-5 space-y-3">
-        <input autoFocus value={title} onChange={e => setTitle(e.target.value)} required
-          placeholder="What needs to happen?" className={inputCls} />
-        <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2}
-          placeholder="Details (optional)" className={`${inputCls} resize-none`} />
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <div className="flex items-center justify-between">
-              <label className={labelCls}>Due date</label>
-              {(date || time) && (
-                <button type="button" onClick={() => { setDate(''); setTime('') }}
-                  className="text-[10px] text-slate-400 hover:text-red-600">Clear</button>
-              )}
-            </div>
-            <input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} />
-          </div>
-          <div>
-            <label className={labelCls}>Due time</label>
-            <select value={time} onChange={e => setTime(e.target.value)} className={`${inputCls} bg-white`}>
-              <option value="">All day</option>
-              {TIME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>Assigned to</label>
-            <select value={assignee} onChange={e => setAssignee(e.target.value)} className={`${inputCls} bg-white`}>
-              <option value="">— Unassigned —</option>
-              {TASK_ASSIGNEES.map(a => <option key={a} value={a}>{a}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>Priority</label>
-            <select value={priority} onChange={e => setPriority(e.target.value)} className={`${inputCls} bg-white`}>
-              <option value="high">High</option>
-              <option value="normal">Normal</option>
-              <option value="low">Low</option>
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label className={labelCls}>Link to a deal (optional)</label>
-          {selected ? (
-            <div className="flex items-center gap-2 text-sm bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-              <span className="truncate">{selected.name ?? 'Deal'}</span>
-              <button type="button" onClick={() => { setDealId(''); setDealSearch('') }}
-                className="ml-auto text-xs text-slate-400 hover:text-red-600">change</button>
-            </div>
-          ) : (
-            <>
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input value={dealSearch} onChange={e => setDealSearch(e.target.value)}
-                  placeholder="Type to search your deals…" className={`${inputCls} pl-8`} />
-              </div>
-              {dealSearch.trim() && (
-                <div className="mt-1 max-h-36 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
-                  {matching.length === 0 && <p className="px-3 py-2 text-xs text-slate-400">No matches</p>}
-                  {matching.map(d => (
-                    <button type="button" key={d.id} onClick={() => { setDealId(d.id); setDealSearch('') }}
-                      className="block w-full text-left px-3 py-1.5 text-sm hover:bg-slate-50 truncate">
-                      {d.name ?? 'Unnamed deal'}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        <div className="flex justify-end gap-2 pt-1">
-          <button type="button" onClick={onClose} className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900">Cancel</button>
-          <button type="submit" disabled={!title.trim() || saving}
-            className="px-4 py-1.5 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50">
-            {saving ? 'Saving…' : 'Create task'}
-          </button>
-        </div>
-      </form>
-    </Shell>
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/40 p-4 pt-16 overflow-y-auto" onClick={onClose}>
+      <div className="w-full max-w-xl" onClick={e => e.stopPropagation()}>
+        <NewTaskForm
+          deals={deals}
+          initialTask={seeded}
+          initialAssignee={initialAssignee}
+          onSubmit={t => { void onSubmit(t); onClose() }}
+          onCancel={onClose}
+        />
+      </div>
+    </div>
   )
 }
 

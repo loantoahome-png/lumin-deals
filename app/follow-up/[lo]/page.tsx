@@ -33,8 +33,8 @@ import { ghlContactUrl } from '@/lib/ghlLinks'
 import { notifyTask } from '@/lib/notifyTask'
 import { LO_COLORS } from '@/components/LoFilter'
 import TriageDateModal from '@/components/TriageDateModal'
-import { NewDashTaskModal, NewFubTaskModal } from '@/components/FollowUpTaskModals'
-import type { DealTask } from '@/lib/types'
+import { DashTaskModal, NewFubTaskModal } from '@/components/FollowUpTaskModals'
+import type { Deal, DealTask } from '@/lib/types'
 import {
   buildFollowUpQueue, buildTaskQueue, buildLeadSections, snoozeIso, SNOOZE_PRESETS,
   TASK_WINDOW_DAYS, ACTIVITY_SPLIT_DAYS,
@@ -48,6 +48,13 @@ import {
 } from 'lucide-react'
 
 const LO_SLUGS: Record<string, string> = { moe: 'Moe Sefati', matt: 'Matt Park' }
+
+// One-click delegation from an LO's page. Both names must stay valid
+// TASK_ASSIGNEES values or the task saves with an assignee no column shows.
+const DELEGATES: { name: string; short: string; tone: 'blue' | 'violet' }[] = [
+  { name: 'Efrain Ramirez', short: 'Efrain', tone: 'blue' },
+  { name: 'Brianne Han',    short: 'Brianne', tone: 'violet' },
+]
 
 const FU_DEAL_COLUMNS = [
   'id', 'name', 'status', 'ghl_status', 'pipeline_group', 'loan_officer',
@@ -133,8 +140,11 @@ export default function FollowUpCockpit() {
   const [busy, setBusy] = useState<Set<string>>(new Set())
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [modalFor, setModalFor] = useState<QueueItem | null>(null)
-  // Task composers: null = closed. `dealId`/`personId` pre-fill from a row.
-  const [newDashTask, setNewDashTask] = useState<{ dealId: string | null } | null>(null)
+  // Task composer: null = closed. `task` opens it as EDIT, `dealId`/`assignee`
+  // pre-fill a new one (from a lead row, or the delegate buttons).
+  const [newDashTask, setNewDashTask] = useState<
+    { dealId?: string | null; assignee?: string; task?: DealTask } | null
+  >(null)
   const [newFubTask, setNewFubTask] = useState<{ personId: number | null } | null>(null)
   // Same 'Overdue & today / Future / All' cut the /tasks column uses.
   const [dashView, setDashView] = useState<ColumnView>('all')
@@ -227,13 +237,25 @@ export default function FollowUpCockpit() {
     }
   }
 
-  /** Create a dashboard task — same insert + 'assigned' email as the /tasks page. */
-  async function createDashTask(payload: Omit<DealTask, 'id' | 'created_at'>) {
+  /** Create OR update a dashboard task — same writes + emails as the /tasks page. */
+  async function saveDashTask(payload: Omit<DealTask, 'id' | 'created_at'>, editing?: DealTask) {
+    if (editing) {
+      const { error } = await supabase.from('deal_tasks').update(payload).eq('id', editing.id)
+      if (error) { alert('Could not save that task: ' + error.message); return }
+      const updated = { ...editing, ...payload } as DealTask
+      // Reassigning to someone else moves the task off this page — and emails
+      // the new assignee, exactly as /tasks does.
+      setDashTasks(prev => updated.assignee === lo && !updated.completed_at
+        ? prev.map(t => t.id === editing.id ? updated : t)
+        : prev.filter(t => t.id !== editing.id))
+      if (payload.assignee && payload.assignee !== editing.assignee) notifyTask('assigned', updated)
+      return
+    }
     const { data, error } = await supabase.from('deal_tasks').insert(payload).select().single()
     if (error) { alert('Could not save that task: ' + error.message); return }
     const created = data as DealTask
-    // Only surface it here if it's this LO's — you can assign to someone else,
-    // and that task belongs on THEIR page, not this one.
+    // Only surface it here if it's this LO's — a task delegated to Efrain or
+    // Brianne belongs on THEIR column, not this page.
     if (created.assignee === lo) setDashTasks(prev => [created, ...prev])
     notifyTask('assigned', created)
   }
@@ -341,20 +363,30 @@ export default function FollowUpCockpit() {
       {loading ? (
         <div className="p-10 text-slate-500 text-sm">Loading your queue…</div>
       ) : (
-        <div className="p-6 space-y-8 max-w-5xl w-full">
+        <div className="p-6 space-y-8 w-full">
 
           {/* ── 1. Dashboard tasks — same card as /tasks, first thing you see ── */}
           <Panel icon={<ClipboardList className="w-5 h-5" />} accent="#10b981"
             title="Tasks" subtitle="Your task list, same as the Tasks page"
             badge={`${dashOpen} open`}
-            action={<Link href="/tasks" className="text-xs text-slate-400 hover:text-slate-700 hidden sm:inline">/tasks →</Link>}
+            action={
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Delegating up the chain is a daily move for both LOs, so it
+                    gets its own button instead of hunting the assignee dropdown. */}
+                {DELEGATES.map(d => (
+                  <AddButton key={d.name} label={`Add task for ${d.short}`} tone={d.tone}
+                    onClick={() => setNewDashTask({ assignee: d.name })} />
+                ))}
+                <Link href="/tasks" className="text-xs text-slate-400 hover:text-slate-700 hidden lg:inline">/tasks →</Link>
+              </div>
+            }
             bare>
             <AssigneeColumn
               name={lo}
               tasks={dashTasks}
               view={dashView}
               onViewChange={setDashView}
-              onAdd={() => setNewDashTask({ dealId: null })}
+              onAdd={() => setNewDashTask({ assignee: lo })}
               maxHeightClass="max-h-[40rem]"
               renderTask={t => (
                 <TaskRow
@@ -364,6 +396,7 @@ export default function FollowUpCockpit() {
                   dealName={t.deal_id ? dealNames[t.deal_id] : undefined}
                   ghlUrl={t.deal_id ? dealGhlUrls[t.deal_id] : undefined}
                   onToggle={() => completeDashTask(t)}
+                  onEdit={() => setNewDashTask({ task: t })}
                 />
               )}
             />
@@ -381,12 +414,12 @@ export default function FollowUpCockpit() {
                 <FubTaskRow key={t.key} task={t} busy={busy.has(t.key)} onDone={() => completeFubTask(t)} />
               ))}
             </Drawer>
-            <Drawer label="Due today" count={taskQueue.counts.today} tone="warn" defaultOpen>
+            <Drawer label="Due today" count={taskQueue.counts.today} tone="warn">
               {taskQueue.today.map(t => (
                 <FubTaskRow key={t.key} task={t} busy={busy.has(t.key)} onDone={() => completeFubTask(t)} />
               ))}
             </Drawer>
-            <Drawer label={`Next ${TASK_WINDOW_DAYS} days`} count={taskQueue.counts.next7} defaultOpen>
+            <Drawer label={`Next ${TASK_WINDOW_DAYS} days`} count={taskQueue.counts.next7}>
               {taskQueue.next7.map(t => (
                 <FubTaskRow key={t.key} task={t} busy={busy.has(t.key)} onDone={() => completeFubTask(t)} />
               ))}
@@ -399,7 +432,7 @@ export default function FollowUpCockpit() {
           <Panel icon={<Target className="w-5 h-5" />} accent="#0ea5e9"
             title="GHL leads — Pitching & App Intake" subtitle="Deals in play, split by last activity"
             badge={`${leads.counts.pitching} pitching · ${leads.counts.appIntake} app intake`}>
-            <Drawer label={`Activity in the last ${ACTIVITY_SPLIT_DAYS} days`} count={leads.counts.recent} tone="good" defaultOpen>
+            <Drawer label={`Activity in the last ${ACTIVITY_SPLIT_DAYS} days`} count={leads.counts.recent} tone="good">
               {leads.recent.map(i => <Row key={i.key} item={i} showStage actions={rowActions(i)} />)}
             </Drawer>
             <Drawer label={`No activity in over ${ACTIVITY_SPLIT_DAYS} days`} count={leads.counts.older} tone="warn">
@@ -413,7 +446,7 @@ export default function FollowUpCockpit() {
           <Panel icon={<Clock className="w-5 h-5" />} accent="#a855f7"
             title="More follow-ups" subtitle="Replies, new leads, check-ins, and the FUB book"
             badge={`${moreCount}`} collapsible defaultCollapsed>
-            <Drawer label="Replied — waiting on you" count={c.replyWaiting} tone="danger" defaultOpen>
+            <Drawer label="Replied — waiting on you" count={c.replyWaiting} tone="danger">
               {queue.replyWaiting.map(i => <Row key={i.key} item={i} showStage actions={rowActions(i)} />)}
             </Drawer>
             <Drawer label="New leads" count={c.newLeads} tone="good">
@@ -439,11 +472,16 @@ export default function FollowUpCockpit() {
       )}
 
       {newDashTask && (
-        <NewDashTaskModal
-          lo={lo}
-          deals={deals.map(d => ({ id: d.id, name: d.name ?? null }))}
+        <DashTaskModal
+          // Remount per invocation: the shared form seeds its fields from props
+          // on MOUNT only, so without a changing key, opening a second task (or
+          // a delegate composer) while one is open reuses the previous values.
+          key={newDashTask.task?.id ?? `new:${newDashTask.assignee ?? ''}:${newDashTask.dealId ?? ''}`}
+          deals={deals as unknown as Deal[]}
+          initialTask={newDashTask.task}
+          initialAssignee={newDashTask.assignee ?? lo}
           initialDealId={newDashTask.dealId}
-          onCreate={createDashTask}
+          onSubmit={t => saveDashTask(t, newDashTask.task)}
           onClose={() => setNewDashTask(null)}
         />
       )}
@@ -507,8 +545,11 @@ export default function FollowUpCockpit() {
 // ── Section chrome ───────────────────────────────────────────────────────────
 
 const ADD_TONES = {
-  indigo: 'text-indigo-700 bg-indigo-50 border-indigo-200 hover:bg-indigo-100',
+  indigo:  'text-indigo-700 bg-indigo-50 border-indigo-200 hover:bg-indigo-100',
   emerald: 'text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100',
+  // Match each person's column colour on /tasks so the button reads as "theirs".
+  blue:    'text-blue-800 bg-blue-50 border-blue-200 hover:bg-blue-100',
+  violet:  'text-violet-800 bg-violet-50 border-violet-200 hover:bg-violet-100',
 } as const
 
 function AddButton({ label, tone, onClick }: { label: string; tone: keyof typeof ADD_TONES; onClick: () => void }) {
@@ -564,10 +605,12 @@ const TONES = {
 } as const
 
 /** A collapsible group inside a panel. Renders nothing when empty. */
-function Drawer({ label, count, tone = 'plain', defaultOpen, children }: {
-  label: string; count: number; tone?: keyof typeof TONES; defaultOpen?: boolean; children: React.ReactNode
+/** Collapsed on open, always — Efrain: "make sure all sections are collapsed
+ *  when opening up the page". Nothing expands until you click it. */
+function Drawer({ label, count, tone = 'plain', children }: {
+  label: string; count: number; tone?: keyof typeof TONES; children: React.ReactNode
 }) {
-  const [open, setOpen] = useState(!!defaultOpen)
+  const [open, setOpen] = useState(false)
   if (count === 0) {
     return (
       <div className="px-4 py-2 flex items-center gap-2 text-xs text-slate-400">
@@ -663,16 +706,23 @@ function Row({ item, actions, showStage }: { item: QueueItem; actions: React.Rea
         {item.system === 'ghl' ? 'GHL' : 'FUB'}
       </span>
       {item.system === 'ghl' && item.dealId ? (
-        <Link href={`/deals/${item.dealId}`} className="font-semibold text-sm text-slate-900 hover:text-blue-700 truncate">
+        <Link href={`/deals/${item.dealId}`}
+          className="font-semibold text-sm text-slate-900 hover:text-blue-700 truncate min-w-0 max-w-[14rem]">
           {item.name}
         </Link>
       ) : (
         <a href={fubUrl(item.fubId!)} target="_blank" rel="noopener noreferrer"
-          className="font-semibold text-sm text-slate-900 hover:text-violet-700 truncate flex items-center gap-1">
-          {item.name} <ExternalLink className="w-3 h-3 text-slate-300" />
+          className="font-semibold text-sm text-slate-900 hover:text-violet-700 truncate min-w-0 max-w-[14rem] flex items-center gap-1">
+          <span className="truncate">{item.name}</span>
+          <ExternalLink className="w-3 h-3 text-slate-300 shrink-0" />
         </a>
       )}
-      {showStage && <span className="shrink-0 text-[10px] text-slate-500 bg-slate-100 rounded px-1.5 py-0.5">{item.stage}</span>}
+      {showStage && (
+        <span className="text-[10px] text-slate-500 bg-slate-100 rounded px-1.5 py-0.5 truncate min-w-0 max-w-[12rem] shrink-0"
+          title={item.stage}>
+          {item.stage}
+        </span>
+      )}
       <span className={`text-xs truncate ${item.overdue ? 'text-red-700 font-medium' : 'text-slate-500'}`}>{item.reason}</span>
       {item.lastMessage && (
         <span className="text-xs text-slate-400 italic truncate hidden lg:inline">“{item.lastMessage.slice(0, 50)}”</span>

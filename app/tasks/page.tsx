@@ -12,8 +12,9 @@ import { DealTask, Deal, TASK_ASSIGNEES } from '@/lib/types'
 // Card + column design lives in one place so /tasks and the Follow-Up cockpit
 // render the identical task card and cannot drift apart.
 import {
-  TaskRow, AssigneeColumn, relativeDue, isDueNow, isAllDay, startOfDay, endOfDay,
-  COLUMN_VIEWS, COLUMN_STYLES, OTHER_COLUMN, type ColumnView,
+  TaskRow, AssigneeColumn, NewTaskForm, relativeDue, isDueNow, isAllDay,
+  startOfDay, endOfDay, combineDateTime, splitDateTime, ALL_DAY_TIME,
+  COLUMN_VIEWS, COLUMN_STYLES, PRIORITY_STYLES, OTHER_COLUMN, type ColumnView,
 } from '@/components/TaskBoard'
 import {
   ClipboardList, Plus, X, Search, CheckCircle2, Circle,
@@ -25,29 +26,7 @@ type FilterMode = 'open' | 'today' | 'overdue' | 'week' | 'completed' | 'all'
 
 // A blank time is stored as 23:59 ("end of day"), which the 15-min picker can
 // never produce — so it doubles as an "all day / no specific time" marker.
-const ALL_DAY_TIME = '23:59'
-function combineDateTime(date: string, time: string): string | null {
-  if (!date) return null
-  const d = new Date(`${date}T${time || ALL_DAY_TIME}`)
-  return isNaN(d.getTime()) ? null : d.toISOString()
-}
-function splitDateTime(iso: string | null | undefined): { date: string; time: string } {
-  if (!iso) return { date: '', time: '' }
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return { date: '', time: '' }
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const hhmm = `${pad(d.getHours())}:${pad(d.getMinutes())}`
-  return {
-    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-    time: hhmm === ALL_DAY_TIME ? '' : hhmm,   // all-day → leave the picker blank
-  }
-}
 
-const PRIORITY_STYLES: Record<string, string> = {
-  high:   'bg-red-100 text-red-700 border-red-200',
-  normal: 'bg-slate-100 text-slate-700 border-slate-200',
-  low:    'bg-blue-50 text-blue-600 border-blue-200',
-}
 
 // The board is one column per person, laid out 2×2: Efrain / Brianne on top,
 // Moe / Matt below. Anyone NOT in this list (Randy, an unassigned task, a
@@ -409,171 +388,7 @@ function FilterChip({ active, onClick, label, count, tone }: {
 // (the column header already says who it's for). Every BOARD_COLUMNS name is a
 // valid TASK_ASSIGNEES value — if that ever drifts, the select falls back to
 // "Unassigned" rather than showing a value it can't save.
-function NewTaskForm({ deals, initialTask, initialAssignee, onSubmit, onCancel }: {
-  deals: Deal[]
-  initialTask?: DealTask
-  initialAssignee?: string
-  onSubmit: (t: Omit<DealTask, 'id' | 'created_at'>) => void
-  onCancel: () => void
-}) {
-  const isEdit = !!initialTask
-  // No default due date/time on create — blank unless the user sets one.
-  const initialDT = initialTask?.due_at ? splitDateTime(initialTask.due_at) : { date: '', time: '' }
 
-  const [title, setTitle] = useState(initialTask?.title || '')
-  const [description, setDescription] = useState(initialTask?.description || '')
-  const [date, setDate] = useState(initialDT.date)
-  const [time, setTime] = useState(initialDT.time)
-  const [assignee, setAssignee] = useState(initialTask?.assignee || initialAssignee || '')
-  const [assignedBy, setAssignedBy] = useState(initialTask?.assigned_by || '')
-  const [priority, setPriority] = useState(initialTask?.priority || 'normal')
-  const [dealId, setDealId] = useState<string>(initialTask?.deal_id || '')
-  const [dealSearch, setDealSearch] = useState('')
-
-  const matchingDeals = useMemo(() => {
-    if (!dealSearch.trim()) return deals.slice(0, 50)
-    const q = dealSearch.toLowerCase().trim()
-    return deals.filter(d => d.name?.toLowerCase().includes(q)).slice(0, 30)
-  }, [deals, dealSearch])
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!title.trim()) return
-    onSubmit({
-      deal_id: dealId || null,
-      title: title.trim(),
-      description: description.trim() || null,
-      due_at: combineDateTime(date, time),
-      assignee: assignee || null,
-      assigned_by: assignedBy || null,
-      priority,
-      completed_at: initialTask?.completed_at ?? null, // preserve complete state when editing
-    })
-  }
-
-  return (
-    <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-xl p-5 mb-5 shadow-sm space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-800">{isEdit ? 'Edit Task' : 'New Task'}</h3>
-        <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-700">
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-      <input
-        autoFocus
-        value={title}
-        onChange={e => setTitle(e.target.value)}
-        placeholder="What needs to happen?"
-        required
-        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
-      <textarea
-        value={description}
-        onChange={e => setDescription(e.target.value)}
-        placeholder="Details (optional)"
-        rows={2}
-        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-      />
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <div className="flex items-center justify-between mb-0.5">
-            <label className="block text-[10px] font-medium text-slate-500">Due date</label>
-            {(date || time) && (
-              <button type="button" onClick={() => { setDate(''); setTime('') }}
-                className="text-[10px] font-medium text-slate-400 hover:text-red-600">
-                Clear
-              </button>
-            )}
-          </div>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm" />
-        </div>
-        <div>
-          <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Due time</label>
-          <select value={time} onChange={e => setTime(e.target.value)} className="w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm bg-white">
-            <option value="">— Pick a time —</option>
-            {time && !TIME_OPTIONS.some(o => o.value === time) && <option value={time}>{time}</option>}
-            {TIME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Assigned to</label>
-          <select value={assignee} onChange={e => setAssignee(e.target.value)} className="w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm bg-white">
-            <option value="">— Unassigned —</option>
-            {TASK_ASSIGNEES.map(a => <option key={a} value={a}>{a}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Assigned by</label>
-          <select value={assignedBy} onChange={e => setAssignedBy(e.target.value)} className="w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm bg-white">
-            <option value="">—</option>
-            {TASK_ASSIGNEES.map(a => <option key={a} value={a}>{a}</option>)}
-          </select>
-        </div>
-        <div className="col-span-2">
-          <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Priority</label>
-          <div className="flex gap-1">
-            {(['high','normal','low'] as const).map(p => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setPriority(p)}
-                className={`flex-1 text-xs font-medium px-1.5 py-1.5 rounded border transition capitalize ${
-                  priority === p ? PRIORITY_STYLES[p] : 'border-slate-200 text-slate-400 hover:border-slate-300'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="col-span-2">
-          <label className="block text-[10px] font-medium text-slate-500 mb-0.5">
-            Linked deal {dealId ? '' : '(optional)'}
-          </label>
-          {dealId ? (
-            <div className="flex items-center gap-2 px-3 py-1.5 border border-blue-200 bg-blue-50 rounded-md">
-              <span className="text-sm text-slate-800 flex-1">{deals.find(d => d.id === dealId)?.name || 'Selected'}</span>
-              <button type="button" onClick={() => setDealId('')} className="text-slate-400 hover:text-red-500">
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ) : (
-            <div className="relative">
-              <input
-                value={dealSearch}
-                onChange={e => setDealSearch(e.target.value)}
-                placeholder="Type to search deals…"
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              {dealSearch && matchingDeals.length > 0 && (
-                <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
-                  {matchingDeals.map(d => (
-                    <button
-                      key={d.id}
-                      type="button"
-                      onClick={() => { setDealId(d.id); setDealSearch('') }}
-                      className="w-full text-left text-sm px-3 py-1.5 hover:bg-slate-50"
-                    >
-                      {d.name} {d.loan_officer && <span className="text-xs text-slate-400">· {d.loan_officer}</span>}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="flex justify-end gap-2 pt-1">
-        <button type="button" onClick={onCancel} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
-        <button type="submit" disabled={!title.trim()} className="px-4 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-40">
-          {isEdit ? 'Save changes' : 'Create task'}
-        </button>
-      </div>
-    </form>
-  )
-}
-
-// ── Combined "Bulletin/Tasks" page — one tab each ────────────────────────────
 type PageTab = 'tasks' | 'bulletin'
 
 const TABS: { key: PageTab; label: string; icon: typeof ClipboardList; accent: string }[] = [
