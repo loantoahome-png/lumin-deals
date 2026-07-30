@@ -481,7 +481,7 @@ export default function FollowUpCockpit() {
           <Panel icon={<Users className="w-5 h-5" />} accent="#8b5cf6"
             title="Past clients & closed (FUB)" subtitle="The farming pool — refis, referrals, anniversaries"
             badge={`${c.pastClients} people`}>
-            <BucketDrawer label="By how long since anyone talked" buckets={queue.pastClients}
+            <BucketDrawer label="By how long since anyone actually talked" buckets={queue.pastClients}
               total={c.pastClients} renderActions={rowActions} />
           </Panel>
 
@@ -681,9 +681,9 @@ function BucketDrawer({ label, buckets, total, renderActions }: {
   label: string; buckets: StaleBuckets; total: number; renderActions: (i: QueueItem) => React.ReactNode
 }) {
   const groups: { key: keyof StaleBuckets; label: string }[] = [
-    { key: 'b7_30', label: '7–30 days idle' },
-    { key: 'b31_90', label: '31–90 days idle' },
-    { key: 'b90', label: '90+ days idle' },
+    { key: 'b7_30', label: 'Talked in the last 30 days' },
+    { key: 'b31_90', label: 'Talked 31–90 days ago' },
+    { key: 'b90', label: 'Talked 90+ days ago, or never' },
   ]
   const PREVIEW = 10
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
@@ -745,15 +745,15 @@ function ContactDates({ item }: { item: QueueItem }) {
   const fmt = (iso: string | null) => {
     if (!iso) return '—'
     const d = new Date(iso)
-    return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' })
+    return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' })
   }
   return (
-    <span className="hidden md:flex items-center gap-3 text-[11px] shrink-0">
-      <span className="text-slate-500" title="When they last contacted us">
-        <span className="text-slate-400">they→us</span> {fmt(item.inboundAt)}
+    <span className="hidden md:flex items-center gap-3 text-[11px] shrink-0 tabular-nums">
+      <span className="text-slate-500" title="Inbound — when they last contacted us">
+        <span className="text-slate-400">inbound</span> {fmt(item.inboundAt)}
       </span>
-      <span className="text-slate-500" title="When we last contacted them (personal channels only — bulk/marketing sends don't count)">
-        <span className="text-slate-400">us→them</span> {fmt(item.outboundAt)}
+      <span className="text-slate-500" title="Outbound — when we last contacted them (personal channels only; bulk/marketing sends don't count)">
+        <span className="text-slate-400">outbound</span> {fmt(item.outboundAt)}
       </span>
     </span>
   )

@@ -330,13 +330,18 @@ eq('map: no contact at all → nulls',
   [mapFubPerson({ id: 78, stage: 'Closed', assignedUserId: 72 }, ['moe']).last_inbound_at,
    mapFubPerson({ id: 78, stage: 'Closed', assignedUserId: 72 }, ['moe']).last_outbound_at], [null, null])
 
-eq('idle: contact dates beat a stale lastActivity',
+eq('idle: contact date drives the bucket, not lastActivity',
   fubIdleDays({ fub_id: 1, last_activity_at: iso(300 * D), last_outbound_at: iso(12 * D) }, NOW), 12)
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-eq('idle: max of activity vs touch', fubIdleDays(fubRow({ last_activity_at: iso(40 * D), last_touched_at: iso(5 * D) }), NOW), 5)
-eq('idle: created-only fallback', fubIdleDays({ fub_id: 1, fub_created_at: iso(12 * D) }, NOW), 12)
+// Idle = days since a real CONVERSATION. FUB's lastActivity (opens, marketing,
+// record edits) must never make a silent contact look recent — it did, putting a
+// client last talked to 98 days ago in the "7–30 days" bucket.
+eq('idle: newest of inbound/outbound/our touch', fubIdleDays({ fub_id: 1, last_inbound_at: iso(40 * D), last_outbound_at: iso(9 * D), last_touched_at: iso(5 * D) }, NOW), 5)
+eq('idle: IGNORES lastActivity entirely', fubIdleDays({ fub_id: 1, last_activity_at: iso(1 * D), last_outbound_at: iso(98 * D) }, NOW), 98)
+eq('idle: IGNORES fub_created_at', fubIdleDays({ fub_id: 1, fub_created_at: iso(12 * D) }, NOW), null)
+eq('idle: activity-only person counts as never talked', fubIdleDays({ fub_id: 1, last_activity_at: iso(2 * D), fub_created_at: iso(500 * D) }, NOW), null)
 eq('idle: nothing known → null', fubIdleDays({ fub_id: 1 }, NOW), null)
 eq('replyWaiting: no inbound → false', isReplyWaiting(deal({ id: 'x' }), NOW), false)
 

@@ -152,9 +152,18 @@ const fmtAgo = (iso: string | null | undefined, now: number): string => {
   return `${Math.floor(h / 24)}d ago`
 }
 
-/** FUB idle anchor: latest of FUB activity and our own logged touch. */
+/** Days since anyone actually TALKED — inbound, outbound, or a touch we logged.
+ *
+ * ⚠️ Deliberately ignores FUB's `lastActivity`. That field counts email opens,
+ * property views, marketing deliveries and record edits, so it reads "active"
+ * for people nobody has spoken to in months: measured 2026-07-30, lastActivity
+ * was >30 days newer than any real conversation for 116 of 224 past clients,
+ * which put a client last contacted 98 days ago in the "7–30 days" bucket.
+ * `fub_created_at` is excluded for the same reason — being added isn't contact.
+ *
+ * null = no conversation on record at all (callers treat that as the coldest). */
 export function fubIdleDays(f: QueueFubLike, now: number): number | null {
-  const ts = [f.last_inbound_at, f.last_outbound_at, f.last_activity_at, f.last_touched_at, f.fub_created_at]
+  const ts = [f.last_inbound_at, f.last_outbound_at, f.last_touched_at]
     .map(parse)
     .filter((t): t is number => t != null)
   if (ts.length === 0) return null
