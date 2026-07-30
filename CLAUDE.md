@@ -87,6 +87,23 @@ The dashboard owns the **unified person** (`contacts` table) that no upstream sy
 
 **Shipped 2026-06-30 (Reports + Channel):** Lender List **BCC email picker** (`components/LenderEmailModal.tsx`); NEW **printable per-LO Active Escrows report** `/reports/escrows` (`app/reports/escrows/page.tsx` — LO toggle, stage groups, rate-lock/next-step/processor/Channel/loan details, top "Locks expiring ≤7d" callout, print-to-PDF; reachable via a Report button + Insights sidebar link); **Channel field** (`broker_corr` = Broker/Non-Del) — Arive "Channel" column mapped in `lib/ariveCsv.ts`, deal-form relabeled "Broker / Non-Del" + "Waiting On" field removed, Channel added to the escrow card (2×2 stats) + report ("{Channel} - {Amount}"). A CTC+Non-Del funding-alert cron was built then removed (Efrain prefers an on-demand button — pending). Fluid-CPU tuning (LastSyncBadge 30s→15min + visibility-gated; middleware skips `/api/sync-status`). Full state in `~/.claude/handoffs/lumin-deals.md`.
 
+**Shipped 2026-07-30 (Follow-Up Cockpit + FollowUpBoss integration) — 17 commits, `335b6af`→`493f56b`:**
+NEW per-LO pages `/follow-up/moe` + `/follow-up/matt` (+ `/follow-up` manager index, sidebar "Follow-Up") — six
+sections: **Tasks** (this LO's `deal_tasks` in the shared /tasks card: complete/edit/delete + "Add task for
+Efrain/Brianne") · **Replied — waiting on you** (unanswered inbound ≤48h; EXCLUDES the Not Ready pipeline) ·
+**FollowUpBoss tasks** (Overdue/Due today/Next 7 days, per-row **Done** writes back to FUB + Open in FUB, plus
+New FUB task) · **GHL leads — Pitching & App Intake** (split by last activity ≤7d / >7d) · **Past clients &
+closed (FUB)** (bucketed by days since anyone actually talked, each row showing inbound/outbound dates) ·
+**More follow-ups** (collapsed). NEW **FollowUpBoss integration**: `fub_people` + `fub_tasks` tables,
+`/api/sync/fub` sweeping both agent keys hourly **piggybacked on the ghl-sync cron (no new cron job)**,
+`/api/fub/tasks/complete` + `/create`. Keys `FUB_API_KEY_MOE`/`FUB_API_KEY_MATT`. ⚠️ FUB people pull is
+**Past Client + Closed ONLY** (+ anyone with an open FUB task, so task rows show a name) — 851 stored of 5,212
+visible; do NOT widen without asking. ⚠️ NEVER use FUB `lastActivity` to mean "someone talked" (opens/marketing/
+record edits — it was >30d newer than any real conversation for 116 of 224 past clients). `components/TaskBoard.tsx`
+NEW = the single definition of the task card, column AND form, imported by BOTH `/tasks` and the cockpit.
+Docs: `docs/research/2026-07-30-followupboss-api.md` + spec/plan same date. Fixtures: `scripts/follow-up-check.ts`
+(116). Full state in `~/.claude/handoffs/lumin-deals.md`.
+
 **Shipped 2026-07-28 (Lead attribution + purpose + Old Deals + sync rescue) — 17 commits, `7bd5095`→`0528b99`, prod `lumin-deals-8oqwwou6f`:**
 - **Lead source, three stacked bugs.** The sync declared its OWN `cleanSource()` that filtered junk but NOT "Arive", shadowing the `lib/utils` guard — the 7/08 fix was recorded as "sync guarded" and never was, so the bucket regrew **1 → 200**. The candidate chain also coalesced BEFORE cleaning, letting a present-but-rejected "Arive" shadow the real vendor one slot down. Now: one canonical `cleanSource` + `resolveLeadSource()` cleaning **each candidate**. **Attribution now credits the vendor on the OPPORTUNITY** (Efrain: an opp = one purchased lead = one spend event); Moe's Lending Tree **77 → 70**, an exact match to GHL's export. Manual overrides via **`lib/sourcePins.ts`** (`sync_state.source_pins`, keyed by opp id, no schema change) because the sync rewrites `source` every pass. Webhook no longer writes `source` on UPDATE.
 - **Loan purpose.** `normalizeGhlLoanPurpose` returned null for anything but purchase/refi, so it **discarded every HELOC** (the webhook writes raw, hence a stable 49-kept/26-lost split), and later **"Cash Out"** too. Moved to `lib/utils.normalizeLoanPurpose`, now reads the purpose off the **OPPORTUNITY** (`lib/ghlOpportunityFields.ts`) since the contacts LIST endpoint omits custom fields. Repo-wide blank purposes **571 → 130**; every LO's tabs now add up.
@@ -112,6 +129,7 @@ The dashboard owns the **unified person** (`contacts` table) that no upstream sy
 - `/lead-roi` — Lead ROI (merged Lead Performance + Lead Spend 2026-07-13): per-LO tabs ONLY (never combined), one metric set (ROI = rev÷spend ×, spend incl. retainers, funded = isFunded), lifecycle funnel, monthly trend, printable report route `/lead-roi/report`. Math in `lib/leadRoi.ts` (fixtures: `scripts/lead-roi-check.ts`). Old URLs 308-redirect.
 - `/deals/new` — Manual deal creation
 - `/tasks` — **Bulletin/Tasks**: team task management on top + the Notes/Bulletin board below (one page; `/notes` redirects here)
+- `/follow-up` + `/follow-up/[lo]` — **Follow-Up Cockpit** (per LO: Moe/Matt): the daily "who do I contact today" queue merging GHL deals with the FollowUpBoss past-client book and FUB tasks. Queue logic is pure in `lib/followUpQueue.ts`; FUB client in `lib/followUpBoss.ts`.
 - `/tools` — Utilities incl. the **PDF Tools** hub (compress/merge/split/rotate, 100% in-browser)
 - `/import/arive` — Import from Arive LOS
 - `/health` — Data quality dashboard
