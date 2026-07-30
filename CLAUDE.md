@@ -87,6 +87,24 @@ The dashboard owns the **unified person** (`contacts` table) that no upstream sy
 
 **Shipped 2026-06-30 (Reports + Channel):** Lender List **BCC email picker** (`components/LenderEmailModal.tsx`); NEW **printable per-LO Active Escrows report** `/reports/escrows` (`app/reports/escrows/page.tsx` — LO toggle, stage groups, rate-lock/next-step/processor/Channel/loan details, top "Locks expiring ≤7d" callout, print-to-PDF; reachable via a Report button + Insights sidebar link); **Channel field** (`broker_corr` = Broker/Non-Del) — Arive "Channel" column mapped in `lib/ariveCsv.ts`, deal-form relabeled "Broker / Non-Del" + "Waiting On" field removed, Channel added to the escrow card (2×2 stats) + report ("{Channel} - {Amount}"). A CTC+Non-Del funding-alert cron was built then removed (Efrain prefers an on-demand button — pending). Fluid-CPU tuning (LastSyncBadge 30s→15min + visibility-gated; middleware skips `/api/sync-status`). Full state in `~/.claude/handoffs/lumin-deals.md`.
 
+**Shipped 2026-07-30 (Reply inbox fix + FUB unanswered texts) — `d7a9cc1`:**
+"Replied — waiting on you" was showing **Inbox zero for BOTH LOs** while GHL showed unread. Two causes:
+(1) `isReplyWaiting` excluded `HOT_WORKING_STATUSES` — **the exact statuses a lead is in when they reply**
+(GHL moves them to `Responded` first); measured over 2,994 deals the predicate matched **0/0**, without the
+clause Matt 2 / Moe 3. (2) `deals.last_inbound_at`/`last_outbound_at` are written ONLY by the 30-min
+conversations refresh and ONLY for the lead stages — **the webhook never writes them** — so everything past
+App Intake is frozen (Scot Gordon: unread today, `last_inbound_at` 15 days stale). The section is now
+`lib/followUpQueue.ts::buildReplyInbox`, merging **three** sources: the LIVE `/api/ghl/unread` feed (all
+stages, per-LO, Not-Ready excluded) + the synced-deals predicate + NEW **`/api/fub/unanswered?lo=`**.
+Rows >7 days old go to their own drawer. ⚠️ **FUB unread is NOT reachable directly**: `/v1/threads` +
+`/v1/conversations` are **403** for agent keys, `/me.unreadConversationCount` is one integer, and the
+per-message `read` flag was `false` on **300/300** inbound (a delivery receipt, not the inbox) — unanswered is
+reconstructed from `toNumber`/`fromNumber` text feeds keyed on the LO's own `/me.callingPhoneNumber`
+(`fetchFubUnanswered`). ⚠️ A FUB row is **not** suppressed by `matched_deal_active` here (unlike the book) —
+a text to the FUB number is a different thread and GHL has no record of it. Live after: Matt 0 → 8 waiting
+(4 GHL, 4 FUB) + 11 older; Moe 0 → 7 (2 GHL, 5 FUB) + 15 older.
+Diagnosis: `docs/diagnoses/2026-07-30-replied-waiting-empty-diagnosis.md`. Fixtures: 134.
+
 **Shipped 2026-07-30 (Follow-Up Cockpit + FollowUpBoss integration) — 17 commits, `335b6af`→`493f56b`:**
 NEW per-LO pages `/follow-up/moe` + `/follow-up/matt` (+ `/follow-up` manager index, sidebar "Follow-Up") — six
 sections: **Tasks** (this LO's `deal_tasks` in the shared /tasks card: complete/edit/delete + "Add task for
