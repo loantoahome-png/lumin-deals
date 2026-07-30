@@ -64,7 +64,7 @@ async function fetchExistingRows(supabase: ReturnType<typeof createServiceClient
   for (let offset = 0; ; offset += PAGE) {
     const { data, error } = await supabase
       .from('fub_people')
-      .select('fub_id, fub_updated_at, last_activity_at, stage, assigned_user_id, missing_since, matched_deal_id, matched_deal_active')
+      .select('fub_id, fub_updated_at, last_activity_at, last_inbound_at, last_outbound_at, stage, assigned_user_id, missing_since, matched_deal_id, matched_deal_active')
       .range(offset, offset + PAGE - 1)
     if (error) throw new Error(`fub_people read: ${error.message}`)
     all.push(...(data ?? []) as typeof all)

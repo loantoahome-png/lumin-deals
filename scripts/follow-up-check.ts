@@ -68,10 +68,10 @@ eq('merge: matt-only row seen by matt', merged.find(r => r.fub_id === 600)?.seen
 
 const sweptRows = merged
 const existing: ExistingFubRow[] = [
-  { fub_id: 101, fub_updated_at: row.fub_updated_at, last_activity_at: row.last_activity_at, stage: 'Nurture', assigned_user_id: 72, missing_since: null },  // unchanged
-  { fub_id: 500, fub_updated_at: null, last_activity_at: null, stage: 'Lead', assigned_user_id: 72, missing_since: null },                                    // stage same? swept has null stage → changed? swept 500 stage=null vs 'Lead' → changed
-  { fub_id: 700, fub_updated_at: null, last_activity_at: null, stage: 'Lead', assigned_user_id: 13, missing_since: null },                                    // gone from sweep
-  { fub_id: 800, fub_updated_at: null, last_activity_at: null, stage: 'Lead', assigned_user_id: 13, missing_since: iso(5 * D) },                              // already flagged missing
+  { fub_id: 101, fub_updated_at: row.fub_updated_at, last_activity_at: row.last_activity_at, last_inbound_at: null, last_outbound_at: null, stage: 'Nurture', assigned_user_id: 72, missing_since: null },  // unchanged
+  { fub_id: 500, fub_updated_at: null, last_activity_at: null, last_inbound_at: null, last_outbound_at: null, stage: 'Lead', assigned_user_id: 72, missing_since: null },                                    // stage same? swept has null stage → changed? swept 500 stage=null vs 'Lead' → changed
+  { fub_id: 700, fub_updated_at: null, last_activity_at: null, last_inbound_at: null, last_outbound_at: null, stage: 'Lead', assigned_user_id: 13, missing_since: null },                                    // gone from sweep
+  { fub_id: 800, fub_updated_at: null, last_activity_at: null, last_inbound_at: null, last_outbound_at: null, stage: 'Lead', assigned_user_id: 13, missing_since: iso(5 * D) },                              // already flagged missing
 ]
 const diff = diffSweep(sweptRows, existing)
 eq('diff: new row inserted', diff.toInsert.map(r => r.fub_id), [600])
@@ -84,14 +84,14 @@ eq('diff: vanished id flagged once', diff.missingIds, [700])
 const pgFormat = (isoZ: string | null) => isoZ ? isoZ.replace(/\.\d{3}Z$/, '+00:00') : null
 const fmtDrift = diffSweep(
   [row],
-  [{ fub_id: 101, fub_updated_at: pgFormat(row.fub_updated_at), last_activity_at: pgFormat(row.last_activity_at), stage: row.stage, assigned_user_id: 72, missing_since: null }],
+  [{ fub_id: 101, fub_updated_at: pgFormat(row.fub_updated_at), last_activity_at: pgFormat(row.last_activity_at), last_inbound_at: null, last_outbound_at: null, stage: row.stage, assigned_user_id: 72, missing_since: null }],
 )
 eq('diff: pg timestamp format is not a change', [fmtDrift.toInsert.length, fmtDrift.toUpdate.length], [0, 0])
 
 // resurrect: a row flagged missing that reappears in the sweep → update
 const resurrect = diffSweep(
   [mapFubPerson({ id: 800, stage: 'Lead', assignedUserId: 13 }, ['matt'])],
-  [{ fub_id: 800, fub_updated_at: null, last_activity_at: null, stage: 'Lead', assigned_user_id: 13, missing_since: iso(5 * D) }],
+  [{ fub_id: 800, fub_updated_at: null, last_activity_at: null, last_inbound_at: null, last_outbound_at: null, stage: 'Lead', assigned_user_id: 13, missing_since: iso(5 * D) }],
 )
 eq('diff: resurrected row is updated', resurrect.toUpdate.map(r => r.fub_id), [800])
 
@@ -166,25 +166,25 @@ eq('queue: overdue sorts before later due', q.dueToday[0].key, 'deal:d-overdue')
 eq('queue: overdue flag set', q.dueToday[0].overdue, true)
 eq('queue: due-today flag not overdue', q.dueToday.find(i => i.key === 'deal:d-due')?.overdue, false)
 eq('queue: counts.overdue', q.counts.overdue, 2)
-eq('queue: stale 7–30 bucket', q.stale.b7_30.map(i => i.key), ['fub:2'])
-eq('queue: stale 31–90 bucket', q.stale.b31_90.map(i => i.key), ['fub:3'])
-eq('queue: stale 90+ bucket', q.stale.b90.map(i => i.key), ['fub:4'])
-eq('queue: past clients bucketed', q.pastClients.b90.map(i => i.key), ['fub:6'])
+// FUB now contributes ONLY Past Client + Closed (Efrain 2026-07-30) — the open
+// pipeline stages are no longer pulled, so they must not surface anywhere.
+eq('queue: past clients bucketed by idle', q.pastClients.b90.map(i => i.key), ['fub:6'])
+eq('queue: open-pipeline FUB stages no longer surface',
+  ['fub:2', 'fub:3', 'fub:4', 'fub:5'].map(k => JSON.stringify(q).includes(`"${k}"`)), [false, false, false, false])
 eq('queue: unresponsive fully suppressed', JSON.stringify(q).includes('"fub:7"'), false)
-eq('queue: engaged (<7d idle) not stale', JSON.stringify(q.stale).includes('fub:5'), false)
 eq('queue: matched-active suppressed', JSON.stringify(q).includes('"fub:9"'), false)
 eq('queue: missing suppressed', JSON.stringify(q).includes('"fub:10"'), false)
 eq('queue: trash suppressed', JSON.stringify(q).includes('"fub:8"'), false)
-eq('queue: snoozed-future out of stale', JSON.stringify(q.stale).includes('fub:11'), false)
+eq('queue: snoozed-future stays out of the book', JSON.stringify(q).includes('"fub:11"'), false)
 eq('queue: far-future check-in not due', JSON.stringify(q.dueToday).includes('d-future'), false)
 eq('queue: lost lead excluded', JSON.stringify(q).includes('d-lost'), false)
 eq('queue: LO scoping — no Matt rows', JSON.stringify(q).includes('d-matt') || JSON.stringify(q).includes('"fub:13"'), false)
-eq('queue: stale reason format', q.stale.b7_30[0].reason, 'idle 10d · Pre Approved · $510k')
+eq('queue: past-client chip shows stage + value', q.pastClients.b90[0].reason, 'Past Client · $610k')
 
 // Matt's queue sees only his rows
 const qm = buildFollowUpQueue({ deals, fub, lo: 'Matt Park', now: NOW })
 eq('queue: Matt gets his reply-waiting', qm.replyWaiting.map(i => i.key), ['deal:d-matt'])
-eq('queue: Matt gets his FUB stale', qm.stale.b31_90.map(i => i.key), ['fub:13'])
+eq('queue: Matt sees only his FUB people', JSON.stringify(qm).includes('"fub:6"'), false)
 
 // ── GHL leads in play: Pitching + App Intake, split by last activity ────────
 
@@ -283,36 +283,55 @@ eq('ymdDiffDays: across a month boundary', ymdDiffDays('2026-07-28', '2026-08-03
 eq('ymdDiffDays: same day', ymdDiffDays('2026-07-30', '2026-07-30'), 0)
 eq('localYmd: offset math', ymdDiffDays(localYmd(NOW), localYmd(NOW, 7)), 7)
 
-// ── shouldStoreFubPerson (the sync pull filter — Efrain 2026-07-30) ──────────
+// ── shouldStoreFubPerson — the sync pull filter ─────────────────────────────
+// NARROWED 2026-07-30: FUB contributes ONLY the past-client book (Past Client +
+// Closed), plus anyone carrying an open FUB task so task rows can show a name.
 
-const storable = (over: Partial<Parameters<typeof shouldStoreFubPerson>[0]>) =>
+const storable = (over: Partial<Parameters<typeof shouldStoreFubPerson>[0]>, taskIds?: number[]) =>
   shouldStoreFubPerson({
-    ...mapFubPerson({ id: 1, stage: 'Nurture', assignedUserId: 72, lastActivity: iso(200 * D) }, ['moe']),
+    ...mapFubPerson({ id: 55, stage: 'Past Client', assignedUserId: 72, lastActivity: iso(200 * D) }, ['moe']),
     ...over,
-  }, NOW)
+  }, NOW, taskIds ? new Set(taskIds) : undefined)
 
-eq('pull: nurture person assigned to Moe stored', storable({}), true)
-eq('pull: Matt (13) stored', storable({ assigned_user_id: 13 }), true)
+eq('pull: Past Client stored', storable({}), true)
+eq('pull: Closed stored', storable({ stage: 'Closed' }), true)
+eq('pull: Past Client stored no matter how old', storable({ last_activity_at: iso(900 * D) }), true)
+eq('pull: Matt (13) past client stored', storable({ assigned_user_id: 13 }), true)
 eq('pull: other agent (999) dropped', storable({ assigned_user_id: 999 }), false)
 eq('pull: unassigned dropped', storable({ assigned_user_id: null }), false)
-eq('pull: Unresponsive dropped', storable({ stage: 'Unresponsive' }), false)
-eq('pull: Inactive dropped', storable({ stage: 'Inactive' }), false)
-eq('pull: Trash dropped', storable({ stage: 'Trash' }), false)
 eq('pull: null stage dropped', storable({ stage: null }), false)
-eq('pull: raw Lead active 30d ago stored', storable({ stage: 'Lead', last_activity_at: iso(30 * D) }), true)
-eq('pull: raw Lead idle 200d dropped', storable({ stage: 'Lead', last_activity_at: iso(200 * D) }), false)
-eq('pull: raw Lead no activity but CREATED 10d ago stored', storable({ stage: 'Lead', last_activity_at: null, fub_created_at: iso(10 * D) }), true)
-eq('pull: Attempting Contact idle 91d dropped', storable({ stage: 'Attempting Contact', last_activity_at: iso(91 * D), fub_created_at: iso(300 * D) }), false)
-eq('pull: deep-idle Nurture STILL stored (only raw stages age out)', storable({ stage: 'Nurture', last_activity_at: iso(400 * D) }), true)
-eq('pull: Past Client stored regardless of idle', storable({ stage: 'Past Client', last_activity_at: iso(400 * D) }), true)
 
-// An OPEN TASK overrides stage/idle — the LO explicitly scheduled follow-up.
-const withTask = (over: Partial<Parameters<typeof shouldStoreFubPerson>[0]>, ids: number[]) =>
-  shouldStoreFubPerson({ ...mapFubPerson({ id: 55, stage: 'Lead', assignedUserId: 13, lastActivity: iso(400 * D) }, ['matt']), ...over }, NOW, new Set(ids))
-eq('pull: dead raw lead WITH an open task is stored', withTask({}, [55]), true)
-eq('pull: same lead without a task still dropped', withTask({}, [999]), false)
-eq('pull: task cannot rescue another agent\'s person', withTask({ assigned_user_id: 999 }, [55]), false)
-eq('pull: task rescues an Inactive person', withTask({ stage: 'Inactive' }, [55]), true)
+// Everything that used to be pulled and no longer is.
+for (const stage of ['Lead', 'Attempting Contact', 'In Contact', 'Nurture', 'Nurture - Credit',
+                     'App Link Sent', 'App Review', 'Pre Approved', 'In Escrow', 'Contact',
+                     'Unresponsive', 'Inactive', 'Trash', 'Referred Out']) {
+  eq(`pull: ${stage} no longer pulled`, storable({ stage }), false)
+}
+
+// An open task still overrides the stage rule — otherwise its row loses the name.
+eq('pull: open task rescues a non-past-client', storable({ stage: 'Nurture' }, [55]), true)
+eq('pull: open task rescues an Inactive person', storable({ stage: 'Inactive' }, [55]), true)
+eq('pull: a task cannot rescue another agent\'s person', storable({ stage: 'Nurture', assigned_user_id: 999 }, [55]), false)
+eq('pull: task ids for OTHER people do not rescue', storable({ stage: 'Nurture' }, [999]), false)
+
+// Directional contact dates come off FUB's per-channel timestamps; outbound
+// deliberately ignores bulk/marketing sends.
+const commRow = mapFubPerson({
+  id: 77, stage: 'Past Client', assignedUserId: 72,
+  lastReceivedText: iso(10 * D), lastIncomingCall: iso(3 * D), lastReceivedEmail: null,
+  lastSentEmail: iso(20 * D), lastOutgoingCall: iso(45 * D),
+  lastSentBatchEmail: iso(1 * D), lastDeliveredMarketingCampaign: iso(1 * D),
+} as FubPersonRaw, ['moe'])
+eq('map: inbound = newest received channel', commRow.last_inbound_at, iso(3 * D))
+eq('map: outbound = newest PERSONAL sent channel', commRow.last_outbound_at, iso(20 * D))
+eq('map: bulk/marketing sends never count as outbound',
+  commRow.last_outbound_at !== iso(1 * D), true)
+eq('map: no contact at all → nulls',
+  [mapFubPerson({ id: 78, stage: 'Closed', assignedUserId: 72 }, ['moe']).last_inbound_at,
+   mapFubPerson({ id: 78, stage: 'Closed', assignedUserId: 72 }, ['moe']).last_outbound_at], [null, null])
+
+eq('idle: contact dates beat a stale lastActivity',
+  fubIdleDays({ fub_id: 1, last_activity_at: iso(300 * D), last_outbound_at: iso(12 * D) }, NOW), 12)
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 

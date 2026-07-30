@@ -67,6 +67,8 @@ export type QueueFubLike = {
   deal_price?: number | null
   source?: string | null
   last_activity_at?: string | null
+  last_inbound_at?: string | null
+  last_outbound_at?: string | null
   fub_created_at?: string | null
   next_action_due?: string | null
   next_action?: string | null
@@ -91,6 +93,7 @@ export type QueueItem = {
   dueAt: string | null
   overdue: boolean
   inboundAt: string | null
+  outboundAt: string | null
   lastMessage: string | null
   note: string | null              // existing next_action note
   reason: string                   // plain-English "why is this here"
@@ -102,11 +105,11 @@ export type FollowUpQueue = {
   replyWaiting: QueueItem[]
   newLeads: QueueItem[]
   dueToday: QueueItem[]
-  stale: StaleBuckets
+  /** Past Client + Closed — the only FUB people the sync stores now. */
   pastClients: StaleBuckets
   counts: {
     replyWaiting: number; newLeads: number; dueToday: number; overdue: number
-    stale: number; pastClients: number
+    pastClients: number
   }
 }
 
@@ -151,12 +154,11 @@ const fmtAgo = (iso: string | null | undefined, now: number): string => {
 
 /** FUB idle anchor: latest of FUB activity and our own logged touch. */
 export function fubIdleDays(f: QueueFubLike, now: number): number | null {
-  const a = parse(f.last_activity_at)
-  const b = parse(f.last_touched_at)
-  const c = parse(f.fub_created_at)
-  const latest = Math.max(a ?? -Infinity, b ?? -Infinity, c ?? -Infinity)
-  if (latest === -Infinity) return null
-  return Math.max(0, Math.floor((now - latest) / MS_PER_DAY))
+  const ts = [f.last_inbound_at, f.last_outbound_at, f.last_activity_at, f.last_touched_at, f.fub_created_at]
+    .map(parse)
+    .filter((t): t is number => t != null)
+  if (ts.length === 0) return null
+  return Math.max(0, Math.floor((now - Math.max(...ts)) / MS_PER_DAY))
 }
 
 // ── Item builders ────────────────────────────────────────────────────────────
@@ -176,6 +178,7 @@ function dealItem(d: QueueDealLike, reason: string, now: number): QueueItem {
     dueAt: d.next_action_due ?? null,
     overdue: due != null && due < startOfToday(now),
     inboundAt: d.last_inbound_at ?? null,
+    outboundAt: d.last_outbound_at ?? null,
     lastMessage: d.last_inbound_message ?? null,
     note: d.next_action ?? null,
     reason,
@@ -194,7 +197,8 @@ function fubItem(f: QueueFubLike, reason: string, now: number): QueueItem {
     idleDays: fubIdleDays(f, now),
     dueAt: f.next_action_due ?? null,
     overdue: due != null && due < startOfToday(now),
-    inboundAt: null,
+    inboundAt: f.last_inbound_at ?? null,
+    outboundAt: f.last_outbound_at ?? null,
     lastMessage: null,
     note: f.next_action ?? null,
     reason,
@@ -311,31 +315,25 @@ export function buildFollowUpQueue(opts: {
 
   // 4/5/6 — the FUB book: stale nurture, past clients, cold (never rows already queued above)
   const queuedFub = new Set([...replyKeys, ...newKeys, ...dueToday.map(i => i.key)])
-  const staleRows: { item: QueueItem; idle: number }[] = []
   const pastRows: { item: QueueItem; idle: number }[] = []
   for (const f of fub) {
-    const key = `fub:${f.fub_id}`
-    if (queuedFub.has(key) || hasFutureSnooze(f, now)) continue
-    const stage = f.stage ?? ''
-    const idle = fubIdleDays(f, now)
-    if (idle == null || idle < STALE_MIN_DAYS) continue   // actively engaged
+    if (queuedFub.has(`fub:${f.fub_id}`) || hasFutureSnooze(f, now)) continue
+    if (!FUB_PAST_STAGES.includes(f.stage ?? '')) continue
+    const idle = fubIdleDays(f, now) ?? 9999   // never contacted → oldest bucket
     const money = fmtMoney(f.deal_price ?? f.price)
-    const bits = [`idle ${idle}d`, stage, ...(money ? [money] : [])]
-    const entry = { item: fubItem(f, bits.join(' · '), now), idle }
-    if (FUB_PAST_STAGES.includes(stage)) pastRows.push(entry)
-    else if (FUB_OPEN_STAGES.includes(stage)) staleRows.push(entry)
+    // The row itself shows both contact dates; the chip stays short.
+    const bits = [f.stage ?? 'Past Client', ...(money ? [money] : [])]
+    pastRows.push({ item: fubItem(f, bits.join(' · '), now), idle })
   }
-  const stale = bucketize(staleRows)
   const pastClients = bucketize(pastRows)
 
   return {
-    replyWaiting, newLeads, dueToday, stale, pastClients,
+    replyWaiting, newLeads, dueToday, pastClients,
     counts: {
       replyWaiting: replyWaiting.length,
       newLeads: newLeads.length,
       dueToday: dueToday.length,
       overdue: dueToday.filter(i => i.overdue).length,
-      stale: staleRows.length,
       pastClients: pastRows.length,
     },
   }

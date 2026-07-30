@@ -92,7 +92,28 @@ export type FubPersonRow = {
   fub_created_at: string | null
   fub_updated_at: string | null
   last_activity_at: string | null
+  /** When THEY last contacted us / when WE last contacted them (see below). */
+  last_inbound_at: string | null
+  last_outbound_at: string | null
   seen_by_keys: FubKeyLabel[]
+}
+
+// Directional contact timestamps. FUB exposes these per channel on the person
+// payload (verified live 2026-07-30: 89–98% coverage across Past Client/Closed).
+//
+// ⚠️ OUTBOUND is PERSONAL channels only. lastSentBatchEmail /
+// lastSentActionPlanEmail / lastDeliveredMarketingCampaign are deliberately
+// excluded — 74 of Moe's past clients have ONLY a bulk send, and counting a
+// marketing blast as "we contacted them" would hide exactly the people who
+// have never actually been reached out to.
+const INBOUND_FIELDS = ['lastReceivedEmail', 'lastReceivedText', 'lastIncomingCall', 'lastReceivedInboxAppMessage']
+const OUTBOUND_FIELDS = ['lastSentEmail', 'lastSentText', 'lastOutgoingCall', 'lastSentInboxAppMessage']
+
+function newestOf(p: FubPersonRaw, fields: string[]): string | null {
+  const ts = fields
+    .map(f => { const v = p[f]; return typeof v === 'string' ? Date.parse(v) : NaN })
+    .filter(t => !isNaN(t))
+  return ts.length ? new Date(Math.max(...ts)).toISOString() : null
 }
 
 // ── Fetching ─────────────────────────────────────────────────────────────────
@@ -193,6 +214,8 @@ export function mapFubPerson(p: FubPersonRaw, seenBy: FubKeyLabel[]): FubPersonR
     fub_created_at: isoOrNull(p.created),
     fub_updated_at: isoOrNull(p.updated),
     last_activity_at: isoOrNull(p.lastActivity),
+    last_inbound_at: newestOf(p, INBOUND_FIELDS),
+    last_outbound_at: newestOf(p, OUTBOUND_FIELDS),
     seen_by_keys: seenBy,
   }
 }
@@ -350,25 +373,22 @@ export function mapFubTask(t: FubTaskRaw): FubTaskRow {
 //     in the last 90 days — of ~1,800 raw leads only 37 passed that bar.
 
 export const SYNC_LO_USER_IDS = [72, 13]              // Moe, Matt (Randy=35 would join here)
-export const SYNC_EXCLUDED_STAGES = ['Trash', 'Referred Out', 'Unresponsive', 'Inactive']
-export const RAW_LEAD_STAGES = ['Lead', 'Attempting Contact']
-export const RAW_LEAD_MAX_IDLE_DAYS = 90
+
+// NARROWED 2026-07-30 (Efrain: "i do not want stale leads from FUB, what I do
+// want are the leads in the Closed and past client stage"). FUB's people pull is
+// now ONLY the past-client book — the working pipeline lives in GHL, and the
+// stale-nurture pile it used to carry is gone.
+export const SYNC_KEEP_STAGES = ['Past Client', 'Closed']
 
 // An OPEN TASK overrides the stage/idle rules: the LO explicitly scheduled a
 // follow-up on that person, so they belong in the cockpit whatever their stage
 // says (55 of Matt's task people were being filtered out before this).
-export function shouldStoreFubPerson(row: FubPersonRow, now?: number, taskPersonIds?: Set<number>): boolean {
+export function shouldStoreFubPerson(row: FubPersonRow, _now?: number, taskPersonIds?: Set<number>): boolean {
   if (row.assigned_user_id == null || !SYNC_LO_USER_IDS.includes(row.assigned_user_id)) return false
+  // An open FUB task still overrides the stage rule — otherwise the tasks
+  // section would render "FUB contact #12345" instead of the person's name.
   if (taskPersonIds?.has(row.fub_id)) return true
-  if (!row.stage || SYNC_EXCLUDED_STAGES.includes(row.stage)) return false
-  if (RAW_LEAD_STAGES.includes(row.stage)) {
-    const ts = [row.last_activity_at, row.fub_created_at]
-      .map(v => (v ? Date.parse(v) : NaN))
-      .filter(t => !isNaN(t))
-    if (ts.length === 0) return false
-    if ((now ?? Date.now()) - Math.max(...ts) > RAW_LEAD_MAX_IDLE_DAYS * 86_400_000) return false
-  }
-  return true
+  return !!row.stage && SYNC_KEEP_STAGES.includes(row.stage)
 }
 
 // ── Diff against existing table state ────────────────────────────────────────
@@ -378,6 +398,8 @@ export type ExistingFubRow = {
   fub_id: number
   fub_updated_at: string | null
   last_activity_at: string | null
+  last_inbound_at: string | null
+  last_outbound_at: string | null
   stage: string | null
   assigned_user_id: number | null
   missing_since: string | null
@@ -413,6 +435,10 @@ export function diffSweep(swept: FubPersonRow[], existing: ExistingFubRow[]): Sw
     const changed =
       !tsEq(ex.fub_updated_at, row.fub_updated_at) ||
       !tsEq(ex.last_activity_at, row.last_activity_at) ||
+      // Contact dates move without `updated` moving, and they're the whole point
+      // of the past-client view — so they're part of change detection.
+      !tsEq(ex.last_inbound_at, row.last_inbound_at) ||
+      !tsEq(ex.last_outbound_at, row.last_outbound_at) ||
       ex.stage !== row.stage ||
       ex.assigned_user_id !== row.assigned_user_id ||
       ex.missing_since != null            // was flagged missing, is visible again

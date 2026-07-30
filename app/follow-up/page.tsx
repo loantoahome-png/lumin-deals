@@ -76,7 +76,6 @@ export default function FollowUpIndex() {
                   <div className="flex justify-between"><dt>Reply waiting</dt><dd className="font-bold text-red-700">{q.counts.replyWaiting}</dd></div>
                   <div className="flex justify-between"><dt>New leads</dt><dd className="font-bold text-emerald-700">{q.counts.newLeads}</dd></div>
                   <div className="flex justify-between"><dt>Due today</dt><dd className="font-bold text-amber-700">{q.counts.dueToday}</dd></div>
-                  <div className="flex justify-between"><dt>Stale nurture</dt><dd className="font-bold text-sky-700">{q.counts.stale}</dd></div>
                   <div className="flex justify-between"><dt>Past clients</dt><dd className="font-bold text-violet-700">{q.counts.pastClients}</dd></div>
                 </dl>
               </Link>

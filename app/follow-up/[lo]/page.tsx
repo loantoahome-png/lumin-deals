@@ -49,7 +49,7 @@ import {
 import { AssigneeColumn, TaskRow, type ColumnView } from '@/components/TaskBoard'
 import {
   Flame, RefreshCw, CheckCircle2, Clock, ChevronDown, ExternalLink,
-  PhoneCall, ListTodo, Target, ClipboardList, AlertCircle, Plus,
+  PhoneCall, ListTodo, Target, ClipboardList, AlertCircle, Plus, Users,
 } from 'lucide-react'
 
 const LO_SLUGS: Record<string, string> = { moe: 'Moe Sefati', matt: 'Matt Park' }
@@ -341,7 +341,7 @@ export default function FollowUpCockpit() {
   const c = queue.counts
   const fubDue = taskQueue.counts.today + taskQueue.counts.next7
   const dashOpen = dashTasks.length
-  const moreCount = c.newLeads + c.dueToday + c.stale + c.pastClients
+  const moreCount = c.newLeads + c.dueToday
 
   return (
     <div className="flex flex-col h-full overflow-y-auto bg-slate-50">
@@ -474,9 +474,21 @@ export default function FollowUpCockpit() {
 
           <SectionBreak />
 
-          {/* ── 5. Everything else, one click away ────────────────────────── */}
+          {/* ── 5. The FUB book — past clients + closed, the only people the
+                 sync stores now (Efrain: "what I do want are the leads in the
+                 Closed and past client stage"). ──────────────────────────── */}
+          <Panel icon={<Users className="w-5 h-5" />} accent="#8b5cf6"
+            title="Past clients & closed (FUB)" subtitle="The farming pool — refis, referrals, anniversaries"
+            badge={`${c.pastClients} people`}>
+            <BucketDrawer label="By how long since anyone talked" buckets={queue.pastClients}
+              total={c.pastClients} renderActions={rowActions} />
+          </Panel>
+
+          <SectionBreak />
+
+          {/* ── 6. Everything else, one click away ────────────────────────── */}
           <Panel icon={<Clock className="w-5 h-5" />} accent="#a855f7"
-            title="More follow-ups" subtitle="Replies, new leads, check-ins, and the FUB book"
+            title="More follow-ups" subtitle="New leads and scheduled check-ins"
             badge={`${moreCount}`} collapsible defaultCollapsed>
             <Drawer label="New leads" count={c.newLeads} tone="good">
               {queue.newLeads.map(i => <Row key={i.key} item={i} showStage actions={rowActions(i)} />)}
@@ -484,8 +496,6 @@ export default function FollowUpCockpit() {
             <Drawer label="Check-ins due" count={c.dueToday} tone="warn">
               {queue.dueToday.map(i => <Row key={i.key} item={i} showStage actions={rowActions(i)} />)}
             </Drawer>
-            <BucketDrawer label="FUB nurture going stale" buckets={queue.stale} total={c.stale} renderActions={rowActions} />
-            <BucketDrawer label="Past clients & closed" buckets={queue.pastClients} total={c.pastClients} renderActions={rowActions} />
           </Panel>
         </div>
       )}
@@ -686,7 +696,7 @@ function BucketDrawer({ label, buckets, total, renderActions }: {
         return (
           <div key={key} className="pt-1">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1">{gl} · {items.length}</p>
-            <div className="space-y-1.5">{shown.map(i => <Row key={i.key} item={i} actions={renderActions(i)} />)}</div>
+            <div className="space-y-1.5">{shown.map(i => <Row key={i.key} item={i} showContact actions={renderActions(i)} />)}</div>
             {items.length > PREVIEW && (
               <button onClick={() => setExpanded(e => ({ ...e, [key]: !isOpen }))} className="text-xs text-blue-700 hover:underline mt-1">
                 {isOpen ? 'Show fewer' : `Show all ${items.length}`}
@@ -728,7 +738,29 @@ function FubTaskRow({ task, busy, onDone }: { task: TaskItem; busy: boolean; onD
   )
 }
 
-function Row({ item, actions, showStage }: { item: QueueItem; actions: React.ReactNode; showStage?: boolean }) {
+/** "They last reached us" / "we last reached them" — the two dates Efrain asked
+ *  for. Both come from FUB's per-channel timestamps; a dash means never. */
+function ContactDates({ item }: { item: QueueItem }) {
+  const fmt = (iso: string | null) => {
+    if (!iso) return '—'
+    const d = new Date(iso)
+    return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' })
+  }
+  return (
+    <span className="hidden md:flex items-center gap-3 text-[11px] shrink-0">
+      <span className="text-slate-500" title="When they last contacted us">
+        <span className="text-slate-400">they→us</span> {fmt(item.inboundAt)}
+      </span>
+      <span className="text-slate-500" title="When we last contacted them (personal channels only — bulk/marketing sends don't count)">
+        <span className="text-slate-400">us→them</span> {fmt(item.outboundAt)}
+      </span>
+    </span>
+  )
+}
+
+function Row({ item, actions, showStage, showContact }: {
+  item: QueueItem; actions: React.ReactNode; showStage?: boolean; showContact?: boolean
+}) {
   const ghlUrl = item.system === 'ghl'
     ? ghlContactUrl({ ghl_contact_id: item.ghlContactId, ghl_location_id: item.ghlLocationId })
     : null
@@ -757,6 +789,7 @@ function Row({ item, actions, showStage }: { item: QueueItem; actions: React.Rea
         </span>
       )}
       <span className={`text-xs truncate ${item.overdue ? 'text-red-700 font-medium' : 'text-slate-500'}`}>{item.reason}</span>
+      {showContact && <ContactDates item={item} />}
       {item.lastMessage && (
         <span className="text-xs text-slate-400 italic truncate hidden lg:inline">“{item.lastMessage.slice(0, 50)}”</span>
       )}
