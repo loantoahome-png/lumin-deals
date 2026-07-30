@@ -9,10 +9,15 @@
 //   1. Tasks               — this LO's deal_tasks, rendered with the SHARED
 //                            components/TaskBoard card so it is literally the
 //                            same design as /tasks ("mimic the main tasks page"),
-//                            and first on the page.
-//   2. FollowUpBoss tasks  — Overdue / Due today / Next 7 days (+ Done, Open in FUB)
-//   3. GHL leads in play   — Pitching + App Intake, split by last activity (≤7d / >7d)
-//   4. More follow-ups     — collapsed: replies, new leads, check-ins, the FUB book
+//                            and first on the page. Complete / edit / delete,
+//                            plus one-click delegation to Efrain or Brianne.
+//   2. Replied — waiting    — its own section (promoted out of "More follow-ups"
+//                            2026-07-30). EXCLUDES the Not Ready pipeline: those
+//                            leads are deliberately parked and resurface via
+//                            Hot Leads check-ins instead.
+//   3. FollowUpBoss tasks  — Overdue / Due today / Next 7 days (+ Done, Open in FUB)
+//   4. GHL leads in play   — Pitching + App Intake, split by last activity (≤7d / >7d)
+//   5. More follow-ups     — collapsed: new leads, check-ins, the FUB book
 //
 // Write paths from this page (client-side, authenticated):
 //   • GHL deals → deals.next_action_due / next_action (SNOOZE — the same field
@@ -277,6 +282,21 @@ export default function FollowUpCockpit() {
     return true
   }
 
+  /** Delete a dashboard task — same confirm + hard delete as the /tasks page.
+   *  (deal_tasks has no soft-delete; /tasks removes rows outright.) */
+  async function deleteDashTask(task: DealTask) {
+    if (!confirm(`Delete “${task.title}”? This cannot be undone.`)) return
+    const key = `del:${task.id}`
+    mark(key, true)
+    try {
+      const { error } = await supabase.from('deal_tasks').delete().eq('id', task.id)
+      if (error) { alert('Delete failed: ' + error.message); return }
+      setDashTasks(prev => prev.filter(t => t.id !== task.id))
+    } finally {
+      mark(key, false)
+    }
+  }
+
   /** Complete a dashboard task — same write + notification as the /tasks page. */
   async function completeDashTask(task: DealTask) {
     const key = `dash:${task.id}`
@@ -321,7 +341,7 @@ export default function FollowUpCockpit() {
   const c = queue.counts
   const fubDue = taskQueue.counts.today + taskQueue.counts.next7
   const dashOpen = dashTasks.length
-  const moreCount = c.replyWaiting + c.newLeads + c.dueToday + c.stale + c.pastClients
+  const moreCount = c.newLeads + c.dueToday + c.stale + c.pastClients
 
   return (
     <div className="flex flex-col h-full overflow-y-auto bg-slate-50">
@@ -351,13 +371,6 @@ export default function FollowUpCockpit() {
             </button>
           </div>
         </div>
-        {c.replyWaiting > 0 && (
-          <div className="mt-3 flex items-center gap-2 text-xs bg-red-50 border border-red-200 text-red-800 rounded-lg px-3 py-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span className="font-semibold">{c.replyWaiting} lead{c.replyWaiting === 1 ? '' : 's'} replied and {c.replyWaiting === 1 ? 'is' : 'are'} waiting on you</span>
-            <span className="text-red-600">— see “More follow-ups” below</span>
-          </div>
-        )}
       </div>
 
       {loading ? (
@@ -374,7 +387,7 @@ export default function FollowUpCockpit() {
                 {/* Delegating up the chain is a daily move for both LOs, so it
                     gets its own button instead of hunting the assignee dropdown. */}
                 {DELEGATES.map(d => (
-                  <AddButton key={d.name} label={`Add task for ${d.short}`} tone={d.tone}
+                  <AddButton key={d.name} label={`Add task for ${d.short}`} tone={d.tone} size="lg"
                     onClick={() => setNewDashTask({ assignee: d.name })} />
                 ))}
                 <Link href="/tasks" className="text-xs text-slate-400 hover:text-slate-700 hidden lg:inline">/tasks →</Link>
@@ -397,6 +410,7 @@ export default function FollowUpCockpit() {
                   ghlUrl={t.deal_id ? dealGhlUrls[t.deal_id] : undefined}
                   onToggle={() => completeDashTask(t)}
                   onEdit={() => setNewDashTask({ task: t })}
+                  onDelete={() => deleteDashTask(t)}
                 />
               )}
             />
@@ -404,7 +418,25 @@ export default function FollowUpCockpit() {
 
           <SectionBreak />
 
-          {/* ── 2. FollowUpBoss tasks ─────────────────────────────────────── */}
+          {/* ── 2. Replies waiting — promoted out of "More follow-ups" ─────── */}
+          <Panel icon={<AlertCircle className="w-5 h-5" />} accent="#ef4444"
+            title="Replied — waiting on you" subtitle="They messaged and nobody has answered yet"
+            badge={c.replyWaiting === 0 ? 'all clear' : `${c.replyWaiting} waiting`}
+            bare>
+            {queue.replyWaiting.length === 0 ? (
+              <p className="text-xs text-slate-400 bg-white border border-dashed border-slate-200 rounded-xl px-4 py-4">
+                Inbox zero — no unanswered replies. (Leads parked in Not Ready are excluded.)
+              </p>
+            ) : (
+              <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-3 space-y-1.5">
+                {queue.replyWaiting.map(i => <Row key={i.key} item={i} showStage actions={rowActions(i)} />)}
+              </div>
+            )}
+          </Panel>
+
+          <SectionBreak />
+
+          {/* ── 3. FollowUpBoss tasks ─────────────────────────────────────── */}
           <Panel icon={<ListTodo className="w-5 h-5" />} accent="#6366f1"
             title="FollowUpBoss tasks" subtitle="Your own FUB reminders"
             badge={`${fubDue} due within ${TASK_WINDOW_DAYS} days`}
@@ -428,7 +460,7 @@ export default function FollowUpCockpit() {
 
           <SectionBreak />
 
-          {/* ── 3. GHL leads in play ──────────────────────────────────────── */}
+          {/* ── 4. GHL leads in play ──────────────────────────────────────── */}
           <Panel icon={<Target className="w-5 h-5" />} accent="#0ea5e9"
             title="GHL leads — Pitching & App Intake" subtitle="Deals in play, split by last activity"
             badge={`${leads.counts.pitching} pitching · ${leads.counts.appIntake} app intake`}>
@@ -442,13 +474,10 @@ export default function FollowUpCockpit() {
 
           <SectionBreak />
 
-          {/* ── 4. Everything else, one click away ────────────────────────── */}
+          {/* ── 5. Everything else, one click away ────────────────────────── */}
           <Panel icon={<Clock className="w-5 h-5" />} accent="#a855f7"
             title="More follow-ups" subtitle="Replies, new leads, check-ins, and the FUB book"
             badge={`${moreCount}`} collapsible defaultCollapsed>
-            <Drawer label="Replied — waiting on you" count={c.replyWaiting} tone="danger">
-              {queue.replyWaiting.map(i => <Row key={i.key} item={i} showStage actions={rowActions(i)} />)}
-            </Drawer>
             <Drawer label="New leads" count={c.newLeads} tone="good">
               {queue.newLeads.map(i => <Row key={i.key} item={i} showStage actions={rowActions(i)} />)}
             </Drawer>
@@ -552,11 +581,15 @@ const ADD_TONES = {
   violet:  'text-violet-800 bg-violet-50 border-violet-200 hover:bg-violet-100',
 } as const
 
-function AddButton({ label, tone, onClick }: { label: string; tone: keyof typeof ADD_TONES; onClick: () => void }) {
+function AddButton({ label, tone, onClick, size = 'sm' }: {
+  label: string; tone: keyof typeof ADD_TONES; onClick: () => void; size?: 'sm' | 'lg'
+}) {
   return (
     <button onClick={onClick}
-      className={`text-[11px] font-semibold rounded-lg border px-2 py-1 flex items-center gap-1 ${ADD_TONES[tone]}`}>
-      <Plus className="w-3 h-3" /> {label}
+      className={`font-semibold rounded-lg border flex items-center gap-1.5 transition ${ADD_TONES[tone]} ${
+        size === 'lg' ? 'text-sm px-3.5 py-2 shadow-sm' : 'text-[11px] px-2 py-1'
+      }`}>
+      <Plus className={size === 'lg' ? 'w-4 h-4' : 'w-3 h-3'} /> {label}
     </button>
   )
 }

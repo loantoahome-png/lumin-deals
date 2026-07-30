@@ -117,6 +117,9 @@ const deals: QueueDealLike[] = [
   deal({ id: 'd-hot', status: 'Pitching', last_inbound_at: iso(2 * H) }),
   // stale inbound (3 days) → not waiting
   deal({ id: 'd-oldmsg', last_inbound_at: iso(3 * D) }),
+  // parked in Not Ready — replies here are NOT the cockpit's job (Efrain 2026-07-30)
+  deal({ id: 'd-notready', status: 'Remove from All Automations', pipeline_group: 'Not Ready', last_inbound_at: iso(2 * H) }),
+  deal({ id: 'd-notready-tf', status: 'Not Ready - Timeframe', pipeline_group: 'Not Ready', last_inbound_at: iso(2 * H) }),
   // new lead 26h old
   deal({ id: 'd-new', name: 'New Nick', date_added_ghl: iso(26 * H), loan_amount: 420000 }),
   // check-in due 2h from now (same local day) — Not Ready lead
@@ -150,6 +153,12 @@ const fub: QueueFubLike[] = [
 const q = buildFollowUpQueue({ deals, fub, lo: 'Moe Sefati', now: NOW })
 
 eq('queue: reply-waiting exactly the unanswered one', q.replyWaiting.map(i => i.key), ['deal:d-reply'])
+eq('queue: Not Ready pipeline never counts as reply-waiting',
+  [isReplyWaiting(deal({ id: 'x', pipeline_group: 'Not Ready', status: 'Remove from All Automations', last_inbound_at: iso(1 * H) }), NOW),
+   isReplyWaiting(deal({ id: 'y', pipeline_group: 'Not Ready', status: 'Not Ready - Timeframe', last_inbound_at: iso(1 * H) }), NOW)],
+  [false, false])
+eq('queue: Not Ready replies absent from the whole queue',
+  JSON.stringify(q).includes('d-notready'), false)
 eq('queue: reply reason mentions recency', q.replyWaiting[0].reason, 'replied 3h ago')
 eq('queue: new leads = GHL new + FUB new', q.newLeads.map(i => i.key).sort(), ['deal:d-new', 'fub:1'])
 eq('queue: due today = due + overdue + fub overdue', q.dueToday.map(i => i.key).sort(), ['deal:d-due', 'deal:d-overdue', 'fub:12'])

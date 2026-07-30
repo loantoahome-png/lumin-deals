@@ -205,9 +205,16 @@ function fubItem(f: QueueFubLike, reason: string, now: number): QueueItem {
 
 const loMatch = (lo: string | null | undefined, target: string) => lo === target
 
+// Parked leads. A "Remove from All Automations" / "Not Ready - Timeframe" lead
+// still generates inbound messages, but the team has deliberately shelved it —
+// Efrain 2026-07-30: the replied section "does not include leads that are in the
+// not ready pipeline". Their check-ins resurface through Hot Leads instead.
+export const NOT_READY_GROUP = 'Not Ready'
+
 /** Unanswered inbound within the reply window, on a status /hot-leads isn't already working. */
 export function isReplyWaiting(d: QueueDealLike, now: number): boolean {
   if (!isOpenLead(d)) return false
+  if (d.pipeline_group === NOT_READY_GROUP) return false
   if (HOT_WORKING_STATUSES.includes(d.status)) return false
   const inbound = parse(d.last_inbound_at)
   if (inbound == null || now - inbound > REPLY_WINDOW_H * 3_600_000) return false
