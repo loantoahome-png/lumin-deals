@@ -71,7 +71,8 @@ const FU_DEAL_COLUMNS = [
 
 const FUB_COLUMNS = [
   'fub_id', 'name', 'stage', 'loan_officer', 'price', 'deal_price', 'source',
-  'last_activity_at', 'fub_created_at', 'next_action_due', 'next_action',
+  'last_activity_at', 'last_inbound_at', 'last_outbound_at',
+  'fub_created_at', 'next_action_due', 'next_action',
   'last_touched_at', 'matched_deal_active', 'missing_since',
 ].join(',')
 

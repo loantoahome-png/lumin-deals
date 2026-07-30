@@ -15,7 +15,7 @@ import { PhoneCall, ArrowRight } from 'lucide-react'
 const SLUG: Record<string, string> = { 'Moe Sefati': 'moe', 'Matt Park': 'matt' }
 
 const DEAL_COLS = 'id,name,status,ghl_status,pipeline_group,loan_officer,created_at,date_added_ghl,next_action_due,last_inbound_at,last_outbound_at,loan_amount'
-const FUB_COLS = 'fub_id,stage,loan_officer,price,deal_price,last_activity_at,fub_created_at,next_action_due,last_touched_at,matched_deal_active,missing_since'
+const FUB_COLS = 'fub_id,stage,loan_officer,price,deal_price,last_activity_at,last_inbound_at,last_outbound_at,fub_created_at,next_action_due,last_touched_at,matched_deal_active,missing_since'
 
 export default function FollowUpIndex() {
   const [deals, setDeals] = useState<QueueDealLike[]>([])
