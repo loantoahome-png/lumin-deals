@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { fetchFubUnanswered, type FubUnanswered } from '@/lib/followUpBoss'
+import { FUB_INBOX_ACKS_KEY, parseFubInboxAcks, isAcked } from '@/lib/fubInboxAcks'
 
 // Live "they texted, nobody answered" list for one LO's FollowUpBoss inbox.
 // GET /api/fub/unanswered?lo=moe|matt
@@ -58,6 +59,23 @@ export async function GET(req: NextRequest) {
     const msg = e instanceof Error ? e.message : String(e)
     console.error('[FUB unanswered] failed:', msg)
     return NextResponse.json({ ok: false, error: msg }, { status: 502 })
+  }
+
+  // Drop anything already checked off. The ack stores the message it cleared, so
+  // a NEWER inbound beats it and the row returns — the only thing that brings it
+  // back (Efrain: "Only thing to bring it back would be a new response").
+  // Filtered here rather than in the UI so the count is honest and a reload,
+  // another device and the next sync all agree.
+  {
+    const sb = createServiceClient()
+    const { data } = await sb.from('sync_state').select('value').eq('key', FUB_INBOX_ACKS_KEY).maybeSingle()
+    const acks = parseFubInboxAcks((data as { value?: unknown } | null)?.value)
+    if (acks.size > 0) {
+      const before = unanswered.length
+      unanswered = unanswered.filter(u => !isAcked(acks, u.fubId, u.lastInboundAt))
+      const dropped = before - unanswered.length
+      if (dropped > 0) console.log(`[FUB unanswered] ${cfg.label}: ${dropped} row(s) already checked off`)
+    }
   }
 
   // Enrich from fub_people — stage for the row chip, matched_deal_active so the

@@ -1,5 +1,26 @@
 # GOTCHAS — Lumin Deals
 
+### FUB `/v1/calls`: `toNumber`/`fromNumber` are honored, `userId`/`isIncoming` are SILENTLY IGNORED
+**Tried:** Fetching one LO's inbound calls with `/v1/calls?userId=72&isIncoming=true`.
+**Failed because:** both params are ignored and the response comes back **unfiltered** — `_metadata.total` stayed at 5,193 (Moe) / 9,393 (Matt) and the rows contained both directions. No error, no warning. Same family as the documented FUB trap, and the reason to re-check every param rather than assume the pattern from `/textMessages`. What IS honored: **`toNumber`** (→ 100/100 incoming), **`fromNumber`** (→ 100/100 outgoing) and **`personId`** (→ both directions for one person). Direction must be established by WHICH number filter you use, never by a query param.
+**What works:** verify every filter by comparing `_metadata.total` against the unfiltered call before building on it. A filter that changes nothing is the tell.
+**Project:** lumin-deals
+**Date:** 2026-07-30
+
+### A missed FUB call is `outcome === 'No Answer'` — duration is NOT the signal
+**Tried:** Classifying incoming calls as missed when `duration === 0`.
+**Failed because:** **13 of 100** of Moe's incoming "No Answer" calls had a duration **greater than zero** — up to **278 seconds** of voicemail recording. A duration test silently reclassifies an eighth of the missed calls as "answered", i.e. as work already handled. Incoming calls carry exactly two outcomes (verified across both LOs): `null` = someone picked up, `'No Answer'` = missed.
+**What works:** `isMissedInboundCall()` tests `outcome`, not duration. Corollary for the reply inbox: an **answered** inbound call belongs on the RESPONSE side of the ledger — they rang, someone picked up, the conversation happened — and an **outbound** call answers an inbound text, so phoning someone back clears their unanswered message.
+**Project:** lumin-deals
+**Date:** 2026-07-30
+
+### "Clear this from my list" needs its own ack store — a column on the synced table can't hold it
+**Tried:** Using `fub_people.last_touched_at` as the dismiss signal for the reply inbox.
+**Failed because:** two things. (1) Semantics — "Touched" claims *we reached out*, but Efrain's actual need is "sometimes a reply doesn't need a reply from us, can we check it off". Those are different facts and conflating them corrupts the past-client idle math. (2) Coverage — the FUB sweep stores **Past Client + Closed + task-holders only**, so a texter who isn't in `fub_people` has **no row to write to**. Those were exactly the rows that rendered with *no buttons at all* (Joey Kiamco, Eutah Modegoren, Rose Luttrell, Clara).
+**What works:** a standalone ack keyed on `fub_id` alone, in `sync_state.fub_inbox_acks` (`lib/fubInboxAcks.ts` + `/api/fub/inbox-ack`) — the same contract `comm_read_acks` already provides for GHL: **store the timestamp of the message you cleared**, and let a strictly NEWER inbound bring the row back. Server-side with the service role, so it works for unstored people and regardless of RLS, and needs no migration. Never move an ack backward, or a stale client replaying an old timestamp un-clears a newer message.
+**Project:** lumin-deals
+**Date:** 2026-07-30
+
 ### Paging two feeds by PAGE COUNT gives them different TIME horizons — anchor to a cutoff instead
 **Tried:** Reconstructing "who texted and nobody answered" from FollowUpBoss by pulling 3 pages (300 messages) of inbound and 3 pages of outbound, then comparing the newest of each per person.
 **Failed because:** outbound volume is far higher than inbound (drips, mass sends), so equal page counts span **unequal time**. Measured live on Moe: 300 inbound reached **62 days** back, 300 outbound only **52**. Every reply older than that 52-day horizon was invisible, so anyone whose inbound landed in the 52–62 day gap was reported as ignored forever. **Live proof:** Tami Boteilho showed as "texted 59d ago, nobody answered" when Moe had in fact replied — with a 😂 — **98 seconds later**. The failure is silent and one-directional: it can only ever invent work, never hide it, so nothing looks broken.

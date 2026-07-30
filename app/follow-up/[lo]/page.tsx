@@ -290,24 +290,48 @@ export default function FollowUpCockpit() {
     dismissFromInbox(item)
   }
 
-  /** Reply inbox: "Done" on a GHL row. GHL has no working mark-read endpoint,
-   *  so we record the ack in comm_read_acks — which /api/ghl/unread already
-   *  honors until a NEWER message arrives. Same write the dashboard inbox uses. */
-  async function markGhlRead(item: QueueItem) {
-    dismissFromInbox(item)
-    if (!item.conversationId) return          // synced-only row: nothing to ack
-    const res = await fetch('/api/ghl/mark-read', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        conversationId: item.conversationId,
-        contactId: item.ghlContactId,
-        locationId: item.ghlLocationId,
-        lastMessageAt: item.inboundAt,
-      }),
-    })
-    const body = await res.json().catch(() => null)
-    if (!res.ok || !body?.ok) console.error('[follow-up] mark-read failed:', body)
+  /** Reply inbox: "I've handled this." Clears the row until they contact again.
+   *  GHL has no working mark-read endpoint, so both sides are dashboard-side
+   *  acks recording the message that was cleared. */
+  async function markInboxDone(item: QueueItem) {
+    const key = `done:${item.key}`
+    mark(key, true)
+    try {
+      const res = item.system === 'fub' && item.fubId != null
+        ? await fetch('/api/fub/inbox-ack', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fubId: item.fubId, lastInboundAt: item.inboundAt }),
+          })
+        : item.conversationId
+          ? await fetch('/api/ghl/mark-read', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                conversationId: item.conversationId,
+                contactId: item.ghlContactId,
+                locationId: item.ghlLocationId,
+                lastMessageAt: item.inboundAt,
+              }),
+            })
+          : null
+
+      // A synced-only GHL row has no conversation to ack. Snoozing it is the
+      // honest persistent option, so say that instead of pretending it cleared.
+      if (!res) {
+        alert(`No live conversation to clear for ${item.name}. Use Snooze to set it aside — it'll come back on that date.`)
+        return
+      }
+      const body = await res.json().catch(() => null)
+      if (!res.ok || !body?.ok) {
+        console.error('[follow-up] inbox done failed:', body)
+        alert(`Could not clear ${item.name}: ${body?.error ?? res.status}`)
+        return
+      }
+      dismissFromInbox(item)
+    } finally {
+      mark(key, false)
+    }
   }
 
   /** Hide a reply-inbox row immediately (the persisted write is separate). */
@@ -517,7 +541,7 @@ export default function FollowUpCockpit() {
                  reply shows up whatever stage the loan is in and whichever
                  system it landed in. ─────────────────────────────────────── */}
           <Panel icon={<AlertCircle className="w-5 h-5" />} accent="#ef4444"
-            title="Replied — waiting on you" subtitle="They messaged and nobody has answered yet — GHL + FollowUpBoss"
+            title="Replied — waiting on you" subtitle="Texts, missed calls and GHL replies nobody has answered yet"
             badge={inboxLoading ? 'checking GHL + FUB…'
               : inbox.counts.total === 0 ? 'all clear'
               : `${inbox.counts.fresh} waiting — ${inbox.counts.ghl} GHL, ${inbox.counts.fub} FUB`}
@@ -653,27 +677,30 @@ export default function FollowUpCockpit() {
     </div>
   )
 
-  /** Reply-inbox variant: GHL rows get "Done" (a comm_read_acks ack) where FUB
-   *  rows get "Touched". Both mean the same thing here — I handled it. */
+  /** Reply-inbox actions. EVERY row gets **Done** — Efrain 2026-07-30: "Sometimes
+   *  a reply from a client doesn't need a reply from us, can we check it off from
+   *  the list without having a sync or anything bringing it back. Only thing to
+   *  bring it back would be a new response."
+   *
+   *  Done is not a snooze and not "Touched" (which claims we reached out): it
+   *  acknowledges THAT message. GHL rows ack via comm_read_acks, FUB rows via
+   *  sync_state.fub_inbox_acks — the FUB one is server-side and keyed on fub_id
+   *  alone, so it works for the people who aren't in fub_people and previously
+   *  had no buttons at all. */
   function inboxActions(item: QueueItem) {
-    if (item.system === 'fub') return rowActions(item)
-    // Done writes a comm_read_acks row keyed on the CONVERSATION id, so it's
-    // only offered where we have one. A synced-only row (no live conversation)
-    // would dismiss for this session and come back on reload — that silent
-    // no-op is the exact complaint this pass is fixing, so no button.
-    if (!item.conversationId) return rowActions(item)
     return (
       <div className="flex items-center gap-1 shrink-0">
-        <button onClick={() => markGhlRead(item)} title="I've answered this — clear it from the inbox"
-          className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-1 hover:bg-emerald-100 flex items-center gap-0.5">
+        <button onClick={() => markInboxDone(item)} disabled={busy.has(`done:${item.key}`)}
+          title="Nothing owed here — clear it. It only comes back if they message again."
+          className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-1 hover:bg-emerald-100 disabled:opacity-40 flex items-center gap-0.5">
           <CheckCircle2 className="w-3 h-3" /> Done
         </button>
-        {rowActions(item)}
+        {rowActions(item, { hideTouched: true })}
       </div>
     )
   }
 
-  function rowActions(item: QueueItem) {
+  function rowActions(item: QueueItem, opts?: { hideTouched?: boolean }) {
     const open = menuFor === item.key
     // Nothing of ours to write to (live GHL conversation with no deal row, or a
     // FUB person the sweep doesn't store) — show the link only.
@@ -690,7 +717,7 @@ export default function FollowUpCockpit() {
           className="text-[10px] font-semibold text-slate-600 bg-slate-50 border border-slate-200 rounded px-1.5 py-1 hover:bg-slate-100 flex items-center gap-0.5">
           <Plus className="w-3 h-3" /> Task
         </button>
-        {item.system === 'fub' && (
+        {item.system === 'fub' && !opts?.hideTouched && (
           <button onClick={() => markTouched(item)} title="Mark touched today — clears it from the queue"
             className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-1 hover:bg-emerald-100 flex items-center gap-0.5">
             <CheckCircle2 className="w-3 h-3" /> Touched

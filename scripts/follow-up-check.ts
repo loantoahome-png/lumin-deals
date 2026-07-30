@@ -7,8 +7,9 @@
 
 import {
   mapFubPerson, mapFubTask, dedupeTasks, mergeSweeps, diffSweep, shouldStoreFubPerson,
-  unansweredFromMessages, normalizeFubNumber, messagePreview, threadShowsReply,
-  type FubPersonRaw, type ExistingFubRow, type FubTextMessage,
+  unansweredFromMessages, unansweredFromTouches, normalizeFubNumber, messagePreview, threadShowsReply,
+  isMissedInboundCall, textTouch, callTouch,
+  type FubPersonRaw, type ExistingFubRow, type FubTextMessage, type FubCall,
 } from '../lib/followUpBoss'
 import {
   buildFollowUpQueue, buildTaskQueue, buildLeadSections, buildReplyInbox, lastActivityMs,
@@ -16,6 +17,7 @@ import {
   type QueueDealLike, type QueueFubLike, type QueueTaskLike,
   type LiveUnreadLike, type FubUnansweredLike,
 } from '../lib/followUpQueue'
+import { parseFubInboxAcks, isAcked, pruneAcks } from '../lib/fubInboxAcks'
 
 let pass = 0, fail = 0
 function eq(label: string, got: unknown, want: unknown) {
@@ -379,6 +381,57 @@ eq('fub inbox: number normalizer',
   [normalizeFubNumber('(949) 868-9588'), normalizeFubNumber('+19515833140'), normalizeFubNumber('123'), normalizeFubNumber(null)],
   ['9498689588', '9515833140', null, null])
 
+// ── Missed inbound calls ────────────────────────────────────────────────────
+// ⚠️ `outcome` is the missed signal, NOT duration: 13 of 100 of Moe's incoming
+// "No Answer" calls had duration > 0 (up to 278s of voicemail), so a duration
+// test would quietly reclassify an eighth of the missed calls as answered.
+// Incoming outcomes are only null (picked up) or 'No Answer' (verified live).
+
+const call = (over: Partial<FubCall>): FubCall => ({
+  id: over.id ?? 1, personId: over.personId ?? 1, created: over.created ?? iso(1 * H),
+  isIncoming: true, ...over,
+})
+
+eq('call: outcome "No Answer" is missed regardless of duration',
+  [isMissedInboundCall(call({ outcome: 'No Answer', duration: 0 })),
+   isMissedInboundCall(call({ outcome: 'No Answer', duration: 278 })),
+   isMissedInboundCall(call({ outcome: 'no answer' }))],
+  [true, true, true])
+eq('call: a picked-up incoming call is NOT missed',
+  isMissedInboundCall(call({ outcome: null, duration: 1304 })), false)
+eq('call: an OUTBOUND "No Answer" is never an inbound miss',
+  isMissedInboundCall(call({ isIncoming: false, outcome: 'No Answer' })), false)
+
+// The two-channel model on one timeline.
+const inTouches = [
+  ...[txt({ personId: 10, name: 'Texty Tess', sent: iso(2 * H) })].map(textTouch),
+  ...[call({ personId: 20, name: 'Missed Mike', startedAt: iso(3 * H), outcome: 'No Answer' })].map(callTouch),
+  ...[call({ personId: 30, name: 'Rang Rita', startedAt: iso(4 * H), outcome: 'No Answer' })].map(callTouch),
+  ...[txt({ personId: 40, name: 'Called Back Carl', sent: iso(5 * H) })].map(textTouch),
+]
+const respTouches = [
+  // We phoned Carl back after his text → handled, even though we never texted.
+  ...[call({ personId: 40, isIncoming: false, startedAt: iso(1 * H) })].map(callTouch),
+  // Rita rang again and someone PICKED UP → the conversation happened.
+  ...[call({ personId: 30, isIncoming: true, outcome: null, duration: 300, startedAt: iso(1 * H) })].map(callTouch),
+]
+const twoChannel = unansweredFromTouches(inTouches, respTouches)
+eq('two-channel: only the genuinely unanswered remain, newest first',
+  twoChannel.map(u => [u.fubId, u.channel]), [[10, 'text'], [20, 'call']])
+eq('two-channel: an outbound CALL answers an inbound text', twoChannel.some(u => u.fubId === 40), false)
+eq('two-channel: a picked-up inbound call answers an earlier missed one', twoChannel.some(u => u.fubId === 30), false)
+eq('two-channel: a missed call carries channel=call', twoChannel.find(u => u.fubId === 20)?.channel, 'call')
+eq('two-channel: texts still default to channel=text', twoChannel.find(u => u.fubId === 10)?.channel, 'text')
+
+// The per-person verification must consider calls too, or phoning someone back
+// outside the paged window still reads as "ignored".
+eq('verify: an outbound CALL after their message proves a reply',
+  threadShowsReply([], iso(5 * H), [call({ isIncoming: false, startedAt: iso(1 * H) })]), true)
+eq('verify: a picked-up inbound call proves the conversation happened',
+  threadShowsReply([], iso(5 * H), [call({ isIncoming: true, outcome: null, startedAt: iso(1 * H) })]), true)
+eq('verify: another MISSED call is not a reply',
+  threadShowsReply([], iso(5 * H), [call({ isIncoming: true, outcome: 'No Answer', startedAt: iso(1 * H) })]), false)
+
 // ── buildReplyInbox — the three-source merge ─────────────────────────────────
 
 const liveRow = (over: Partial<LiveUnreadLike>): LiveUnreadLike => ({
@@ -480,6 +533,23 @@ eq('inbox: session dismissals hide rows and leave the counts consistent',
 eq('inbox: live rows carry the conversation id for the Done ack',
   buildReplyInbox({ deals: [], fubUnanswered: [], lo: 'Moe Sefati', now: NOW,
     live: [liveRow({ conversationId: 'conv-xyz' })] }).fresh[0].conversationId, 'conv-xyz')
+
+// ── "Done" acks — check a row off until they message AGAIN ──────────────────
+// Efrain 2026-07-30: "Sometimes a reply from a client doesn't need a reply from
+// us, can we check it off from the list without having a sync or anything
+// bringing it back. Only thing to bring it back would be a new response."
+
+const acks = parseFubInboxAcks({ '100': iso(3 * H), '200': iso(10 * D), 'junk': 'x', '300': 'not-a-date' })
+eq('ack: parses only usable entries', [...acks.keys()].sort((a, b) => a - b), [100, 200])
+eq('ack: a message at/older than the ack stays cleared',
+  [isAcked(acks, 100, iso(3 * H)), isAcked(acks, 100, iso(5 * H))], [true, true])
+eq('ack: a NEWER message brings the row back', isAcked(acks, 100, iso(1 * H)), false)
+eq('ack: an unacked person is never cleared', isAcked(acks, 999, iso(1 * H)), false)
+eq('ack: an unparseable inbound never silently clears', isAcked(acks, 100, 'nope'), false)
+eq('ack: a sync re-reporting the SAME message does not resurface it',
+  isAcked(acks, 200, iso(10 * D)), true)
+eq('ack: prune drops entries past the lookback window',
+  Object.keys(pruneAcks({ '1': iso(5 * D), '2': iso(120 * D), '3': 'junk' }, NOW - 90 * D)), ['1'])
 
 // ── threadShowsReply — the per-person verification fallback ─────────────────
 // Guards the false-positive that shipped first: paging a fixed number of pages

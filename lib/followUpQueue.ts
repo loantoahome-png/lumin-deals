@@ -595,6 +595,9 @@ export type LiveUnreadLike = {
 export type FubUnansweredLike = {
   fubId: number
   name: string
+  /** What they last reached out with — a missed call reads differently from a
+   *  text, and the row must say which so nobody replies by SMS to a phone call. */
+  channel?: 'text' | 'call'
   stage: string | null
   lastInboundAt: string
   lastOutboundAt: string | null
@@ -656,7 +659,9 @@ function fubUnansweredItem(f: FubUnansweredLike, now: number): QueueItem {
     outboundAt: f.lastOutboundAt,
     lastMessage: f.preview,
     note: null,
-    reason: `texted ${fmtAgo(f.lastInboundAt, now)}`,
+    reason: f.channel === 'call'
+      ? `missed call ${fmtAgo(f.lastInboundAt, now)}`
+      : `texted ${fmtAgo(f.lastInboundAt, now)}`,
     readOnly: !f.stored,
   }
 }

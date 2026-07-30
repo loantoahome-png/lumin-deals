@@ -1,6 +1,21 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-07-30] Reply inbox — missed calls folded in, and a real "check it off"
+**Status:** VERIFIED live (ack round-trip through the API, every row rendering a Done button, calls surfacing).
+**Issue:** Efrain, three asks: "can you add inbound calls to the inbox too" · "Sometimes a reply from a client doesn't need a reply from us, can we check it off from the list without having a sync or anything bringing it back. Only thing to bring it back would be a new response." · "some leads dont have buttons".
+**Change:**
+- **Inbound calls** — [lib/followUpBoss.ts](lib/followUpBoss.ts): `FubCall`, `isMissedInboundCall`, `fetchCallsUntil`, and a normalised **touch** model so texts and calls compare on one timeline. INBOUND = inbound texts + missed inbound calls; RESPONSES = outbound texts + outbound calls + **answered** inbound calls. Four feeds now run concurrently. `threadShowsReply` also considers calls.
+- **Done** — NEW [lib/fubInboxAcks.ts](lib/fubInboxAcks.ts) + [app/api/fub/inbox-ack/route.ts](app/api/fub/inbox-ack/route.ts), storing acks in `sync_state.fub_inbox_acks` (no migration). `/api/fub/unanswered` filters acked rows server-side. GHL rows keep the `comm_read_acks` path. **Touched is gone from this section** — it claimed we reached out, which isn't what the button is for.
+- **Buttons on every row** — the ack is keyed on `fub_id` alone, so it works for people the sweep doesn't store; those rows now render Done instead of nothing.
+**Test Method:** `scripts/follow-up-check.ts` 147 → **165** assertions (missed-call classification incl. the 278s voicemail case, the two-channel model, ack parse/beat/prune, call-aware verification); live ack round-trip against the dev server; DOM readout of every row's buttons.
+**Result:**
+- **Ack round-trip:** POST → count 17→16 and the row gone; DELETE → 17 and back. Tested on **Clara, who is NOT in `fub_people`** — the previously button-less case.
+- **Calls live:** Clara surfaces as "missed call 30d ago". Moe's count fell 22 → 17 because outbound *calls* now count as answers — Joey Kiamco, Jose Padilla, Sean Carrillo, Avien Perez and Roberto Ochoa were all phoned back and were being listed as ignored.
+- **Every row has Done**; unstored people show Done only, stored people show Done / Task / Snooze.
+- ⚠️ `/v1/calls` ignores `userId` and `isIncoming` silently (totals unchanged, both directions returned) — direction comes from `toNumber` / `fromNumber` only.
+- 18/18 suites exit 0, `npx tsc --noEmit` exactly 7 pre-existing errors (0 in touched files), `next build` ✓.
+
 ### [2026-07-30] Reply inbox, second pass — a false "unanswered", and buttons that did nothing
 **Status:** VERIFIED live (Tami cleared, Touched-cleared row confirmed gone, Done button rendering on GHL rows).
 **Issue 1 — false positive.** Efrain: "Moe responded with an emoji, why does it say that we havent responded to Tami Boteilho". FUB's own thread shows Tami inbound `2026-06-01T19:29:35Z` and Moe outbound `19:31:13Z` — answered in **98 seconds**.

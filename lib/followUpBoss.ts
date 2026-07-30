@@ -425,10 +425,36 @@ export type FubTextMessage = {
   userName?: string | null
 }
 
+/** The slice of a /v1/calls row we read. */
+export type FubCall = {
+  id: number
+  personId: number
+  name?: string | null
+  created: string
+  startedAt?: string | null
+  isIncoming: boolean
+  duration?: number | null
+  /** Incoming calls carry exactly two values (verified live): null = someone
+   *  picked up, 'No Answer' = missed. */
+  outcome?: string | null
+  note?: string | null
+  userId?: number | null
+}
+
+/** ⚠️ Duration is NOT the missed-call signal. 13 of 100 of Moe's incoming
+ *  'No Answer' calls had a duration > 0 (up to 278s of voicemail), so a
+ *  duration test would silently call an eighth of the missed calls "answered".
+ *  `outcome` is the signal; incoming outcomes are only null or 'No Answer'. */
+export function isMissedInboundCall(c: FubCall): boolean {
+  return c.isIncoming && String(c.outcome ?? '').trim().toLowerCase() === 'no answer'
+}
+
 /** One person whose last text is inbound — nobody has answered them. */
 export type FubUnanswered = {
   fubId: number
   name: string
+  /** What they last reached out with — drives the row's wording. */
+  channel: 'text' | 'call'
   lastInboundAt: string
   lastOutboundAt: string | null
   preview: string | null
@@ -456,34 +482,45 @@ export function normalizeFubNumber(raw: unknown): string | null {
 }
 
 const msgMs = (m: FubTextMessage) => Date.parse(m.sent || m.created)
+const callMs = (c: FubCall) => Date.parse(c.startedAt || c.created)
 
 /** Page newest-first until the oldest row is at/older than `untilMs`.
  *  `reached` is false when the page cap stopped us first — the caller must not
  *  trust "no reply" for anything older than `oldestMs` in that case. */
-async function fetchTextsUntil(apiKey: string, query: string, untilMs: number): Promise<{
-  msgs: FubTextMessage[]; oldestMs: number; reached: boolean
-}> {
-  const all: FubTextMessage[] = []
-  let url = `${FUB_BASE}/textMessages?${query}&limit=${PAGE_LIMIT}&sort=-created`
+async function fetchFeedUntil<T extends { created: string }>(
+  apiKey: string, endpoint: 'textMessages' | 'calls', collectionKeys: string[],
+  query: string, untilMs: number, at: (row: T) => number,
+): Promise<{ rows: T[]; oldestMs: number; reached: boolean }> {
+  const all: T[] = []
+  let url = `${FUB_BASE}/${endpoint}?${query}&limit=${PAGE_LIMIT}&sort=-created`
   let oldestMs = Infinity
   for (let page = 0; page < MAX_INBOX_PAGES; page++) {
     const data = await fubGet(url, apiKey)
-    // The collection key is lower-case 'textmessages' (not textMessages).
-    const msgs = (data.textmessages as FubTextMessage[] | undefined)
-      ?? (data.textMessages as FubTextMessage[] | undefined) ?? []
-    all.push(...msgs)
-    for (const m of msgs) {
-      const t = msgMs(m)
+    // ⚠️ collection keys are lower-cased by FUB ('textmessages', 'calls').
+    let rows: T[] = []
+    for (const k of collectionKeys) {
+      const v = data[k] as T[] | undefined
+      if (Array.isArray(v)) { rows = v; break }
+    }
+    all.push(...rows)
+    for (const r of rows) {
+      const t = at(r)
       if (!isNaN(t) && t < oldestMs) oldestMs = t
     }
     const meta = data._metadata as { nextLink?: string } | undefined
-    if (!meta?.nextLink || msgs.length === 0) return { msgs: all, oldestMs, reached: true }
-    if (oldestMs <= untilMs) return { msgs: all, oldestMs, reached: true }
+    if (!meta?.nextLink || rows.length === 0) return { rows: all, oldestMs, reached: true }
+    if (oldestMs <= untilMs) return { rows: all, oldestMs, reached: true }
     url = meta.nextLink
     await sleep(PACE_MS)
   }
-  return { msgs: all, oldestMs, reached: false }
+  return { rows: all, oldestMs, reached: false }
 }
+
+const fetchTextsUntil = (apiKey: string, query: string, untilMs: number) =>
+  fetchFeedUntil<FubTextMessage>(apiKey, 'textMessages', ['textmessages', 'textMessages'], query, untilMs, msgMs)
+
+const fetchCallsUntil = (apiKey: string, query: string, untilMs: number) =>
+  fetchFeedUntil<FubCall>(apiKey, 'calls', ['calls'], query, untilMs, callMs)
 
 /** This key's own FUB calling number, digits only. */
 export async function fetchFubCallingNumber(apiKey: string): Promise<string | null> {
@@ -501,49 +538,90 @@ export function messagePreview(raw: string | null | undefined): string | null {
   return text.slice(0, 140)
 }
 
-/** Pure: newest inbound per person that has no newer outbound. */
-export function unansweredFromMessages(
-  inbound: FubTextMessage[],
-  outbound: FubTextMessage[],
-): FubUnanswered[] {
-  const ts = (m: FubTextMessage) => Date.parse(m.sent || m.created)
-  const newest = (msgs: FubTextMessage[]) => {
-    const by = new Map<number, FubTextMessage>()
-    for (const m of msgs) {
-      const t = ts(m)
-      if (isNaN(t)) continue
-      const cur = by.get(m.personId)
-      if (!cur || t > ts(cur)) by.set(m.personId, m)
+// ── The unanswered model, across BOTH channels ──────────────────────────────
+//
+// Normalised to "touches" so texts and calls compare on one timeline:
+//   INBOUND   = inbound texts  +  MISSED inbound calls
+//   RESPONSES = outbound texts +  outbound calls  +  ANSWERED inbound calls
+//
+// An answered inbound call belongs on the RESPONSE side: they rang, someone
+// picked up, the conversation happened — the ball is not in our court. And
+// counting outbound calls means phoning someone back clears their unanswered
+// text, which the text-only version got wrong.
+
+export type FubTouch = {
+  personId: number
+  at: number                       // epoch ms
+  name?: string | null
+  channel: 'text' | 'call'
+  preview?: string | null
+  userId?: number | null
+}
+
+export const textTouch = (m: FubTextMessage): FubTouch => ({
+  personId: m.personId, at: msgMs(m), name: m.name, channel: 'text',
+  preview: messagePreview(m.message), userId: m.userId ?? null,
+})
+
+export const callTouch = (c: FubCall): FubTouch => ({
+  personId: c.personId, at: callMs(c), name: c.name, channel: 'call',
+  // A call has no body; the LO's own note is the only useful context.
+  preview: messagePreview(c.note), userId: c.userId ?? null,
+})
+
+/** Pure: newest inbound touch per person with no response at/after it. */
+export function unansweredFromTouches(inbound: FubTouch[], responses: FubTouch[]): FubUnanswered[] {
+  const newest = (list: FubTouch[]) => {
+    const by = new Map<number, FubTouch>()
+    for (const t of list) {
+      if (isNaN(t.at)) continue
+      const cur = by.get(t.personId)
+      if (!cur || t.at > cur.at) by.set(t.personId, t)
     }
     return by
   }
-  // An archived thread was deliberately cleared — it isn't waiting on anyone.
-  const lastIn = newest(inbound.filter(m => m.isIncoming && !m.archived))
-  const lastOut = newest(outbound.filter(m => !m.isIncoming))
+  const lastIn = newest(inbound)
+  const lastResp = newest(responses)
 
   const out: FubUnanswered[] = []
-  for (const [personId, m] of lastIn) {
-    const reply = lastOut.get(personId)
-    if (reply && ts(reply) >= ts(m)) continue
+  for (const [personId, t] of lastIn) {
+    const reply = lastResp.get(personId)
+    if (reply && reply.at >= t.at) continue
     out.push({
       fubId: personId,
-      name: m.name?.trim() || `FUB contact #${personId}`,
-      lastInboundAt: new Date(ts(m)).toISOString(),
-      lastOutboundAt: reply ? new Date(ts(reply)).toISOString() : null,
-      preview: messagePreview(m.message),
-      assignedUserId: m.userId ?? null,
+      name: t.name?.trim() || `FUB contact #${personId}`,
+      channel: t.channel,
+      lastInboundAt: new Date(t.at).toISOString(),
+      lastOutboundAt: reply ? new Date(reply.at).toISOString() : null,
+      preview: t.preview ?? null,
+      assignedUserId: t.userId ?? null,
     })
   }
   return out.sort((a, b) => Date.parse(b.lastInboundAt) - Date.parse(a.lastInboundAt))
 }
 
+/** Texts-only convenience wrapper (kept for the message-level fixtures).
+ *  An archived thread was deliberately cleared — it isn't waiting on anyone. */
+export function unansweredFromMessages(
+  inbound: FubTextMessage[],
+  outbound: FubTextMessage[],
+): FubUnanswered[] {
+  return unansweredFromTouches(
+    inbound.filter(m => m.isIncoming && !m.archived).map(textTouch),
+    outbound.filter(m => !m.isIncoming).map(textTouch),
+  )
+}
+
 /** Pure: does this person's own thread carry an outbound at/after `inboundIso`?
  *  The authoritative check — used to clear candidates the paged feeds can't
  *  vouch for, so a deep-history reply can never masquerade as "no answer". */
-export function threadShowsReply(thread: FubTextMessage[], inboundIso: string): boolean {
+export function threadShowsReply(thread: FubTextMessage[], inboundIso: string, calls: FubCall[] = []): boolean {
   const at = Date.parse(inboundIso)
   if (isNaN(at)) return false
-  return thread.some(m => !m.isIncoming && msgMs(m) >= at)
+  if (thread.some(m => !m.isIncoming && msgMs(m) >= at)) return true
+  // Same response rule as the main model: an outbound call, or an inbound one
+  // that was actually picked up, both mean the conversation happened.
+  return calls.some(c => (!c.isIncoming || !isMissedInboundCall(c)) && callMs(c) >= at)
 }
 
 /** Live "waiting on you" list for one agent key. Attribution is by the LO's own
@@ -556,30 +634,50 @@ export async function fetchFubUnanswered(apiKey: string, label: FubKeyLabel, now
     return []
   }
   const cutoff = now - INBOX_LOOKBACK_DAYS * 86_400_000
-  await sleep(PACE_MS)
-  const inb = await fetchTextsUntil(apiKey, `toNumber=${number}`, cutoff)
-  // Only consider inbound we can actually adjudicate.
-  const inbound = inb.msgs.filter(m => msgMs(m) >= cutoff)
-  const oldestInbound = inbound.reduce((min, m) => Math.min(min, msgMs(m)), Infinity)
 
-  await sleep(PACE_MS)
-  // Outbound must reach at least as far back as the oldest inbound we kept —
-  // that equality is the whole correctness argument for the comparison below.
-  const out = await fetchTextsUntil(apiKey, `fromNumber=${number}`, Math.min(cutoff, oldestInbound))
+  // ⚠️ On /calls, `toNumber` and `fromNumber` ARE honored but `userId` and
+  // `isIncoming` are SILENTLY IGNORED (verified live: totals came back
+  // unfiltered at 5,193/9,393 with both directions mixed in). Direction is
+  // established by WHICH number filter we use, never by a query param.
+  //
+  // The four feeds are independent — run them together rather than paying for
+  // each round-trip in series.
+  const [textsIn, textsOut, callsIn, callsOut] = await Promise.all([
+    fetchTextsUntil(apiKey, `toNumber=${number}`, cutoff),
+    fetchTextsUntil(apiKey, `fromNumber=${number}`, cutoff),
+    fetchCallsUntil(apiKey, `toNumber=${number}`, cutoff),
+    fetchCallsUntil(apiKey, `fromNumber=${number}`, cutoff),
+  ])
 
-  const items = unansweredFromMessages(inbound, out.msgs)
+  const inbound: FubTouch[] = [
+    ...textsIn.rows.filter(m => m.isIncoming && !m.archived && msgMs(m) >= cutoff).map(textTouch),
+    ...callsIn.rows.filter(c => isMissedInboundCall(c) && callMs(c) >= cutoff).map(callTouch),
+  ]
+  const responses: FubTouch[] = [
+    ...textsOut.rows.filter(m => !m.isIncoming).map(textTouch),
+    ...callsOut.rows.filter(c => !c.isIncoming).map(callTouch),
+    // They rang, someone picked up — that IS the conversation.
+    ...callsIn.rows.filter(c => c.isIncoming && !isMissedInboundCall(c)).map(callTouch),
+  ]
 
-  // Anything whose inbound predates the outbound horizon is UNPROVEN, not
-  // unanswered — verify those against the person's own thread. Normally empty.
-  const suspect = items.filter(i => Date.parse(i.lastInboundAt) < out.oldestMs)
+  const items = unansweredFromTouches(inbound, responses)
+
+  // A candidate is only PROVEN unanswered if every response feed covers its
+  // inbound moment. The shallowest response horizon governs.
+  const horizon = Math.min(textsOut.oldestMs, callsOut.oldestMs, callsIn.oldestMs)
+  const suspect = items.filter(i => Date.parse(i.lastInboundAt) < horizon)
   const cleared = new Set<number>()
   if (suspect.length > 0) {
-    console.warn(`[FUB] inbox '${label}': outbound horizon ${new Date(out.oldestMs).toISOString()} — verifying ${suspect.length} older candidate(s)`)
+    console.warn(`[FUB] inbox '${label}': response horizon ${new Date(horizon).toISOString()} — verifying ${suspect.length} older candidate(s)`)
     for (const s of suspect.slice(0, MAX_VERIFY_LOOKUPS)) {
       try {
-        const data = await fubGet(`${FUB_BASE}/textMessages?personId=${s.fubId}&limit=${PAGE_LIMIT}&sort=-created`, apiKey)
-        const thread = (data.textmessages as FubTextMessage[] | undefined) ?? []
-        if (threadShowsReply(thread, s.lastInboundAt)) cleared.add(s.fubId)
+        const [tData, cData] = await Promise.all([
+          fubGet(`${FUB_BASE}/textMessages?personId=${s.fubId}&limit=${PAGE_LIMIT}&sort=-created`, apiKey),
+          fubGet(`${FUB_BASE}/calls?personId=${s.fubId}&limit=${PAGE_LIMIT}&sort=-created`, apiKey),
+        ])
+        const thread = (tData.textmessages as FubTextMessage[] | undefined) ?? []
+        const calls = (cData.calls as FubCall[] | undefined) ?? []
+        if (threadShowsReply(thread, s.lastInboundAt, calls)) cleared.add(s.fubId)
       } catch (e) {
         // Can't prove they were answered → leave them listed. A false "waiting"
         // costs a glance; a false "all clear" loses the client.
@@ -593,7 +691,11 @@ export async function fetchFubUnanswered(apiKey: string, label: FubKeyLabel, now
   }
 
   const final = items.filter(i => !cleared.has(i.fubId))
-  console.log(`[FUB] inbox '${label}': ${inbound.length} in (to ${new Date(inb.oldestMs).toISOString().slice(0, 10)}) / ${out.msgs.length} out (to ${new Date(out.oldestMs).toISOString().slice(0, 10)}) → ${final.length} unanswered, ${cleared.size} cleared on verify`)
+  const day = (ms: number) => new Date(ms).toISOString().slice(0, 10)
+  console.log(
+    `[FUB] inbox '${label}': texts ${textsIn.rows.length}in/${textsOut.rows.length}out, ` +
+    `calls ${callsIn.rows.length}in/${callsOut.rows.length}out (horizon ${day(horizon)}) → ` +
+    `${final.length} unanswered (${final.filter(i => i.channel === 'call').length} missed calls), ${cleared.size} cleared on verify`)
   return final
 }
 
