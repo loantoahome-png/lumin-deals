@@ -449,12 +449,78 @@ export function isMissedInboundCall(c: FubCall): boolean {
   return c.isIncoming && String(c.outcome ?? '').trim().toLowerCase() === 'no answer'
 }
 
-/** One person whose last text is inbound — nobody has answered them. */
+// ── Email ───────────────────────────────────────────────────────────────────
+//
+// ⚠️ There is NO account-wide inbound-email feed for an agent key. `/v1/emails`
+// demands `id list, inboxThreadId, personId or personId and threadId`, and
+// `/v1/events` carries only lead-source events (Registration / Seller Inquiry /
+// Viewed Page — no email types). So email cannot be pulled the way texts and
+// calls are.
+//
+// What DOES exist: the PERSON payload carries per-channel timestamps, including
+// `lastReceivedEmail`. The hourly sweep already fetches every person with
+// `fields=allFields`, so discovery costs nothing extra — it just has to happen
+// on the sync rather than on the live request. The live route then verifies the
+// (small) candidate list per person, so an email answered since the last sweep
+// doesn't linger for an hour.
+
+export type FubEmailRow = {
+  id: number
+  created: string
+  date?: string | null
+  /** Direction. Verified live: incoming emails carry 'Received', ours 'Sent'
+   *  (there is no isIncoming field on this endpoint). */
+  status?: string | null
+  userId?: number | null
+}
+
+export const isReceivedEmail = (e: FubEmailRow) => String(e.status ?? '').trim().toLowerCase() === 'received'
+
+/** A person whose newest personal contact is an email FROM them. */
+export type FubEmailWaiting = {
+  fubId: number
+  name: string
+  assignedUserId: number | null
+  receivedAt: string
+  lastResponseAt: string | null
+}
+
+/** Pure: email-waiting candidates from a people sweep.
+ *
+ * Responses are PERSONAL channels only — the same rule `last_outbound_at` uses.
+ * Counting `lastSentBatchEmail` / `lastSentActionPlanEmail` /
+ * `lastDeliveredMarketingCampaign` would let a marketing blast mark a real
+ * inbound email "answered", which is the exact failure mode that rule exists
+ * to prevent. */
+export function emailWaitingFromPeople(people: FubPersonRaw[], cutoffMs: number): FubEmailWaiting[] {
+  const seen = new Set<number>()
+  const out: FubEmailWaiting[] = []
+  for (const p of people) {
+    if (seen.has(p.id)) continue
+    seen.add(p.id)
+    const recvIso = typeof p.lastReceivedEmail === 'string' ? p.lastReceivedEmail : null
+    const recv = recvIso ? Date.parse(recvIso) : NaN
+    if (isNaN(recv) || recv < cutoffMs) continue
+    const respIso = newestOf(p, OUTBOUND_FIELDS)
+    const resp = respIso ? Date.parse(respIso) : NaN
+    if (!isNaN(resp) && resp >= recv) continue
+    out.push({
+      fubId: p.id,
+      name: (p.name ?? '').trim() || `FUB contact #${p.id}`,
+      assignedUserId: typeof p.assignedUserId === 'number' ? p.assignedUserId : null,
+      receivedAt: new Date(recv).toISOString(),
+      lastResponseAt: isNaN(resp) ? null : new Date(resp).toISOString(),
+    })
+  }
+  return out.sort((a, b) => Date.parse(b.receivedAt) - Date.parse(a.receivedAt))
+}
+
+/** One person whose last inbound is unanswered — nobody has replied to them. */
 export type FubUnanswered = {
   fubId: number
   name: string
   /** What they last reached out with — drives the row's wording. */
-  channel: 'text' | 'call'
+  channel: 'text' | 'call' | 'email'
   lastInboundAt: string
   lastOutboundAt: string | null
   preview: string | null
@@ -553,7 +619,7 @@ export type FubTouch = {
   personId: number
   at: number                       // epoch ms
   name?: string | null
-  channel: 'text' | 'call'
+  channel: 'text' | 'call' | 'email'
   preview?: string | null
   userId?: number | null
 }
@@ -567,6 +633,18 @@ export const callTouch = (c: FubCall): FubTouch => ({
   personId: c.personId, at: callMs(c), name: c.name, channel: 'call',
   // A call has no body; the LO's own note is the only useful context.
   preview: messagePreview(c.note), userId: c.userId ?? null,
+})
+
+/** Email candidates come from the cached people sweep, not a message feed —
+ *  both sides of the comparison are already resolved on the person record. */
+export const emailTouches = (w: FubEmailWaiting): { inbound: FubTouch; response: FubTouch | null } => ({
+  inbound: {
+    personId: w.fubId, at: Date.parse(w.receivedAt), name: w.name, channel: 'email',
+    preview: null, userId: w.assignedUserId,
+  },
+  response: w.lastResponseAt
+    ? { personId: w.fubId, at: Date.parse(w.lastResponseAt), name: w.name, channel: 'email', preview: null, userId: w.assignedUserId }
+    : null,
 })
 
 /** Pure: newest inbound touch per person with no response at/after it. */
@@ -624,10 +702,25 @@ export function threadShowsReply(thread: FubTextMessage[], inboundIso: string, c
   return calls.some(c => (!c.isIncoming || !isMissedInboundCall(c)) && callMs(c) >= at)
 }
 
+/** Pure: does this person's email thread carry a 'Sent' at/after `inboundIso`? */
+export function emailsShowReply(emails: FubEmailRow[], inboundIso: string): boolean {
+  const at = Date.parse(inboundIso)
+  if (isNaN(at)) return false
+  return emails.some(e => {
+    if (isReceivedEmail(e)) return false
+    const t = Date.parse(e.date || e.created)
+    return !isNaN(t) && t >= at
+  })
+}
+
 /** Live "waiting on you" list for one agent key. Attribution is by the LO's own
  *  calling number, not by assignee: a text sent to Matt's number is Matt's
  *  conversation to answer even if the person is assigned to someone else. */
-export async function fetchFubUnanswered(apiKey: string, label: FubKeyLabel, now = Date.now()): Promise<FubUnanswered[]> {
+export async function fetchFubUnanswered(
+  apiKey: string, label: FubKeyLabel,
+  opts: { now?: number; emailCandidates?: FubEmailWaiting[] } = {},
+): Promise<FubUnanswered[]> {
+  const now = opts.now ?? Date.now()
   const number = await fetchFubCallingNumber(apiKey)
   if (!number) {
     console.warn(`[FUB] inbox '${label}': no calling number on /me — skipping`)
@@ -649,15 +742,24 @@ export async function fetchFubUnanswered(apiKey: string, label: FubKeyLabel, now
     fetchCallsUntil(apiKey, `fromNumber=${number}`, cutoff),
   ])
 
+  // Email rides in from the cached people sweep — there is no feed to page.
+  const emailPairs = (opts.emailCandidates ?? [])
+    .filter(w => Date.parse(w.receivedAt) >= cutoff)
+    .map(emailTouches)
+
   const inbound: FubTouch[] = [
     ...textsIn.rows.filter(m => m.isIncoming && !m.archived && msgMs(m) >= cutoff).map(textTouch),
     ...callsIn.rows.filter(c => isMissedInboundCall(c) && callMs(c) >= cutoff).map(callTouch),
+    ...emailPairs.map(e => e.inbound),
   ]
   const responses: FubTouch[] = [
     ...textsOut.rows.filter(m => !m.isIncoming).map(textTouch),
     ...callsOut.rows.filter(c => !c.isIncoming).map(callTouch),
     // They rang, someone picked up — that IS the conversation.
     ...callsIn.rows.filter(c => c.isIncoming && !isMissedInboundCall(c)).map(callTouch),
+    // The person record's own newest personal response (covers a reply BY EMAIL,
+    // which no feed above can see).
+    ...emailPairs.map(e => e.response).filter((t): t is FubTouch => t != null),
   ]
 
   const items = unansweredFromTouches(inbound, responses)
@@ -665,7 +767,9 @@ export async function fetchFubUnanswered(apiKey: string, label: FubKeyLabel, now
   // A candidate is only PROVEN unanswered if every response feed covers its
   // inbound moment. The shallowest response horizon governs.
   const horizon = Math.min(textsOut.oldestMs, callsOut.oldestMs, callsIn.oldestMs)
-  const suspect = items.filter(i => Date.parse(i.lastInboundAt) < horizon)
+  // Email candidates ALWAYS get verified regardless of the horizon: they come
+  // from the hourly sweep, so a reply sent since then is invisible to them.
+  const suspect = items.filter(i => i.channel === 'email' || Date.parse(i.lastInboundAt) < horizon)
   const cleared = new Set<number>()
   if (suspect.length > 0) {
     console.warn(`[FUB] inbox '${label}': response horizon ${new Date(horizon).toISOString()} — verifying ${suspect.length} older candidate(s)`)
@@ -677,7 +781,12 @@ export async function fetchFubUnanswered(apiKey: string, label: FubKeyLabel, now
         ])
         const thread = (tData.textmessages as FubTextMessage[] | undefined) ?? []
         const calls = (cData.calls as FubCall[] | undefined) ?? []
-        if (threadShowsReply(thread, s.lastInboundAt, calls)) cleared.add(s.fubId)
+        if (threadShowsReply(thread, s.lastInboundAt, calls)) { cleared.add(s.fubId); continue }
+        // Email is the one channel with no bulk feed — check the person's own
+        // thread for a 'Sent' at/after their newest 'Received'.
+        const eData = await fubGet(`${FUB_BASE}/emails?personId=${s.fubId}&limit=${PAGE_LIMIT}&sort=-created`, apiKey)
+        const emails = (eData.emails as FubEmailRow[] | undefined) ?? []
+        if (emailsShowReply(emails, s.lastInboundAt)) cleared.add(s.fubId)
       } catch (e) {
         // Can't prove they were answered → leave them listed. A false "waiting"
         // costs a glance; a false "all clear" loses the client.
@@ -695,7 +804,8 @@ export async function fetchFubUnanswered(apiKey: string, label: FubKeyLabel, now
   console.log(
     `[FUB] inbox '${label}': texts ${textsIn.rows.length}in/${textsOut.rows.length}out, ` +
     `calls ${callsIn.rows.length}in/${callsOut.rows.length}out (horizon ${day(horizon)}) → ` +
-    `${final.length} unanswered (${final.filter(i => i.channel === 'call').length} missed calls), ${cleared.size} cleared on verify`)
+    `${final.length} unanswered (${final.filter(i => i.channel === 'call').length} missed calls, ` +
+    `${final.filter(i => i.channel === 'email').length} emails), ${cleared.size} cleared on verify`)
   return final
 }
 

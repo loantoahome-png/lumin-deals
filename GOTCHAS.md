@@ -1,5 +1,12 @@
 # GOTCHAS — Lumin Deals
 
+### FUB email has NO account-wide feed — discover it from the person payload, not an endpoint
+**Tried:** Pulling inbound emails the way texts and calls are pulled, with a bulk `/v1/emails` query.
+**Failed because:** `/v1/emails` returns **400** unless you pass `id list, inboxThreadId, personId or personId and threadId` — there is no filter that yields "all inbound email for this user", and `toNumber`-style tricks don't apply to email. `/v1/events` is no help either: its type vocabulary is lead-source only (Registration / Seller Inquiry / Viewed Page / Property Inquiry), with no email types.
+**What works:** the **person payload** carries per-channel timestamps including `lastReceivedEmail` — and the hourly sweep already fetches every person with `fields=allFields`, so discovery costs **zero extra API calls** if you do it there. `emailWaitingFromPeople()` computes the candidates on the sync into `sync_state.fub_email_waiting`; the live route reads that list and re-verifies each candidate with `/v1/emails?personId=` so a reply sent since the sweep doesn't leave a stale row. Two details that matter: direction on `/v1/emails` is **`status: 'Sent' | 'Received'`** (there is NO `isIncoming` field on that endpoint, unlike texts and calls), and responses must stay **personal channels only** — counting `lastSentBatchEmail` / `lastSentActionPlanEmail` / `lastDeliveredMarketingCampaign` would let a marketing blast mark a real inbound email "answered".
+**Project:** lumin-deals
+**Date:** 2026-07-30
+
 ### FUB `/v1/calls`: `toNumber`/`fromNumber` are honored, `userId`/`isIncoming` are SILENTLY IGNORED
 **Tried:** Fetching one LO's inbound calls with `/v1/calls?userId=72&isIncoming=true`.
 **Failed because:** both params are ignored and the response comes back **unfiltered** — `_metadata.total` stayed at 5,193 (Moe) / 9,393 (Matt) and the rows contained both directions. No error, no warning. Same family as the documented FUB trap, and the reason to re-check every param rather than assume the pattern from `/textMessages`. What IS honored: **`toNumber`** (→ 100/100 incoming), **`fromNumber`** (→ 100/100 outgoing) and **`personId`** (→ both directions for one person). Direction must be established by WHICH number filter you use, never by a query param.

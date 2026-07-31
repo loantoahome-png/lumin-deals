@@ -541,7 +541,7 @@ export default function FollowUpCockpit() {
                  reply shows up whatever stage the loan is in and whichever
                  system it landed in. ─────────────────────────────────────── */}
           <Panel icon={<AlertCircle className="w-5 h-5" />} accent="#ef4444"
-            title="Replied — waiting on you" subtitle="Texts, missed calls and GHL replies nobody has answered yet"
+            title="Replied — waiting on you" subtitle="Texts, emails, missed calls and GHL replies nobody has answered yet"
             badge={inboxLoading ? 'checking GHL + FUB…'
               : inbox.counts.total === 0 ? 'all clear'
               : `${inbox.counts.fresh} waiting — ${inbox.counts.ghl} GHL, ${inbox.counts.fub} FUB`}

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { fetchFubUnanswered, type FubUnanswered } from '@/lib/followUpBoss'
-import { FUB_INBOX_ACKS_KEY, parseFubInboxAcks, isAcked } from '@/lib/fubInboxAcks'
+import {
+  FUB_INBOX_ACKS_KEY, parseFubInboxAcks, isAcked,
+  FUB_EMAIL_WAITING_KEY, parseEmailWaiting,
+} from '@/lib/fubInboxAcks'
 
 // Live "they texted, nobody answered" list for one LO's FollowUpBoss inbox.
 // GET /api/fub/unanswered?lo=moe|matt
@@ -20,9 +23,12 @@ import { FUB_INBOX_ACKS_KEY, parseFubInboxAcks, isAcked } from '@/lib/fubInboxAc
 
 export const dynamic = 'force-dynamic'
 
-const KEY_BY_SLUG: Record<string, { env: string; label: 'moe' | 'matt' }> = {
-  moe:  { env: 'FUB_API_KEY_MOE',  label: 'moe' },
-  matt: { env: 'FUB_API_KEY_MATT', label: 'matt' },
+// userId scopes the EMAIL candidates. Texts and calls are attributed by the
+// LO's own phone number, but an email has no number to key on — so email falls
+// back to the account's ownership rule, assignedUserId (72 Moe / 13 Matt).
+const KEY_BY_SLUG: Record<string, { env: string; label: 'moe' | 'matt'; userId: number }> = {
+  moe:  { env: 'FUB_API_KEY_MOE',  label: 'moe',  userId: 72 },
+  matt: { env: 'FUB_API_KEY_MATT', label: 'matt', userId: 13 },
 }
 
 export type FubUnansweredItem = FubUnanswered & {
@@ -52,9 +58,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: `${cfg.env} is not configured` }, { status: 400 })
   }
 
+  // Email candidates come from the hourly sweep (no account-wide email feed
+  // exists); fetchFubUnanswered re-verifies each one per person before listing.
+  const sbRead = createServiceClient()
+  const { data: ewRow } = await sbRead.from('sync_state').select('value').eq('key', FUB_EMAIL_WAITING_KEY).maybeSingle()
+  const emailCandidates = parseEmailWaiting((ewRow as { value?: unknown } | null)?.value)
+    .filter(w => w.assignedUserId === cfg.userId)
+
   let unanswered: FubUnanswered[]
   try {
-    unanswered = await fetchFubUnanswered(apiKey, cfg.label)
+    unanswered = await fetchFubUnanswered(apiKey, cfg.label, { emailCandidates })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     console.error('[FUB unanswered] failed:', msg)

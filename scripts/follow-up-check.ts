@@ -10,6 +10,7 @@ import {
   unansweredFromMessages, unansweredFromTouches, normalizeFubNumber, messagePreview, threadShowsReply,
   isMissedInboundCall, textTouch, callTouch,
   type FubPersonRaw, type ExistingFubRow, type FubTextMessage, type FubCall,
+  emailWaitingFromPeople, emailsShowReply, isReceivedEmail,
 } from '../lib/followUpBoss'
 import {
   buildFollowUpQueue, buildTaskQueue, buildLeadSections, buildReplyInbox, lastActivityMs,
@@ -17,7 +18,7 @@ import {
   type QueueDealLike, type QueueFubLike, type QueueTaskLike,
   type LiveUnreadLike, type FubUnansweredLike,
 } from '../lib/followUpQueue'
-import { parseFubInboxAcks, isAcked, pruneAcks } from '../lib/fubInboxAcks'
+import { parseFubInboxAcks, isAcked, pruneAcks, parseEmailWaiting } from '../lib/fubInboxAcks'
 
 let pass = 0, fail = 0
 function eq(label: string, got: unknown, want: unknown) {
@@ -533,6 +534,62 @@ eq('inbox: session dismissals hide rows and leave the counts consistent',
 eq('inbox: live rows carry the conversation id for the Done ack',
   buildReplyInbox({ deals: [], fubUnanswered: [], lo: 'Moe Sefati', now: NOW,
     live: [liveRow({ conversationId: 'conv-xyz' })] }).fresh[0].conversationId, 'conv-xyz')
+
+// ── Unanswered EMAIL ────────────────────────────────────────────────────────
+// FUB has no account-wide inbound-email feed for an agent key (/v1/emails
+// demands a person or thread id; /v1/events carries no email types), so email
+// is discovered from the person payload's lastReceivedEmail on the hourly
+// sweep, then verified per person on the live request.
+
+const person = (over: Record<string, unknown>): FubPersonRaw =>
+  ({ id: 1, name: 'Emailer Emma', assignedUserId: 72, ...over }) as FubPersonRaw
+
+const emailCands = emailWaitingFromPeople([
+  // waiting: they emailed after our last personal response
+  person({ id: 1, lastReceivedEmail: iso(2 * H), lastSentEmail: iso(2 * D) }),
+  // answered by EMAIL
+  person({ id: 2, lastReceivedEmail: iso(2 * D), lastSentEmail: iso(1 * H) }),
+  // answered by TEXT — a response on any personal channel counts
+  person({ id: 3, lastReceivedEmail: iso(2 * D), lastSentText: iso(1 * H) }),
+  // answered by an outbound CALL
+  person({ id: 4, lastReceivedEmail: iso(2 * D), lastOutgoingCall: iso(1 * H) }),
+  // ⚠️ only a BULK send since — that must NOT count as answering them
+  person({ id: 5, lastReceivedEmail: iso(2 * D), lastSentBatchEmail: iso(1 * H), lastDeliveredMarketingCampaign: iso(1 * H) }),
+  // never answered at all
+  person({ id: 6, lastReceivedEmail: iso(3 * D) }),
+  // outside the lookback window
+  person({ id: 7, lastReceivedEmail: iso(200 * D) }),
+  // no email traffic at all
+  person({ id: 8, lastSentEmail: iso(1 * D) }),
+  // duplicate id across the two key sweeps → counted once
+  person({ id: 1, lastReceivedEmail: iso(2 * H), lastSentEmail: iso(2 * D) }),
+], NOW - 90 * D)
+
+eq('email: newest first', emailCands.map(c => c.fubId), [1, 5, 6])
+eq('email: waiting set is exactly {1,5,6}', emailCands.map(c => c.fubId).sort((a, b) => a - b), [1, 5, 6])
+eq('email: a bulk send NEVER counts as a response', emailCands.some(c => c.fubId === 5), true)
+eq('email: answered by text or call is cleared', emailCands.some(c => c.fubId === 3 || c.fubId === 4), false)
+eq('email: outside the lookback window is dropped', emailCands.some(c => c.fubId === 7), false)
+eq('email: deduped across the two key sweeps', emailCands.filter(c => c.fubId === 1).length, 1)
+eq('email: carries the assigned user for LO scoping', emailCands.find(c => c.fubId === 1)?.assignedUserId, 72)
+
+// Direction on /v1/emails is `status`, NOT an isIncoming flag (verified live:
+// the vocabulary is exactly Sent / Received).
+const mails = [
+  { id: 1, created: iso(1 * H), status: 'Sent' },
+  { id: 2, created: iso(3 * H), status: 'Received' },
+]
+eq('email: a Sent after their Received proves a reply', emailsShowReply(mails, iso(3 * H)), true)
+eq('email: only OLDER Sent is not a reply', emailsShowReply(mails, iso(30 * 60_000)), false)
+eq('email: a Received is never a reply', emailsShowReply([mails[1]], iso(4 * H)), false)
+eq('email: isReceivedEmail reads the status vocabulary',
+  [isReceivedEmail({ id: 1, created: '', status: 'Received' }),
+   isReceivedEmail({ id: 2, created: '', status: 'Sent' }),
+   isReceivedEmail({ id: 3, created: '', status: null })],
+  [true, false, false])
+eq('email: parseEmailWaiting tolerates junk',
+  parseEmailWaiting([{ fubId: 5, name: 'A', receivedAt: iso(1 * D), assignedUserId: 72, lastResponseAt: null },
+                     { fubId: 'x' }, null, { fubId: 6, receivedAt: 'nope' }]).map(r => r.fubId), [5])
 
 // ── "Done" acks — check a row off until they message AGAIN ──────────────────
 // Efrain 2026-07-30: "Sometimes a reply from a client doesn't need a reply from

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import {
   fetchAllFubPeople, fetchOpenFubTasks, mapFubTask, dedupeTasks, mergeSweeps, diffSweep, shouldStoreFubPerson,
+  emailWaitingFromPeople, INBOX_LOOKBACK_DAYS,
   type ExistingFubRow, type FubPersonRow, type FubKeyLabel, type FubTaskRow,
 } from '@/lib/followUpBoss'
 import { isOpenLead } from '@/lib/triage'
@@ -19,6 +20,8 @@ import { isOpenLead } from '@/lib/triage'
 // same way the GHL sync never writes deals.next_action_due.
 
 export const maxDuration = 300
+
+import { FUB_EMAIL_WAITING_KEY } from '@/lib/fubInboxAcks'
 
 const FUB_SYNC_KEY = 'fub_sync_last'
 const MIN_INTERVAL_MS = 55 * 60 * 1000   // cron pings every 15 min; FUB runs ~hourly
@@ -236,6 +239,28 @@ export async function runFubSync(opts: { force?: boolean } = {}): Promise<FubSyn
       }
     }
   }
+
+  // Unanswered-EMAIL candidates for the reply inbox.
+  //
+  // FUB has no account-wide inbound-email feed for an agent key (/v1/emails
+  // demands a person or thread id), but the person payload carries
+  // lastReceivedEmail — and this sweep already fetched every person with
+  // fields=allFields, so discovery here costs ZERO extra API calls. The live
+  // route reads this list and re-verifies each candidate per person, so a reply
+  // sent since this sweep doesn't leave a stale row on the page.
+  //
+  // Computed from the RAW sweeps, not `merged`: the stored set is Past Client +
+  // Closed + task-holders only, and an unanswered email is worth surfacing
+  // whatever stage the person is in.
+  const emailWaiting = emailWaitingFromPeople(
+    [...(sweeps.moe ?? []), ...(sweeps.matt ?? [])],
+    Date.now() - INBOX_LOOKBACK_DAYS * 86_400_000,
+  )
+  const { error: ewErr } = await supabase.from('sync_state').upsert({
+    key: FUB_EMAIL_WAITING_KEY, value: emailWaiting, updated_at: nowIso,
+  }, { onConflict: 'key' })
+  if (ewErr) errors.push(`email-waiting upsert: ${ewErr.message}`)
+  else console.log(`[FUB sync] email waiting: ${emailWaiting.length} candidate(s)`)
 
   await supabase.from('sync_state').upsert({
     key: FUB_SYNC_KEY,

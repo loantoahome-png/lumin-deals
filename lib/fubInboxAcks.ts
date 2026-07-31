@@ -57,3 +57,41 @@ export function pruneAcks(acks: FubInboxAcks, olderThanMs: number): FubInboxAcks
   }
   return out
 }
+
+// ── Unanswered-email candidates (discovered on the hourly sweep) ────────────
+//
+// FUB exposes no account-wide inbound-email feed to an agent key, so email
+// can't be paged like texts and calls. The people sweep already carries
+// `lastReceivedEmail` per person, so the sync computes the candidates and
+// parks them here for the live route to merge and verify.
+
+export const FUB_EMAIL_WAITING_KEY = 'fub_email_waiting'
+
+export type FubEmailWaitingRow = {
+  fubId: number
+  name: string
+  assignedUserId: number | null
+  receivedAt: string
+  lastResponseAt: string | null
+}
+
+/** Parse the stored blob, tolerating junk (a bad row must not break the inbox). */
+export function parseEmailWaiting(value: unknown): FubEmailWaitingRow[] {
+  if (!Array.isArray(value)) return []
+  const out: FubEmailWaitingRow[] = []
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object') continue
+    const r = raw as Record<string, unknown>
+    const fubId = Number(r.fubId)
+    const receivedAt = typeof r.receivedAt === 'string' ? r.receivedAt : ''
+    if (!Number.isFinite(fubId) || isNaN(Date.parse(receivedAt))) continue
+    out.push({
+      fubId,
+      name: typeof r.name === 'string' && r.name.trim() ? r.name : `FUB contact #${fubId}`,
+      assignedUserId: typeof r.assignedUserId === 'number' ? r.assignedUserId : null,
+      receivedAt,
+      lastResponseAt: typeof r.lastResponseAt === 'string' ? r.lastResponseAt : null,
+    })
+  }
+  return out
+}

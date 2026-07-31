@@ -1,6 +1,22 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-07-30] Reply inbox — inbound email added (all three FUB channels now covered)
+**Status:** VERIFIED live end to end (sync populated the cache, the candidate surfaced on Matt's page).
+**Issue:** Efrain: "yes lets add the emails too", after I flagged email as the one channel still missing.
+**Constraint found:** FUB exposes **no account-wide inbound-email feed** to an agent key — `/v1/emails` 400s without a person/thread id, and `/v1/events` carries only lead-source types. So email cannot be paged like texts and calls.
+**Change:**
+- [lib/followUpBoss.ts](lib/followUpBoss.ts) — `emailWaitingFromPeople()` derives candidates from the person payload's `lastReceivedEmail` vs the newest **personal** response; `emailsShowReply()` + `isReceivedEmail()` verify per person (direction on `/v1/emails` is `status: 'Sent' | 'Received'`, there is no `isIncoming`); `FubTouch.channel` gains `'email'`.
+- [app/api/sync/fub/route.ts](app/api/sync/fub/route.ts) — the hourly sweep already fetches every person with `fields=allFields`, so it now computes the candidates for **zero extra API calls** and parks them in `sync_state.fub_email_waiting`.
+- [app/api/fub/unanswered/route.ts](app/api/fub/unanswered/route.ts) — reads that cache scoped by `assignedUserId` (email has no phone number to attribute by) and hands it to `fetchFubUnanswered`, which **always** re-verifies email candidates live so an hour-old cache can't strand a row.
+- [lib/fubInboxAcks.ts](lib/fubInboxAcks.ts) — shared key + tolerant parser. Row wording: "emailed 2d ago".
+**Test Method:** `scripts/follow-up-check.ts` 165 → **177** assertions (bulk-send exclusion, answered-by-text/call, window, dedupe across both key sweeps, Sent/Received direction, junk parsing); a real `POST /api/sync/fub?force=1`; the live route for both LOs; DOM readout + screenshot.
+**Result:**
+- Sync stored **1** candidate — **Marc Connell** (Matt, emailed 7/28, last personal response 6/16). Survived live per-person verification and renders as "FUB · Marc Connell · emailed 2d ago · Done".
+- Matt's inbox: 8 waiting (4 GHL, 4 FUB) fresh + the older drawer; channel mix across the full list 25 text / 1 email.
+- He is `stored: false` (not in `fub_people`) and still gets a Done button — the ack design holds for email too.
+- 18/18 suites exit 0, `npx tsc --noEmit` exactly 7 pre-existing errors (0 in touched files), `next build` ✓.
+
 ### [2026-07-30] Reply inbox — missed calls folded in, and a real "check it off"
 **Status:** VERIFIED live (ack round-trip through the API, every row rendering a Done button, calls surfacing).
 **Issue:** Efrain, three asks: "can you add inbound calls to the inbox too" · "Sometimes a reply from a client doesn't need a reply from us, can we check it off from the list without having a sync or anything bringing it back. Only thing to bring it back would be a new response." · "some leads dont have buttons".
