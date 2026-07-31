@@ -133,10 +133,21 @@ that keeps a raw `{{contact.first_name}}` off a borrower's phone. 4 is the real 
 
 ## 5. Out of scope
 
-- Email snippets. Both locations return 2 email templates, but the body came back empty in
-  the SMS-shaped response (likely under `template.html`) — unverified, and the composer is
-  SMS-only today.
-- Attachments/MMS (`template.attachments` exists on every snippet; ignored for now).
+Efrain asked (2026-07-31) whether the out-of-scope items could be folded in. Both were
+probed live before answering — the effort is small, but the **payoff is close to zero**,
+so both stay out. Recorded here so this isn't re-litigated later.
+
+- **Email snippets — skip.** Each location has exactly **2**, and they're near-duplicates
+  (`Quick Email Temp 10/03`, `Quick Quote Template`). Both bodies are the same sentence:
+  *"Hi {{contact.first_name}}! As promised, see your requested quote attached below!"*
+  The point of both is **the attached quote** — and both carry `attachments: []`, meaning
+  the PDF is attached by hand in GHL every time. An email composer here would send the
+  cover sentence without the thing it's pointing at. The `send-message` route already
+  handles `type: 'Email'` (html + subject) if this ever becomes worth it; what's missing
+  is content worth sending, not plumbing.
+- **Attachments / MMS — skip.** **0 of 22** SMS snippets carry an attachment, on *both*
+  sub-accounts. Nothing to support. (The composer's amber "has an attachment in GHL"
+  note is written and correct, but never renders today.)
 - FollowUpBoss snippets — this is the GHL composer only.
 - Anything that would make GHL's own app boot faster. It can't be done from here: GHL
   serves the shell in ~160–250 ms and the rest is their SPA booting.
