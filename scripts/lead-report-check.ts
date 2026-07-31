@@ -163,6 +163,32 @@ eq('no Loan Purpose on the opp → key omitted entirely',
 eq('empty opportunity → {} so the contact value stands',
   'loan_purpose' in mapOpportunityFields(null, undefined), false)
 
+// ── lead_price: the OPPORTUNITY's charge, with the contact as fallback ──────
+// A contact holds ONE lead price; each opportunity holds the real charge for
+// that purchase. Reading the contact stamped one number across every purchase of
+// the same person. The omission cases matter as much as the mapping: an
+// Arive-created loan opportunity carries no lead fields, and the contact price is
+// then the ONLY record of the cost — so a missing field must leave the key out
+// entirely rather than write null over it.
+eq('opportunity Lead Price is mapped',
+  mapOpportunityFields(oppCf('Lead Price', 29), undefined).lead_price, 29)
+eq('Lead Price as a money string is coerced',
+  mapOpportunityFields(oppCf('Lead Price', '$38.50'), undefined).lead_price, 38.5)
+eq('Lead Price arriving as fieldValueNumber (the /search path)',
+  mapOpportunityFields({ customFields: [{ name: 'Lead Price', fieldValueNumber: 21 }] }, undefined).lead_price, 21)
+eq('Lead Price matched by fieldKey too',
+  mapOpportunityFields({ customFields: [{ fieldKey: 'opportunity.lead_price', fieldValue: 42.5 }] }, undefined).lead_price, 42.5)
+eq('a real $0 lead price is kept, not dropped',
+  mapOpportunityFields(oppCf('Lead Price', 0), undefined).lead_price, 0)
+eq('no Lead Price on the opp → key omitted (contact value stands)',
+  'lead_price' in mapOpportunityFields(oppCf('Note Rate', 6.5), undefined), false)
+eq('blank Lead Price → key omitted, never null over a real cost',
+  'lead_price' in mapOpportunityFields(oppCf('Lead Price', ''), undefined), false)
+eq('empty opportunity → lead_price omitted',
+  'lead_price' in mapOpportunityFields(null, undefined), false)
+eq('Lead Price does not grab Purchase Price',
+  'lead_price' in mapOpportunityFields(oppCf('Purchase Price', 750000), undefined), false)
+
 // ── Keys ───────────────────────────────────────────────────────────
 eq('stateKey upper/trim', stateKey(row({ state: ' ca ' })), 'CA')
 eq('stateKey null', stateKey(row({ state: null })), '(no state)')

@@ -109,6 +109,16 @@ export function mapOpportunityFields(
   num('down_payment',        'Down Payment')
   num('credit_score',        'Credit Score', 'Loan FICO')
   num('compensation_amount', 'Compensation', 'Compensation Amount', 'Total Compensation')
+  // What this specific lead cost. A CONTACT holds one lead price; each
+  // OPPORTUNITY holds the real charge for that purchase, and buying the same
+  // person twice is normal — so reading the contact stamped one number across
+  // all of someone's purchases (Lawrence Turner: six charges of 34/31/38/23/29/21
+  // all stored as 34). Verified against GHL 2026-07-31; see
+  // docs/specs/2026-07-31-lead-price-opportunity-backfill-spec.md.
+  // The contact read in the sync stays as the FALLBACK — Arive-created loan
+  // opportunities carry no lead fields at all, and the contact price is then the
+  // only record of what the lead cost. Missing means "unknown", never "free".
+  num('lead_price',          'Lead Price')
   num('housing_payment',     'Total PITI')
   num('pi_payment',          'Principal And Interest', 'First Mortgage Principal And Interest Monthly Amount')
   str('investor',            'Lender Name')
