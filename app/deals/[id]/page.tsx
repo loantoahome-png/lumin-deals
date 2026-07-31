@@ -888,6 +888,9 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                   loanOfficer={(form.loan_officer as string | null) ?? null}
                   smsBlocked={isChannelBlocked(form, 'SMS')}
                   dndNote={dndLabel(form)}
+                  contactFirstName={(form.first_name as string | null) ?? null}
+                  contactLastName={(form.last_name as string | null) ?? null}
+                  contactName={(form.name as string | null) ?? null}
                 />
               </Section>
             )}

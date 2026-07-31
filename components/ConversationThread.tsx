@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
-import { RefreshCw, Send, Phone, MessageSquare, Mail, ExternalLink } from 'lucide-react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { RefreshCw, Send, Phone, MessageSquare, Mail, ExternalLink, FileText, Search, X } from 'lucide-react'
+import { resolveContactTokens, unresolvedTokens, pickFromNumber } from '@/lib/mergeFields'
 
 type ThreadMessage = {
   id: string | null
@@ -12,6 +13,11 @@ type ThreadMessage = {
   at: string | null
 }
 type PhoneNumber = { value: string; title: string }
+type Snippet = { id: string; name: string; body: string; hasAttachments: boolean }
+
+// Last-used sending number, per LO. GHL has no "my line" concept we can read,
+// and re-picking on every message was the complaint.
+const FROM_KEY = (lo: string | null) => `lumin:fromNumber:${(lo || 'unknown').toLowerCase()}`
 
 function fmtTime(iso: string | null): string {
   if (!iso) return ''
@@ -24,14 +30,9 @@ function fmtPhone(v: string): string {
   return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : v
 }
 
-const SNIPPETS = [
-  "Hi! Just following up — let me know if you have any questions.",
-  "Got it, thank you! I'll take care of it.",
-  "What's a good time for a quick call?",
-]
-
 export default function ConversationThread({
   contactId, locationId, ghlUrl, loanOfficer, smsBlocked = false, dndNote,
+  contactFirstName, contactLastName, contactName,
 }: {
   contactId: string
   locationId: string | null
@@ -39,6 +40,10 @@ export default function ConversationThread({
   loanOfficer: string | null
   smsBlocked?: boolean          // contact is Do-Not-Contact for SMS — block the composer
   dndNote?: string | null       // label to show, e.g. "Do Not Contact" / "DND: SMS"
+  // Borrower identity, for filling {{contact.*}} tokens in a snippet.
+  contactFirstName?: string | null
+  contactLastName?: string | null
+  contactName?: string | null
 }) {
   const [messages, setMessages] = useState<ThreadMessage[]>([])
   const [loading, setLoading] = useState(true)
@@ -47,7 +52,11 @@ export default function ConversationThread({
   const [sending, setSending] = useState(false)
   const [numbers, setNumbers] = useState<PhoneNumber[]>([])
   const [fromNumber, setFromNumber] = useState('')
+  const [snippets, setSnippets] = useState<Snippet[]>([])
+  const [snippetsOpen, setSnippetsOpen] = useState(false)
+  const [snippetQuery, setSnippetQuery] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
+  const draftRef = useRef<HTMLTextAreaElement>(null)
 
   // Keep the newest message in view whenever the thread changes.
   useEffect(() => {
@@ -69,7 +78,10 @@ export default function ConversationThread({
 
   useEffect(() => { fetchThread() }, [fetchThread])
 
-  // Load the account's numbers once, default to the LO's own line.
+  // Load the account's numbers once, then pick this LO's own line.
+  // Order: what they chose last time → the alias map (which knows Moe's line is
+  // titled "Mohammad's number") → nothing. Never numbers[0]: that silently sent
+  // every one of Moe's texts from Efrain's line.
   useEffect(() => {
     if (!locationId || numbers.length > 0) return
     let cancelled = false
@@ -79,16 +91,68 @@ export default function ConversationThread({
         const data = await res.json() as { ok: boolean; numbers?: PhoneNumber[] }
         if (cancelled || !data.ok || !data.numbers) return
         setNumbers(data.numbers)
-        const first = (loanOfficer || '').trim().split(/\s+/)[0].toLowerCase()
-        const match = first ? data.numbers.find(n => n.title.toLowerCase().includes(first)) : undefined
-        setFromNumber((match || data.numbers[0])?.value || '')
+        const remembered = typeof window !== 'undefined' ? window.localStorage.getItem(FROM_KEY(loanOfficer)) : null
+        const valid = remembered && data.numbers.some(n => n.value === remembered) ? remembered : null
+        setFromNumber(valid || pickFromNumber(data.numbers, loanOfficer) || '')
       } catch { /* non-fatal */ }
     })()
     return () => { cancelled = true }
   }, [locationId, numbers.length, loanOfficer])
 
+  // The team's real GHL snippets for this sub-account.
+  useEffect(() => {
+    if (!locationId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/ghl/snippets?locationId=${locationId}`, { cache: 'no-store' })
+        const data = await res.json() as { ok: boolean; snippets?: Snippet[] }
+        if (!cancelled && data.ok && data.snippets) setSnippets(data.snippets)
+      } catch { /* non-fatal — the composer still works without snippets */ }
+    })()
+    return () => { cancelled = true }
+  }, [locationId])
+
+  function chooseNumber(value: string) {
+    setFromNumber(value)
+    try { window.localStorage.setItem(FROM_KEY(loanOfficer), value) } catch { /* private mode */ }
+  }
+
+  const visibleSnippets = useMemo(() => {
+    const q = snippetQuery.trim().toLowerCase()
+    if (!q) return snippets
+    return snippets.filter(s => s.name.toLowerCase().includes(q) || s.body.toLowerCase().includes(q))
+  }, [snippets, snippetQuery])
+
+  // Insert at the cursor rather than replacing the draft — the old chips wiped
+  // whatever had already been typed.
+  function insertSnippet(s: Snippet) {
+    const filled = resolveContactTokens(s.body, {
+      firstName: contactFirstName, lastName: contactLastName,
+      fullName: contactName, loanOfficer,
+    })
+    const el = draftRef.current
+    const at = el ? el.selectionStart : draft.length
+    const before = draft.slice(0, at)
+    const after = draft.slice(at)
+    const joiner = before && !/\s$/.test(before) ? ' ' : ''
+    const next = `${before}${joiner}${filled}${after}`
+    setDraft(next)
+    setSnippetsOpen(false)
+    setSnippetQuery('')
+    requestAnimationFrame(() => {
+      const pos = (before + joiner + filled).length
+      el?.focus()
+      el?.setSelectionRange(pos, pos)
+    })
+  }
+
+  // Anything still in braces after substitution — GHL may or may not expand
+  // these on an API send, so we don't find out on a borrower's phone.
+  const leftoverTokens = useMemo(() => unresolvedTokens(draft), [draft])
+
   async function send() {
-    if (!draft.trim() || sending || !locationId || smsBlocked) return
+    if (!draft.trim() || sending || !locationId || smsBlocked || leftoverTokens.length > 0) return
     setSending(true); setError(null)
     try {
       const res = await fetch('/api/ghl/send-message', {
@@ -172,15 +236,49 @@ export default function ConversationThread({
             🚫 {dndNote || 'Do Not Contact'} — texting is disabled for this borrower (opted out in GHL).
           </div>
         )}
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {SNIPPETS.map((s, i) => (
-            <button key={i} onClick={() => setDraft(s)} disabled={smsBlocked}
-              className="text-[11px] text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-full px-2.5 py-1 text-left disabled:opacity-40 disabled:cursor-not-allowed">
-              {s.length > 40 ? s.slice(0, 40) + '…' : s}
-            </button>
-          ))}
+        {/* Snippets — the team's real GHL snippets (22 per sub-account), too
+            many for inline chips, so: a searchable list that inserts at the cursor. */}
+        <div className="relative mb-2">
+          <button onClick={() => setSnippetsOpen(o => !o)} disabled={smsBlocked || snippets.length === 0}
+            title={snippets.length === 0 ? 'No snippets found for this sub-account' : 'Insert one of your GHL snippets'}
+            className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg px-2.5 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
+            <FileText className="w-3.5 h-3.5" />
+            Snippets{snippets.length > 0 && <span className="text-slate-400 tabular-nums">{snippets.length}</span>}
+          </button>
+
+          {snippetsOpen && (
+            <div className="absolute z-20 mt-1 w-full sm:w-[28rem] bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
+              <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
+                <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <input autoFocus value={snippetQuery} onChange={e => setSnippetQuery(e.target.value)}
+                  placeholder="Search snippets…"
+                  className="flex-1 text-xs focus:outline-none placeholder:text-slate-400" />
+                <button onClick={() => { setSnippetsOpen(false); setSnippetQuery('') }}
+                  className="text-slate-400 hover:text-slate-600" title="Close">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
+                {visibleSnippets.length === 0 ? (
+                  <p className="text-xs text-slate-400 px-3 py-4 text-center">No snippet matches “{snippetQuery}”.</p>
+                ) : visibleSnippets.map(s => (
+                  <button key={s.id} onClick={() => insertSnippet(s)}
+                    className="w-full text-left px-3 py-2 hover:bg-slate-50">
+                    <p className="text-xs font-semibold text-slate-800 truncate">{s.name}</p>
+                    <p className="text-[11px] text-slate-500 line-clamp-2">{s.body}</p>
+                    {s.hasAttachments && (
+                      <p className="text-[10px] text-amber-700 mt-0.5">
+                        has an attachment in GHL — text only will be sent
+                      </p>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
         <textarea
+          ref={draftRef}
           value={draft}
           onChange={e => setDraft(e.target.value)}
           placeholder={smsBlocked ? 'Texting disabled — Do Not Contact' : 'Type a text reply…'}
@@ -188,17 +286,30 @@ export default function ConversationThread({
           disabled={smsBlocked}
           className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none disabled:bg-slate-50 disabled:text-slate-400"
         />
+        {/* A snippet whose merge field we couldn't fill. GHL may or may not expand
+            these on an API send — blocking here is how we avoid finding out live. */}
+        {leftoverTokens.length > 0 && (
+          <div className="mt-1.5 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+            Fill in {leftoverTokens.map(t => <code key={t} className="font-mono bg-amber-100 rounded px-1 mx-0.5">{t}</code>)}
+            {' '}before sending — we can’t resolve {leftoverTokens.length === 1 ? 'it' : 'them'} for this borrower.
+          </div>
+        )}
         {error && <p className="text-xs text-red-600 mt-1.5">{error}</p>}
         <div className="flex items-center gap-2 mt-2 flex-wrap">
-          <button onClick={send} disabled={!draft.trim() || sending || !locationId || smsBlocked}
+          <button onClick={send} disabled={!draft.trim() || sending || !locationId || smsBlocked || leftoverTokens.length > 0}
             className="flex items-center gap-1.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 rounded-lg px-3 py-1.5">
             <Send className="w-3.5 h-3.5" /> {sending ? 'Sending…' : 'Send text'}
           </button>
           <div className="ml-auto flex items-center gap-1.5">
             <span className="text-[11px] text-slate-400">From:</span>
             {numbers.length > 0 ? (
-              <select value={fromNumber} onChange={e => setFromNumber(e.target.value)}
-                className="text-[11px] border border-slate-200 rounded-md px-1.5 py-1 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500">
+              <select value={fromNumber} onChange={e => chooseNumber(e.target.value)}
+                title="The line this text goes out on — remembered for next time"
+                className={`text-[11px] border rounded-md px-1.5 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 ${
+                  fromNumber ? 'border-slate-200 text-slate-700' : 'border-amber-300 text-amber-800'}`}>
+                {/* No silent fallback to someone else's line — if we can't tell which
+                    number is theirs, the LO picks one. */}
+                {!fromNumber && <option value="">Pick a number…</option>}
                 {numbers.map(n => <option key={n.value} value={n.value}>{n.title} ({fmtPhone(n.value)})</option>)}
               </select>
             ) : (

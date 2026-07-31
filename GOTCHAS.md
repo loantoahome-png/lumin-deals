@@ -426,3 +426,29 @@ class of error as the opp-id bug (querying a column the bug itself poisons).
 **What works:** sweep in the default id-descending order (keyset-stable) and sort locally; plus `dedupeTasks()` as a guard, since a row created mid-sweep can still double up. Same risk applies to any `sort=` on a paginated FUB collection.
 **Project:** lumin-deals
 **Date:** 2026-07-30
+
+### GHL templates: the "required" originId param must be OMITTED
+**Tried:** `GET /locations/{locationId}/templates?type=sms&originId={locationId}` — the
+OpenAPI spec marks `originId` as `required: true`, so passing it looked mandatory.
+**Failed because:** with `originId` set, GHL returns `{"templates":[],"totalCount":0}` and
+**HTTP 200**. No error, no 400 — just a silent empty list that reads identically to
+"this sub-account has no snippets."
+**What works:** omit `originId` entirely. Both sub-accounts then return all 22 SMS
+snippets. Verified live 2026-07-31 against Moe's and Matt's keys.
+**Also:** templates use `Version: 2021-07-28` (the `ghlHeaders` default), NOT the
+`2021-04-15` that `/conversations/*` uses. Wrong version → wrong shape.
+**Project:** lumin-deals (`app/api/ghl/snippets/route.ts`)
+**Date:** 2026-07-31
+
+### GHL location custom values can hold secrets — never ship the list to the browser
+**Tried:** fetching `/locations/{id}/customValues` client-side to resolve
+`{{ custom_values.* }}` in snippets.
+**Failed because:** the list is not just branding. Moe's location stores a **Monday API
+token** as a custom value, alongside the company name and Zillow review links. Sending
+all 30 to the page would put a live credential in the DOM of every deal page.
+**What works:** resolve location tokens server-side in the snippets route and return only
+the substituted body; the raw list never leaves the server. Contact/user tokens
+(`{{contact.first_name}}`, `{{user.first_name}}`) are resolved client-side, where there's
+nothing secret. `lib/mergeFields.ts` splits the two on purpose.
+**Project:** lumin-deals
+**Date:** 2026-07-31
