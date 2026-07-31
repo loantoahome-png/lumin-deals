@@ -625,8 +625,7 @@ export default function FollowUpCockpit() {
           <Panel icon={<Users className="w-5 h-5" />} accent="#8b5cf6"
             title="Past clients & closed (FUB)" subtitle="The farming pool — refis, referrals, anniversaries"
             badge={`${c.pastClients} people`}>
-            <BucketDrawer label="By how long since anyone actually talked" buckets={queue.pastClients}
-              total={c.pastClients} renderActions={rowActions} />
+            <BucketDrawers buckets={queue.pastClients} renderActions={rowActions} />
           </Panel>
 
           <SectionBreak />
@@ -847,36 +846,45 @@ function Drawer({ label, count, tone = 'plain', children }: {
 }
 
 /** Stale/past-client buckets as one drawer with labelled sub-lists. */
-function BucketDrawer({ label, buckets, total, renderActions }: {
-  label: string; buckets: StaleBuckets; total: number; renderActions: (i: QueueItem) => React.ReactNode
+/** The past-client book as THREE independent drawers, coldest first.
+ *
+ *  Efrain 2026-07-30: "I want it to be separated to 3 collapsable rows and have
+ *  the section that shows leads that havent been talked to in 90+ days at the
+ *  top since those are the ones we have to target and the section where it
+ *  shows leads talked to within the last 30 days at the bottom of the rows
+ *  since we dont need to reach out to them as urgent."
+ *
+ *  So the order is deliberately the REVERSE of the bucket order in
+ *  StaleBuckets: this list is a work queue, not a report, and the top row
+ *  should be the people most at risk of being forgotten. */
+function BucketDrawers({ buckets, renderActions }: {
+  buckets: StaleBuckets; renderActions: (i: QueueItem) => React.ReactNode
 }) {
-  const groups: { key: keyof StaleBuckets; label: string }[] = [
-    { key: 'b7_30', label: 'Talked in the last 30 days' },
-    { key: 'b31_90', label: 'Talked 31–90 days ago' },
-    { key: 'b90', label: 'Talked 90+ days ago, or never' },
+  const groups: { key: keyof StaleBuckets; label: string; tone: 'danger' | 'warn' | 'plain' }[] = [
+    { key: 'b90',   label: 'Talked 90+ days ago, or never', tone: 'danger' },
+    { key: 'b31_90', label: 'Talked 31–90 days ago',        tone: 'warn' },
+    { key: 'b7_30', label: 'Talked in the last 30 days',    tone: 'plain' },
   ]
   const PREVIEW = 10
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   return (
-    <Drawer label={label} count={total}>
-      {groups.map(({ key, label: gl }) => {
+    <>
+      {groups.map(({ key, label, tone }) => {
         const items = buckets[key]
-        if (!items.length) return null
         const isOpen = !!expanded[key]
         const shown = isOpen ? items : items.slice(0, PREVIEW)
         return (
-          <div key={key} className="pt-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1">{gl} · {items.length}</p>
+          <Drawer key={key} label={label} count={items.length} tone={tone}>
             <div className="space-y-1.5">{shown.map(i => <Row key={i.key} item={i} showContact actions={renderActions(i)} />)}</div>
             {items.length > PREVIEW && (
               <button onClick={() => setExpanded(e => ({ ...e, [key]: !isOpen }))} className="text-xs text-blue-700 hover:underline mt-1">
                 {isOpen ? 'Show fewer' : `Show all ${items.length}`}
               </button>
             )}
-          </div>
+          </Drawer>
         )
       })}
-    </Drawer>
+    </>
   )
 }
 

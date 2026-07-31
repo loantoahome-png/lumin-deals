@@ -1,6 +1,15 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-07-30] Past clients & closed — three drawers, coldest at the top
+**Status:** CHANGED — structure VERIFIED locally; the populated rows could NOT be exercised locally (see caveat).
+**Issue:** Efrain: "I like this section but dont like the formatting, everything is under one collapsable row. I want it to be separated to 3 collapsable rows and have the section that shows leads that havent been talked to in 90+ days at the top since those are the ones we have to target and the section where it shows leads talked to within the last 30 days at the bottom".
+**Change:** [app/follow-up/[lo]/page.tsx](app/follow-up/[lo]/page.tsx) — `BucketDrawer` (one drawer wrapping three labelled sub-lists) → `BucketDrawers`, three sibling `Drawer`s in **reverse bucket order**: 90+ days/never (danger tone) → 31–90 days (warn) → last 30 days (plain). Per-drawer 10-row preview + "Show all N" is unchanged, and the expand state still lives in the parent keyed by bucket, so the three toggle independently. No logic change — `buildFollowUpQueue` and the bucketing are untouched.
+**Test Method:** dev server via `lumin-deals-dev-bypass`, `/follow-up/moe`.
+**Result:** Renders exactly three collapsible rows in the requested order with the right labels and counts, styled like the other sections' drawers.
+**⚠️ Caveat — what was NOT verified:** `fub_people` rejects anon reads, and the `LOCAL_AUTH_BYPASS` server has no Supabase session, so **every client-fed section reads 0 locally** (FollowUpBoss tasks 0, GHL leads 0, past clients 0) while the server-route-fed Replied section works normally. So the drawers were verified empty, not populated. The row rendering inside them is the same `Row` + `rowActions` verified in other sections today, and the preview/"Show all" code moved verbatim. Efrain will see it populated in prod.
+**Checks:** follow-up-check 177/177, 18/18 suites exit 0, tsc unchanged at 7 pre-existing errors, `next build` ✓.
+
 ### [2026-07-30] Follow-Up cockpit tasks default to "Overdue & today"
 **Status:** VERIFIED in a browser session on `/follow-up/matt`.
 **Issue:** Efrain: "make the default view of the tasks list to the overdue and today tab". The cockpit answers "who do I contact today", so a task column opening on **All** buries what's actually due under everything scheduled weeks out.
