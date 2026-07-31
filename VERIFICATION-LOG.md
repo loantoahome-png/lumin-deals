@@ -2,7 +2,7 @@
 # Verification Log — Lumin Deals
 
 ### [2026-07-30] Past clients & closed — three drawers, coldest at the top
-**Status:** CHANGED — structure VERIFIED locally; the populated rows could NOT be exercised locally (see caveat).
+**Status:** TESTED (18/18 suites, 645 assertions) — structure VERIFIED locally; the populated rows could NOT be exercised locally (see caveat).
 **Issue:** Efrain: "I like this section but dont like the formatting, everything is under one collapsable row. I want it to be separated to 3 collapsable rows and have the section that shows leads that havent been talked to in 90+ days at the top since those are the ones we have to target and the section where it shows leads talked to within the last 30 days at the bottom".
 **Change:** [app/follow-up/[lo]/page.tsx](app/follow-up/[lo]/page.tsx) — `BucketDrawer` (one drawer wrapping three labelled sub-lists) → `BucketDrawers`, three sibling `Drawer`s in **reverse bucket order**: 90+ days/never (danger tone) → 31–90 days (warn) → last 30 days (plain). Per-drawer 10-row preview + "Show all N" is unchanged, and the expand state still lives in the parent keyed by bucket, so the three toggle independently. No logic change — `buildFollowUpQueue` and the bucketing are untouched.
 **Test Method:** dev server via `lumin-deals-dev-bypass`, `/follow-up/moe`.

@@ -87,7 +87,7 @@ The dashboard owns the **unified person** (`contacts` table) that no upstream sy
 
 **Shipped 2026-06-30 (Reports + Channel):** Lender List **BCC email picker** (`components/LenderEmailModal.tsx`); NEW **printable per-LO Active Escrows report** `/reports/escrows` (`app/reports/escrows/page.tsx` — LO toggle, stage groups, rate-lock/next-step/processor/Channel/loan details, top "Locks expiring ≤7d" callout, print-to-PDF; reachable via a Report button + Insights sidebar link); **Channel field** (`broker_corr` = Broker/Non-Del) — Arive "Channel" column mapped in `lib/ariveCsv.ts`, deal-form relabeled "Broker / Non-Del" + "Waiting On" field removed, Channel added to the escrow card (2×2 stats) + report ("{Channel} - {Amount}"). A CTC+Non-Del funding-alert cron was built then removed (Efrain prefers an on-demand button — pending). Fluid-CPU tuning (LastSyncBadge 30s→15min + visibility-gated; middleware skips `/api/sync-status`). Full state in `~/.claude/handoffs/lumin-deals.md`.
 
-**Shipped 2026-07-30 (Reply inbox fix + FUB unanswered texts) — `d7a9cc1`:**
+**Shipped 2026-07-30 (Reply inbox — 6 commits, `d7a9cc1`→`4126938`, prod `lumin-deals-brnm1xpe7`):**
 "Replied — waiting on you" was showing **Inbox zero for BOTH LOs** while GHL showed unread. Two causes:
 (1) `isReplyWaiting` excluded `HOT_WORKING_STATUSES` — **the exact statuses a lead is in when they reply**
 (GHL moves them to `Responded` first); measured over 2,994 deals the predicate matched **0/0**, without the
@@ -103,7 +103,28 @@ reconstructed from `toNumber`/`fromNumber` text feeds keyed on the LO's own `/me
 (`fetchFubUnanswered`). ⚠️ A FUB row is **not** suppressed by `matched_deal_active` here (unlike the book) —
 a text to the FUB number is a different thread and GHL has no record of it. Live after: Matt 0 → 8 waiting
 (4 GHL, 4 FUB) + 11 older; Moe 0 → 7 (2 GHL, 5 FUB) + 15 older.
-Diagnosis: `docs/diagnoses/2026-07-30-replied-waiting-empty-diagnosis.md`. Fixtures: 134.
+Diagnosis: `docs/diagnoses/2026-07-30-replied-waiting-empty-diagnosis.md`. Fixtures: **177**.
+**Four follow-up passes the same day:**
+(a) **A false "unanswered"** — the FUB feeds were paged by PAGE COUNT, giving the higher-volume outbound feed a
+SHALLOWER time horizon (300 in = 62d, 300 out = 52d); Tami Boteilho was flagged ignored when Moe had replied 98
+seconds later. Both directions now page to a **time cutoff** (`INBOX_LOOKBACK_DAYS = 90`) with the outbound
+window forced to reach the oldest inbound kept; anything beyond the horizon is **unproven, not unanswered** and
+is verified per person (`threadShowsReply` / `emailsShowReply`).
+(b) **Dead buttons** — writes landed but the section reads LIVE feeds, so nothing moved. Every action now has a
+suppression rule in `buildReplyInbox` + an optimistic dismissal. ⚠️ Also found: an **RLS-blocked Supabase write
+returns `{error: null}` with ZERO rows**, so every client update here carries `.select()`; corollary, the
+`LOCAL_AUTH_BYPASS` dev server cannot exercise ANY client-Supabase read or write.
+(c) **Inbound CALLS + EMAIL.** One normalised touch timeline: INBOUND = inbound texts + missed calls; RESPONSES
+= outbound texts + outbound calls + **answered** inbound calls. ⚠️ A missed call is `outcome === 'No Answer'`,
+NOT `duration === 0` (13/100 had duration up to 278s of voicemail), and `/v1/calls` **silently ignores**
+`userId`/`isIncoming` — only `toNumber`/`fromNumber`/`personId` are honored. EMAIL has **no account-wide feed**
+at all: discovery runs on the hourly sweep (already fetches `fields=allFields` → zero extra API calls) into
+`sync_state.fub_email_waiting`, verified live per person; `/v1/emails` direction is `status: 'Sent'|'Received'`.
+(d) **A real "check it off"** — NEW **Done** on every row, storing the message it cleared so only a NEWER inbound
+brings it back. GHL → `comm_read_acks`; FUB → NEW `sync_state.fub_inbox_acks` (`lib/fubInboxAcks.ts` +
+`/api/fub/inbox-ack`), keyed on `fub_id` ALONE and server-side, which is what gives buttons to the people the
+sweep doesn't store. **"Touched" was removed from this section.** Plus: the cockpit task list now defaults to
+**Overdue & today**, and the past-client book is **three drawers, coldest first** (90+/never → 31–90 → last 30).
 
 **Shipped 2026-07-30 (Follow-Up Cockpit + FollowUpBoss integration) — 17 commits, `335b6af`→`493f56b`:**
 NEW per-LO pages `/follow-up/moe` + `/follow-up/matt` (+ `/follow-up` manager index, sidebar "Follow-Up") — six
