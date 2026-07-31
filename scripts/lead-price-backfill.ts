@@ -126,15 +126,33 @@ async function main() {
   }
 
   if (MISSING_ONLY) {
-    // Aggregator leads whose OPPORTUNITY has no Lead Price. Split by whether we
-    // hold a price anyway (the contact-sourced value) or have none at all.
+    // ── A. GHL-FIRST: any opportunity carrying a Lead Vendor but no Lead Price.
+    // Asked directly of GHL rather than of our copy, so it reflects edits made in
+    // GHL since the last sync.
+    const vendorNoPrice = [...oppVendor.entries()]
+      .filter(([id, v]) => isAgg(v) && oppPrice.get(id) == null)
+    console.log(`\n${'='.repeat(96)}\nA. GHL OPPORTUNITIES WITH A LEAD VENDOR BUT NO LEAD PRICE\n${'='.repeat(96)}`)
+    if (!vendorNoPrice.length) {
+      console.log('none — every opportunity tagged with an aggregator vendor now carries a price ✓')
+    } else {
+      const dealByOpp = new Map(withOpp.map(d => [d.ghl_opportunity_id, d]))
+      console.log(`${vendorNoPrice.length} opportunities\n`)
+      console.log(`  ${'name'.padEnd(28)}${'opp Lead Vendor'.padEnd(16)}${'our source'.padEnd(14)}${'stored'.padStart(9)}  LO`)
+      for (const [id, vend] of vendorNoPrice) {
+        const d = dealByOpp.get(id)
+        console.log(`  ${String(d?.name ?? '(no deal in our DB)').slice(0, 27).padEnd(28)}${String(vend).padEnd(16)}${String(d?.source ?? '—').padEnd(14)}${(d?.lead_price == null ? '—' : money(Number(d.lead_price))).padStart(9)}  ${d?.loan_officer ?? ''}`)
+      }
+    }
+
+    // ── B. The Arive-side group: no vendor AND no price on the opportunity, but
+    // our record says it came from an aggregator.
     const rows = withOpp
       .filter(d => seen.has(d.ghl_opportunity_id))
       .filter(d => oppPrice.get(d.ghl_opportunity_id) == null)
       .filter(d => isAgg(d.source) || isAgg(oppVendor.get(d.ghl_opportunity_id)))
     const stored = rows.filter(d => Number(d.lead_price ?? 0) > 0)
     const nothing = rows.filter(d => !(Number(d.lead_price ?? 0) > 0))
-    console.log(`\n${'='.repeat(96)}\nAGG LEADS WITH NO "Lead Price" ON THE GHL OPPORTUNITY\n${'='.repeat(96)}`)
+    console.log(`\n${'='.repeat(96)}\nB. AGG LEADS (BY OUR SOURCE) WITH NO "Lead Price" ON THE GHL OPPORTUNITY\n${'='.repeat(96)}`)
     console.log(`${rows.length} opportunities — ${stored.length} we price anyway (from the contact), ${nothing.length} with no price anywhere\n`)
 
     const show = (label: string, list: Record<string, any>[]) => {
@@ -148,6 +166,30 @@ async function main() {
     }
     show('PRICED HERE, BLANK IN GHL — the backfill leaves these alone', stored)
     show('NO PRICE ANYWHERE — never counted as spend', nothing)
+
+    // ── C. Opportunities we still hold that GHL no longer has. After a cleanup
+    // in GHL these are the deleted ones — still in our table, still counted as
+    // spend, until a sync prunes them. Randy is excluded (no API key = his
+    // opportunities were never fetched, so absence proves nothing).
+    const fetchedLocations = new Set(ACCOUNTS.map(a => a.locationId))
+    const orphans = withOpp
+      .filter(d => fetchedLocations.has(d.ghl_location_id))
+      .filter(d => !seen.has(d.ghl_opportunity_id))
+    console.log(`${'='.repeat(96)}\nC. IN OUR TABLE BUT NOT IN GHL — deleted there, still here\n${'='.repeat(96)}`)
+    if (!orphans.length) {
+      console.log('none — every opportunity we hold still exists in GHL ✓\n')
+    } else {
+      const priced = orphans.filter(d => Number(d.lead_price ?? 0) > 0)
+      console.log(`${orphans.length} deals, ${priced.length} of them priced (${money(priced.reduce((a, d) => a + Number(d.lead_price ?? 0), 0))} still counted as spend)\n`)
+      // pipeline_group decides what the sync does with them: FUNDED orphans are
+      // never auto-deleted (flagged for review instead), everything else is pruned.
+      const funded = orphans.filter(d => d.pipeline_group === 'Funded')
+      console.log(`  → ${orphans.length - funded.length} will be auto-pruned; ${funded.length} are Funded and will be FLAGGED, not deleted\n`)
+      console.log(`  ${'name'.padEnd(28)}${'source'.padEnd(14)}${'stored'.padStart(9)}  ${'group'.padEnd(18)}status`)
+      for (const d of orphans.sort((a, b) => Number(b.lead_price ?? 0) - Number(a.lead_price ?? 0))) {
+        console.log(`  ${String(d.name).slice(0, 27).padEnd(28)}${String(d.source ?? '—').padEnd(14)}${(d.lead_price == null ? '—' : money(Number(d.lead_price))).padStart(9)}  ${String(d.pipeline_group ?? '—').padEnd(18)}${d.status ?? ''}`)
+      }
+    }
     return
   }
   const missingAccounts = ['Moe', 'Matt', 'Randy'].filter(l => !ACCOUNTS.some(a => a.label === l))
