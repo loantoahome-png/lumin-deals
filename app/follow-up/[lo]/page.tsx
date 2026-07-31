@@ -35,6 +35,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { ghlContactUrl } from '@/lib/ghlLinks'
+import SourceBadge from '@/components/SourceBadge'
 import { notifyTask } from '@/lib/notifyTask'
 import { LO_COLORS } from '@/components/LoFilter'
 import TriageDateModal from '@/components/TriageDateModal'
@@ -948,21 +949,9 @@ function Row({ item, actions, showStage, showContact }: {
     ? ghlContactUrl({ ghl_contact_id: item.ghlContactId, ghl_location_id: item.ghlLocationId })
     : item.fubId != null ? fubUrl(item.fubId) : null
   const dashUrl = item.dealId ? `/deals/${item.dealId}` : null
-  const badgeTone = item.system === 'ghl'
-    ? 'text-blue-700 bg-blue-50 border-blue-200' : 'text-violet-700 bg-violet-50 border-violet-200'
-  const badgeHover = item.system === 'ghl' ? 'hover:bg-blue-100' : 'hover:bg-violet-100'
-  const badgeLabel = item.system === 'ghl' ? 'GHL' : 'FUB'
   return (
     <div className={`flex items-center gap-2 border rounded-lg px-3 py-2 ${item.overdue ? 'border-red-200 bg-red-50/40' : 'border-slate-200 bg-white'}`}>
-      {sourceUrl ? (
-        <a href={sourceUrl} target="_blank" rel="noopener noreferrer"
-          title={`Open ${item.name} in ${item.system === 'ghl' ? 'GHL' : 'FollowUpBoss'}`}
-          className={`shrink-0 text-[9px] font-bold rounded px-1 py-0.5 border ${badgeTone} ${badgeHover}`}>
-          {badgeLabel}
-        </a>
-      ) : (
-        <span className={`shrink-0 text-[9px] font-bold rounded px-1 py-0.5 border ${badgeTone}`}>{badgeLabel}</span>
-      )}
+      <SourceBadge system={item.system} url={sourceUrl} name={item.name} />
       {dashUrl ? (
         <Link href={dashUrl} title={`Open ${item.name} on the dashboard`}
           className="font-semibold text-sm text-slate-900 hover:text-blue-700 truncate min-w-0 max-w-[14rem]">

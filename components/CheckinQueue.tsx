@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Deal } from '@/lib/types'
 import { dndLabel } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
+import SourceBadge from '@/components/SourceBadge'
 import { checkinTier, type CheckinTier } from '@/lib/triage'
 import { CalendarClock } from 'lucide-react'
 
@@ -131,15 +132,11 @@ function CheckinRow({ deal, tier, onSetDate, onIntake, onRemove }: {
     <tr className="hover:bg-slate-50/60 transition-colors">
       <td className="px-3 py-2">
         <div className="flex items-center gap-1.5">
-          <Link href={`/deals/${deal.id}`} className="font-semibold text-slate-900 hover:text-blue-700 truncate">
+          <SourceBadge system="ghl" url={ghlUrl} name={deal.name} />
+          <Link href={`/deals/${deal.id}`} title={`Open ${deal.name} on the dashboard`}
+            className="font-semibold text-slate-900 hover:text-blue-700 truncate">
             {deal.name}
           </Link>
-          {ghlUrl && (
-            <a href={ghlUrl} target="_blank" rel="noopener noreferrer"
-              className="shrink-0 text-[9px] font-bold text-blue-700 hover:text-blue-900 px-1 py-0.5 rounded bg-blue-100 border border-blue-200">
-              GHL
-            </a>
-          )}
           {dndLabel(deal) && (
             <span className="shrink-0 text-[9px] font-bold text-rose-700 bg-rose-100 border border-rose-300 rounded-full px-1.5 py-0.5"
               title="Do Not Contact — opted out of one or more channels">

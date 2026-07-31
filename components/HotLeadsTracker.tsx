@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Deal, LOAN_OFFICERS, PIPELINE_STATUSES } from '@/lib/types'
 import { formatCurrency, dndLabel } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
+import SourceBadge from '@/components/SourceBadge'
 import {
   ExternalLink, Calendar, Clock, Flame, Search, MoreHorizontal,
   LayoutGrid, List as ListIcon, ArrowDownLeft, ArrowUpRight,
@@ -534,15 +535,11 @@ function HotLeadRow({ deal, onUpdate, onMarkLost, selected, onToggle }: {
       </td>
       <td className="px-3 py-2.5">
         <div className="flex items-center gap-1.5">
-          <Link href={`/deals/${deal.id}`} className="font-semibold text-slate-900 hover:text-blue-700 truncate">
+          <SourceBadge system="ghl" url={ghlUrl} name={deal.name} />
+          <Link href={`/deals/${deal.id}`} title={`Open ${deal.name} on the dashboard`}
+            className="font-semibold text-slate-900 hover:text-blue-700 truncate">
             {deal.name}
           </Link>
-          {ghlUrl && (
-            <a href={ghlUrl} target="_blank" rel="noopener noreferrer"
-              className="shrink-0 text-[9px] font-bold text-blue-700 hover:text-blue-900 px-1 py-0.5 rounded bg-blue-100 border border-blue-200">
-              GHL
-            </a>
-          )}
           {waiting && (
             <span className="shrink-0 text-[9px] font-bold text-red-700 bg-red-100 border border-red-200 rounded-full px-1.5 py-0.5" title={`${deal.comm_unread_count} unread`}>
               ⏳ {deal.comm_unread_count}
@@ -719,25 +716,15 @@ function HotLeadCard({ deal, bucket, onUpdate, onMarkLost }: {
       {/* Header (tinted to match column) */}
       <div className={`px-4 py-2.5 border-b flex items-center justify-between gap-2 ${bucket.header}`}>
         <div className="flex items-center gap-2 min-w-0">
+          <SourceBadge system="ghl" url={ghlUrl} name={deal.name} className="text-[10px] px-1.5" />
           <Link
             href={`/deals/${deal.id}`}
             className="font-semibold text-base text-slate-900 hover:text-blue-700 truncate flex items-center gap-1 group"
-            title="Open in dashboard"
+            title={`Open ${deal.name} on the dashboard`}
           >
             {deal.name}
             <ExternalLink className="w-3.5 h-3.5 text-slate-300 group-hover:text-blue-500 opacity-0 group-hover:opacity-100 transition" />
           </Link>
-          {ghlUrl && (
-            <a
-              href={ghlUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Open contact in GoHighLevel"
-              className="shrink-0 flex items-center gap-0.5 text-[10px] font-bold text-blue-700 hover:text-blue-900 px-1.5 py-0.5 rounded bg-blue-100 hover:bg-blue-200 border border-blue-200 transition-colors"
-            >
-              GHL <ExternalLink className="w-2.5 h-2.5" />
-            </a>
-          )}
         </div>
         <span className={`inline-block shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full ${STAGE_BADGE[stage]}`}>
           {stage}
