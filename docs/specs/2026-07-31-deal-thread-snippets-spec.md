@@ -99,9 +99,9 @@ the payload when set. Gaps:
    titled **"Mohammad's number"** — no match, so it silently falls back to
    `numbers[0]` = **Efrain's Number**. *Moe's texts default to sending from Efrain's line.*
    Fix: an explicit LO → number map (env or `sync_state`), name-matching only as fallback.
-2. **Randy has no key locally** (`GHL_API_KEY_2`/`GHL_LOCATION_ID_2` unset in `.env.local`;
-   prod-only per the Randy memory). His deals show an empty picker locally — needs a check
-   against prod before assuming it works there.
+2. ~~**Randy has no key locally**~~ — **closed as won't-do 2026-07-31.** Efrain: "I do not
+   need to pull Randy's data at the moment." `GHL_API_KEY_2`/`GHL_LOCATION_ID_2` are unset
+   in `.env.local`, so his picker and snippets stay unverified **on purpose**. Not a gap.
 3. **The choice doesn't stick.** Re-picking on every message. Persist last-used per LO in
    `localStorage`, or per-deal if Efrain wants it pinned to the borrower.
 
