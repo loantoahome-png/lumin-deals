@@ -940,31 +940,45 @@ function ContactDates({ item }: { item: QueueItem }) {
 function Row({ item, actions, showStage, showContact }: {
   item: QueueItem; actions: React.ReactNode; showStage?: boolean; showContact?: boolean
 }) {
-  const ghlUrl = item.system === 'ghl'
+  // Two destinations per row, one per click target (Efrain, 2026-07-31):
+  //   • the NAME  → the dashboard profile, when this lead has one
+  //   • the BADGE → the system of record it came from (GHL contact / FUB person)
+  // FUB people have no dashboard profile, so both clicks go to FUB for them.
+  const sourceUrl = item.system === 'ghl'
     ? ghlContactUrl({ ghl_contact_id: item.ghlContactId, ghl_location_id: item.ghlLocationId })
-    : null
+    : item.fubId != null ? fubUrl(item.fubId) : null
+  const dashUrl = item.dealId ? `/deals/${item.dealId}` : null
+  const badgeTone = item.system === 'ghl'
+    ? 'text-blue-700 bg-blue-50 border-blue-200' : 'text-violet-700 bg-violet-50 border-violet-200'
+  const badgeHover = item.system === 'ghl' ? 'hover:bg-blue-100' : 'hover:bg-violet-100'
+  const badgeLabel = item.system === 'ghl' ? 'GHL' : 'FUB'
   return (
     <div className={`flex items-center gap-2 border rounded-lg px-3 py-2 ${item.overdue ? 'border-red-200 bg-red-50/40' : 'border-slate-200 bg-white'}`}>
-      <span className={`shrink-0 text-[9px] font-bold rounded px-1 py-0.5 border ${item.system === 'ghl'
-        ? 'text-blue-700 bg-blue-50 border-blue-200' : 'text-violet-700 bg-violet-50 border-violet-200'}`}>
-        {item.system === 'ghl' ? 'GHL' : 'FUB'}
-      </span>
-      {item.system === 'ghl' && item.dealId ? (
-        <Link href={`/deals/${item.dealId}`}
+      {sourceUrl ? (
+        <a href={sourceUrl} target="_blank" rel="noopener noreferrer"
+          title={`Open ${item.name} in ${item.system === 'ghl' ? 'GHL' : 'FollowUpBoss'}`}
+          className={`shrink-0 text-[9px] font-bold rounded px-1 py-0.5 border ${badgeTone} ${badgeHover}`}>
+          {badgeLabel}
+        </a>
+      ) : (
+        <span className={`shrink-0 text-[9px] font-bold rounded px-1 py-0.5 border ${badgeTone}`}>{badgeLabel}</span>
+      )}
+      {dashUrl ? (
+        <Link href={dashUrl} title={`Open ${item.name} on the dashboard`}
           className="font-semibold text-sm text-slate-900 hover:text-blue-700 truncate min-w-0 max-w-[14rem]">
           {item.name}
         </Link>
-      ) : item.fubId == null ? (
-        // A live GHL unread whose contact has no deal in our DB — there's
-        // nowhere to link to on the dashboard; the GHL button below still goes
-        // straight to the conversation.
-        <span className="font-semibold text-sm text-slate-900 truncate min-w-0 max-w-[14rem]">{item.name}</span>
-      ) : (
-        <a href={fubUrl(item.fubId)} target="_blank" rel="noopener noreferrer"
-          className="font-semibold text-sm text-slate-900 hover:text-violet-700 truncate min-w-0 max-w-[14rem] flex items-center gap-1">
+      ) : sourceUrl ? (
+        // No dashboard profile — a FUB person, or a live GHL unread whose
+        // contact has no deal in our DB. The name falls back to the source.
+        <a href={sourceUrl} target="_blank" rel="noopener noreferrer"
+          title={`Open ${item.name} in ${item.system === 'ghl' ? 'GHL' : 'FollowUpBoss'}`}
+          className={`font-semibold text-sm text-slate-900 truncate min-w-0 max-w-[14rem] flex items-center gap-1 ${item.system === 'ghl' ? 'hover:text-blue-700' : 'hover:text-violet-700'}`}>
           <span className="truncate">{item.name}</span>
           <ExternalLink className="w-3 h-3 text-slate-300 shrink-0" />
         </a>
+      ) : (
+        <span className="font-semibold text-sm text-slate-900 truncate min-w-0 max-w-[14rem]">{item.name}</span>
       )}
       {showStage && (
         <span className="text-[10px] text-slate-500 bg-slate-100 rounded px-1.5 py-0.5 truncate min-w-0 max-w-[12rem] shrink-0"
@@ -977,12 +991,8 @@ function Row({ item, actions, showStage, showContact }: {
       {item.lastMessage && (
         <span className="text-xs text-slate-400 italic truncate hidden lg:inline">“{item.lastMessage.slice(0, 50)}”</span>
       )}
-      {ghlUrl && (
-        <a href={ghlUrl} target="_blank" rel="noopener noreferrer"
-          className="shrink-0 text-[9px] font-bold text-blue-700 hover:text-blue-900 px-1 py-0.5 rounded bg-blue-100 border border-blue-200">
-          GHL
-        </a>
-      )}
+      {/* The trailing GHL pill lived here until 2026-07-31 — the left badge is
+          now the link to the system of record, so it was the same click twice. */}
       <div className="ml-auto flex items-center gap-2">{actions}</div>
     </div>
   )
