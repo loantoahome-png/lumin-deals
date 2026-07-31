@@ -1,6 +1,13 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-07-30] Follow-Up cockpit tasks default to "Overdue & today"
+**Status:** VERIFIED in a browser session on `/follow-up/matt`.
+**Issue:** Efrain: "make the default view of the tasks list to the overdue and today tab". The cockpit answers "who do I contact today", so a task column opening on **All** buries what's actually due under everything scheduled weeks out.
+**Change:** [app/follow-up/[lo]/page.tsx](app/follow-up/[lo]/page.tsx) — `dashView` initial state `'all'` → `'now'`. One line; `/tasks` is untouched and keeps its own per-column localStorage default.
+**Test Method:** dev server via `lumin-deals-dev-bypass`, `/follow-up/matt`, checked the initial tab and then switched tabs.
+**Result:** Opens on **Overdue & today** with "Nothing due through today" (Matt's only open task is Sep 1). Future shows 1, All shows 1 and renders the Mike Sullivan card — switching still works in both directions. follow-up-check 177/177, tsc unchanged at 7 pre-existing errors, `next build` ✓.
+
 ### [2026-07-30] Reply inbox — inbound email added (all three FUB channels now covered)
 **Status:** VERIFIED live end to end (sync populated the cache, the candidate surfaced on Matt's page).
 **Issue:** Efrain: "yes lets add the emails too", after I flagged email as the one channel still missing.
