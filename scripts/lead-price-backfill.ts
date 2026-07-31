@@ -24,6 +24,14 @@ import { oppCustomField, type CustomFieldDef } from '../lib/ghlOpportunityFields
 // so never index a key directly.
 
 const APPLY = process.argv.includes('--apply')
+// --missing: list the aggregator-sourced opportunities carrying NO Lead Price in
+// GHL. Those are spend we either can't see or aren't being charged for, and they
+// never show up in the diff (there's nothing to compare against).
+const MISSING_ONLY = process.argv.includes('--missing')
+
+const PURCHASED = ['FRU', 'Lendgo', 'LMB', 'Lending Tree', 'LeadPoint', 'OwnUp']
+const PURCHASED_SET = new Set(PURCHASED.map(s => s.toLowerCase()))
+const isAgg = (v: unknown) => PURCHASED_SET.has(String(v ?? '').trim().toLowerCase())
 
 const env = Object.fromEntries(
   readFileSync('.env.local', 'utf8').split('\n')
@@ -96,8 +104,9 @@ async function main() {
   const withOpp = deals.filter(d => d.ghl_opportunity_id)
   console.log(`deals ${deals.length} | with an opportunity id ${withOpp.length} | priced ${deals.filter(d => Number(d.lead_price ?? 0) > 0).length}\n`)
 
-  // opportunity id → the opportunity's own Lead Price
+  // opportunity id → its own Lead Price and Lead Vendor
   const oppPrice = new Map<string, number | null>()
+  const oppVendor = new Map<string, string | null>()
   const seen = new Set<string>()
   for (const a of ACCOUNTS) {
     process.stdout.write(`fetching ${a.label} opportunities… `)
@@ -109,9 +118,37 @@ async function main() {
       seen.add(o.id)
       const v = toNum(oppCustomField(o.customFields, defs, 'Lead Price', 'lead_price'))
       oppPrice.set(o.id, v)
+      const vend = oppCustomField(o.customFields, defs, 'Lead Vendor', 'lead_vendor')
+      oppVendor.set(o.id, vend == null ? null : String(vend).trim() || null)
       if (v != null) priced++
     }
     console.log(`${opps.length} opportunities, ${priced} carry a Lead Price`)
+  }
+
+  if (MISSING_ONLY) {
+    // Aggregator leads whose OPPORTUNITY has no Lead Price. Split by whether we
+    // hold a price anyway (the contact-sourced value) or have none at all.
+    const rows = withOpp
+      .filter(d => seen.has(d.ghl_opportunity_id))
+      .filter(d => oppPrice.get(d.ghl_opportunity_id) == null)
+      .filter(d => isAgg(d.source) || isAgg(oppVendor.get(d.ghl_opportunity_id)))
+    const stored = rows.filter(d => Number(d.lead_price ?? 0) > 0)
+    const nothing = rows.filter(d => !(Number(d.lead_price ?? 0) > 0))
+    console.log(`\n${'='.repeat(96)}\nAGG LEADS WITH NO "Lead Price" ON THE GHL OPPORTUNITY\n${'='.repeat(96)}`)
+    console.log(`${rows.length} opportunities — ${stored.length} we price anyway (from the contact), ${nothing.length} with no price anywhere\n`)
+
+    const show = (label: string, list: Record<string, any>[]) => {
+      if (!list.length) return
+      console.log(`${label} (${list.length}, ${money(list.reduce((a, d) => a + Number(d.lead_price ?? 0), 0))})`)
+      console.log(`  ${'name'.padEnd(26)}${'source'.padEnd(14)}${'opp Lead Vendor'.padEnd(17)}${'stored'.padStart(9)}  ${'LO'.padEnd(13)}status`)
+      for (const d of list.sort((a, b) => Number(b.lead_price ?? 0) - Number(a.lead_price ?? 0))) {
+        console.log(`  ${String(d.name).slice(0, 25).padEnd(26)}${String(d.source ?? '—').padEnd(14)}${String(oppVendor.get(d.ghl_opportunity_id) ?? '—').padEnd(17)}${(d.lead_price == null ? '—' : money(Number(d.lead_price))).padStart(9)}  ${String(d.loan_officer ?? '').slice(0, 12).padEnd(13)}${d.status ?? ''}`)
+      }
+      console.log('')
+    }
+    show('PRICED HERE, BLANK IN GHL — the backfill leaves these alone', stored)
+    show('NO PRICE ANYWHERE — never counted as spend', nothing)
+    return
   }
   const missingAccounts = ['Moe', 'Matt', 'Randy'].filter(l => !ACCOUNTS.some(a => a.label === l))
   if (missingAccounts.length) console.log(`\n⚠️  no API key configured for: ${missingAccounts.join(', ')} — their deals are NOT covered below`)
