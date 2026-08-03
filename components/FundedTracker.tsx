@@ -7,6 +7,7 @@ import { LoFilter, useLoFilter, loSelected } from '@/components/LoFilter'
 import { formatCurrency, formatPercent, titleCase, cleanSource } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { ariveUrl } from '@/lib/ariveLinks'
+import { totalComp, discountCredit, hasDiscountCredit } from '@/lib/comp'
 import {
   CheckCircle2, Search, Copy, Check, Download,
   ChevronUp, ChevronDown, ArrowUpDown,
@@ -132,7 +133,7 @@ export default function FundedTracker({ deals, onUpdate }: Props) {
         case 'type':     return (d.loan_type ?? '').toLowerCase()
         case 'rate':     return d.rate ?? 0
         case 'amount':   return d.loan_amount ?? 0
-        case 'comp':   return d.compensation_amount ?? 0
+        case 'comp':   return totalComp(d)
         case 'funded': return new Date(d.funded_date || d.created_at).getTime()
         case 'paid':   return d.paid_date ? new Date(d.paid_date).getTime() : 0
         default:       return 0
@@ -148,7 +149,7 @@ export default function FundedTracker({ deals, onUpdate }: Props) {
   const stats = useMemo(() => ({
     count: filtered.length,
     volume: filtered.reduce((s, d) => s + (d.loan_amount || 0), 0),
-    comp: filtered.reduce((s, d) => s + (d.compensation_amount || 0), 0),
+    comp: filtered.reduce((s, d) => s + totalComp(d), 0),
   }), [filtered])
 
   const toggleSort = (k: SortKey) => {
@@ -183,7 +184,9 @@ export default function FundedTracker({ deals, onUpdate }: Props) {
     const rows = deals.filter(d => selected.has(d.id))
     if (rows.length === 0) return
     const esc = (v: unknown) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
-    const header = ['Borrower', 'LO', 'City', 'State', 'Source', 'Stage', 'Type', 'Rate', 'Lender', 'Property', 'Loan amount', 'Comp', 'Funded date', 'Paid date', 'Arive file #']
+    // Comp is broken out so a Non-Del row reconciles against the Arive lock screen:
+    // "Arive comp" is the originator line, "Non-Del credit" the Final Price rebate.
+    const header = ['Borrower', 'LO', 'City', 'State', 'Source', 'Stage', 'Type', 'Rate', 'Lender', 'Property', 'Loan amount', 'Arive comp', 'Non-Del credit', 'Total comp', 'Funded date', 'Paid date', 'Arive file #']
     const lines = [header.join(',')]
     for (const d of rows) {
       lines.push([
@@ -192,7 +195,7 @@ export default function FundedTracker({ deals, onUpdate }: Props) {
         d.city || '', d.state || '', cleanSource(d.source) || '',
         d.status || '', d.loan_type || '', d.rate ?? '',
         d.investor || '', d.property_address || '',
-        d.loan_amount || 0, d.compensation_amount || 0,
+        d.loan_amount || 0, d.compensation_amount || 0, discountCredit(d) || 0, totalComp(d),
         d.funded_date || '', d.paid_date || '', d.arive_file_no || '',
       ].map(esc).join(','))
     }
@@ -379,8 +382,14 @@ export default function FundedTracker({ deals, onUpdate }: Props) {
                       {d.loan_amount ? formatCurrency(d.loan_amount) : '—'}
                     </td>
                     {/* Comp */}
-                    <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700 whitespace-nowrap">
-                      {d.compensation_amount ? formatCurrency(d.compensation_amount) : '—'}
+                    <td
+                      className="px-3 py-2.5 text-right tabular-nums text-emerald-700 whitespace-nowrap"
+                      title={hasDiscountCredit(d)
+                        ? `Arive comp ${formatCurrency(d.compensation_amount ?? 0)} + Non-Del price credit ${formatCurrency(discountCredit(d))} (${d.net_discount_points}%)`
+                        : undefined}
+                    >
+                      {totalComp(d) ? formatCurrency(totalComp(d)) : '—'}
+                      {hasDiscountCredit(d) && <span className="ml-1 text-[10px] font-semibold text-emerald-600 align-top" title="Includes the Non-Del Final Price credit">ND</span>}
                     </td>
                     {/* Funded */}
                     <td className="px-3 py-2.5 text-right tabular-nums text-slate-600 whitespace-nowrap">{fmtDate(d.funded_date)}</td>

@@ -15,6 +15,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { fetchAllDeals, OLD_DEALS_GROUP } from '@/lib/fetchAllDeals'
 import { Deal } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { totalComp as dealTotalComp } from '@/lib/comp'
 import Link from 'next/link'
 import { RefreshCw, Search, Archive, Download } from 'lucide-react'
 
@@ -47,13 +48,13 @@ export default function OldDealsPage() {
   }, [deals, q])
 
   const totalVolume = useMemo(() => rows.reduce((n, d) => n + (d.loan_amount ?? 0), 0), [rows])
-  const totalComp = useMemo(() => rows.reduce((n, d) => n + (d.compensation_amount ?? 0), 0), [rows])
+  const totalComp = useMemo(() => rows.reduce((n, d) => n + dealTotalComp(d), 0), [rows])
 
   const exportCsv = () => {
     const head = ['Name', 'Loan Officer', 'Status', 'Funded', 'Loan Amount', 'Compensation', 'Arive File #', 'Source']
     const body = rows.map(d => [
       d.name ?? '', d.loan_officer ?? '', d.status ?? '', d.funded_date ?? '',
-      d.loan_amount ?? '', d.compensation_amount ?? '', d.arive_file_no ?? '', d.source ?? '',
+      d.loan_amount ?? '', dealTotalComp(d) || '', d.arive_file_no ?? '', d.source ?? '',
     ])
     const csv = [head, ...body]
       .map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
@@ -142,7 +143,7 @@ export default function OldDealsPage() {
                       {d.loan_amount ? formatCurrency(d.loan_amount) : '—'}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-slate-700">
-                      {d.compensation_amount ? formatCurrency(d.compensation_amount) : '—'}
+                      {dealTotalComp(d) ? formatCurrency(dealTotalComp(d)) : '—'}
                     </td>
                     <td className="px-3 py-2 text-slate-500 tabular-nums">{d.arive_file_no ?? '—'}</td>
                   </tr>

@@ -13,6 +13,7 @@ import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal, LOAN_OFFICERS } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import { rrBand, isFunded, PURCHASED_SOURCES, type Purpose, type SourceScope } from '@/lib/leadReport'
+import { totalComp } from '@/lib/comp'
 import {
   RANGE_OPTIONS, rangeBounds, monthsBetween, filterDeals, buildSourceStats, rollupKpis,
   funnel, stateRows, monthlySeries, projection, optout7dStats, insights,
@@ -20,7 +21,9 @@ import {
 } from '@/lib/leadRoi'
 import { Printer } from 'lucide-react'
 
-const LEAD_COLS = 'id,name,source,loan_officer,pipeline_group,status,loan_amount,state,loan_purpose,loan_type,lead_price,compensation_amount,date_added_ghl,funded_date,created_at,ghl_opportunity_id'
+// broker_corr + net_discount_points feed totalComp() — omitting them silently
+// understates revenue on every Non-Del loan.
+const LEAD_COLS = 'id,name,source,loan_officer,pipeline_group,status,loan_amount,state,loan_purpose,loan_type,lead_price,compensation_amount,broker_corr,net_discount_points,date_added_ghl,funded_date,created_at,ghl_opportunity_id'
 
 const pct = (x: number) => x.toFixed(1) + '%'
 const roiFmt = (x: number | null) => (x == null ? '—' : x.toFixed(2) + '×')
@@ -442,7 +445,7 @@ function ReportBody() {
                       <Td left dim>{(d.source ?? '').trim() || '—'}</Td>
                       <Td dim>{fmtDate(d.funded_date)}</Td>
                       <Td>{d.loan_amount ? formatCurrency(d.loan_amount) : '—'}</Td>
-                      <Td className="text-emerald-700">{d.compensation_amount ? formatCurrency(d.compensation_amount) : '—'}</Td>
+                      <Td className="text-emerald-700">{totalComp(d) ? formatCurrency(totalComp(d)) : '—'}</Td>
                     </tr>
                   ))}
                   {fundedList.length > 40 && (
@@ -453,7 +456,7 @@ function ReportBody() {
                   <tr className="font-extrabold bg-slate-50 border-t-2 border-slate-200">
                     <Td left bold>Total ({fundedList.length})</Td><Td left> </Td><Td> </Td>
                     <Td>{formatCurrency(fundedList.reduce((a, d) => a + (d.loan_amount ?? 0), 0))}</Td>
-                    <Td className="text-emerald-700">{formatCurrency(fundedList.reduce((a, d) => a + (d.compensation_amount ?? 0), 0))}</Td>
+                    <Td className="text-emerald-700">{formatCurrency(fundedList.reduce((a, d) => a + totalComp(d), 0))}</Td>
                   </tr>
                 </tfoot>
               </table>

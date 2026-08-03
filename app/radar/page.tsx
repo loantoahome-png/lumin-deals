@@ -8,6 +8,7 @@ import { findReturningClients, ReturningClient } from '@/lib/repeatReferral'
 import Link from 'next/link'
 import { RefreshCw, Ban, UserCheck } from 'lucide-react'
 import { OLD_DEALS_GROUP } from '@/lib/fetchAllDeals'
+import { totalComp } from '@/lib/comp'
 
 const PLAY_PILL: Record<RefiPlay, string> = {
   'second-lien': 'bg-amber-100 text-amber-800',
@@ -22,7 +23,7 @@ const PAR_FIELDS: { k: keyof ParRates; label: string }[] = [
 
 // Superset projection: refi scoring (RadarDeal) + returning-client detection
 // (RepeatDeal) off one paged fetch of the whole book.
-const RADAR_COLS = 'id, borrower_id, name, loan_type, rate, loan_amount, funded_date, estimated_value, current_balance, ltv, compensation_amount, dnd, last_contacted, pipeline_group, status, created_at, source, lead_price'
+const RADAR_COLS = 'id, borrower_id, name, loan_type, rate, loan_amount, funded_date, estimated_value, current_balance, ltv, compensation_amount, broker_corr, net_discount_points, dnd, last_contacted, pipeline_group, status, created_at, source, lead_price'
 type RadarRow = RadarDeal & {
   status: string | null; created_at: string; source: string | null; lead_price: number | null
 }
@@ -263,7 +264,7 @@ export default function RadarPage() {
                           : '—'}
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-slate-500">
-                      {c.deal.compensation_amount && c.deal.compensation_amount > 0 ? formatCurrency(c.deal.compensation_amount) : '—'}
+                      {totalComp(c.deal) > 0 ? formatCurrency(totalComp(c.deal)) : '—'}
                     </td>
                   </tr>
                 )

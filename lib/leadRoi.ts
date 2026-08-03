@@ -16,7 +16,11 @@
 //                     going rate, so an identical amount on two opportunities is normal —
 //                     never dedupe spend by contact or vendor_lead_id. See the note at the
 //                     leadCost accumulator before touching this.
-//   • Revenue       — Σ Arive compensation_amount on FUNDED loans only (priced or not).
+//   • Revenue       — Σ totalComp on FUNDED loans only (priced or not). totalComp is the
+//                     Arive compensation_amount PLUS, on Non-Del loans, the Final Price
+//                     credit (net discount points × loan amount) — that second half is
+//                     real earned money Arive never puts in the comp column, and on
+//                     Edward Fadel it was the LARGER half. See lib/comp.ts.
 //   • ROI           — revenue ÷ spend as a multiple; null when spend is 0.
 //   • LO            — single LO at a time via resolveLO (Efrain 2026-07-13: no combined
 //                     view). Tabs render from LOAN_OFFICERS so a future LO auto-appears.
@@ -24,6 +28,7 @@ import type { Deal } from './types'
 import { PIPELINE_GROUPS } from './types'
 import { resolveLO } from './loanOfficer'
 import { isPurchased, isResponded, isCold, isCustomerOptout, isTeamRemoved, isFunded, matchesPurpose, type Purpose, type SourceScope } from './leadReport'
+import { totalComp } from './comp'
 
 export const NO_SOURCE = '(no source set)'
 export const sourceLabel = (d: Pick<Deal, 'source'>): string => (d.source ?? '').trim() || NO_SOURCE
@@ -184,7 +189,7 @@ export function buildSourceStats(deals: Deal[], costs: Map<string, CostRow>, mon
     if (isFunded(d)) {
       s.funded++
       s.fundedVolume += d.loan_amount ?? 0
-      s.revenue += d.compensation_amount ?? 0
+      s.revenue += totalComp(d)
     } else if ((d.pipeline_group ?? '') === 'Loans in Process') s.active++
     else if ((d.pipeline_group ?? '') === 'Not Ready') s.lost++
     else s.open++
@@ -303,9 +308,10 @@ export function monthlySeries(deals: Deal[], retainerPerMonth: number, maxMonths
     }
     if (isFunded(d) && d.funded_date) {
       const t = parseLocalMs(d.funded_date)
-      if (!isNaN(t) && (d.compensation_amount ?? 0) > 0) {
+      const earned = totalComp(d)
+      if (!isNaN(t) && earned > 0) {
         const k = ymKey(t)
-        revBy.set(k, (revBy.get(k) ?? 0) + (d.compensation_amount ?? 0))
+        revBy.set(k, (revBy.get(k) ?? 0) + earned)
         keys.add(k)
       }
     }
@@ -428,7 +434,7 @@ export function projection(sources: SourceStats[], k: RoiKpis): Projection {
   // Average comp over comp-bearing deals in view — the estimate for actives without one.
   let compSum = 0, compN = 0
   for (const s of sources) for (const d of s.deals) {
-    const c = d.compensation_amount ?? 0
+    const c = totalComp(d)
     if (c > 0) { compSum += c; compN++ }
   }
   const avgComp = compN > 0 ? compSum / compN : 0
@@ -439,7 +445,7 @@ export function projection(sources: SourceStats[], k: RoiKpis): Projection {
     if (!actives.length) continue
     let add = 0, est = 0, vol = 0
     for (const d of actives) {
-      const c = d.compensation_amount ?? 0
+      const c = totalComp(d)
       if (c > 0) add += c
       else { add += avgComp; est++ }
       vol += d.loan_amount ?? 0

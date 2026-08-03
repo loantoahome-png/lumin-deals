@@ -1,6 +1,24 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-03] Non-Del total comp — Arive comp + Final Price credit
+**Status:** CHANGED — math VERIFIED by fixture + against the Fadel lock screen; prod UI verification pending Efrain's logged-in session.
+**Issue:** Efrain, from Arive's Rate Lock screen on Edward Fadel: "looks like I found missing revenue from funded comps. When a loan is considered Non-Del, we add both of these numbers and that is the total comp." Arive's exported `Compensation Amount` is only the **Originator Compensation** line; the **Final Price** rebate on a Non-Del lock is also ours and had never entered the dashboard.
+**Grounding:** Fadel (Arive 16541057) exports `compensation_amount 8212.35 / comp pct 0.75` — exactly the lock's Originator Compensation 0.750% $8,212.35. Final Price 1.210% $13,249.26 appears in **no** export column (checked the 10-col funded report, the 49-col DB Import, and GHL's opportunity CFs). 1.21% x $1,094,980 = $13,249.258 -> $13,249.26, an exact match, so points x loan amount reproduces it. Live DB: 86 live funded deals = 76 Broker + 10 Non-Del carrying $86,821.34 of recorded comp; the 89 untagged funded rows are all parked Old Deals at $0.
+**Changes:**
+- `deals.net_discount_points NUMERIC` added in prod (Management API; `supabase-net-discount-points.sql`, mirrored into `supabase-schema.sql`).
+- [lib/comp.ts](lib/comp.ts) — new: `isNonDel` / `discountCredit` / `totalComp` / `hasDiscountCredit`. Credit gated on `broker_corr === 'Non-Del'` so the 76 broker loans (whose rebate is already inside lender-paid comp) can't double-count.
+- Revenue now reads `totalComp`, not `compensation_amount`: [lib/leadRoi.ts](lib/leadRoi.ts) (source revenue, monthly series, projection), [lib/identityResolver.ts](lib/identityResolver.ts) (`contacts.total_comp`), [components/FundedTracker.tsx](components/FundedTracker.tsx), [app/lead-roi/page.tsx](app/lead-roi/page.tsx), [app/lead-roi/report/page.tsx](app/lead-roi/report/page.tsx), [app/radar/page.tsx](app/radar/page.tsx), [app/old-deals/page.tsx](app/old-deals/page.tsx).
+- Column lists widened with `broker_corr` + `net_discount_points` (`fetchAllDeals` DEAL_COLUMNS, both lead-roi LEAD_COLS, RADAR_COLS, the resolver select) — omitting them silently returns comp-only.
+- [lib/ariveCsv.ts](lib/ariveCsv.ts) — maps `Net Discount Points` / `Discount Points` for when the column is added to the Arive report template.
+- [app/deals/[id]/page.tsx](app/deals/[id]/page.tsx) — editable **Net Discount Points** field, shown only on Non-Del loans; comp box now shows the total with an `Arive comp + Non-Del price credit` breakdown line. FundedTracker shows an `ND` marker + hover breakdown; its CSV splits into Arive comp / Non-Del credit / Total comp.
+- [app/pipeline/page.tsx](app/pipeline/page.tsx) — `broker_corr` filter options `['Broker','Correspondent']` -> `['Broker','Non-Del']`; "Correspondent" was never a stored value so that filter always matched zero deals.
+**Test Method:** `npx tsx scripts/comp-check.ts` (new, anchors on Fadel), `lead-roi-check`, plus the suites that touch comp; `npx tsc --noEmit`; `npm run build`.
+**Result:** comp-check 16/16, lead-roi-check 65/65, lead-report-check 128/128, resolver-fixture-check ALL PASSED, report-merge-check 27/27, cohort-report-check 83/83, arive-match-check 12/12. tsc unchanged at **7 pre-existing errors** (confirmed by stashing and re-running against clean HEAD — same 7, same files). `next build` OK.
+**Not verified:** the deal-page UI could not be exercised locally — `deals` rejects anon reads, so `lumin-deals-dev-bypass` renders "Deal not found". Verified on prod instead.
+**Open:** 9 of the 10 Non-Del funded loans still need their points entered; "Net Discount Points" must be added to the Arive report template before imports can fill it automatically.
+
+
 ### [2026-07-30] Past clients & closed — three drawers, coldest at the top
 **Status:** TESTED (18/18 suites, 645 assertions) — structure VERIFIED locally; the populated rows could NOT be exercised locally (see caveat).
 **Issue:** Efrain: "I like this section but dont like the formatting, everything is under one collapsable row. I want it to be separated to 3 collapsable rows and have the section that shows leads that havent been talked to in 90+ days at the top since those are the ones we have to target and the section where it shows leads talked to within the last 30 days at the bottom".

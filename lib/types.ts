@@ -57,7 +57,8 @@ export type Deal = {
   lien_position: string | null           // '1st Lien' | '2nd Lien' | '3rd Lien' — where the new loan sits in title hierarchy
   lead_price: number | null              // what we paid for this individual lead (GHL "Lead Price")
   vendor_lead_id: string | null          // the VENDOR's own lead id (GHL "Lead ID" CF) — Lendgo/FRU refund & dispute reconciliation
-  compensation_amount: number | null     // broker compensation earned on the funded loan (Arive "Compensation Amount")
+  compensation_amount: number | null     // ORIGINATOR compensation only (Arive "Compensation Amount") — NOT the whole earn on a Non-Del loan
+  net_discount_points: number | null     // Arive "Net Discount Points" (%) — × loan_amount = the Non-Del Final Price credit. See lib/comp.ts; use totalComp(), never compensation_amount, for revenue
   loan_amount: number | null
   estimated_value: number | null
   rate: number | null
@@ -77,7 +78,8 @@ export type Deal = {
   lock_expiration: string | null
   appraisal_status: string | null
   source: string | null
-  broker_corr: string | null
+  broker_corr: string | null             // origination channel (Arive "Channel") — 'Broker' | 'Non-Del'; gates the discount-points credit
+
   lead_source_agg: string | null
   arive_file_no: string | null
   investor_file_no: string | null

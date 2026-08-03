@@ -283,6 +283,14 @@ const MAPPINGS: Mapping[] = [
   { ariveCols: ['Estimated Closing Date'],   field: 'close_of_escrow_date', normalize: r => dateOnly(r) },
   { ariveCols: ['Refinance CashOut Amount'], field: 'cash_out',          normalize: r => num(r) },
   { ariveCols: ['Compensation Amount', 'Comp Amount', 'Total Compensation'], field: 'compensation_amount', normalize: r => num(r) },
+  // Non-Del price credit, as a PERCENT. Arive's "Compensation Amount" is the
+  // originator-comp line only; on a Non-Del loan the Final Price rebate is ours
+  // too, and points% × loan_amount reproduces it exactly (Fadel: 1.21% ×
+  // $1,094,980 = $13,249.26). Add "Net Discount Points" to the Arive report
+  // template — it is NOT in the current DB Import export. lib/comp.ts gates the
+  // credit on broker_corr === 'Non-Del' so broker rows can't double-count.
+  { ariveCols: ['Net Discount Points', 'Net Discount Point', 'Discount Points'],
+                                             field: 'net_discount_points', normalize: r => num(r) },
   // Existing first/second mortgage balance — Arive labels vary across exports
   { ariveCols: ['Existing Liens Amount', 'Total Existing Liens', 'First Mortgage Balance', 'Existing Lien Amount'],
                                              field: 'current_balance',   normalize: r => num(r) },

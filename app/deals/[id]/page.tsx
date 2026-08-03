@@ -23,6 +23,7 @@ import ConversationThread from '@/components/ConversationThread'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { isChannelBlocked, dndLabel } from '@/lib/utils'
 import { isFunded } from '@/lib/leadReport'
+import { isNonDel, discountCredit } from '@/lib/comp'
 import DealTasks from '@/components/DealTasks'
 import { PROCESSORS } from '@/lib/types'
 import type { REOProperty } from '@/lib/types'
@@ -189,7 +190,15 @@ function ContingencyStatusBar({
  *  and re-synced every 15 min (see the sync's maybeSet overlay), so it's shown
  *  here, not edited. Emerald once the loan is funded (realized revenue); muted
  *  while the comp isn't yet realized. */
-function CompDisplay({ value, funded }: { value: number | null; funded: boolean }) {
+// Shows what the loan actually earns: the Arive compensation line PLUS, on a
+// Non-Del loan, the Final Price credit (net discount points × loan amount).
+// Arive's comp column holds only the originator-comp half, so on a Non-Del loan
+// this box is the first place the real number appears — the breakdown line
+// underneath is what reconciles it back to the Rate Lock screen.
+function CompDisplay({ deal, funded }: { deal: Deal; funded: boolean }) {
+  const base = deal.compensation_amount
+  const credit = discountCredit(deal)
+  const value = credit ? (base ?? 0) + credit : base
   const has = value != null && !isNaN(value)
   const realized = has && funded
   return (
@@ -207,8 +216,15 @@ function CompDisplay({ value, funded }: { value: number | null; funded: boolean 
           ? 'border-emerald-200 bg-emerald-50 text-emerald-700 font-semibold'
           : 'border-slate-100 bg-slate-50 text-slate-500'
       }`}>
-        {has ? value!.toLocaleString() : <span className="text-slate-400">—</span>}
+        {has ? value!.toLocaleString(undefined, { maximumFractionDigits: 2 }) : <span className="text-slate-400">—</span>}
       </div>
+      {credit !== 0 && (
+        <p className="mt-1 text-[11px] text-slate-500 tabular-nums">
+          Arive comp ${(base ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+          {' + '}Non-Del price credit ${credit.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+          {' '}<span className="text-slate-400">({deal.net_discount_points}% × loan amount)</span>
+        </p>
+      )}
     </div>
   )
 }
@@ -801,8 +817,16 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                     {sourceOptions.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </Field>
-                <Field label="Compensation" hint="Your revenue on this loan — from Arive, realized on funding. Read-only.">
-                  <CompDisplay value={form.compensation_amount as number | null} funded={isFunded(form as Deal)} />
+                {/* Non-Del only: Arive exports the originator-comp line but not the
+                    Final Price rebate, so the points come from the Rate Lock screen
+                    by hand until "Net Discount Points" is added to the export. */}
+                {isNonDel(form as Deal) && (
+                  <Field label="Net Discount Points" hint="Non-Del only — the Final Price percent from Arive's Rate Lock screen (e.g. 1.21). × loan amount = the price credit added to comp.">
+                    <PercentInput value={form.net_discount_points as number | null} onChange={v => set('net_discount_points', v)} step="0.001" />
+                  </Field>
+                )}
+                <Field label="Compensation" hint="Your revenue on this loan — from Arive, realized on funding. On a Non-Del loan this is the Arive comp plus the Final Price credit. Read-only.">
+                  <CompDisplay deal={form as Deal} funded={isFunded(form as Deal)} />
                 </Field>
               </div>
             </Section>

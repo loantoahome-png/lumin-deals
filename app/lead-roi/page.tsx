@@ -20,6 +20,7 @@ import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal, LOAN_OFFICERS, PIPELINE_GROUPS, PIPELINE_STATUSES } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import { rrBand, isFunded, PURCHASED_SOURCES, type Purpose, type SourceScope } from '@/lib/leadReport'
+import { totalComp, discountCredit, hasDiscountCredit } from '@/lib/comp'
 import {
   RANGE_OPTIONS, rangeBounds, monthsBetween, filterDeals, buildSourceStats, rollupKpis,
   funnel, stateRows, monthlySeries, projection, optout7dStats, insights,
@@ -34,7 +35,9 @@ import {
   Filter, ArrowRight, Save, FileText,
 } from 'lucide-react'
 
-const LEAD_COLS = 'id,name,source,loan_officer,pipeline_group,status,loan_amount,state,loan_purpose,loan_type,lead_price,compensation_amount,date_added_ghl,funded_date,created_at,ghl_opportunity_id,last_inbound_at'
+// broker_corr + net_discount_points are load-bearing for revenue, not decoration:
+// totalComp() adds the Non-Del Final Price credit and returns comp alone without them.
+const LEAD_COLS = 'id,name,source,loan_officer,pipeline_group,status,loan_amount,state,loan_purpose,loan_type,lead_price,compensation_amount,broker_corr,net_discount_points,date_added_ghl,funded_date,created_at,ghl_opportunity_id,last_inbound_at'
 
 const PURPOSE_TABS: Purpose[] = ['All', 'Purchase', 'Refinance']
 const SCOPE_TABS: SourceScope[] = ['Purchased', 'All']
@@ -131,7 +134,7 @@ export default function LeadRoiPage() {
       .filter(isFunded)
       .sort((a, b) => new Date(b.funded_date || b.created_at).getTime() - new Date(a.funded_date || a.created_at).getTime())
     const volume = list.reduce((a, d) => a + (d.loan_amount ?? 0), 0)
-    const comp = list.reduce((a, d) => a + (d.compensation_amount ?? 0), 0)
+    const comp = list.reduce((a, d) => a + totalComp(d), 0)
     return { list, volume, comp }
   }, [visibleDeals])
 
@@ -937,7 +940,7 @@ export default function LeadRoiPage() {
                             <td className="px-3 py-2.5 text-slate-600">{(d.source ?? '').trim() || '—'}</td>
                             <td className="px-3 py-2.5 text-right tabular-nums text-slate-600 whitespace-nowrap">{fmtDate(d.funded_date)}</td>
                             <td className="px-3 py-2.5 text-right tabular-nums font-medium text-slate-800">{d.loan_amount ? formatCurrency(d.loan_amount) : '—'}</td>
-                            <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700 pr-4">{d.compensation_amount ? formatCurrency(d.compensation_amount) : '—'}</td>
+                            <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700 pr-4" title={hasDiscountCredit(d) ? `Arive comp ${formatCurrency(d.compensation_amount ?? 0)} + Non-Del price credit ${formatCurrency(discountCredit(d))}` : undefined}>{totalComp(d) ? formatCurrency(totalComp(d)) : '—'}</td>
                           </tr>
                         ))}
                       </tbody>

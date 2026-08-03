@@ -116,6 +116,25 @@ eq('empty months are zero', [ms[1].spend, ms[1].revenue], [0, 0])
 const msr = monthlySeries(moes, 10)   // retainer spread: every month +10
 approx('retainer spread into each month', msr[1].spend, 10)
 
+// ── Non-Del revenue: comp + Final Price credit (lib/comp.ts) ───────────────────
+// Revenue must be totalComp, not the Arive comp column — on a Non-Del loan the
+// price credit is real earned money and was invisible until 2026-08-03.
+const nonDelBook: Deal[] = [
+  deal({ id: 'nd', source: 'Lendgo', pipeline_group: 'Funded', status: 'Loan Funded', funded_date: '2026-05-13',
+         lead_price: 100, compensation_amount: 8212.35, loan_amount: 1094980,
+         broker_corr: 'Non-Del', net_discount_points: 1.21 }),                                  // Fadel
+  deal({ id: 'br', source: 'LMB', pipeline_group: 'Funded', status: 'Loan Funded', funded_date: '2026-05-06',
+         lead_price: 100, compensation_amount: 8946, loan_amount: 447300,
+         broker_corr: 'Broker', net_discount_points: 1.21 }),                                   // broker: no credit
+]
+const ndStats = buildSourceStats(nonDelBook, new Map(), 1)
+const ndRev = ndStats.find(s => s.source === 'Lendgo')!
+const brRev = ndStats.find(s => s.source === 'LMB')!
+approx('Non-Del revenue = comp + price credit', ndRev.revenue, 21461.61)
+approx('Broker revenue = comp alone', brRev.revenue, 8946)
+const ndSeries = monthlySeries(nonDelBook, 0)
+approx('monthly revenue carries the credit', ndSeries.find(p => p.key === '2026-05')!.revenue, 30407.61)
+
 // ── Projection ─────────────────────────────────────────────────────────────────
 const withActive: Deal[] = [
   ...moes,

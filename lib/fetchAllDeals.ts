@@ -20,7 +20,7 @@ export const DEAL_COLUMNS = [
   'loan_amount', 'loan_type', 'loan_purpose', 'loan_timeframe', 'refinance_type',
   'lien_position', 'cash_out', 'current_balance', 'current_va_loan',
   'estimated_value', 'purchase_price', 'down_payment', 'ltv', 'rate',
-  'rate_at_close_10yr', 'housing_payment', 'pi_payment', 'compensation_amount',
+  'rate_at_close_10yr', 'housing_payment', 'pi_payment', 'compensation_amount', 'net_discount_points',
   'revenue', 'lead_price', 'vendor_lead_id', 'credit_score', 'credit_rating', 'occupancy',
   'property_address', 'property_type', 'property_found', 'city', 'county',
   'state', 'zip', 'is_military', 'has_accepted_offer', 'adverse',

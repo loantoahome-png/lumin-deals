@@ -38,6 +38,10 @@ export type RadarDeal = {
   current_balance?: number | null
   ltv?: number | null
   compensation_amount?: number | null
+  // Channel + points so the radar's comp column can show what the loan really
+  // earned (Non-Del loans carry a Final Price credit on top of Arive comp).
+  broker_corr?: string | null
+  net_discount_points?: number | null
   dnd?: boolean | null
   last_contacted?: string | null
 }

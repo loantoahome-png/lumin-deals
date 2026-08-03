@@ -1389,7 +1389,9 @@ function PipelinePageInner() {
     { key: 'estimated_value',      label: 'Property Value',   category: 'Loan',     type: 'currency',       icon: <DollarSign className="w-3.5 h-3.5 text-emerald-500" /> },
     { key: 'rate',                 label: 'Rate',             category: 'Loan',     type: 'percent',        icon: <Activity className="w-3.5 h-3.5 text-blue-500" /> },
     { key: 'investor',             label: 'Lender',           category: 'Loan',     type: 'text',           icon: <Building2 className="w-3.5 h-3.5 text-amber-500" />,    placeholder: 'e.g. UWM, PennyMac, Rocket' },
-    { key: 'broker_corr',          label: 'Broker / Corr.',   category: 'Loan',     type: 'select',         icon: <Briefcase className="w-3.5 h-3.5 text-slate-500" />,    options: ['Broker', 'Correspondent'] },
+    // Arive's "Channel" column writes 'Broker' / 'Non-Del' — 'Correspondent' was
+    // never a stored value, so filtering on it always matched zero deals.
+    { key: 'broker_corr',          label: 'Broker / Non-Del', category: 'Loan',     type: 'select',         icon: <Briefcase className="w-3.5 h-3.5 text-slate-500" />,    options: ['Broker', 'Non-Del'] },
     { key: 'source',               label: 'Source',           category: 'Loan',     type: 'select',         icon: <Tag className="w-3.5 h-3.5 text-cyan-500" />,           options: ['GHL', 'Self Source', 'Referral', 'Past Client', 'Open House', 'Agent Partner', 'Financial Advisor', 'Builder', 'Online / Social', 'Lendgo', 'FRU', 'Lending Tree'] },
     // Borrower
     { key: 'credit_score',         label: 'Credit Score',     category: 'Borrower', type: 'number',         icon: <Star className="w-3.5 h-3.5 text-emerald-500" /> },

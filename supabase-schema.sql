@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS deals (
 
   -- Source
   source TEXT,
-  broker_corr TEXT,
+  broker_corr TEXT,                -- origination channel (Arive "Channel"): 'Broker' | 'Non-Del'
+  net_discount_points NUMERIC,     -- Arive "Net Discount Points" (%). On Non-Del loans, pts/100 * loan_amount is the Final Price credit added to comp — see lib/comp.ts
   lead_source_agg TEXT,
 
   -- File Numbers

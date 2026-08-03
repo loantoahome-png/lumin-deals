@@ -33,6 +33,7 @@ const emptyDeal: DealFormData = {
   lien_position: null,
   lead_price: null,
   compensation_amount: null,
+  net_discount_points: null,
   loan_amount: null,
   estimated_value: null,
   rate: null,

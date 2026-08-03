@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { normEmail, normPhone } from './dealMatcher'
+import { totalComp } from './comp'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Cross-source identity resolver (Contacts Phase 1).
@@ -53,6 +54,10 @@ export type ResolverDeal = {
   name?: string | null
   loan_amount?: number | null
   compensation_amount?: number | null
+  // Channel + net discount points feed totalComp — a Non-Del loan's Final Price
+  // credit is part of what the borrower earned us and belongs in total_comp.
+  broker_corr?: string | null
+  net_discount_points?: number | null
   pipeline_group?: string | null
 }
 
@@ -216,7 +221,7 @@ export function computeContactRows(deals: ResolverDeal[]): ContactRow[] {
       loan_count: members.length,
       funded_count: funded.length,
       total_funded_volume: funded.reduce((s, m) => s + (m.loan_amount ?? 0), 0),
-      total_comp: funded.reduce((s, m) => s + (m.compensation_amount ?? 0), 0),
+      total_comp: funded.reduce((s, m) => s + totalComp(m), 0),
       first_loan_at: createdAts[0] ?? null,
       last_loan_at: createdAts[createdAts.length - 1] ?? null,
     })
@@ -267,7 +272,7 @@ export async function runIdentityResolutionPass(
   for (;;) {
     const { data, error } = await supabase
       .from('deals')
-      .select('id, created_at, updated_at, borrower_id, ghl_contact_id, email, phone, name, loan_amount, compensation_amount, pipeline_group')
+      .select('id, created_at, updated_at, borrower_id, ghl_contact_id, email, phone, name, loan_amount, compensation_amount, broker_corr, net_discount_points, pipeline_group')
       .order('id', { ascending: true })
       .range(offset, offset + PAGE - 1)
     if (error) throw new Error(`[identityResolver] deal page ${offset} failed: ${error.message}`)
