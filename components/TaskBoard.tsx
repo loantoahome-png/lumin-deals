@@ -58,10 +58,12 @@ export function relativeDue(iso: string | null): { label: string; tone: 'red' | 
   return { label: `${due.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} ${time}`, tone: 'slate' }
 }
 
+// Undated tasks count as "now": with no date they'd otherwise sit in Future
+// forever and never get worked. They sort last inside the column (due = Infinity).
 export function isDueNow(t: DealTask, todayEnd: number): boolean {
-  if (!t.due_at) return false
+  if (!t.due_at) return true
   const due = new Date(t.due_at).getTime()
-  return !isNaN(due) && due <= todayEnd
+  return isNaN(due) || due <= todayEnd
 }
 
 // ── Column chrome ────────────────────────────────────────────────────────────
