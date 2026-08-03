@@ -309,6 +309,27 @@ write site is still broken — fix the source, don't just widen the repair.
 **Project:** lumin-deals
 **Date:** 2026-07-16
 
+### Arive's "Compensation Amount" is only HALF the comp on a Non-Del loan
+**Tried:** Treating `compensation_amount` as what a funded loan earned. It is the column Arive exports, it is
+labelled "Compensation Amount", and every revenue number in the dashboard summed it — lead ROI, contacts
+`total_comp`, the funded tracker, the refi radar.
+**Failed because:** that column carries only the **Originator Compensation** line of Arive's Rate Lock screen. A
+**Non-Delegated** lock also carries a **Final Price** rebate, which we earn too. Edward Fadel (Arive 16541057):
+originator comp 0.750% = $8,212.35, Final Price 1.210% = $13,249.26. The dashboard reported $8,212.35 on a loan
+that earned $21,461.61 — **the invisible half was the bigger one**. It never showed up as a bug because the
+number that was there looked entirely reasonable.
+**What works:** `lib/comp.ts` `totalComp()` = `compensation_amount` + (`net_discount_points`/100 x `loan_amount`),
+the credit gated on `broker_corr === 'Non-Del'`. Never read `compensation_amount` for revenue again — the fixture
+`scripts/comp-check.ts` anchors on Fadel. **The gate is load-bearing:** Arive exports net discount points on
+broker loans too, but there the rebate already sits inside the lender-paid comp, so ungating it would inflate 76
+of the 86 live funded loans.
+**Broader lesson:** the dollar figure existed in **no** export column — not the 10-col funded report, not the
+49-col DB Import, not GHL's opportunity custom fields. A field being absent from every feed is not evidence it
+doesn't matter; it's the reason nobody noticed. When a screen shows two money numbers and the export has one,
+ask which one the export is.
+**Project:** lumin-deals
+**Date:** 2026-08-03
+
 ### Running DDL against prod Supabase without psql/CLI (hosted dashboard)
 **Tried:** `POST supabase.com/dashboard/api/pg-meta/{ref}/query` (404 "Endpoint not supported on hosted"), then
 `api.supabase.com/platform/pg-meta/{ref}/query` with dashboard cookies (401) and with the dashboard Bearer
