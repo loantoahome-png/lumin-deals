@@ -309,6 +309,25 @@ write site is still broken — fix the source, don't just widen the repair.
 **Project:** lumin-deals
 **Date:** 2026-07-16
 
+### A hand-sorted Arive export rotates a COLUMN BLOCK against the borrowers
+**Tried:** Importing a funded export that had been sorted in Excel to group the Non-Del loans at the bottom.
+**Failed because:** the sort covered only part of the range, so `Loan Purpose` / `Loan Funded` / `Lender` /
+`Lock Date` / `Lock Expiration` / `Loan Product` ended up shifted **exactly one row** against
+`Primary Borrower`. Each borrower carried the PREVIOUS borrower's values, wrapping cleanly at both ends —
+10 of 16 loans would have taken another loan's funded date and lender. Nothing about the file looks wrong:
+every row is individually plausible, every column is populated, and the money columns (comp, percentage,
+channel, net discount points) were correctly aligned, so a spot-check of the numbers passes.
+**What works:** dry-run the plan against live data before committing and read the `funded_date` / `investor`
+changes as a **chain**, not as individual diffs. A rotation announces itself as `B gets A's value, C gets B's
+value, ...` with a wrap — that pattern is impossible from real data drift. Caught 2026-08-03 only because the
+proposed dates lined up one-for-one with the DB's existing ones. The fix is a clean re-export from Arive, not
+a code change. Also: Fadel's screenshot showed Rocket Pro / VA Jumbo while his export row said Change Mortgage /
+NON-QM — a single cross-check against a source screen is enough to catch it.
+**Broader lesson:** corrupted data that is internally consistent per-row is invisible to per-row validation.
+Look for structure ACROSS rows.
+**Project:** lumin-deals
+**Date:** 2026-08-03
+
 ### Arive's "Compensation Amount" is only HALF the comp on a Non-Del loan
 **Tried:** Treating `compensation_amount` as what a funded loan earned. It is the column Arive exports, it is
 labelled "Compensation Amount", and every revenue number in the dashboard summed it — lead ROI, contacts

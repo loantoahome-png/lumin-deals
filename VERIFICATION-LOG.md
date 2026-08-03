@@ -1,6 +1,16 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-03] Lory Ruiz comp re-split + a rotated column block caught pre-import
+**Status:** VERIFIED on prod — Ruiz reads $9,001 and Fadel $21,462 on `/lead-roi` (Matt tab).
+**Issue:** Efrain's 17:54 funded export disagreed with the DB on `Lender`, `Loan Funded`, `Loan Purpose` for 10 of 16 loans, and on Ruiz's compensation.
+**Finding 1 — a rotated column block, NOT drift.** A read-only dry run of `buildPlan` against live data showed every proposed `funded_date` equals the PREVIOUS borrower's existing one, wrapping at both ends (Louie←Penin, Lathouwers←Louie, Meyer←Lathouwers, Ruffinelli←Oh, Kelley←Meyer, Glendenning←Ruffinelli, Ruiz←Kelley, Fadel←Glendenning, Penin←Ruiz, Oh←Fadel). `Lender` and `Loan Purpose` rotate with it. Cause: an Excel sort over a partial range when grouping Non-Del rows to the bottom. **The money block (comp, percentage, Channel, Net Discount Points) is correctly aligned** — Fadel's 1.21 / $8,212.35 match his lock screenshot. Import was stopped; the fix is a clean unsorted re-export, not code. Logged in GOTCHAS.
+**Finding 2 — Ruiz's comp was genuinely re-split in Arive** (comp is not part of the rotation). $8,570.84 (2.003%) → $4,280.00 (1%) originator + 1.103 points = $4,720.84 credit. Efrain confirmed the true total is **$9,000.84** — so the old figure was the pre-split number, not an originator line, and the credit is NOT simply additive to what the dashboard held.
+**Changes:** data only — `compensation_amount` 4280 and `net_discount_points` 1.103 on Arive 16846396. `funded_date` and `investor` deliberately left alone (rotated columns; they must come from a clean re-export).
+**Test Method:** service-role write, then read `/lead-roi` in a logged-in prod session.
+**Result:** Ruiz $9,001, Fadel $21,462. 8 Non-Del funded loans still comp-only (Rapoza, Michel, Rojas, Inman, Espinoza, Swatzel, Buh, Burrage).
+
+
 ### [2026-08-03] Arive import: padded headers silently dropped comp; totals rows became deals
 **Status:** CHANGED — both failures reproduced against Efrain's real 2026-08-03 funded export, then fixed and fixture-locked.
 **Issue:** Efrain's new funded template adds `Channel`, `Net Discount Points` and a hand-built ` ysp comp ` column. Parsing that exact file through `parseRowsFromCsv` + `rowToPatch` returned `compensation_amount: undefined` on **every one of the 16 rows**.
