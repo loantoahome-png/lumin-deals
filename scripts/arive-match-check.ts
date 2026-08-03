@@ -6,7 +6,7 @@
 // created blank SHELL cards for loans that already had cards, because (older)
 // name matching missed real-world name variants and the LOS name "Arive" leaked
 // into `source`. Both are fixed now — these cases lock that in so it can't regress.
-import { buildMatchIndex, matchRow, isRealLeadSource } from '../lib/ariveCsv'
+import { buildMatchIndex, matchRow, isRealLeadSource, parseRowsFromCsv, rowToPatch, buildPlan } from '../lib/ariveCsv'
 
 let pass = 0, fail = 0
 function eq(label: string, got: unknown, want: unknown) {
@@ -54,6 +54,30 @@ eq('ambiguous name not matched', matchRow({ __borrower_name: 'John A Smith' } as
 eq('Arive rejected as source',   isRealLeadSource('Arive'), false)
 eq('los rejected as source',     isRealLeadSource('LOS'),   false)
 eq('real source accepted',       isRealLeadSource('Lending Tree'), true)
+
+// ── The 2026-08-03 funded template: padded headers + a hand-totalled footer ────
+// Efrain's export shipped " Compensation Amount " and " ysp comp " with literal
+// padding, and ended with totals rows that have money but no borrower.
+const CSV = [
+  'Primary Borrower,ARIVE Loan Id,Total Loan Amount, Compensation Amount ,Channel,Net Discount Points, ysp comp ,Loan Funded',
+  'Edward James Fadel,16541057,1094980," $8,212.35 ",Non-Del,1.21," $13,249.26 ",5/1/26',
+  'Thomas Joe Lathouwers,16537339,447300," $8,946.00 ",Broker,0,,5/14/26',
+  ',,," $17,158.35 ",,," $13,249.26 ",',
+].join('\n')
+const parsed = parseRowsFromCsv(CSV).map(r => rowToPatch(r))
+eq('padded header still reads comp', parsed[0].compensation_amount, 8212.35)
+eq('padded header, 2-digit date',    parsed[0].funded_date, '2026-05-01')
+eq('points read on Non-Del',         parsed[0].net_discount_points, 1.21)
+eq('channel read',                   parsed[0].broker_corr, 'Non-Del')
+eq('broker row keeps its comp',      parsed[1].compensation_amount, 8946)
+
+// The footer row must never become a deal — with createUnmatched on it would
+// otherwise be a new "Unknown" card holding the month's whole compensation.
+const emptyIx = buildMatchIndex([])
+const plans = buildPlan({ rows: parsed as never, deals: new Map(), ix: emptyIx, mode: 'overwrite', createUnmatched: true })
+eq('totals row dropped from the plan', plans.length, 2)
+eq('no plan is named Unknown', plans.some(p => /unknown/i.test(p.borrower)), false)
+eq('real rows still planned', plans.map(p => p.borrower), ['Edward James Fadel', 'Thomas Joe Lathouwers'])
 
 console.log(`arive-match-check: ${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

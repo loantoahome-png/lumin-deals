@@ -578,6 +578,14 @@ export function buildPlan(args: {
   const plans: RowPlan[] = []
   for (let i = 0; i < rows.length; i++) {
     const patch = rows[i]
+    // Skip spreadsheet TOTALS/spacer rows. Arive exports Efrain has totalled by
+    // hand end with rows that carry money but no borrower and no loan id — the
+    // 2026-08-03 funded export finished with a " $72,045.43 " comp sum. Those
+    // reach matchRow as an empty name, fall through to 'no_match', and with
+    // createUnmatched on would become a brand-new "Unknown" deal holding the
+    // whole month's compensation. Identity is the borrower name or the Arive
+    // loan id; a row with neither is not a loan.
+    if (!(patch.__borrower_name ?? '').trim() && !patch.arive_file_no) continue
     const match = matchRow(patch, ix)
     const plan: RowPlan = {
       rowIndex: i,
@@ -762,7 +770,13 @@ export function parseRowsFromCsv(text: string): Row[] {
   return rows.map(cells => {
     const row: Row = {}
     for (let i = 0; i < header.length; i++) {
-      row[header[i]] = (cells[i] ?? '').trim() || null
+      // Header names are TRIMMED before keying. Arive report templates ship
+      // columns with padding — the 2026-08-03 funded export used
+      // " Compensation Amount " and " ysp comp " — and MAPPINGS matches header
+      // names exactly, so an untrimmed key silently missed comp on every row
+      // while channel and points (clean headers) imported fine. A partial
+      // parse that looks successful is worse than a failed one.
+      row[header[i].trim()] = (cells[i] ?? '').trim() || null
     }
     return row
   })

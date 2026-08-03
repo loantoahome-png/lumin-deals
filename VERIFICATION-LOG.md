@@ -1,6 +1,17 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-03] Arive import: padded headers silently dropped comp; totals rows became deals
+**Status:** CHANGED — both failures reproduced against Efrain's real 2026-08-03 funded export, then fixed and fixture-locked.
+**Issue:** Efrain's new funded template adds `Channel`, `Net Discount Points` and a hand-built ` ysp comp ` column. Parsing that exact file through `parseRowsFromCsv` + `rowToPatch` returned `compensation_amount: undefined` on **every one of the 16 rows**.
+**Root cause 1 — padded headers.** The template ships `" Compensation Amount "` and `" ysp comp "` with literal spaces. `parseRowsFromCsv` keyed rows by the raw header and `pickCol` matches MAPPINGS names exactly, so comp never matched. `Channel` and `Net Discount Points` have clean headers and imported fine — so the import would have looked like it worked while wiping compensation on every matched loan. A partial parse that reports success is worse than one that fails.
+**Root cause 2 — totals rows.** The sheet ends with hand-totalled rows carrying money but no borrower and no loan id (`" $72,045.43 "`). Those reach `matchRow` with an empty name, fall through to `no_match`, and with `createUnmatched` on would have become a brand-new "Unknown" deal holding the month's entire compensation.
+**Changes:** [lib/ariveCsv.ts](lib/ariveCsv.ts) — `parseRowsFromCsv` trims header names before keying; `buildPlan` skips any row with neither a borrower name nor an Arive loan id (identity is one or the other; a row with neither is not a loan).
+**Test Method:** re-parsed the real file end-to-end, then locked both in `scripts/arive-match-check.ts` with a fixture built from the actual template (padded headers, `$`-formatted money, `M/D/YY` dates, trailing totals row).
+**Result:** all 16 rows now parse — Fadel comp 8212.35 / points 1.21 / channel Non-Del, Lathouwers comp 8946 / Broker; the totals row is dropped from the plan and no plan is named "Unknown". arive-match-check 20/20, arive-lock-check 10/10, comp-check 16/16, lead-roi 65/65, lead-report 128/128, report-merge 27/27, tsc unchanged at 7 pre-existing, `next build` OK.
+**Note:** `ysp comp` is deliberately NOT imported — points x loan amount reproduces it exactly on both Non-Del rows (1.103% x $428,000 = $4,720.84; 1.21% x $1,094,980 = $13,249.26), so `net_discount_points` stays the single stored input.
+
+
 ### [2026-08-03] Non-Del total comp — Arive comp + Final Price credit
 **Status:** CHANGED — math VERIFIED by fixture + against the Fadel lock screen; prod UI verification pending Efrain's logged-in session.
 **Issue:** Efrain, from Arive's Rate Lock screen on Edward Fadel: "looks like I found missing revenue from funded comps. When a loan is considered Non-Del, we add both of these numbers and that is the total comp." Arive's exported `Compensation Amount` is only the **Originator Compensation** line; the **Final Price** rebate on a Non-Del lock is also ours and had never entered the dashboard.
