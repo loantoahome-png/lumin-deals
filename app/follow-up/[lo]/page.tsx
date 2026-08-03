@@ -94,7 +94,8 @@ async function fetchDashboardTasks(lo: string): Promise<DealTask[]> {
   const { data, error } = await supabase
     .from('deal_tasks').select('*').eq('assignee', lo)
     .is('completed_at', null)
-    .order('due_at', { ascending: true, nullsFirst: false })
+    // Undated first — they show in Overdue & today, at the top of it (2026-08-03).
+    .order('due_at', { ascending: true, nullsFirst: true })
   if (error) { console.error('[follow-up] dashboard task fetch failed:', error.message); return [] }
   return (data as DealTask[]) ?? []
 }

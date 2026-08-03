@@ -259,7 +259,7 @@ const tq = buildTaskQueue({
     task({ fub_task_id: 14, due_date: ymdOff(7) }),                                    // window edge (inclusive)
     task({ fub_task_id: 15, due_date: ymdOff(8) }),                                    // just past window
     task({ fub_task_id: 16, due_date: ymdOff(180) }),                                  // far future
-    task({ fub_task_id: 17, due_date: null }),                                         // undated → Due today, sorted last
+    task({ fub_task_id: 17, due_date: null }),                                         // undated → top of Due today
     task({ fub_task_id: 18, due_date: T_TODAY, loan_officer: 'Matt Park' }),           // Matt's
     task({ fub_task_id: 19, due_date: ymdOff(2), person_id: 999 }),                    // person not stored
   ],
@@ -267,20 +267,20 @@ const tq = buildTaskQueue({
 
 eq('tasks: overdue captured', tq.overdue.map(t => t.taskId), [10, 11])
 eq('tasks: overdue sorted most-recent-first', tq.overdue.map(t => t.overdueDays), [1, 45])
-eq('tasks: due today, undated last', tq.today.map(t => t.taskId), [12, 17])
+eq('tasks: due today, undated first', tq.today.map(t => t.taskId), [17, 12])
 eq('tasks: next 7 days incl. day-7 edge', tq.next7.map(t => t.taskId).sort((a, b) => a - b), [13, 14, 19])
 eq('tasks: day 8 excluded', tq.next7.some(t => t.taskId === 15), false)
 eq('tasks: undated never lands in Overdue', tq.overdue.some(t => t.taskId === 17), false)
-eq('tasks: undated label', tq.today[1].dueLabel, 'no due date')
+eq('tasks: undated label', tq.today[0].dueLabel, 'no due date')
 eq('tasks: other LO excluded', JSON.stringify(tq).includes('"taskId":18'), false)
 eq('tasks: counts', tq.counts, { overdue: 2, today: 2, next7: 3 })
 eq('tasks: person name resolved', tq.today[0].personName, 'Ana Alvarez')
 eq('tasks: person stage resolved', tq.today[0].personStage, 'Nurture')
 eq('tasks: unknown person falls back to id', tq.next7.find(t => t.taskId === 19)?.personName, 'FUB contact #999')
-eq('tasks: due label today', tq.today[0].dueLabel, 'due today')
+eq('tasks: due label today', tq.today[1].dueLabel, 'due today')
 eq('tasks: due label overdue', tq.overdue[1].dueLabel, 'overdue 45d')
-eq('tasks: title carried through', tq.today[0].title, 'Call about rate')
-eq('tasks: type carried through', tq.today[0].type, 'Call')
+eq('tasks: title carried through', tq.today[1].title, 'Call about rate')
+eq('tasks: type carried through', tq.today[1].type, 'Call')
 eq('tasks: personId kept for the FUB link', tq.overdue[1].personId, 2)
 eq('tasks: Matt sees only his', buildTaskQueue({ lo: 'Matt Park', people: taskPeople, now: NOW, tasks: [task({ fub_task_id: 18, due_date: T_TODAY, loan_officer: 'Matt Park' })] }).today.map(t => t.taskId), [18])
 

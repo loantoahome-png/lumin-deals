@@ -131,8 +131,11 @@ function TasksSection() {
       if (!a.completed_at && b.completed_at) return -1
       if (a.completed_at && !b.completed_at) return 1
       if (!a.completed_at && !b.completed_at) {
-        const da = a.due_at ? new Date(a.due_at).getTime() : Infinity
-        const db = b.due_at ? new Date(b.due_at).getTime() : Infinity
+        // Undated first (Efrain 2026-08-03): they live in Overdue & today and
+        // belong at the TOP of it — a task nobody has dated is the one most
+        // likely to be forgotten.
+        const da = a.due_at ? new Date(a.due_at).getTime() : -Infinity
+        const db = b.due_at ? new Date(b.due_at).getTime() : -Infinity
         return da - db
       }
       return new Date(b.completed_at!).getTime() - new Date(a.completed_at!).getTime()

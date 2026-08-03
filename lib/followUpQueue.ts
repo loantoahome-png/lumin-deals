@@ -379,9 +379,9 @@ export function buildFollowUpQueue(opts: {
 // FUB's dueDate is date-only, and Date.parse('2026-07-30') is UTC midnight,
 // which reads as "yesterday" for anyone west of Greenwich (i.e. all of PT).
 //
-// A task with NO due date lands in "Due today" (Efrain 2026-08-03, same call as
-// the /tasks board). It used to be filtered out entirely, which meant a task you
-// created in FUB without a date was invisible here forever.
+// A task with NO due date lands at the TOP of "Due today" (Efrain 2026-08-03,
+// same call as the /tasks board). It used to be filtered out entirely, which
+// meant a task you created in FUB without a date was invisible here forever.
 
 export const TASK_WINDOW_DAYS = 7
 
@@ -484,9 +484,10 @@ export function buildTaskQueue(opts: {
   // Overdue: most-recently-due first — a task 2 days late is far more actionable
   // than one from last October (Matt has 583, oldest 2025-10-27).
   overdue.sort((a, b) => a.overdueDays - b.overdueDays)
-  // Undated sorts last within its drawer (NO_DUE > any real YMD), matching the
-  // board, where a null due_at sorts behind everything dated.
-  const NO_DUE = '9999-12-31'
+  // Undated sorts FIRST within its drawer (Efrain 2026-08-03) — '' precedes any
+  // real YMD. Same call as the board: no date means nobody has decided when this
+  // happens, so it goes where it gets seen, not at the bottom of the pile.
+  const NO_DUE = ''
   const byDueAscThenName = (a: TaskItem, b: TaskItem) =>
     (a.dueDate ?? NO_DUE).localeCompare(b.dueDate ?? NO_DUE) || a.personName.localeCompare(b.personName)
   todayList.sort(byDueAscThenName)
