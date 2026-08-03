@@ -378,6 +378,10 @@ export function buildFollowUpQueue(opts: {
 // Dates are compared as LOCAL YYYY-MM-DD strings, never as parsed instants:
 // FUB's dueDate is date-only, and Date.parse('2026-07-30') is UTC midnight,
 // which reads as "yesterday" for anyone west of Greenwich (i.e. all of PT).
+//
+// A task with NO due date lands in "Due today" (Efrain 2026-08-03, same call as
+// the /tasks board). It used to be filtered out entirely, which meant a task you
+// created in FUB without a date was invisible here forever.
 
 export const TASK_WINDOW_DAYS = 7
 
@@ -465,19 +469,26 @@ export function buildTaskQueue(opts: {
     }
   }
 
-  const mine = opts.tasks.filter(t => t.loan_officer === opts.lo && t.due_date)
+  const mine = opts.tasks.filter(t => t.loan_officer === opts.lo)
   const overdue: TaskItem[] = [], todayList: TaskItem[] = [], next7: TaskItem[] = []
   for (const t of mine) {
-    const due = t.due_date!.slice(0, 10)
-    if (due < today) overdue.push(toItem(t))
+    const due = t.due_date ? t.due_date.slice(0, 10) : null
+    // No due date → "Due today", same call the /tasks board makes: undated work
+    // is actionable now, and dropping it hides it from the cockpit entirely.
+    // Not "Overdue" — that drawer's aging count stays a real aging count.
+    if (!due) todayList.push(toItem(t))
+    else if (due < today) overdue.push(toItem(t))
     else if (due === today) todayList.push(toItem(t))
     else if (due <= horizon) next7.push(toItem(t))
   }
   // Overdue: most-recently-due first — a task 2 days late is far more actionable
   // than one from last October (Matt has 583, oldest 2025-10-27).
   overdue.sort((a, b) => a.overdueDays - b.overdueDays)
+  // Undated sorts last within its drawer (NO_DUE > any real YMD), matching the
+  // board, where a null due_at sorts behind everything dated.
+  const NO_DUE = '9999-12-31'
   const byDueAscThenName = (a: TaskItem, b: TaskItem) =>
-    (a.dueDate ?? '').localeCompare(b.dueDate ?? '') || a.personName.localeCompare(b.personName)
+    (a.dueDate ?? NO_DUE).localeCompare(b.dueDate ?? NO_DUE) || a.personName.localeCompare(b.personName)
   todayList.sort(byDueAscThenName)
   next7.sort(byDueAscThenName)
 
