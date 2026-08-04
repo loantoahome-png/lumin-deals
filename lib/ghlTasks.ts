@@ -95,6 +95,13 @@ export function mapGhlTask(
 ): GhlTaskRow | null {
   if (!raw?._id) return null
   if (raw.completed || raw.deleted) return null
+  // ⚠️ TOMBSTONE. Deleting a task in GHL does NOT remove it from the task search
+  // index — the row comes back with `deleted:false`, `completed:false`, its
+  // contactId STRIPPED and contactDetails nulled. Mirroring that produces a row
+  // nobody can act on: complete and delete both address /contacts/{id}/tasks/…,
+  // so with no contact it is stuck on the board forever (hit 2026-08-04).
+  // A real GHL task always hangs on a contact, so "no contactId" == not a task.
+  if (!raw.contactId) return null
   return {
     ghl_task_id: raw._id,
     location_id: raw.locationId || locationId,
@@ -149,6 +156,26 @@ export function isGhlTask(t: BoardTask): boolean {
 export async function completeGhlTask(taskId: string): Promise<string | null> {
   try {
     const res = await fetch('/api/ghl/tasks/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId }),
+    })
+    const json = await res.json().catch(() => null) as { ok?: boolean; error?: string } | null
+    if (!res.ok || !json?.ok) return json?.error ?? `HTTP ${res.status}`
+    return null
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e)
+  }
+}
+
+/**
+ * Delete a mirrored task in GHL, then drop the mirror row. Returns null on
+ * success, an error message otherwise. Same shape as completeGhlTask so both
+ * live in one place and the three surfaces can't drift.
+ */
+export async function deleteGhlTask(taskId: string): Promise<string | null> {
+  try {
+    const res = await fetch('/api/ghl/tasks/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ taskId }),

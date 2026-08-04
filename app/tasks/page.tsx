@@ -11,7 +11,10 @@ import { ghlContactUrl } from '@/lib/ghlLinks'
 import { DealTask, Deal, TASK_ASSIGNEES } from '@/lib/types'
 // GHL keeps its own per-contact tasks; they are mirrored into ghl_tasks and
 // rendered right alongside deal_tasks so the board is the whole workload.
-import { toBoardTask, isGhlTask, completeGhlTask, type BoardTask, type GhlTaskRow } from '@/lib/ghlTasks'
+import {
+  toBoardTask, isGhlTask, completeGhlTask, deleteGhlTask,
+  type BoardTask, type GhlTaskRow,
+} from '@/lib/ghlTasks'
 // Card + column design lives in one place so /tasks and the Follow-Up cockpit
 // render the identical task card and cannot drift apart.
 import {
@@ -202,6 +205,15 @@ function TasksSection() {
     }
   }
 
+  async function deleteMirroredTask(task: BoardTask) {
+    const id = task.ghl_task_id
+    if (!id) return
+    if (!confirm(`Delete “${task.title}” in GoHighLevel? This cannot be undone.`)) return
+    const err = await deleteGhlTask(id)
+    if (err) { alert('Could not delete in GHL: ' + err); return }
+    setGhlTasks(prev => prev.filter(t => t.ghl_task_id !== id))
+  }
+
   async function toggleComplete(task: BoardTask) {
     if (isGhlTask(task)) { await completeMirroredTask(task); return }
     const newCompleted = task.completed_at ? null : new Date().toISOString()
@@ -262,8 +274,8 @@ function TasksSection() {
 
   // A row renders the same in every column; the column header already names the
   // person, so the per-row assignee chip is dropped as redundant.
-  // GHL rows are read-only mirrors: complete (writes back to GHL) and a link
-  // out to the contact, but no edit/delete — those belong in GHL.
+  // GHL rows are mirrors: complete and delete both write back to GHL. No EDIT —
+  // the text lives in GHL. (Delete added 2026-08-04: "I can not delete this.")
   const renderTask = (t: BoardTask) => isGhlTask(t) ? (
     <TaskRow
       key={t.id}
@@ -274,6 +286,7 @@ function TasksSection() {
       dealName={t.deal_id ? dealNames.get(t.deal_id) : undefined}
       ghlUrl={ghlContactUrl({ ghl_contact_id: t.ghl_contact_id, ghl_location_id: t.ghl_location_id }) ?? undefined}
       onToggle={() => toggleComplete(t)}
+      onDelete={() => deleteMirroredTask(t)}
     />
   ) : editingId === t.id ? (
     <NewTaskForm

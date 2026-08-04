@@ -53,7 +53,7 @@ import {
 } from '@/lib/followUpQueue'
 import { AssigneeColumn, TaskRow, type ColumnView } from '@/components/TaskBoard'
 import {
-  toBoardTask, isGhlTask, completeGhlTask, byDueAsc,
+  toBoardTask, isGhlTask, completeGhlTask, deleteGhlTask, byDueAsc,
   type BoardTask, type GhlTaskRow,
 } from '@/lib/ghlTasks'
 import {
@@ -457,6 +457,22 @@ export default function FollowUpCockpit() {
     }
   }
 
+  /** Delete a MIRRORED GHL task — removes it in GHL, same confirm as ours. */
+  async function deleteMirroredTask(task: BoardTask) {
+    const id = task.ghl_task_id
+    if (!id) return
+    if (!confirm(`Delete “${task.title}” in GoHighLevel? This cannot be undone.`)) return
+    const key = `ghldel:${id}`
+    mark(key, true)
+    try {
+      const err = await deleteGhlTask(id)
+      if (err) { alert('Could not delete in GHL: ' + err); return }
+      setGhlTasks(prev => prev.filter(t => t.ghl_task_id !== id))
+    } finally {
+      mark(key, false)
+    }
+  }
+
   /** Complete a dashboard task — same write + notification as the /tasks page. */
   async function completeDashTask(task: DealTask) {
     const key = `dash:${task.id}`
@@ -570,8 +586,8 @@ export default function FollowUpCockpit() {
               onAdd={() => setNewDashTask({ assignee: lo })}
               maxHeightClass="max-h-[40rem]"
               renderTask={(t: BoardTask) => isGhlTask(t) ? (
-                // Mirrored from GHL: completable (writes back), link out to the
-                // contact — but edited in GHL, so no edit/delete here.
+                // Mirrored from GHL: complete and delete both write back; no
+                // edit, the text lives in GHL.
                 <TaskRow
                   key={t.id}
                   task={t}
@@ -583,6 +599,7 @@ export default function FollowUpCockpit() {
                     ghl_contact_id: t.ghl_contact_id, ghl_location_id: t.ghl_location_id, loan_officer: lo,
                   }) ?? undefined}
                   onToggle={() => completeMirroredTask(t)}
+                  onDelete={() => deleteMirroredTask(t)}
                 />
               ) : (
                 <TaskRow

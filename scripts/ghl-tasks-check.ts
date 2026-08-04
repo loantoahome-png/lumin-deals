@@ -64,6 +64,12 @@ eq('map: assigned user id kept', row.assigned_user_id, 'SVXQeoFxrP8ZoFd11nyF')
 eq('map: completed rows are NOT mirrored', mapGhlTask(raw({ completed: true }), LOC, dealFor), null)
 eq('map: deleted rows are NOT mirrored', mapGhlTask(raw({ deleted: true }), LOC, dealFor), null)
 eq('map: missing id → null', mapGhlTask(raw({ _id: '' }), LOC, dealFor), null)
+// ⚠️ Deleting a task in GHL leaves it in the task search index with deleted:false,
+// completed:false and its contactId STRIPPED. Mirroring that tombstone puts a row on
+// the board that can be neither completed nor deleted (both endpoints are addressed
+// through /contacts/{id}/tasks/…). Hit for real 2026-08-04.
+eq('map: a deleted-task TOMBSTONE (no contactId) is NOT mirrored',
+  mapGhlTask(raw({ contactId: null, contactDetails: { firstName: null, lastName: null } }), LOC, dealFor), null)
 eq('map: blank title gets a placeholder', mapGhlTask(raw({ title: '   ' }), LOC, dealFor)!.title, 'Untitled GHL task')
 eq('map: falls back to the sweep location when the row omits it',
   mapGhlTask(raw({ locationId: null }), LOC, dealFor)!.location_id, LOC)

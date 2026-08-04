@@ -9,7 +9,8 @@ import { DealTask, TASK_ASSIGNEES } from '@/lib/types'
 // This contact's GoHighLevel tasks show here too — same mirror /tasks and the
 // Follow-Up cockpit read, matched to this deal at sync time.
 import {
-  toBoardTask, isGhlTask, completeGhlTask, type BoardTask, type GhlTaskRow,
+  toBoardTask, isGhlTask, completeGhlTask, deleteGhlTask,
+  type BoardTask, type GhlTaskRow,
 } from '@/lib/ghlTasks'
 import GhlTaskForm from '@/components/GhlTaskForm'
 import {
@@ -140,6 +141,16 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
     setTasks(prev => prev.filter(t => t.id !== id))
   }
 
+  /** Delete a mirrored GHL task — removes it in GHL, not just here. */
+  async function deleteMirroredTask(task: BoardTask) {
+    const id = task.ghl_task_id
+    if (!id) return
+    if (!confirm(`Delete “${task.title}” in GoHighLevel? This cannot be undone.`)) return
+    const err = await deleteGhlTask(id)
+    if (err) { alert('Could not delete in GHL: ' + err); return }
+    setTasks(prev => prev.filter(t => t.ghl_task_id !== id))
+  }
+
   async function createTask(payload: Omit<DealTask, 'id' | 'created_at'>) {
     const { data, error } = await supabase.from('deal_tasks').insert(payload).select().single()
     if (error) { alert('Save failed: ' + error.message); return }
@@ -232,13 +243,14 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
       ) : (
         <div className="space-y-1.5">
           {sorted.map(task => isGhlTask(task) ? (
-            // Mirrored from GHL: completable (writes back), badged so it's clear
-            // where it lives — but edited in GHL, so no edit/delete here.
+            // Mirrored from GHL: complete and delete both write back; no edit,
+            // the text lives in GHL.
             <TaskRow
               key={task.id}
               task={task}
               badge="GHL"
               onToggle={() => toggleComplete(task)}
+              onDelete={() => deleteMirroredTask(task)}
             />
           ) : editingId === task.id ? (
             <TaskForm
