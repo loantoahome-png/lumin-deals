@@ -122,16 +122,15 @@ export const COLUMN_STYLES: Record<string, string> = {
 
 // ── The task card ────────────────────────────────────────────────────────────
 
-export function TaskRow({ task, dealName, ghlUrl, hideAssignee, badge, contactName, onToggle, toggleDisabled, toggleTitle, onDelete, onEdit }: {
+export function TaskRow({ task, dealName, ghlUrl, hideAssignee, badge, contactName, onToggle, toggleTitle, onDelete, onEdit }: {
   task: DealTask; dealName?: string; ghlUrl?: string; hideAssignee?: boolean
   /** Marks a row that lives in another system (e.g. 'GHL') — see lib/ghlTasks.ts. */
   badge?: string
   /** Shown when the row has no deal to link to, so it still names a person. */
   contactName?: string | null
   onToggle: () => void
-  /** Row can't be un-done from here (a completed GHL task isn't in our mirror,
-   *  and GHL has no verified reopen endpoint). `toggleTitle` says why on hover. */
-  toggleDisabled?: boolean
+  /** Overrides the toggle's hover text when the action isn't a plain
+   *  complete/uncomplete — e.g. "Reopen in GoHighLevel" on a completed GHL row. */
   toggleTitle?: string
   onDelete?: () => void; onEdit?: () => void
 }) {
@@ -141,8 +140,7 @@ export function TaskRow({ task, dealName, ghlUrl, hideAssignee, badge, contactNa
     <div className={`flex items-start gap-3 px-4 py-3 rounded-lg border transition group ${done ? 'bg-slate-50 border-slate-100 opacity-70' : 'bg-white border-slate-200 hover:border-blue-300 hover:shadow-sm'}`}>
       <button
         onClick={onToggle}
-        disabled={toggleDisabled}
-        className="shrink-0 mt-0.5 disabled:cursor-default"
+        className="shrink-0 mt-0.5"
         title={toggleTitle ?? (done ? 'Mark incomplete' : 'Mark complete')}
       >
         {done ? <CheckCircle2 className="w-5 h-5 text-emerald-500" /> : <Circle className="w-5 h-5 text-slate-300 hover:text-slate-500 transition" />}

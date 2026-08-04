@@ -1,5 +1,13 @@
 # GOTCHAS — Lumin Deals
 
+### GHL's `tasks/search` index is EVENTUALLY CONSISTENT — it will tell you a working write failed
+**Tried:** Probing whether a completed GHL task can be reopened, and checking the result the obvious way: call `PUT /contacts/{cid}/tasks/{id}/completed {completed:false}`, then re-run `POST /locations/{id}/tasks/search` to see which bucket the task lands in.
+**Failed because:** the search index lags the write by seconds. A task that had just been created and completed showed up in **neither** the open nor the completed bucket, and after the reopen the index still reported `completed:true` — so the probe concluded the endpoint was a no-op that returns a lying 200. It isn't. The next call in the same script (a different method) then "succeeded" purely because by then the index had caught up with the *earlier* write. Sequencing several methods against one task makes this worse: every verdict is attributed to the wrong call.
+**What works:** the single-task **`GET /contacts/{cid}/tasks/{id}`** is the ground truth — it's read-your-write. Give each method its **own** task so results can't be attributed to a previous call, and put a beat between the write and the read. Re-probed that way, all three reopen methods work. The reopen route bakes this in: it re-reads the single task and only reports success if the flag actually flipped, never on the 200 alone.
+**Note:** this is the same family as the FUB silently-ignored-params trap, with a twist — there the response lied, here the *verification source* lied. It also explains why a just-deleted task still looks open in the index for a while, on top of the separate tombstone behaviour below.
+**Project:** lumin-deals
+**Date:** 2026-08-04
+
 ### Merging namespaced `ghl:` rows into the board arms a bulk delete that runs on `deal_tasks.id`
 **Tried:** Adding completed GHL tasks to the same `tasks` array `/tasks` already renders, which is what makes every existing filter, chip, column and sort work on them for free.
 **Failed because:** `clearCompleted()` was written as `tasks.filter(t => t.completed_at).map(t => t.id)` back when a GHL row could never carry a `completed_at` (the mirror stores open rows only). The moment completed GHL rows join that array, the id list contains `ghl:<id>` strings — and PostgREST casts the whole `.in('id', …)` list against `deal_tasks.id`, a **uuid**. One bad value fails the cast and aborts the **entire** delete, so "Clear completed" silently stops working whenever the Completed chip is open.

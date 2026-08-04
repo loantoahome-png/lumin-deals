@@ -184,10 +184,10 @@ export function toBoardTask(row: GhlTaskRow & { created_at?: string | null }): B
  * carrying `completed_at` so the existing Completed chip, the strikethrough and
  * the completed-desc sort all work untouched.
  *
- * These rows are READ-ONLY on the board: they are not in `ghl_tasks`, so both
- * write routes (which look the row up by id before calling GHL) would 404, and
- * GHL has no reopen endpoint we've verified. `/tasks` disables the toggle and
- * omits delete for them.
+ * These rows are not in `ghl_tasks`, so the complete and delete routes — which
+ * look the row up by id before calling GHL — would 404 on them, and `/tasks`
+ * omits delete. The toggle DOES work: it reopens via `reopenGhlTask`, which
+ * resolves the contact from GHL's own completed list instead of our table.
  */
 export function toCompletedBoardTask(row: GhlCompletedTaskRow): BoardTask {
   return { ...toBoardTask(row), completed_at: row.completed_at }
@@ -253,6 +253,32 @@ export async function deleteGhlTask(taskId: string): Promise<string | null> {
     return null
   } catch (e) {
     return e instanceof Error ? e.message : String(e)
+  }
+}
+
+/**
+ * Un-complete a GHL task — the undo for a mis-click. Returns the re-mirrored
+ * `ghl_tasks` row so the caller can move it from its completed list back onto
+ * the open board without refetching, or an error message.
+ *
+ * `task` can be null when the write succeeded but the re-mirror didn't; the row
+ * still returns to the board on the next 15-min sweep.
+ */
+export async function reopenGhlTask(
+  taskId: string,
+): Promise<{ task: GhlTaskRow | null; error: string | null }> {
+  try {
+    const res = await fetch('/api/ghl/tasks/reopen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId }),
+    })
+    const json = await res.json().catch(() => null) as
+      { ok?: boolean; task?: GhlTaskRow | null; error?: string } | null
+    if (!res.ok || !json?.ok) return { task: null, error: json?.error ?? `HTTP ${res.status}` }
+    return { task: json.task ?? null, error: null }
+  } catch (e) {
+    return { task: null, error: e instanceof Error ? e.message : String(e) }
   }
 }
 

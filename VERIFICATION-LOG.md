@@ -1,6 +1,15 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-04] A completed GHL task can be reopened from the dashboard
+**Status:** VERIFIED end-to-end against live GHL, on throwaway tasks only (created, driven, deleted — no real task was touched).
+**Issue:** I shipped the completed view saying reopen was impossible from here. That was an *unverified* claim: no reopen endpoint had ever been probed. Efrain asked me to actually check. It works.
+**What the probe found:** all three candidates return 200 **and really reopen** — `PUT /contacts/{cid}/tasks/{id}/completed {completed:false}`, `PUT /contacts/{cid}/tasks/{id}` with a full body, and the same with **only** `{completed:false}` (title + dueDate preserved). Shipped with the first, the exact inverse of the complete route.
+**⚠️ The probe's own trap:** the first run concluded method A did NOT work, because it checked `tasks/search` afterwards. **That index is eventually consistent** — a just-created task appeared in *neither* the open nor the completed bucket, and a reopened one still read `completed:true` for a beat. The single-task `GET /contacts/{cid}/tasks/{id}` is the only ground truth. Re-probing with the GET, on one task per method, reversed the verdict.
+**Changes:** NEW [app/api/ghl/tasks/reopen/route.ts](app/api/ghl/tasks/reopen/route.ts) — resolves the contact + sub-account by finding the task in GHL's completed list (there is no local row: `ghl_tasks` is open-only), PUTs `completed:false`, **re-reads the single task to confirm** rather than trusting the 200, then re-mirrors the row so the board updates immediately instead of waiting out the 15-min sweep. `reopenGhlTask()` in [lib/ghlTasks.ts](lib/ghlTasks.ts); the completed row's toggle in [app/tasks/page.tsx](app/tasks/page.tsx) now reopens; `toggleDisabled` removed from `TaskRow` (nothing needs it now).
+**Test Method:** 4 new fixtures (46 total); 7-step e2e through the REAL route; then the UI button itself, clicked in a browser against live GHL.
+**Result:** e2e — throwaway completed → visible in `/api/ghl/tasks/completed` → `POST /api/ghl/tasks/reopen` 200 → **GHL single-task GET says `completed:false`** → row back in `ghl_tasks` with its `deal_id` resolved → bogus taskId correctly **404**s → cleaned up. UI — row rendered "Completed 2m ago · GHL" with an enabled toggle titled "Reopen in GoHighLevel"; one click moved GHL to `completed:false`, put the row back in the open mirror, dropped it from the Completed view (GHL count 23 → 22) and bumped **Open 14 → 15**. 21/21 suites; tsc unchanged at 7 pre-existing; `next build` OK.
+
 ### [2026-08-04] Recently completed GHL tasks are visible on /tasks
 **Status:** VERIFIED locally against LIVE GHL (the route uses a service client + the GHL API, so the `ghl_tasks` RLS blindspot doesn't apply to it).
 **Issue:** Efrain completed two GHL tasks by accident and had no way to see what he'd just checked off. Completing a mirrored task **deletes** the local row — by design, `ghl_tasks` holds open tasks only — so a completed GHL task existed nowhere on our side and the Completed chip could only ever show `deal_tasks`.

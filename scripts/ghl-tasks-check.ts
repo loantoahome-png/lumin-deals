@@ -126,5 +126,23 @@ eq('completed board: id is NOT a uuid, so it must never reach a deal_tasks delet
 eq('completed board: keeps the contact + location needed to link back to GHL',
   [doneBoard.ghl_contact_id, doneBoard.ghl_location_id], ['oz9XkKwbXSdK8nFe50hD', LOC])
 
+// ── reopen (un-complete) ─────────────────────────────────────────────────────
+// The reopen route re-mirrors the task by handing the SAME completed search row
+// back to mapGhlTask with the flag flipped, so the row that lands in ghl_tasks
+// must be identical to the one the open sweep would have produced.
+const reopened = mapGhlTask({ ...doneRaw, completed: false }, LOC, dealFor)!
+eq('reopen: re-mirrors to a normal open row', [reopened.ghl_task_id, reopened.contact_id, reopened.deal_id],
+  ['VXI5uNatt07U0rmIbS8u', 'oz9XkKwbXSdK8nFe50hD', 'deal-1'])
+// Identical to the open sweep's row EXCEPT ghl_updated_at, which correctly
+// carries GHL's newer dateUpdated (the completion bumped it).
+const omitStamp = (r: object | null) => { const { ghl_updated_at: _, ...rest } = r as Record<string, unknown>; return rest }
+eq('reopen: otherwise identical to what the open sweep would store',
+  omitStamp(reopened), omitStamp(mapGhlTask(raw(), LOC, dealFor)))
+eq('reopen: keeps GHL\'s newer updated stamp', reopened.ghl_updated_at, '2026-08-04T18:41:29.000Z')
+// A tombstone has no contact, so there is nothing to address the write to — the
+// route rejects it before calling GHL, and the mapper agrees.
+eq('reopen: a tombstone still cannot be re-mirrored',
+  mapGhlTask({ ...doneRaw, completed: false, contactId: null }, LOC, dealFor), null)
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} ghl-tasks-check: ${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)

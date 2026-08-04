@@ -13,7 +13,7 @@ import { DealTask, Deal, TASK_ASSIGNEES } from '@/lib/types'
 // rendered right alongside deal_tasks so the board is the whole workload.
 import {
   toBoardTask, isGhlTask, completeGhlTask, deleteGhlTask, fetchCompletedGhlTasks,
-  type BoardTask, type GhlTaskRow,
+  reopenGhlTask, type BoardTask, type GhlTaskRow,
 } from '@/lib/ghlTasks'
 // Card + column design lives in one place so /tasks and the Follow-Up cockpit
 // render the identical task card and cannot drift apart.
@@ -239,6 +239,24 @@ function TasksSection() {
     }
   }
 
+  // Undo a completed GHL task. It leaves the live completed list and rejoins the
+  // open board immediately — the route re-mirrors it rather than making you wait
+  // out the 15-min sweep. If the re-mirror failed the row still reopened in GHL,
+  // so drop it from Completed either way and let the sweep bring it back.
+  async function reopenMirroredTask(task: BoardTask) {
+    const id = task.ghl_task_id
+    if (!id || busyGhl.has(id)) return
+    setBusyGhl(prev => new Set(prev).add(id))
+    try {
+      const { task: row, error } = await reopenGhlTask(id)
+      if (error) { alert('Could not reopen in GHL: ' + error); return }
+      setGhlCompleted(prev => prev.filter(t => t.ghl_task_id !== id))
+      if (row) setGhlTasks(prev => prev.some(t => t.ghl_task_id === id) ? prev : [toBoardTask(row), ...prev])
+    } finally {
+      setBusyGhl(prev => { const next = new Set(prev); next.delete(id); return next })
+    }
+  }
+
   async function deleteMirroredTask(task: BoardTask) {
     const id = task.ghl_task_id
     if (!id) return
@@ -324,12 +342,12 @@ function TasksSection() {
       contactName={t.contact_name}
       dealName={t.deal_id ? dealNames.get(t.deal_id) : undefined}
       ghlUrl={ghlContactUrl({ ghl_contact_id: t.ghl_contact_id, ghl_location_id: t.ghl_location_id }) ?? undefined}
-      // A completed GHL row is history, not a mirror row: it isn't in ghl_tasks,
-      // so complete and delete would both 404 on the lookup. Reopening happens
-      // in GHL — the "GHL" link on the row goes straight to the contact.
-      onToggle={() => { if (!t.completed_at) toggleComplete(t) }}
-      toggleDisabled={!!t.completed_at}
-      toggleTitle={t.completed_at ? 'Completed in GoHighLevel — reopen it there' : undefined}
+      // A completed GHL row is history, not a mirror row — it isn't in ghl_tasks,
+      // so the delete route would 404 on the lookup and delete is omitted. The
+      // toggle still works: it reopens in GHL (the undo for a mis-click) and the
+      // row rejoins the open board.
+      onToggle={() => t.completed_at ? reopenMirroredTask(t) : toggleComplete(t)}
+      toggleTitle={t.completed_at ? 'Reopen in GoHighLevel' : undefined}
       onDelete={t.completed_at ? undefined : () => deleteMirroredTask(t)}
     />
   ) : editingId === t.id ? (
@@ -432,7 +450,7 @@ function TasksSection() {
           ) : (
             <span>
               {ghlCompleted.length} completed in GoHighLevel in the last {COMPLETED_DAYS}{' '}days, by last-updated time.
-              Reopen one in GHL — it can&apos;t be un-done from here.
+              Click the check to reopen one.
               <button onClick={loadGhlCompleted} className="ml-2 underline hover:text-slate-700">Refresh</button>
             </span>
           )}
