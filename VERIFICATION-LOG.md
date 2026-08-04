@@ -1,6 +1,23 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-04] GHL task tombstones stranded an unactionable row on the board
+**Status:** VERIFIED on prod — the row is gone from Matt's board (back to 30: 19 overdue & today / 11 future), and a full re-sweep no longer re-adds it.
+**Issue:** Efrain, with a screenshot of a leftover test task on Matt's column: *"I can not delete this."*
+**Root cause 1 — tombstones.** Deleting a task in GHL does **not** evict it from the task search index. `POST /locations/{id}/tasks/search` keeps returning it with `deleted:false`, `completed:false` and its **`contactId` stripped** (`contactDetails` nulled). The sweep mirrored that ghost, and a mirrored row with no contact can be neither completed nor deleted — both endpoints are addressed through `/contacts/{id}/tasks/…`. Confirmed by replaying the raw search: 1 of 49 open rows had no `contactId`, and it was exactly the deleted task.
+**Root cause 2 — no delete on mirrored rows.** A deliberate call ("edited in GHL") that left no exit when a row shouldn't be there.
+**Changes:** [lib/ghlTasks.ts](lib/ghlTasks.ts) `mapGhlTask` drops rows with no `contactId`; NEW [app/api/ghl/tasks/delete/route.ts](app/api/ghl/tasks/delete/route.ts) + `deleteGhlTask()` wired into `/tasks`, the Follow-Up cockpit and the deal card with the same confirm our own tasks use. The stuck row was purged from `ghl_tasks` by service-role script.
+**Test Method:** replay the raw `tasks/search` payload; re-run `syncGhlTasks` end-to-end against live GHL; read the board in a logged-in prod session; `scripts/ghl-tasks-check.ts` fixture over the real tombstone shape.
+**Result:** re-sweep = 66 fetched → **65 mirrored** (tombstone dropped), 0 contact-less rows, 0 "ZZ TEST" rows. ghl-tasks-check **28/28**. All 21 suites pass (710 assertions). tsc unchanged at 7 pre-existing; `next build` OK. Prod `lumin-deals-ab4kqsfzl` ● Ready.
+
+### [2026-08-04] GHL tasks mirrored onto the dashboard, two-way
+**Status:** VERIFIED on prod through Efrain's logged-in session (never by typing his password); every write test used a throwaway task that was deleted afterward.
+**Issue:** GHL's own per-contact tasks were invisible here — 65 open GHL tasks vs 20 `deal_tasks`, so `/tasks` showed about a quarter of the real workload. Plus: an undated task was hidden entirely (dashboard tasks sat in "Future" forever; undated FUB tasks were filtered out of the cockpit).
+**Changes:** `ghl_tasks` table (applied to prod via the Management API recipe); `lib/ghlTaskSync.ts` sweep inside `runGhlSync`; `lib/ghlTasks.ts` mapping + `BoardTask` adapter; complete/create routes; surfaced on `/tasks`, both Follow-Up cockpits, a new Dashboard-home widget and the deal-page card; `isDueNow` accepts undated and `AssigneeColumn` floats undated to the top of its bucket while All stays urgency-sorted; both `relativeDue` copies now show the year when it isn't the current one.
+**Test Method:** 28 new fixtures over **real captured payloads**; live sweep against both GHL locations; create + complete driven through the real API routes from a logged-in prod session.
+**Result:** 65 stored, 65/65 matched a deal, assignees Brianne 30 / Matt 29 / Efrain 4 / Moe 2 ("Matthew Park" folds to the "Matt Park" column). Complete → GHL `completed:true`, mirror row gone. Create → real GHL task + mirror; a bad assignee returns the location's actual user list. 21 suites / 710 assertions pass; tsc unchanged at 7 pre-existing; `next build` OK.
+**Note:** ⚠️ `ghl_tasks` RLS is `TO authenticated`, so the `LOCAL_AUTH_BYPASS` dev server renders it empty — same class as the known `deals` behaviour. Verify on prod or via a service-role script.
+
 ### [2026-08-03] Lory Ruiz comp re-split + a rotated column block caught pre-import
 **Status:** VERIFIED on prod — Ruiz reads $9,001 and Fadel $21,462 on `/lead-roi` (Matt tab).
 **Issue:** Efrain's 17:54 funded export disagreed with the DB on `Lender`, `Loan Funded`, `Loan Purpose` for 10 of 16 loans, and on Ruiz's compensation.
