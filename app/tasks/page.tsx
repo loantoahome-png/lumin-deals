@@ -11,7 +11,7 @@ import { ghlContactUrl } from '@/lib/ghlLinks'
 import { DealTask, Deal, TASK_ASSIGNEES } from '@/lib/types'
 // GHL keeps its own per-contact tasks; they are mirrored into ghl_tasks and
 // rendered right alongside deal_tasks so the board is the whole workload.
-import { toBoardTask, isGhlTask, type BoardTask, type GhlTaskRow } from '@/lib/ghlTasks'
+import { toBoardTask, isGhlTask, completeGhlTask, type BoardTask, type GhlTaskRow } from '@/lib/ghlTasks'
 // Card + column design lives in one place so /tasks and the Follow-Up cockpit
 // render the identical task card and cannot drift apart.
 import {
@@ -187,28 +187,21 @@ function TasksSection() {
   // Completing a GHL task writes back to GHL (PUT …/completed) and drops the
   // mirror row — there is no "uncomplete", the same as the FUB cockpit button.
   const [busyGhl, setBusyGhl] = useState<Set<string>>(new Set())
-  async function completeGhlTask(task: BoardTask) {
+  async function completeMirroredTask(task: BoardTask) {
     const id = task.ghl_task_id
     if (!id || busyGhl.has(id)) return
     setBusyGhl(prev => new Set(prev).add(id))
     try {
-      const res = await fetch('/api/ghl/tasks/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId: id }),
-      })
-      const json = await res.json() as { ok?: boolean; error?: string }
-      if (!res.ok || !json.ok) { alert('Could not complete in GHL: ' + (json.error ?? res.status)); return }
+      const err = await completeGhlTask(id)
+      if (err) { alert('Could not complete in GHL: ' + err); return }
       setGhlTasks(prev => prev.filter(t => t.ghl_task_id !== id))
-    } catch (e) {
-      alert('Could not complete in GHL: ' + (e instanceof Error ? e.message : String(e)))
     } finally {
       setBusyGhl(prev => { const next = new Set(prev); next.delete(id); return next })
     }
   }
 
   async function toggleComplete(task: BoardTask) {
-    if (isGhlTask(task)) { await completeGhlTask(task); return }
+    if (isGhlTask(task)) { await completeMirroredTask(task); return }
     const newCompleted = task.completed_at ? null : new Date().toISOString()
     await supabase.from('deal_tasks').update({ completed_at: newCompleted }).eq('id', task.id)
     setDealTasks(prev => prev.map(t => t.id === task.id ? { ...t, completed_at: newCompleted } : t))

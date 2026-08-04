@@ -139,3 +139,32 @@ export function toBoardTask(row: GhlTaskRow & { created_at?: string | null }): B
 export function isGhlTask(t: BoardTask): boolean {
   return t.source === 'ghl' || t.id.startsWith(GHL_TASK_PREFIX)
 }
+
+/**
+ * Complete a mirrored task: writes back to GHL, then the route drops the mirror
+ * row. Returns null on success, an error message otherwise. Shared by /tasks and
+ * the Follow-Up cockpit so the two can't drift — each caller just drops the row
+ * from its own state.
+ */
+export async function completeGhlTask(taskId: string): Promise<string | null> {
+  try {
+    const res = await fetch('/api/ghl/tasks/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId }),
+    })
+    const json = await res.json().catch(() => null) as { ok?: boolean; error?: string } | null
+    if (!res.ok || !json?.ok) return json?.error ?? `HTTP ${res.status}`
+    return null
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e)
+  }
+}
+
+/** Board order: soonest first, undated last. The column floats undated to the
+ *  top of its own Overdue & today bucket — see AssigneeColumn. */
+export function byDueAsc(a: BoardTask, b: BoardTask): number {
+  const da = a.due_at ? new Date(a.due_at).getTime() : Infinity
+  const db = b.due_at ? new Date(b.due_at).getTime() : Infinity
+  return da - db
+}

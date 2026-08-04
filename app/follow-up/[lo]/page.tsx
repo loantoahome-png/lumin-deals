@@ -6,7 +6,9 @@
 // to be separate sections") into four sections, each with a prominent heading
 // and a rule between them:
 //
-//   1. Tasks               — this LO's deal_tasks, rendered with the SHARED
+//   1. Tasks               — this LO's deal_tasks AND their mirrored GHL tasks
+//                            (ghl_tasks, badged "GHL" — completing one writes
+//                            back to GHL), rendered with the SHARED
 //                            components/TaskBoard card so it is literally the
 //                            same design as /tasks ("mimic the main tasks page"),
 //                            and first on the page. Complete / edit / delete,
@@ -51,6 +53,10 @@ import {
 } from '@/lib/followUpQueue'
 import { AssigneeColumn, TaskRow, type ColumnView } from '@/components/TaskBoard'
 import {
+  toBoardTask, isGhlTask, completeGhlTask, byDueAsc,
+  type BoardTask, type GhlTaskRow,
+} from '@/lib/ghlTasks'
+import {
   Flame, RefreshCw, CheckCircle2, Clock, ChevronDown, ExternalLink,
   PhoneCall, ListTodo, Target, ClipboardList, AlertCircle, Plus, Users,
 } from 'lucide-react'
@@ -87,6 +93,16 @@ async function fetchFubTasks(lo: string): Promise<QueueTaskLike[]> {
     .order('due_date', { ascending: true }).limit(1000)
   if (error) { console.error('[follow-up] FUB task fetch failed:', error.message); return [] }
   return (data as unknown as QueueTaskLike[]) ?? []
+}
+
+/** This LO's mirrored GHL tasks — same rows /tasks shows, filtered to them.
+ *  ghl_tasks.assignee is already resolveLO()'d, so it matches deal_tasks.assignee. */
+async function fetchGhlTasks(lo: string): Promise<BoardTask[]> {
+  const { data, error } = await supabase
+    .from('ghl_tasks').select('*').eq('assignee', lo)
+    .order('due_at', { ascending: true, nullsFirst: false })
+  if (error) { console.error('[follow-up] GHL task fetch failed:', error.message); return [] }
+  return ((data as GhlTaskRow[]) ?? []).map(toBoardTask)
 }
 
 /** This LO's own dashboard tasks (deal_tasks.assignee holds the full name). */
@@ -173,6 +189,7 @@ export default function FollowUpCockpit() {
   const [fub, setFub] = useState<QueueFubLike[]>([])
   const [fubTasks, setFubTasks] = useState<QueueTaskLike[]>([])
   const [dashTasks, setDashTasks] = useState<DealTask[]>([])
+  const [ghlTasks, setGhlTasks] = useState<BoardTask[]>([])
   const [dealNames, setDealNames] = useState<Record<string, string>>({})
   const [dealGhlUrls, setDealGhlUrls] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
@@ -209,11 +226,12 @@ export default function FollowUpCockpit() {
   const load = useCallback(async () => {
     if (!lo) return
     setLoading(true)
-    const [d, f, ft, dt, s] = await Promise.all([
+    const [d, f, ft, dt, gt, s] = await Promise.all([
       fetchAllDeals(q => q.eq('loan_officer', lo), FU_DEAL_COLUMNS),
       fetchFubRows(lo),
       fetchFubTasks(lo),
       fetchDashboardTasks(lo),
+      fetchGhlTasks(lo),
       // sync_state is server-only (no client RLS policies) — read via the API.
       fetch('/api/sync/fub').then(r => r.ok ? r.json() : null).catch(() => null),
     ])
@@ -222,6 +240,7 @@ export default function FollowUpCockpit() {
     setFub(f)
     setFubTasks(ft)
     setDashTasks(dt)
+    setGhlTasks(gt)
     setDealNames(Object.fromEntries(dl.map(x => [x.id, x.name ?? 'Deal'])))
     // Task cards show a GHL button when the linked deal has a contact.
     setDealGhlUrls(Object.fromEntries(dl.flatMap(x => {
@@ -422,6 +441,22 @@ export default function FollowUpCockpit() {
     }
   }
 
+  /** Complete a MIRRORED GHL task — writes back to GHL, then the row is gone.
+   *  No "uncomplete": the mirror only ever holds open tasks. */
+  async function completeMirroredTask(task: BoardTask) {
+    const id = task.ghl_task_id
+    if (!id) return
+    const key = `ghl:${id}`
+    mark(key, true)
+    try {
+      const err = await completeGhlTask(id)
+      if (err) { alert('Could not complete in GHL: ' + err); return }
+      setGhlTasks(prev => prev.filter(t => t.ghl_task_id !== id))
+    } finally {
+      mark(key, false)
+    }
+  }
+
   /** Complete a dashboard task — same write + notification as the /tasks page. */
   async function completeDashTask(task: DealTask) {
     const key = `dash:${task.id}`
@@ -448,6 +483,14 @@ export default function FollowUpCockpit() {
     }
   }
 
+  // One task column: this LO's own dashboard tasks + their mirrored GHL tasks,
+  // in urgency order. The column itself floats undated to the top of Overdue &
+  // today, so this only has to get the dated order right.
+  const columnTasks = useMemo(
+    () => [...dashTasks, ...ghlTasks].sort(byDueAsc),
+    [dashTasks, ghlTasks],
+  )
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   if (!lo) {
@@ -465,7 +508,7 @@ export default function FollowUpCockpit() {
   const color = LO_COLORS[lo] ?? '#64748b'
   const c = queue.counts
   const fubDue = taskQueue.counts.today + taskQueue.counts.next7
-  const dashOpen = dashTasks.length
+  const dashOpen = columnTasks.length
   const moreCount = c.newLeads + c.dueToday
 
   return (
@@ -521,12 +564,27 @@ export default function FollowUpCockpit() {
             bare>
             <AssigneeColumn
               name={lo}
-              tasks={dashTasks}
+              tasks={columnTasks}
               view={dashView}
               onViewChange={setDashView}
               onAdd={() => setNewDashTask({ assignee: lo })}
               maxHeightClass="max-h-[40rem]"
-              renderTask={t => (
+              renderTask={(t: BoardTask) => isGhlTask(t) ? (
+                // Mirrored from GHL: completable (writes back), link out to the
+                // contact — but edited in GHL, so no edit/delete here.
+                <TaskRow
+                  key={t.id}
+                  task={t}
+                  hideAssignee
+                  badge="GHL"
+                  contactName={t.contact_name}
+                  dealName={t.deal_id ? dealNames[t.deal_id] : undefined}
+                  ghlUrl={ghlContactUrl({
+                    ghl_contact_id: t.ghl_contact_id, ghl_location_id: t.ghl_location_id, loan_officer: lo,
+                  }) ?? undefined}
+                  onToggle={() => completeMirroredTask(t)}
+                />
+              ) : (
                 <TaskRow
                   key={t.id}
                   task={t}
