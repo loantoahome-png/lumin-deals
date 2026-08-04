@@ -9,6 +9,9 @@ import { notifyTask } from '@/lib/notifyTask'
 import { TIME_OPTIONS } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { DealTask, Deal, TASK_ASSIGNEES } from '@/lib/types'
+// GHL keeps its own per-contact tasks; they are mirrored into ghl_tasks and
+// rendered right alongside deal_tasks so the board is the whole workload.
+import { toBoardTask, isGhlTask, type BoardTask, type GhlTaskRow } from '@/lib/ghlTasks'
 // Card + column design lives in one place so /tasks and the Follow-Up cockpit
 // render the identical task card and cannot drift apart.
 import {
@@ -42,7 +45,8 @@ const COLUMN_VIEWS_KEY = 'tasks:columnViews'
 const DEFAULT_COLUMN_VIEW: ColumnView = 'all'
 
 function TasksSection() {
-  const [tasks, setTasks] = useState<DealTask[]>([])
+  const [dealTasks, setDealTasks] = useState<DealTask[]>([])
+  const [ghlTasks, setGhlTasks] = useState<BoardTask[]>([])
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<FilterMode>('open')
@@ -70,19 +74,25 @@ function TasksSection() {
 
   const refresh = useCallback(async () => {
     setLoading(true)
-    const [tasksRes, dealsData] = await Promise.all([
+    const [tasksRes, ghlRes, dealsData] = await Promise.all([
       supabase.from('deal_tasks').select('*'),
+      supabase.from('ghl_tasks').select('*'),
       // Paginate past PostgREST's 1000-row cap — the table has >1000 deals, so a
       // bare select dropped the oldest, leaving their tasks unable to resolve a
       // deal name / LO.
       // ghl_opportunity_id is needed for ghlContactUrl's known-bad-id guard.
       fetchAllDeals(undefined, 'id, name, loan_officer, ghl_contact_id, ghl_opportunity_id, ghl_location_id'),
     ])
-    setTasks((tasksRes.data as DealTask[]) || [])
+    setDealTasks((tasksRes.data as DealTask[]) || [])
+    setGhlTasks(((ghlRes.data as GhlTaskRow[]) || []).map(toBoardTask))
     setDeals(dealsData)
     setLoading(false)
   }, [])
   useEffect(() => { refresh() }, [refresh])
+
+  // One board. deal_tasks are ours (create/edit/delete); GHL rows are mirrors —
+  // completable, but edited in GHL.
+  const tasks = useMemo<BoardTask[]>(() => [...dealTasks, ...ghlTasks], [dealTasks, ghlTasks])
 
   const dealNames = useMemo(() => {
     const m = new Map<string, string>()
@@ -122,7 +132,7 @@ function TasksSection() {
       // Search
       if (q) {
         const dealName = t.deal_id ? (dealNames.get(t.deal_id) || '').toLowerCase() : ''
-        const hay = `${t.title} ${t.description ?? ''} ${t.assignee ?? ''} ${dealName}`.toLowerCase()
+        const hay = `${t.title} ${t.description ?? ''} ${t.assignee ?? ''} ${dealName} ${t.contact_name ?? ''}`.toLowerCase()
         if (!hay.includes(q)) return false
       }
       return true
@@ -145,8 +155,8 @@ function TasksSection() {
   // Split the filtered list into the four per-person columns + the catch-all.
   // Search and the status chips above still apply across every column.
   const columns = useMemo(() => {
-    const byPerson = new Map<string, DealTask[]>(BOARD_COLUMNS.map(n => [n, [] as DealTask[]]))
-    const other: DealTask[] = []
+    const byPerson = new Map<string, BoardTask[]>(BOARD_COLUMNS.map(n => [n, [] as BoardTask[]]))
+    const other: BoardTask[] = []
     for (const t of filtered) {
       const col = t.assignee && byPerson.has(t.assignee) ? byPerson.get(t.assignee)! : other
       col.push(t)
@@ -174,24 +184,48 @@ function TasksSection() {
     return { open, overdue, today, week: weekly, completed, all: tasks.length }
   }, [tasks])
 
-  async function toggleComplete(task: DealTask) {
+  // Completing a GHL task writes back to GHL (PUT …/completed) and drops the
+  // mirror row — there is no "uncomplete", the same as the FUB cockpit button.
+  const [busyGhl, setBusyGhl] = useState<Set<string>>(new Set())
+  async function completeGhlTask(task: BoardTask) {
+    const id = task.ghl_task_id
+    if (!id || busyGhl.has(id)) return
+    setBusyGhl(prev => new Set(prev).add(id))
+    try {
+      const res = await fetch('/api/ghl/tasks/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId: id }),
+      })
+      const json = await res.json() as { ok?: boolean; error?: string }
+      if (!res.ok || !json.ok) { alert('Could not complete in GHL: ' + (json.error ?? res.status)); return }
+      setGhlTasks(prev => prev.filter(t => t.ghl_task_id !== id))
+    } catch (e) {
+      alert('Could not complete in GHL: ' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setBusyGhl(prev => { const next = new Set(prev); next.delete(id); return next })
+    }
+  }
+
+  async function toggleComplete(task: BoardTask) {
+    if (isGhlTask(task)) { await completeGhlTask(task); return }
     const newCompleted = task.completed_at ? null : new Date().toISOString()
     await supabase.from('deal_tasks').update({ completed_at: newCompleted }).eq('id', task.id)
-    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, completed_at: newCompleted } : t))
+    setDealTasks(prev => prev.map(t => t.id === task.id ? { ...t, completed_at: newCompleted } : t))
     if (newCompleted) notifyTask('completed', task)
   }
 
   async function deleteTask(id: string) {
     if (!confirm('Delete this task?')) return
     await supabase.from('deal_tasks').delete().eq('id', id)
-    setTasks(prev => prev.filter(t => t.id !== id))
+    setDealTasks(prev => prev.filter(t => t.id !== id))
   }
 
   async function createTask(payload: Omit<DealTask, 'id' | 'created_at'>) {
     const { data, error } = await supabase.from('deal_tasks').insert(payload).select().single()
     if (error) { alert('Save failed: ' + error.message); return }
     if (data) {
-      setTasks(prev => [data as DealTask, ...prev])
+      setDealTasks(prev => [data as DealTask, ...prev])
       notifyTask('assigned', data as DealTask)
     }
     setShowForm(false)
@@ -204,7 +238,7 @@ function TasksSection() {
     if (!confirm(`Delete ${doneIds.length} completed task${doneIds.length !== 1 ? 's' : ''}? This cannot be undone.`)) return
     const { error } = await supabase.from('deal_tasks').delete().in('id', doneIds)
     if (error) { alert('Clear failed: ' + error.message); return }
-    setTasks(prev => prev.filter(t => !t.completed_at))
+    setDealTasks(prev => prev.filter(t => !t.completed_at))
   }
 
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -212,7 +246,7 @@ function TasksSection() {
     const prevAssignee = tasks.find(t => t.id === id)?.assignee ?? null
     const { error } = await supabase.from('deal_tasks').update(patch).eq('id', id)
     if (error) { alert('Update failed: ' + error.message); return }
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))
+    setDealTasks(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))
     setEditingId(null)
     if (patch.assignee && patch.assignee !== prevAssignee) {
       notifyTask('assigned', { ...patch, id })
@@ -233,7 +267,20 @@ function TasksSection() {
 
   // A row renders the same in every column; the column header already names the
   // person, so the per-row assignee chip is dropped as redundant.
-  const renderTask = (t: DealTask) => editingId === t.id ? (
+  // GHL rows are read-only mirrors: complete (writes back to GHL) and a link
+  // out to the contact, but no edit/delete — those belong in GHL.
+  const renderTask = (t: BoardTask) => isGhlTask(t) ? (
+    <TaskRow
+      key={t.id}
+      task={t}
+      hideAssignee
+      badge="GHL"
+      contactName={t.contact_name}
+      dealName={t.deal_id ? dealNames.get(t.deal_id) : undefined}
+      ghlUrl={ghlContactUrl({ ghl_contact_id: t.ghl_contact_id, ghl_location_id: t.ghl_location_id }) ?? undefined}
+      onToggle={() => toggleComplete(t)}
+    />
+  ) : editingId === t.id ? (
     <NewTaskForm
       key={t.id}
       deals={deals}

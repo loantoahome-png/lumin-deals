@@ -87,8 +87,12 @@ export const COLUMN_STYLES: Record<string, string> = {
 
 // ── The task card ────────────────────────────────────────────────────────────
 
-export function TaskRow({ task, dealName, ghlUrl, hideAssignee, onToggle, onDelete, onEdit }: {
+export function TaskRow({ task, dealName, ghlUrl, hideAssignee, badge, contactName, onToggle, onDelete, onEdit }: {
   task: DealTask; dealName?: string; ghlUrl?: string; hideAssignee?: boolean
+  /** Marks a row that lives in another system (e.g. 'GHL') — see lib/ghlTasks.ts. */
+  badge?: string
+  /** Shown when the row has no deal to link to, so it still names a person. */
+  contactName?: string | null
   onToggle: () => void; onDelete?: () => void; onEdit?: () => void
 }) {
   const due = relativeDue(task.due_at)
@@ -108,6 +112,11 @@ export function TaskRow({ task, dealName, ghlUrl, hideAssignee, onToggle, onDele
       >
         <div className={`text-sm ${done ? 'line-through text-slate-400' : 'text-slate-900 font-medium'}`}>
           {task.title}
+          {badge && (
+            <span className="ml-1.5 align-middle text-[9px] font-bold tracking-wide text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1 py-px">
+              {badge}
+            </span>
+          )}
         </div>
         {task.description && (
           <div className="text-xs text-slate-500 mt-0.5 whitespace-pre-wrap">{task.description}</div>
@@ -125,6 +134,11 @@ export function TaskRow({ task, dealName, ghlUrl, hideAssignee, onToggle, onDele
           {task.assignee && !hideAssignee && (
             <span className="flex items-center gap-1 text-slate-500">
               <User className="w-3 h-3" /> {task.assignee}
+            </span>
+          )}
+          {contactName && !task.deal_id && (
+            <span className="flex items-center gap-1 text-slate-500">
+              <User className="w-3 h-3" /> {contactName}
             </span>
           )}
           {task.assigned_by && (

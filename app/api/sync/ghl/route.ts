@@ -6,6 +6,7 @@ import { SOURCE_PINS_KEY, parseSourcePins, applySourcePin } from '@/lib/sourcePi
 import { shouldProcessOpportunity } from '@/lib/syncCursor'
 import { resolveLO } from '@/lib/loanOfficer'
 import { mapOpportunityFields, ariveLoanIdFromOpp as ariveLoanIdShared } from '@/lib/ghlOpportunityFields'
+import { syncGhlTasks, type GhlTaskSyncResult } from '@/lib/ghlTaskSync'
 
 const GHL_BASE = 'https://services.leadconnectorhq.com'
 
@@ -1464,6 +1465,7 @@ type SyncResult = {
   flagged: string[]
   duration_ms: number
   per_account: Array<{ label: string; locationId: string; created: number; updated: number; skipped: number; pruned: number; errors: number }>
+  tasks: GhlTaskSyncResult | null
   errors: string[]
 }
 
@@ -1509,6 +1511,17 @@ export async function runGhlSync(opts: { full?: boolean; maintenance?: boolean }
     allFlagged.push(...r.flagged)
   }
 
+  // Open GHL tasks → the dashboard board. Runs AFTER the deal sync so a task on
+  // a brand-new contact can resolve its deal_id on the same pass. Never fatal:
+  // the deal sync is the important half.
+  let tasks: GhlTaskSyncResult | null = null
+  try {
+    tasks = await syncGhlTasks(supabase, accounts)
+    allErrors.push(...tasks.errors)
+  } catch (err) {
+    allErrors.push(`ghl tasks: ${String(err)}`)
+  }
+
   return {
     success: true,
     full,
@@ -1521,6 +1534,7 @@ export async function runGhlSync(opts: { full?: boolean; maintenance?: boolean }
     flagged: allFlagged,
     duration_ms: Date.now() - startMs,
     per_account: perAccount,
+    tasks,
     errors: allErrors.slice(0, 20),
   }
 }
