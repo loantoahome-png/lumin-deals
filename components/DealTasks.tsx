@@ -6,6 +6,11 @@ import { supabase } from '@/lib/supabase'
 import { notifyTask } from '@/lib/notifyTask'
 import { TIME_OPTIONS } from '@/lib/utils'
 import { DealTask, TASK_ASSIGNEES } from '@/lib/types'
+// This contact's GoHighLevel tasks show here too — same mirror /tasks and the
+// Follow-Up cockpit read, matched to this deal at sync time.
+import {
+  toBoardTask, isGhlTask, completeGhlTask, type BoardTask, type GhlTaskRow,
+} from '@/lib/ghlTasks'
 import {
   CheckCircle2, Circle, Trash2, Plus, X, Calendar, User,
   ExternalLink, Flame,
@@ -85,7 +90,7 @@ type Props = {
 }
 
 export default function DealTasks({ dealId, title, showDealLink, dealNames }: Props) {
-  const [tasks, setTasks] = useState<DealTask[]>([])
+  const [tasks, setTasks] = useState<BoardTask[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
 
@@ -93,13 +98,29 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
     setLoading(true)
     let q = supabase.from('deal_tasks').select('*').order('completed_at', { ascending: true, nullsFirst: true }).order('due_at', { ascending: true, nullsFirst: false })
     if (dealId) q = q.eq('deal_id', dealId)
-    const { data } = await q
-    setTasks((data as DealTask[]) || [])
+    // The GHL mirror holds OPEN tasks only, and the sweep resolves each one to a
+    // single deal — a contact with two loans hangs their tasks on the newest.
+    let gq = supabase.from('ghl_tasks').select('*').order('due_at', { ascending: true, nullsFirst: false })
+    if (dealId) gq = gq.eq('deal_id', dealId)
+    const [{ data }, { data: ghl }] = await Promise.all([q, gq])
+    setTasks([
+      ...((data as DealTask[]) || []),
+      ...(((ghl as GhlTaskRow[]) || []).map(toBoardTask)),
+    ])
     setLoading(false)
   }, [dealId])
   useEffect(() => { fetchTasks() }, [fetchTasks])
 
-  async function toggleComplete(task: DealTask) {
+  async function toggleComplete(task: BoardTask) {
+    // A mirrored GHL task completes in GHL, then the row is gone — no un-complete.
+    if (isGhlTask(task)) {
+      const id = task.ghl_task_id
+      if (!id) return
+      const err = await completeGhlTask(id)
+      if (err) { alert('Could not complete in GHL: ' + err); return }
+      setTasks(prev => prev.filter(t => t.ghl_task_id !== id))
+      return
+    }
     const newCompleted = task.completed_at ? null : new Date().toISOString()
     await supabase.from('deal_tasks').update({ completed_at: newCompleted }).eq('id', task.id)
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, completed_at: newCompleted } : t))
@@ -183,7 +204,16 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
         <p className="text-sm text-slate-400 italic">No tasks yet — click <strong>Add task</strong> above to create one.</p>
       ) : (
         <div className="space-y-1.5">
-          {sorted.map(task => editingId === task.id ? (
+          {sorted.map(task => isGhlTask(task) ? (
+            // Mirrored from GHL: completable (writes back), badged so it's clear
+            // where it lives — but edited in GHL, so no edit/delete here.
+            <TaskRow
+              key={task.id}
+              task={task}
+              badge="GHL"
+              onToggle={() => toggleComplete(task)}
+            />
+          ) : editingId === task.id ? (
             <TaskForm
               key={task.id}
               initialTask={task}
@@ -210,13 +240,16 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
 }
 
 // ── Task row (used in both deal page + tasks tab) ───────────────────────────
-function TaskRow({ task, onToggle, onDelete, onEdit, dealName, showDealLink }: {
+function TaskRow({ task, onToggle, onDelete, onEdit, dealName, showDealLink, badge }: {
   task: DealTask
   onToggle: () => void
-  onDelete: () => void
+  /** Omitted for mirrored rows — a GHL task is deleted in GHL, not here. */
+  onDelete?: () => void
   onEdit?: () => void
   dealName?: string
   showDealLink?: boolean
+  /** Marks a row that lives in another system (e.g. 'GHL'). */
+  badge?: string
 }) {
   const due = relativeDue(task.due_at)
   const done = !!task.completed_at
@@ -242,6 +275,11 @@ function TaskRow({ task, onToggle, onDelete, onEdit, dealName, showDealLink }: {
       >
         <div className={`text-sm ${done ? 'line-through text-slate-400' : 'text-slate-900'}`}>
           {task.title}
+          {badge && (
+            <span className="ml-1.5 align-middle text-[9px] font-bold tracking-wide text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1 py-px">
+              {badge}
+            </span>
+          )}
         </div>
         {task.description && (
           <div className="text-xs text-slate-500 mt-0.5 whitespace-pre-wrap">{task.description}</div>
@@ -285,14 +323,16 @@ function TaskRow({ task, onToggle, onDelete, onEdit, dealName, showDealLink }: {
         </Link>
       )}
 
-      <button
-        type="button"
-        onClick={onDelete}
-        className="shrink-0 self-start p-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
-        title="Delete task"
-      >
-        <Trash2 className="w-3.5 h-3.5" />
-      </button>
+      {onDelete && (
+        <button
+          type="button"
+          onClick={onDelete}
+          className="shrink-0 self-start p-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
+          title="Delete task"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      )}
     </div>
   )
 }
