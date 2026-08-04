@@ -22,12 +22,17 @@ export type GhlTaskSyncResult = {
   errors: string[]
 }
 
-/** One location's open tasks, keyset-paged on each row's `searchAfter`. */
-export async function fetchOpenTasks(account: GHLAccount): Promise<GhlTaskSearchRow[]> {
+/**
+ * One location's tasks, keyset-paged on each row's `searchAfter`.
+ * `completed` genuinely filters server-side (checked, not trusted: 18 open +
+ * 8 done = 26 unfiltered on primary), so this is the same call for both halves
+ * — the open sweep below and the live "recently completed" view.
+ */
+export async function fetchTasks(account: GHLAccount, completed: boolean): Promise<GhlTaskSearchRow[]> {
   const out: GhlTaskSearchRow[] = []
   let after: unknown[] | undefined
   for (let page = 0; page < MAX_PAGES; page++) {
-    const body: Record<string, unknown> = { completed: false, limit: PAGE }
+    const body: Record<string, unknown> = { completed, limit: PAGE }
     if (after) body.searchAfter = after
     const res = await fetch(`${GHL_BASE}/locations/${account.locationId}/tasks/search`, {
       method: 'POST',
@@ -45,13 +50,16 @@ export async function fetchOpenTasks(account: GHLAccount): Promise<GhlTaskSearch
   return out
 }
 
+/** The open sweep's half of `fetchTasks`. */
+export const fetchOpenTasks = (account: GHLAccount) => fetchTasks(account, false)
+
 /**
  * GHL contact id → one of our deals. A contact can own several deals (see
  * [[multi-loan-opportunity-matching]]), and a task points at the CONTACT, not
  * the loan — so there is no correct answer, only a useful one: the most
  * recently created deal, which is the one being worked.
  */
-async function buildContactDealMap(
+export async function buildContactDealMap(
   supabase: ReturnType<typeof createServiceClient>,
 ): Promise<Map<string, string>> {
   const map = new Map<string, string>()

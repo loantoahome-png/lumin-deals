@@ -1,6 +1,14 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-04] Recently completed GHL tasks are visible on /tasks
+**Status:** VERIFIED locally against LIVE GHL (the route uses a service client + the GHL API, so the `ghl_tasks` RLS blindspot doesn't apply to it).
+**Issue:** Efrain completed two GHL tasks by accident and had no way to see what he'd just checked off. Completing a mirrored task **deletes** the local row — by design, `ghl_tasks` holds open tasks only — so a completed GHL task existed nowhere on our side and the Completed chip could only ever show `deal_tasks`.
+**Changes:** NEW [app/api/ghl/tasks/completed/route.ts](app/api/ghl/tasks/completed/route.ts) (live, per-location, `?days=` window, 200-row cap that reports what it dropped); `mapCompletedGhlTask` / `toCompletedBoardTask` / `fetchCompletedGhlTasks` in [lib/ghlTasks.ts](lib/ghlTasks.ts); `fetchTasks(account, completed)` generalized out of `fetchOpenTasks` and `buildContactDealMap` exported in [lib/ghlTaskSync.ts](lib/ghlTaskSync.ts); [app/tasks/page.tsx](app/tasks/page.tsx) lazy-loads them on the Completed chip only; `relativeCompleted()` + a `toggleDisabled` prop in [components/TaskBoard.tsx](components/TaskBoard.tsx).
+**Test Method:** 14 new fixtures (`ghl-tasks-check` 28 → 42); `curl` the route; drive `/tasks` in a browser and read the rendered DOM (labels, counts, disabled state, links).
+**Result:** route returns **22** rows — 24 completed in GHL minus the 2 known contact-less tombstones, which `mapCompletedGhlTask` rejects like the mirror does. Chip reads **Completed 191** = 169 `deal_tasks` + 22 GHL; **All stays 183** and **Clear completed stays (169)**. Both accidental rows appear at the top of Efrain's column ("Follow up · Completed 17m ago · GHL") with the toggle **disabled** (`title="Completed in GoHighLevel — reopen it there"`), **no delete button**, and a working link to the GHL contact + the deal. 21/21 suites pass; tsc unchanged at 7 pre-existing (0 in touched files); `next build` OK.
+**Note:** a completed row now shows **when it was completed** instead of its due date — "Overdue 34d" on a finished task was both wrong and alarming. That applies to completed `deal_tasks` too, not just GHL rows.
+
 ### [2026-08-04] GHL task tombstones stranded an unactionable row on the board
 **Status:** VERIFIED on prod — the row is gone from Matt's board (back to 30: 19 overdue & today / 11 future), and a full re-sweep no longer re-adds it.
 **Issue:** Efrain, with a screenshot of a leftover test task on Matt's column: *"I can not delete this."*

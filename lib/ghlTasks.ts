@@ -119,9 +119,45 @@ export function mapGhlTask(
 }
 
 /**
+ * A completed GHL task. These are NEVER mirrored — `ghl_tasks` holds open rows
+ * only and a completion deletes the row — so the "Completed" view asks GHL live
+ * (GET /api/ghl/tasks/completed) instead of reading our table.
+ *
+ * ⚠️ `completed_at` is GHL's `dateUpdated`, which is LAST MODIFIED, not a real
+ * completion timestamp. For a task that was completed and never touched again
+ * they're the same instant; for one edited afterwards the stamp is the edit.
+ * GHL exposes no completedAt field on the search row, so this is the best
+ * available signal — the UI labels it "last updated" rather than claiming more.
+ */
+export type GhlCompletedTaskRow = GhlTaskRow & { completed_at: string | null }
+
+/**
+ * GHL search row → a COMPLETED task row. The mirror's `mapGhlTask` rejects
+ * anything completed, so this is its inverse: it requires `completed`, and
+ * rejects the same tombstones (a row that lost its contact is not a task —
+ * see the ⚠️ above `mapGhlTask`).
+ */
+export function mapCompletedGhlTask(
+  raw: GhlTaskSearchRow,
+  locationId: string,
+  dealIdFor: (contactId: string | null | undefined) => string | null,
+): GhlCompletedTaskRow | null {
+  if (!raw?._id) return null
+  if (!raw.completed || raw.deleted) return null
+  if (!raw.contactId) return null
+  // Every field but the completed/deleted gate maps identically to an open
+  // task, so borrow the mirror's mapper rather than keeping a second copy in
+  // sync — pass it a row it will accept, then re-stamp what differs.
+  const base = mapGhlTask({ ...raw, completed: false }, locationId, dealIdFor)
+  if (!base) return null
+  return { ...base, completed_at: raw.dateUpdated ?? null }
+}
+
+/**
  * `ghl_tasks` row → a board task. Only OPEN tasks are stored, so completed_at
- * is always null — which also keeps them out of the Completed chip and out of
- * "Clear completed" (that only ever touches deal_tasks).
+ * is always null — which also keeps mirrored rows out of "Clear completed"
+ * (that only ever touches deal_tasks). Completed GHL rows come from
+ * `toCompletedBoardTask` below, never from the table.
  */
 export function toBoardTask(row: GhlTaskRow & { created_at?: string | null }): BoardTask {
   return {
@@ -143,8 +179,40 @@ export function toBoardTask(row: GhlTaskRow & { created_at?: string | null }): B
   }
 }
 
+/**
+ * A completed GHL task → a board row. Same shape as an open mirrored row, but
+ * carrying `completed_at` so the existing Completed chip, the strikethrough and
+ * the completed-desc sort all work untouched.
+ *
+ * These rows are READ-ONLY on the board: they are not in `ghl_tasks`, so both
+ * write routes (which look the row up by id before calling GHL) would 404, and
+ * GHL has no reopen endpoint we've verified. `/tasks` disables the toggle and
+ * omits delete for them.
+ */
+export function toCompletedBoardTask(row: GhlCompletedTaskRow): BoardTask {
+  return { ...toBoardTask(row), completed_at: row.completed_at }
+}
+
 export function isGhlTask(t: BoardTask): boolean {
   return t.source === 'ghl' || t.id.startsWith(GHL_TASK_PREFIX)
+}
+
+/**
+ * Fetch recently completed GHL tasks. Live per call — there is no local copy.
+ * Returns board rows newest-first, or an error message.
+ */
+export async function fetchCompletedGhlTasks(
+  days = 90,
+): Promise<{ tasks: BoardTask[]; error: string | null }> {
+  try {
+    const res = await fetch(`/api/ghl/tasks/completed?days=${days}`)
+    const json = await res.json().catch(() => null) as
+      { ok?: boolean; tasks?: GhlCompletedTaskRow[]; error?: string } | null
+    if (!res.ok || !json?.ok) return { tasks: [], error: json?.error ?? `HTTP ${res.status}` }
+    return { tasks: (json.tasks ?? []).map(toCompletedBoardTask), error: null }
+  } catch (e) {
+    return { tasks: [], error: e instanceof Error ? e.message : String(e) }
+  }
 }
 
 /**

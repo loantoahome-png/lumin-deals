@@ -6,6 +6,7 @@
 
 import {
   mapGhlTask, toBoardTask, isGhlTask, taskAssignee, taskContactName,
+  mapCompletedGhlTask, toCompletedBoardTask,
   GHL_TASK_PREFIX, type GhlTaskSearchRow,
 } from '../lib/ghlTasks'
 
@@ -88,6 +89,42 @@ eq('board: a plain deal_task is not', isGhlTask({
   id: 'e7a1', deal_id: null, title: 'x', description: null, due_at: null, assignee: null,
   assigned_by: null, priority: null, completed_at: null, created_at: '2026-01-01T00:00:00Z',
 }), false)
+
+// ── completed tasks (the live "recently completed" view) ─────────────────────
+// The mirror stores open tasks only, so these never come from ghl_tasks — they
+// are read straight from GHL. mapCompletedGhlTask is the exact inverse of
+// mapGhlTask on the completed flag, and identical on every other gate.
+const doneRaw = raw({ completed: true, dateUpdated: '2026-08-04T18:41:29.000Z' })
+const done = mapCompletedGhlTask(doneRaw, LOC, dealFor)!
+eq('completed: an OPEN task is not completed history', mapCompletedGhlTask(raw(), LOC, dealFor), null)
+eq('completed: a completed task maps', done.ghl_task_id, 'VXI5uNatt07U0rmIbS8u')
+// ⚠️ dateUpdated is LAST MODIFIED, not a completion stamp — GHL exposes no
+// completedAt on the search row. The UI labels it as such rather than claiming more.
+eq('completed: completed_at comes from dateUpdated', done.completed_at, '2026-08-04T18:41:29.000Z')
+eq('completed: deal still resolves from the contact', done.deal_id, 'deal-1')
+eq('completed: assignee still folds to the board name',
+  mapCompletedGhlTask(raw({ completed: true, assignedToUserDetails: { id: 'u', firstName: 'Matthew', lastName: 'Park' } }), LOC, dealFor)!.assignee,
+  'Matt Park')
+eq('completed: deleted rows are still rejected', mapCompletedGhlTask(raw({ completed: true, deleted: true }), LOC, dealFor), null)
+eq('completed: a TOMBSTONE (no contactId) is still rejected',
+  mapCompletedGhlTask(raw({ completed: true, contactId: null }), LOC, dealFor), null)
+eq('completed: missing id → null', mapCompletedGhlTask(raw({ completed: true, _id: '' }), LOC, dealFor), null)
+eq('completed: no dateUpdated → null stamp, not a crash',
+  mapCompletedGhlTask(raw({ completed: true, dateUpdated: null }), LOC, dealFor)!.completed_at, null)
+
+const doneBoard = toCompletedBoardTask(done)
+eq('completed board: carries completed_at (drives the chip + strikethrough)',
+  doneBoard.completed_at, '2026-08-04T18:41:29.000Z')
+eq('completed board: id is namespaced like any GHL row',
+  doneBoard.id, GHL_TASK_PREFIX + 'VXI5uNatt07U0rmIbS8u')
+eq('completed board: still tagged as a GHL row', isGhlTask(doneBoard), true)
+// ⚠️ These ids are what makes "Clear completed" dangerous: it deletes by
+// deal_tasks.id (a uuid). A `ghl:` id in that list fails the cast and aborts the
+// whole delete — /tasks reads dealTasks there, never the merged board.
+eq('completed board: id is NOT a uuid, so it must never reach a deal_tasks delete',
+  /^[0-9a-f-]{36}$/.test(doneBoard.id), false)
+eq('completed board: keeps the contact + location needed to link back to GHL',
+  [doneBoard.ghl_contact_id, doneBoard.ghl_location_id], ['oz9XkKwbXSdK8nFe50hD', LOC])
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} ghl-tasks-check: ${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)

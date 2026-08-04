@@ -28,6 +28,34 @@ export function isAllDay(iso: string | null | undefined): boolean {
   return !isNaN(d.getTime()) && d.getHours() === 23 && d.getMinutes() === 59
 }
 
+/**
+ * When a task was finished. A completed row shows this INSTEAD of its due date:
+ * "Overdue 34d" on something already done is both wrong and alarming, and the
+ * completion time is the only thing a "recently completed" view is actually for.
+ *
+ * For a mirrored GHL row the stamp is GHL's `dateUpdated` (last modified) —
+ * see [[GhlCompletedTaskRow]] in lib/ghlTasks.ts.
+ */
+export function relativeCompleted(iso: string | null): string {
+  if (!iso) return 'Completed'
+  const at = new Date(iso)
+  const now = new Date()
+  const time = at.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  const dayDelta = Math.round((startOfDay(at).getTime() - startOfDay().getTime()) / 86_400_000)
+  if (dayDelta === 0) {
+    const mins = Math.floor((now.getTime() - at.getTime()) / 60_000)
+    if (mins < 1) return 'Completed just now'
+    if (mins < 60) return `Completed ${mins}m ago`
+    return `Completed today · ${time}`
+  }
+  if (dayDelta === -1) return `Completed yesterday · ${time}`
+  if (dayDelta > -7) return `Completed ${-dayDelta}d ago`
+  return `Completed ${at.toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric',
+    ...(at.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}),
+  })}`
+}
+
 export function relativeDue(iso: string | null): { label: string; tone: 'red' | 'amber' | 'slate' } {
   if (!iso) return { label: 'No due date', tone: 'slate' }
   const due = new Date(iso)
@@ -94,19 +122,29 @@ export const COLUMN_STYLES: Record<string, string> = {
 
 // ── The task card ────────────────────────────────────────────────────────────
 
-export function TaskRow({ task, dealName, ghlUrl, hideAssignee, badge, contactName, onToggle, onDelete, onEdit }: {
+export function TaskRow({ task, dealName, ghlUrl, hideAssignee, badge, contactName, onToggle, toggleDisabled, toggleTitle, onDelete, onEdit }: {
   task: DealTask; dealName?: string; ghlUrl?: string; hideAssignee?: boolean
   /** Marks a row that lives in another system (e.g. 'GHL') — see lib/ghlTasks.ts. */
   badge?: string
   /** Shown when the row has no deal to link to, so it still names a person. */
   contactName?: string | null
-  onToggle: () => void; onDelete?: () => void; onEdit?: () => void
+  onToggle: () => void
+  /** Row can't be un-done from here (a completed GHL task isn't in our mirror,
+   *  and GHL has no verified reopen endpoint). `toggleTitle` says why on hover. */
+  toggleDisabled?: boolean
+  toggleTitle?: string
+  onDelete?: () => void; onEdit?: () => void
 }) {
   const due = relativeDue(task.due_at)
   const done = !!task.completed_at
   return (
     <div className={`flex items-start gap-3 px-4 py-3 rounded-lg border transition group ${done ? 'bg-slate-50 border-slate-100 opacity-70' : 'bg-white border-slate-200 hover:border-blue-300 hover:shadow-sm'}`}>
-      <button onClick={onToggle} className="shrink-0 mt-0.5" title={done ? 'Mark incomplete' : 'Mark complete'}>
+      <button
+        onClick={onToggle}
+        disabled={toggleDisabled}
+        className="shrink-0 mt-0.5 disabled:cursor-default"
+        title={toggleTitle ?? (done ? 'Mark incomplete' : 'Mark complete')}
+      >
         {done ? <CheckCircle2 className="w-5 h-5 text-emerald-500" /> : <Circle className="w-5 h-5 text-slate-300 hover:text-slate-500 transition" />}
       </button>
       {/* Whole info area is click-to-edit */}
@@ -129,7 +167,14 @@ export function TaskRow({ task, dealName, ghlUrl, hideAssignee, badge, contactNa
           <div className="text-xs text-slate-500 mt-0.5 whitespace-pre-wrap">{task.description}</div>
         )}
         <div className="flex items-center gap-3 mt-1.5 flex-wrap text-[11px]">
-          {task.due_at && (
+          {/* A done task shows WHEN it was done, never its due date — an
+              "Overdue 34d" chip on something already completed is wrong and
+              reads as an alarm. */}
+          {done ? (
+            <span className="flex items-center gap-1 text-emerald-700">
+              <CheckCircle2 className="w-3 h-3" /> {relativeCompleted(task.completed_at)}
+            </span>
+          ) : task.due_at && (
             <span className={`flex items-center gap-1 ${
               due.tone === 'red' ? 'text-red-700 font-semibold' :
               due.tone === 'amber' ? 'text-amber-700 font-semibold' :

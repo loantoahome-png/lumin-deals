@@ -12,7 +12,7 @@ import { DealTask, Deal, TASK_ASSIGNEES } from '@/lib/types'
 // GHL keeps its own per-contact tasks; they are mirrored into ghl_tasks and
 // rendered right alongside deal_tasks so the board is the whole workload.
 import {
-  toBoardTask, isGhlTask, completeGhlTask, deleteGhlTask,
+  toBoardTask, isGhlTask, completeGhlTask, deleteGhlTask, fetchCompletedGhlTasks,
   type BoardTask, type GhlTaskRow,
 } from '@/lib/ghlTasks'
 // Card + column design lives in one place so /tasks and the Follow-Up cockpit
@@ -95,9 +95,40 @@ function TasksSection() {
   }, [])
   useEffect(() => { refresh() }, [refresh])
 
+  // ── Recently completed GHL tasks ───────────────────────────────────────────
+  // Completing a GHL task DELETES the mirror row, so a completed one exists
+  // nowhere on our side — a mis-click used to leave no trace here at all. These
+  // are fetched live from GHL the first time the Completed chip is opened, and
+  // kept in state after that (the chip is cheap to flick back to).
+  const COMPLETED_DAYS = 90
+  const [ghlCompleted, setGhlCompleted] = useState<BoardTask[]>([])
+  const [ghlCompletedState, setGhlCompletedState] =
+    useState<'idle' | 'loading' | 'loaded' | 'error'>('idle')
+  const [ghlCompletedError, setGhlCompletedError] = useState<string | null>(null)
+  const loadGhlCompleted = useCallback(async () => {
+    setGhlCompletedState('loading')
+    const { tasks, error } = await fetchCompletedGhlTasks(COMPLETED_DAYS)
+    if (error) { setGhlCompletedError(error); setGhlCompletedState('error'); return }
+    setGhlCompleted(tasks)
+    setGhlCompletedError(null)
+    setGhlCompletedState('loaded')
+  }, [])
+  useEffect(() => {
+    if (filter === 'completed' && ghlCompletedState === 'idle') loadGhlCompleted()
+  }, [filter, ghlCompletedState, loadGhlCompleted])
+
   // One board. deal_tasks are ours (create/edit/delete); GHL rows are mirrors —
   // completable, but edited in GHL.
-  const tasks = useMemo<BoardTask[]>(() => [...dealTasks, ...ghlTasks], [dealTasks, ghlTasks])
+  const boardTasks = useMemo<BoardTask[]>(() => [...dealTasks, ...ghlTasks], [dealTasks, ghlTasks])
+
+  // The live completed rows join the board ONLY on the Completed chip. They are
+  // deliberately out of every other view and out of `counts`: they aren't part
+  // of the workload, and folding them into "All" would make that count jump the
+  // moment an unrelated chip was clicked.
+  const tasks = useMemo<BoardTask[]>(
+    () => filter === 'completed' ? [...boardTasks, ...ghlCompleted] : boardTasks,
+    [boardTasks, ghlCompleted, filter],
+  )
 
   const dealNames = useMemo(() => {
     const m = new Map<string, string>()
@@ -176,7 +207,10 @@ function TasksSection() {
     const todayEnd = endOfDay()
     const week = new Date(today0.getTime() + 7 * 86_400_000)
     let open = 0, overdue = 0, today = 0, weekly = 0, completed = 0
-    for (const t of tasks) {
+    // Counts describe the WORKLOAD, so they read the board sources only — never
+    // the live GHL history, which would otherwise make every count depend on
+    // which chip happened to be open.
+    for (const t of boardTasks) {
       if (t.completed_at) { completed++; continue }
       open++
       const due = t.due_at ? new Date(t.due_at) : null
@@ -186,8 +220,8 @@ function TasksSection() {
         if (due >= now && due <= week) weekly++
       }
     }
-    return { open, overdue, today, week: weekly, completed, all: tasks.length }
-  }, [tasks])
+    return { open, overdue, today, week: weekly, completed, all: boardTasks.length }
+  }, [boardTasks])
 
   // Completing a GHL task writes back to GHL (PUT …/completed) and drops the
   // mirror row — there is no "uncomplete", the same as the FUB cockpit button.
@@ -239,8 +273,13 @@ function TasksSection() {
     setComposeFor(null)
   }
 
+  // ⚠️ Reads dealTasks, NOT `tasks`. Completed GHL rows are namespaced `ghl:…`,
+  // and feeding those into a delete on deal_tasks.id (a uuid column) fails the
+  // cast and aborts the WHOLE delete — so this would break the moment the
+  // Completed chip was open. It also only ever deletes our own rows: GHL's
+  // history is GHL's.
   async function clearCompleted() {
-    const doneIds = tasks.filter(t => t.completed_at).map(t => t.id)
+    const doneIds = dealTasks.filter(t => t.completed_at).map(t => t.id)
     if (doneIds.length === 0) return
     if (!confirm(`Delete ${doneIds.length} completed task${doneIds.length !== 1 ? 's' : ''}? This cannot be undone.`)) return
     const { error } = await supabase.from('deal_tasks').delete().in('id', doneIds)
@@ -285,8 +324,13 @@ function TasksSection() {
       contactName={t.contact_name}
       dealName={t.deal_id ? dealNames.get(t.deal_id) : undefined}
       ghlUrl={ghlContactUrl({ ghl_contact_id: t.ghl_contact_id, ghl_location_id: t.ghl_location_id }) ?? undefined}
-      onToggle={() => toggleComplete(t)}
-      onDelete={() => deleteMirroredTask(t)}
+      // A completed GHL row is history, not a mirror row: it isn't in ghl_tasks,
+      // so complete and delete would both 404 on the lookup. Reopening happens
+      // in GHL — the "GHL" link on the row goes straight to the contact.
+      onToggle={() => { if (!t.completed_at) toggleComplete(t) }}
+      toggleDisabled={!!t.completed_at}
+      toggleTitle={t.completed_at ? 'Completed in GoHighLevel — reopen it there' : undefined}
+      onDelete={t.completed_at ? undefined : () => deleteMirroredTask(t)}
     />
   ) : editingId === t.id ? (
     <NewTaskForm
@@ -365,10 +409,35 @@ function TasksSection() {
           <FilterChip active={filter==='overdue'}   onClick={() => setFilter('overdue')}   label="Overdue"   count={counts.overdue} tone="red" />
           <FilterChip active={filter==='today'}     onClick={() => setFilter('today')}     label="Today"     count={counts.today} tone="amber" />
           <FilterChip active={filter==='week'}      onClick={() => setFilter('week')}      label="This week" count={counts.week} />
-          <FilterChip active={filter==='completed'} onClick={() => setFilter('completed')} label="Completed" count={counts.completed} />
+          {/* Ours + GHL's history once it has loaded (0 extra until then, so the
+              chip never claims a number it can't show). */}
+          <FilterChip active={filter==='completed'} onClick={() => setFilter('completed')} label="Completed" count={counts.completed + ghlCompleted.length} />
           <FilterChip active={filter==='all'}       onClick={() => setFilter('all')}       label="All"       count={counts.all} />
         </div>
       </div>
+
+      {/* Completed view: say where the GHL half comes from and how fresh it is.
+          It's a live call, not a table read, so it can be slow or fail on its
+          own — silence would read as "you completed nothing". */}
+      {filter === 'completed' && (
+        <div className="mb-3 flex items-center gap-2 text-xs text-slate-500">
+          <span className="text-[9px] font-bold tracking-wide text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1 py-px">GHL</span>
+          {ghlCompletedState === 'loading' ? (
+            <span>Loading completed GoHighLevel tasks…</span>
+          ) : ghlCompletedState === 'error' ? (
+            <span className="text-red-600">
+              Couldn&apos;t load completed GHL tasks: {ghlCompletedError}
+              <button onClick={() => { setGhlCompletedState('idle') }} className="ml-2 underline hover:text-red-700">Retry</button>
+            </span>
+          ) : (
+            <span>
+              {ghlCompleted.length} completed in GoHighLevel in the last {COMPLETED_DAYS}{' '}days, by last-updated time.
+              Reopen one in GHL — it can&apos;t be un-done from here.
+              <button onClick={loadGhlCompleted} className="ml-2 underline hover:text-slate-700">Refresh</button>
+            </span>
+          )}
+        </div>
+      )}
 
       {showForm && (
         <NewTaskForm

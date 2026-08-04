@@ -1,5 +1,12 @@
 # GOTCHAS — Lumin Deals
 
+### Merging namespaced `ghl:` rows into the board arms a bulk delete that runs on `deal_tasks.id`
+**Tried:** Adding completed GHL tasks to the same `tasks` array `/tasks` already renders, which is what makes every existing filter, chip, column and sort work on them for free.
+**Failed because:** `clearCompleted()` was written as `tasks.filter(t => t.completed_at).map(t => t.id)` back when a GHL row could never carry a `completed_at` (the mirror stores open rows only). The moment completed GHL rows join that array, the id list contains `ghl:<id>` strings — and PostgREST casts the whole `.in('id', …)` list against `deal_tasks.id`, a **uuid**. One bad value fails the cast and aborts the **entire** delete, so "Clear completed" silently stops working whenever the Completed chip is open.
+**What works:** bulk operations read the SOURCE array (`dealTasks`), never the merged board. The merged array is for rendering; anything that writes must start from the table it writes to. Fixture-locked: `ghl-tasks-check` asserts a completed board id is not a uuid, so the trap fails loudly if the id scheme ever changes.
+**Project:** lumin-deals
+**Date:** 2026-08-04
+
 ### FUB email has NO account-wide feed — discover it from the person payload, not an endpoint
 **Tried:** Pulling inbound emails the way texts and calls are pulled, with a bulk `/v1/emails` query.
 **Failed because:** `/v1/emails` returns **400** unless you pass `id list, inboxThreadId, personId or personId and threadId` — there is no filter that yields "all inbound email for this user", and `toNumber`-style tricks don't apply to email. `/v1/events` is no help either: its type vocabulary is lead-source only (Registration / Seller Inquiry / Viewed Page / Property Inquiry), with no email types.
