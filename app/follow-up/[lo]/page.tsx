@@ -448,10 +448,16 @@ export default function FollowUpCockpit() {
     if (!id) return
     const key = `ghl:${id}`
     mark(key, true)
+    // ⚠️ Optimistic — a GHL task write takes ~2s, and waiting for it before
+    // dropping the row makes the click feel broken. Restored only if GHL
+    // refuses; render order is derived (byDueAsc), so position is safe.
+    setGhlTasks(prev => prev.filter(t => t.ghl_task_id !== id))
     try {
       const err = await completeGhlTask(id)
-      if (err) { alert('Could not complete in GHL: ' + err); return }
-      setGhlTasks(prev => prev.filter(t => t.ghl_task_id !== id))
+      if (err) {
+        alert('Could not complete in GHL: ' + err)
+        setGhlTasks(prev => prev.some(t => t.ghl_task_id === id) ? prev : [task, ...prev])
+      }
     } finally {
       mark(key, false)
     }
@@ -464,10 +470,13 @@ export default function FollowUpCockpit() {
     if (!confirm(`Delete “${task.title}” in GoHighLevel? This cannot be undone.`)) return
     const key = `ghldel:${id}`
     mark(key, true)
+    setGhlTasks(prev => prev.filter(t => t.ghl_task_id !== id))   // optimistic, as above
     try {
       const err = await deleteGhlTask(id)
-      if (err) { alert('Could not delete in GHL: ' + err); return }
-      setGhlTasks(prev => prev.filter(t => t.ghl_task_id !== id))
+      if (err) {
+        alert('Could not delete in GHL: ' + err)
+        setGhlTasks(prev => prev.some(t => t.ghl_task_id === id) ? prev : [task, ...prev])
+      }
     } finally {
       mark(key, false)
     }

@@ -1,6 +1,15 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-04] GHL task clicks felt broken — 2–4s before the row moved
+**Status:** VERIFIED locally by timing the real routes and then the real click.
+**Issue:** Efrain: *"when I click the completion button, there is a 2-4 second delay before the task leaves the list."* Not a hang — the handler awaited the whole GHL round-trip before touching state, so the row sat there for the entire write.
+**Measured, not assumed:** `POST /api/ghl/tasks/complete` **2644ms** end to end (~2000ms of it GHL's own task write, ~400ms our Supabase read + delete); `POST /api/ghl/tasks/reopen` **3779ms**. A single GHL task write averages ~2s — that's their API, not something we can tune away.
+**Changes:** GHL writes are now OPTIMISTIC on all three surfaces — [app/tasks/page.tsx](app/tasks/page.tsx) (complete, reopen, delete), [app/follow-up/[lo]/page.tsx](app/follow-up/[lo]/page.tsx) (complete, delete), [components/DealTasks.tsx](components/DealTasks.tsx) (complete, delete). The row leaves immediately and is restored only if GHL actually refuses. Restore position is safe because every board sorts on render.
+**Test Method:** timed the routes against a throwaway; then clicked the real button in a browser and polled the DOM for the row's removal; then re-read GHL to prove the write still landed.
+**Result:** click → row gone in **460ms**, down from 3779ms — and GHL still reported `completed:false` with the row back in the mirror, so the optimism didn't cost correctness. (The 460ms is a dev-build React re-render of ~190 rows, not a network wait; prod will be faster.) 21/21 suites; tsc unchanged at 7 pre-existing; `next build` OK.
+**Note:** ⚠️ open GHL rows can't be exercised on the local bypass server — `ghl_tasks` is RLS `TO authenticated`, so the board renders none. The reopen path was timed instead; it's the identical optimistic pattern, and the completed rows come from the service-client route so they do render locally.
+
 ### [2026-08-04] A completed GHL task can be reopened from the dashboard
 **Status:** VERIFIED end-to-end against live GHL, on throwaway tasks only (created, driven, deleted — no real task was touched).
 **Issue:** I shipped the completed view saying reopen was impossible from here. That was an *unverified* claim: no reopen endpoint had ever been probed. Efrain asked me to actually check. It works.

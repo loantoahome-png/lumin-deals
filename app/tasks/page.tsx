@@ -223,17 +223,23 @@ function TasksSection() {
     return { open, overdue, today, week: weekly, completed, all: boardTasks.length }
   }, [boardTasks])
 
-  // Completing a GHL task writes back to GHL (PUT …/completed) and drops the
-  // mirror row — there is no "uncomplete", the same as the FUB cockpit button.
+  // ⚠️ GHL writes are OPTIMISTIC. A task write to GHL takes ~2s (measured:
+  // /api/ghl/tasks/complete = 2.6s end to end, ~2s of it GHL's own PUT), and
+  // waiting for the round-trip before dropping the row made every click feel
+  // broken. The row leaves now and is put back only if GHL actually refuses.
+  // Position doesn't matter on restore — the board sorts on render.
   const [busyGhl, setBusyGhl] = useState<Set<string>>(new Set())
+  const restoreGhl = (task: BoardTask) =>
+    setGhlTasks(prev => prev.some(t => t.ghl_task_id === task.ghl_task_id) ? prev : [task, ...prev])
+
   async function completeMirroredTask(task: BoardTask) {
     const id = task.ghl_task_id
     if (!id || busyGhl.has(id)) return
     setBusyGhl(prev => new Set(prev).add(id))
+    setGhlTasks(prev => prev.filter(t => t.ghl_task_id !== id))
     try {
       const err = await completeGhlTask(id)
-      if (err) { alert('Could not complete in GHL: ' + err); return }
-      setGhlTasks(prev => prev.filter(t => t.ghl_task_id !== id))
+      if (err) { alert('Could not complete in GHL: ' + err); restoreGhl(task) }
     } finally {
       setBusyGhl(prev => { const next = new Set(prev); next.delete(id); return next })
     }
@@ -247,10 +253,14 @@ function TasksSection() {
     const id = task.ghl_task_id
     if (!id || busyGhl.has(id)) return
     setBusyGhl(prev => new Set(prev).add(id))
+    setGhlCompleted(prev => prev.filter(t => t.ghl_task_id !== id))   // optimistic
     try {
       const { task: row, error } = await reopenGhlTask(id)
-      if (error) { alert('Could not reopen in GHL: ' + error); return }
-      setGhlCompleted(prev => prev.filter(t => t.ghl_task_id !== id))
+      if (error) {
+        alert('Could not reopen in GHL: ' + error)
+        setGhlCompleted(prev => prev.some(t => t.ghl_task_id === id) ? prev : [task, ...prev])
+        return
+      }
       if (row) setGhlTasks(prev => prev.some(t => t.ghl_task_id === id) ? prev : [toBoardTask(row), ...prev])
     } finally {
       setBusyGhl(prev => { const next = new Set(prev); next.delete(id); return next })
@@ -261,9 +271,9 @@ function TasksSection() {
     const id = task.ghl_task_id
     if (!id) return
     if (!confirm(`Delete “${task.title}” in GoHighLevel? This cannot be undone.`)) return
+    setGhlTasks(prev => prev.filter(t => t.ghl_task_id !== id))   // optimistic
     const err = await deleteGhlTask(id)
-    if (err) { alert('Could not delete in GHL: ' + err); return }
-    setGhlTasks(prev => prev.filter(t => t.ghl_task_id !== id))
+    if (err) { alert('Could not delete in GHL: ' + err); restoreGhl(task) }
   }
 
   async function toggleComplete(task: BoardTask) {

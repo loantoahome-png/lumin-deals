@@ -123,9 +123,14 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
     if (isGhlTask(task)) {
       const id = task.ghl_task_id
       if (!id) return
-      const err = await completeGhlTask(id)
-      if (err) { alert('Could not complete in GHL: ' + err); return }
+      // ⚠️ Optimistic — a GHL task write takes ~2s; waiting for it before
+      // dropping the row makes the click feel broken. Restored if GHL refuses.
       setTasks(prev => prev.filter(t => t.ghl_task_id !== id))
+      const err = await completeGhlTask(id)
+      if (err) {
+        alert('Could not complete in GHL: ' + err)
+        setTasks(prev => prev.some(t => t.ghl_task_id === id) ? prev : [task, ...prev])
+      }
       return
     }
     const newCompleted = task.completed_at ? null : new Date().toISOString()
@@ -146,9 +151,12 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
     const id = task.ghl_task_id
     if (!id) return
     if (!confirm(`Delete “${task.title}” in GoHighLevel? This cannot be undone.`)) return
+    setTasks(prev => prev.filter(t => t.ghl_task_id !== id))   // optimistic, as above
     const err = await deleteGhlTask(id)
-    if (err) { alert('Could not delete in GHL: ' + err); return }
-    setTasks(prev => prev.filter(t => t.ghl_task_id !== id))
+    if (err) {
+      alert('Could not delete in GHL: ' + err)
+      setTasks(prev => prev.some(t => t.ghl_task_id === id) ? prev : [task, ...prev])
+    }
   }
 
   async function createTask(payload: Omit<DealTask, 'id' | 'created_at'>) {
