@@ -11,6 +11,7 @@ import { DealTask, TASK_ASSIGNEES } from '@/lib/types'
 import {
   toBoardTask, isGhlTask, completeGhlTask, type BoardTask, type GhlTaskRow,
 } from '@/lib/ghlTasks'
+import GhlTaskForm from '@/components/GhlTaskForm'
 import {
   CheckCircle2, Circle, Trash2, Plus, X, Calendar, User,
   ExternalLink, Flame,
@@ -97,6 +98,7 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
   const [tasks, setTasks] = useState<BoardTask[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
+  const [showGhlForm, setShowGhlForm] = useState(false)
 
   const fetchTasks = useCallback(async () => {
     setLoading(true)
@@ -187,14 +189,35 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
             </>
           )}
         </p>
-        <button
-          type="button"
-          onClick={() => setShowForm(v => !v)}
-          className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded transition"
-        >
-          <Plus className="w-3.5 h-3.5" /> Add task
-        </button>
+        <div className="flex items-center gap-1.5">
+          {/* Only offered when we know which deal (and therefore which GHL
+              contact + sub-account) the task belongs to. */}
+          {dealId && (
+            <button
+              type="button"
+              onClick={() => { setShowGhlForm(v => !v); setShowForm(false) }}
+              className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded transition"
+            >
+              <Plus className="w-3.5 h-3.5" /> GHL task
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => { setShowForm(v => !v); setShowGhlForm(false) }}
+            className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded transition"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add task
+          </button>
+        </div>
       </div>
+
+      {showGhlForm && dealId && (
+        <GhlTaskForm
+          fixedDealId={dealId}
+          onCreated={t => { setTasks(prev => [t, ...prev]); setShowGhlForm(false) }}
+          onCancel={() => setShowGhlForm(false)}
+        />
+      )}
 
       {showForm && (
         <TaskForm

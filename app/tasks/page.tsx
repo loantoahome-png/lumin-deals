@@ -24,6 +24,7 @@ import {
   Calendar, User, Flame, ExternalLink, Trash2, StickyNote,
 } from 'lucide-react'
 import NotesBoard from '@/components/NotesBoard'
+import GhlTaskForm from '@/components/GhlTaskForm'
 
 type FilterMode = 'open' | 'today' | 'overdue' | 'week' | 'completed' | 'all'
 
@@ -52,6 +53,7 @@ function TasksSection() {
   const [filter, setFilter] = useState<FilterMode>('open')
   const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
+  const [showGhlForm, setShowGhlForm] = useState(false)
   // Which column's "+" is open (its name), pre-assigning the new task to that
   // person. Only one form is ever open — opening either closes the other.
   const [composeFor, setComposeFor] = useState<string | null>(null)
@@ -316,8 +318,17 @@ function TasksSection() {
               <Trash2 className="w-3.5 h-3.5" /> Clear completed ({counts.completed})
             </button>
           )}
+          {/* Creates the task in GHL itself, not here — it comes straight back
+              as a mirrored row. Kept a separate button so it's never ambiguous
+              which system a task is being written to. */}
           <button
-            onClick={() => { setShowForm(v => !v); setComposeFor(null) }}
+            onClick={() => { setShowGhlForm(v => !v); setShowForm(false); setComposeFor(null) }}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100"
+          >
+            <Plus className="w-4 h-4" /> New GHL Task
+          </button>
+          <button
+            onClick={() => { setShowForm(v => !v); setShowGhlForm(false); setComposeFor(null) }}
             className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700"
           >
             <Plus className="w-4 h-4" /> New Task
@@ -351,6 +362,14 @@ function TasksSection() {
           deals={deals}
           onSubmit={createTask}
           onCancel={() => setShowForm(false)}
+        />
+      )}
+
+      {showGhlForm && (
+        <GhlTaskForm
+          deals={deals}
+          onCreated={t => { setGhlTasks(prev => [t, ...prev]); setShowGhlForm(false) }}
+          onCancel={() => setShowGhlForm(false)}
         />
       )}
 
