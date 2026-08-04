@@ -192,10 +192,15 @@ export function AssigneeColumn({ name, tasks, view, onViewChange, renderTask, on
   // Stable within the day, so it's a safe memo dep — the board doesn't need to
   // re-slice on every render just because the clock ticked.
   const todayEnd = endOfDay().getTime()
-  const { now, future } = useMemo(() => ({
-    now:    tasks.filter(t => isDueNow(t, todayEnd)),
-    future: tasks.filter(t => !isDueNow(t, todayEnd)),
-  }), [tasks, todayEnd])
+  const { now, future } = useMemo(() => {
+    const due = tasks.filter(t => isDueNow(t, todayEnd))
+    return {
+      // Undated leads THIS bucket only (Efrain 2026-08-03) — the incoming order
+      // is urgency-sorted and All keeps it, so the float-to-top happens here.
+      now:    [...due.filter(t => !t.due_at), ...due.filter(t => t.due_at)],
+      future: tasks.filter(t => !isDueNow(t, todayEnd)),
+    }
+  }, [tasks, todayEnd])
   const counts: Record<ColumnView, number> = { now: now.length, future: future.length, all: tasks.length }
   const visible = view === 'now' ? now : view === 'future' ? future : tasks
 

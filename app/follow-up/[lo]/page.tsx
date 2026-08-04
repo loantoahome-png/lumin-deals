@@ -94,8 +94,9 @@ async function fetchDashboardTasks(lo: string): Promise<DealTask[]> {
   const { data, error } = await supabase
     .from('deal_tasks').select('*').eq('assignee', lo)
     .is('completed_at', null)
-    // Undated first — they show in Overdue & today, at the top of it (2026-08-03).
-    .order('due_at', { ascending: true, nullsFirst: true })
+    // Urgency order, undated last; AssigneeColumn floats undated to the top of
+    // the Overdue & today bucket itself, so All stays urgency-sorted (2026-08-03).
+    .order('due_at', { ascending: true, nullsFirst: false })
   if (error) { console.error('[follow-up] dashboard task fetch failed:', error.message); return [] }
   return (data as DealTask[]) ?? []
 }
