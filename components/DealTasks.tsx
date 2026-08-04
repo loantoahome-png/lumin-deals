@@ -49,13 +49,20 @@ function relativeDue(iso: string | null): { label: string; tone: 'red' | 'amber'
   const today = new Date(); today.setHours(0,0,0,0)
   const dueDay = new Date(due); dueDay.setHours(0,0,0,0)
   const dayDelta = Math.round((dueDay.getTime() - today.getTime()) / 86_400_000)
+  // Show the year once it isn't this one. GHL follow-ups are routinely years
+  // out ("Ch 7 bk seasoning ends july 2027"), and a bare "Sun, Jul 25" reads
+  // as this July.
+  const dateStr = due.toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric',
+    ...(due.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}),
+  })
 
   // All-day tasks: no time shown, not "overdue" until the day fully passes.
   if (isAllDay(iso)) {
     if (dayDelta < 0)  return { label: dayDelta === -1 ? 'Overdue · yesterday' : `Overdue ${-dayDelta}d`, tone: 'red' }
     if (dayDelta === 0) return { label: 'Today', tone: 'amber' }
     if (dayDelta === 1) return { label: 'Tomorrow', tone: 'slate' }
-    return { label: due.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }), tone: 'slate' }
+    return { label: dateStr, tone: 'slate' }
   }
 
   const ms = due.getTime() - now.getTime()
@@ -66,10 +73,7 @@ function relativeDue(iso: string | null): { label: string; tone: 'red' | 'amber'
   }
   if (dayDelta === 0) return { label: `Today · ${time}`, tone: 'amber' }
   if (dayDelta === 1) return { label: `Tomorrow · ${time}`, tone: 'slate' }
-  return {
-    label: `${due.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · ${time}`,
-    tone: 'slate',
-  }
+  return { label: `${dateStr} · ${time}`, tone: 'slate' }
 }
 
 const PRIORITY_STYLES: Record<string, string> = {
