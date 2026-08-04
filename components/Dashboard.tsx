@@ -3,8 +3,10 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
-import { Deal, LOAN_OFFICERS } from '@/lib/types'
+import { Deal, DealTask, LOAN_OFFICERS } from '@/lib/types'
 import { resolveLO } from '@/lib/loanOfficer'
+import { endOfDay, isDueNow, relativeDue } from '@/components/TaskBoard'
+import { toBoardTask, isGhlTask, byDueAsc, type BoardTask, type GhlTaskRow } from '@/lib/ghlTasks'
 import { formatCurrency } from '@/lib/utils'
 import UnreadInbox from '@/components/UnreadInbox'
 import {
@@ -40,6 +42,12 @@ export default function Dashboard() {
   const toggleLO = (lo: string) =>
     setSelectedLOs(prev => prev.includes(lo) ? prev.filter(x => x !== lo) : [...prev, lo])
 
+  // Open tasks from BOTH sources — ours (deal_tasks) and the GHL mirror — for
+  // the "due through today" widget below. Deliberately NOT filtered by the LO
+  // checkboxes: tasks belong to whoever they're assigned to, and half of them
+  // are Efrain's and Brianne's, who aren't loan officers at all.
+  const [boardTasks, setBoardTasks] = useState<BoardTask[]>([])
+
 
   useEffect(() => {
     async function fetchDeals() {
@@ -60,6 +68,20 @@ export default function Dashboard() {
       setLoading(false)
     }
     fetchDeals()
+  }, [])
+
+  useEffect(() => {
+    async function fetchTasks() {
+      const [dt, gt] = await Promise.all([
+        supabase.from('deal_tasks').select('*').is('completed_at', null),
+        supabase.from('ghl_tasks').select('*'),   // mirror holds OPEN tasks only
+      ])
+      setBoardTasks([
+        ...((dt.data as DealTask[]) ?? []),
+        ...((gt.data as GhlTaskRow[]) ?? []).map(toBoardTask),
+      ])
+    }
+    fetchTasks()
   }, [])
 
 
@@ -144,6 +166,16 @@ export default function Dashboard() {
   )
   const overdueItems = todayItems.filter(d => new Date(d.next_action_due as string) < now)
   const dueTodayItems = todayItems.filter(d => new Date(d.next_action_due as string) >= now && new Date(d.next_action_due as string) <= endOfToday)
+
+  // ── Tasks widget: the same "Overdue & today" cut the board uses, across BOTH
+  // sources, for everyone. Undated leads the list exactly like it does in the
+  // board column — a task nobody has dated is the one most likely to be missed.
+  const taskDueNow = boardTasks
+    .filter(t => !t.completed_at && isDueNow(t, endOfDay().getTime()))
+    .sort((a, b) => (a.due_at ? 1 : 0) - (b.due_at ? 1 : 0) || byDueAsc(a, b))
+  const tasksOverdue = taskDueNow.filter(t => t.due_at && new Date(t.due_at) < now).length
+  const tasksToday   = taskDueNow.filter(t => t.due_at && new Date(t.due_at) >= now).length
+  const tasksUndated = taskDueNow.filter(t => !t.due_at).length
 
   // Next Steps section — every active escrow + its next action, soonest due first (no-due last).
   const nextStepRows = [...escrowsInProcess].sort((a, b) => {
@@ -256,6 +288,75 @@ export default function Dashboard() {
             {todayItems.length > 12 && (
               <Link href="/deals" className="block text-center py-2 text-xs text-blue-600 hover:bg-slate-50 font-medium">
                 + {todayItems.length - 12} more in tracker →
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Tasks widget — deal_tasks + mirrored GHL tasks, due through today */}
+      {taskDueNow.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ListChecks className="w-4 h-4 text-emerald-600" />
+              <h3 className="font-semibold text-slate-800 text-sm">Tasks — overdue &amp; today</h3>
+              <span className="text-xs text-slate-500 flex items-center gap-1">
+                {tasksOverdue > 0 && <span className="font-semibold text-red-600">{tasksOverdue} overdue</span>}
+                {tasksOverdue > 0 && tasksToday > 0 && '·'}
+                {tasksToday > 0 && <span className="font-semibold text-amber-600">{tasksToday} due today</span>}
+                {tasksUndated > 0 && (tasksOverdue > 0 || tasksToday > 0) && '·'}
+                {tasksUndated > 0 && <span className="font-semibold text-slate-500">{tasksUndated} no date</span>}
+              </span>
+            </div>
+            <Link href="/tasks" className="text-xs font-medium text-blue-600 hover:text-blue-700 flex items-center gap-0.5">
+              Open Tasks <ChevronRight className="w-3 h-3" />
+            </Link>
+          </div>
+          <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
+            {taskDueNow.slice(0, 12).map(t => {
+              const due = relativeDue(t.due_at)
+              const bar = due.tone === 'red' ? 'bg-red-500' : due.tone === 'amber' ? 'bg-amber-400' : 'bg-slate-300'
+              const label = t.due_at ? due.label : 'No date'
+              // GHL rows link to the matched deal when there is one; without a
+              // deal there is nothing to open here, so the row stays a plain div.
+              const inner = (
+                <>
+                  <div className={`shrink-0 w-1 h-10 rounded-full ${bar}`} />
+                  <div className="shrink-0 w-24 text-right">
+                    <div className={`text-xs font-semibold ${
+                      due.tone === 'red' ? 'text-red-700' : due.tone === 'amber' ? 'text-amber-700' : 'text-slate-500'
+                    }`}>
+                      {label}
+                    </div>
+                    <div className="text-[10px] text-slate-400">{isGhlTask(t) ? 'GHL' : 'task'}</div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-slate-900 group-hover:text-blue-700 truncate">
+                      {t.title}
+                    </div>
+                    <div className="text-xs text-slate-500 truncate">
+                      {t.contact_name || t.description || <span className="italic text-slate-400">No detail</span>}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="text-xs text-slate-700 font-medium">{t.assignee || 'Unassigned'}</div>
+                    {t.priority === 'high' && <div className="text-[10px] text-red-500 font-semibold">High</div>}
+                  </div>
+                </>
+              )
+              return t.deal_id ? (
+                <Link key={t.id} href={`/deals/${t.deal_id}`}
+                  className="flex items-center gap-3 px-5 py-2.5 hover:bg-slate-50 transition group">
+                  {inner}
+                </Link>
+              ) : (
+                <div key={t.id} className="flex items-center gap-3 px-5 py-2.5 group">{inner}</div>
+              )
+            })}
+            {taskDueNow.length > 12 && (
+              <Link href="/tasks" className="block text-center py-2 text-xs text-blue-600 hover:bg-slate-50 font-medium">
+                + {taskDueNow.length - 12} more on the board →
               </Link>
             )}
           </div>
