@@ -20,6 +20,27 @@ GHL "LD stage" workflow's `monetaryValue → {{opportunity.lead_value}}` custom 
 `loan-amount-provenance` memory + `~/.claude/handoffs/lumin-deals.md`. NOTE: visible on the next "Sync GHL";
 the opp value may not always equal the loan amount (GHL data quality — watch the in-process volume).
 
+## Recent Changes (2026-08-04) — GHL tasks are on the board, two-way
+- **`ghl_tasks` mirror (SHIPPED).** GHL's own per-contact tasks now render alongside `deal_tasks` on
+  **`/tasks`, both Follow-Up cockpits, a new Dashboard-home widget, and the deal page** — 65 open GHL tasks
+  vs 20 dashboard tasks, so the board was showing about a quarter of the real workload. Open tasks only,
+  full-replace each sweep (same shape as `fub_tasks`), swept inside `runGhlSync` AFTER the deal sync so
+  `deal_id` resolves. Adapter `lib/ghlTasks.ts` puts a GHL row into the `DealTask` shape (id namespaced
+  `ghl:`), so every existing filter/chip/column/bucket/sort works untouched.
+- **Two-way.** Complete → `PUT /contacts/{cid}/tasks/{id}/completed`; delete → `DELETE` the same path;
+  create → "New GHL Task" on `/tasks` + "GHL task" on the deal card. **No EDIT** — the text lives in GHL.
+- **⚠️ Endpoint map — every obvious guess 404s.** Use `POST /locations/{id}/tasks/search` (keyset-paged on
+  each row's `searchAfter`). NOT `/tasks/search`, `/contacts/tasks/search`, `GET /tasks?locationId=`, or v1.
+- **⚠️ A deleted GHL task is a TOMBSTONE** — it stays in the search index with `deleted:false` and its
+  `contactId` stripped. `mapGhlTask` drops contact-less rows; without that the ghost re-mirrors every sweep
+  as a row nobody can complete or delete.
+- **⚠️ GHL users are per-location** and Matt is **"Matthew Park"** there — `resolveLO` folds it. Get it wrong
+  and 29 tasks land silently in "Unassigned & other". `dueDate` is **required** on create (422 without one).
+- **Undated tasks no longer hide.** They surface in **Overdue & today** (dashboard tasks) and **Due today**
+  (FUB tasks), at the TOP of that bucket, while the **All** view stays in strict urgency order.
+- ⚠️ `ghl_tasks` RLS is `TO authenticated` → the `LOCAL_AUTH_BYPASS` dev server renders it empty. Verify on
+  prod or via a service-role script. Full detail: `docs/specs/2026-08-03-ghl-tasks-two-way-spec.md`.
+
 ## Recent Changes (2026-06-30)
 - **Lender List** (`/lenders`) — editable directory of ~82 approved lenders. `lib/lenders.ts` (from
   `scripts/parse_lenders.py`) is the SEED; live team list in `sync_state 'lenders_list'` via `app/api/lenders`
