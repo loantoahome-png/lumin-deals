@@ -1,6 +1,15 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-04] Reassign a mirrored GHL task from the dashboard
+**Status:** ROUTE VERIFIED end-to-end against live GHL on a throwaway task. ⚠️ UI **not** clickable locally — see the note.
+**Issue:** Efrain, pointing at a GHL row: *"Is there any way I can edit this GHL task so I can re-assign to someone else and have it reflect on GHL and the dashboard?"*
+**Scope:** reassign ONLY, not a full edit form — he'd already said not to make this complicated. Title and description stay in GHL; ownership is the one field that's a dashboard-shaped decision. GHL's task update takes a **partial** body, so sending just `assignedTo` leaves everything else untouched (proven below).
+**Changes:** NEW [lib/ghlUsers.ts](lib/ghlUsers.ts) — `findUserId` lifted out of the create route so both share one board-name → GHL-user-id rule; NEW [app/api/ghl/tasks/reassign/route.ts](app/api/ghl/tasks/reassign/route.ts) (GET = who this task can go to, POST = do it, re-reading the single task to confirm rather than trusting the 200); `fetchGhlAssignees` + `reassignGhlTask` in [lib/ghlTasks.ts](lib/ghlTasks.ts); NEW [components/GhlReassign.tsx](components/GhlReassign.tsx) inline picker; wired into `/tasks` and the Follow-Up cockpit via the row's click-to-edit.
+**Test Method:** throwaway task created + mirrored, driven through the REAL routes, checked against GHL's single-task GET (never `tasks/search` — it lags), then deleted.
+**Result:** options returned that sub-account's real users — **Brianne Han, Catherine O'Campo, Efrain Ramirez, Moe Sefati** (correctly no Matt: he's only a user in his own sub-account). Reassign Efrain → Brianne = 200, GHL's own GET confirms `assignedTo` is Brianne's id, and **title + dueDate came back untouched**. The mirror row updated to `Brianne Han`, so the card changes column without waiting for the sweep. Reassigning to **Randy correctly 400s** with the real list, since he's a user in neither location. 21/21 suites; tsc unchanged at 7 pre-existing; `next build` OK.
+**⚠️ Note:** open GHL rows do not render on the local bypass server (`ghl_tasks` is RLS `TO authenticated`), so the picker itself could not be clicked locally — only the routes behind it were exercised. Verified in the UI on prod through Efrain's already-logged-in session afterwards.
+
 ### [2026-08-04] Column tab "Future" → "Due this week"
 **Status:** VERIFIED in the browser against real data.
 **Issue:** Efrain: the per-person column's **Future** tab swept up every dated task forever — including GHL follow-ups years out — so it was useless for planning the week.

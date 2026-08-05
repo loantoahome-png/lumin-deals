@@ -282,6 +282,45 @@ export async function reopenGhlTask(
   }
 }
 
+/**
+ * Who this mirrored task could be handed to — the real users in ITS GHL
+ * sub-account, as board names. Fetched per task because GHL users are
+ * per-location (Matt exists only in his own; Randy in neither).
+ */
+export async function fetchGhlAssignees(
+  taskId: string,
+): Promise<{ assignees: string[]; error: string | null }> {
+  try {
+    const res = await fetch(`/api/ghl/tasks/reassign?taskId=${encodeURIComponent(taskId)}`)
+    const json = await res.json().catch(() => null) as
+      { ok?: boolean; assignees?: string[]; error?: string } | null
+    if (!res.ok || !json?.ok) return { assignees: [], error: json?.error ?? `HTTP ${res.status}` }
+    return { assignees: json.assignees ?? [], error: null }
+  } catch (e) {
+    return { assignees: [], error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/**
+ * Hand a mirrored task to someone else. Writes to GHL and updates the mirror,
+ * so the card moves columns without waiting for the sweep. Returns null on
+ * success, an error message otherwise.
+ */
+export async function reassignGhlTask(taskId: string, assignee: string): Promise<string | null> {
+  try {
+    const res = await fetch('/api/ghl/tasks/reassign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId, assignee }),
+    })
+    const json = await res.json().catch(() => null) as { ok?: boolean; error?: string } | null
+    if (!res.ok || !json?.ok) return json?.error ?? `HTTP ${res.status}`
+    return null
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e)
+  }
+}
+
 /** Board order: soonest first, undated last. The column floats undated to the
  *  top of its own Overdue & today bucket — see AssigneeColumn. */
 export function byDueAsc(a: BoardTask, b: BoardTask): number {

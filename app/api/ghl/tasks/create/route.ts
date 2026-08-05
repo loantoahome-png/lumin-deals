@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { GHL_BASE, ghlHeaders, resolveApiKey } from '@/lib/ghl'
-import { resolveLO } from '@/lib/loanOfficer'
+import { findUserId } from '@/lib/ghlUsers'
 
 // Create a task IN GoHighLevel from the dashboard.
 //   POST /api/ghl/tasks/create  { dealId, title, dueDate, assignee, body? }
@@ -19,19 +19,8 @@ import { resolveLO } from '@/lib/loanOfficer'
 
 type Body = { dealId?: string; title?: string; dueDate?: string; assignee?: string; body?: string }
 
-/** GHL user whose name matches the board assignee, within THIS location. */
-async function findUserId(locationId: string, apiKey: string, assignee: string): Promise<{ id?: string; available: string[] }> {
-  const res = await fetch(`${GHL_BASE}/users/?locationId=${locationId}`, { headers: ghlHeaders(apiKey) })
-  if (!res.ok) throw new Error(`users ${res.status}: ${(await res.text()).slice(0, 160)}`)
-  const users = ((await res.json()) as { users?: { id: string; name?: string; firstName?: string; lastName?: string }[] }).users ?? []
-  const named = users.map(u => ({
-    id: u.id,
-    raw: (u.name ?? `${u.firstName ?? ''} ${u.lastName ?? ''}`).trim(),
-  }))
-  // resolveLO folds GHL's "Matthew Park" onto the board's "Matt Park".
-  const hit = named.find(u => resolveLO(u.raw) === assignee || u.raw === assignee)
-  return { id: hit?.id, available: named.map(u => u.raw) }
-}
+// findUserId moved to lib/ghlUsers.ts — the reassign route needs the identical
+// board-name → GHL-user-id rule, and two copies would drift.
 
 export async function POST(req: NextRequest) {
   let b: Body

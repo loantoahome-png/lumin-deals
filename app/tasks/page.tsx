@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import NotesBoard from '@/components/NotesBoard'
 import GhlTaskForm from '@/components/GhlTaskForm'
+import GhlReassign from '@/components/GhlReassign'
 
 type FilterMode = 'open' | 'today' | 'overdue' | 'week' | 'completed' | 'all'
 
@@ -315,6 +316,8 @@ function TasksSection() {
     setDealTasks(prev => prev.filter(t => !t.completed_at))
   }
 
+  // Which mirrored GHL row has its reassign picker open (by ghl_task_id).
+  const [reassigning, setReassigning] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   async function updateTask(id: string, patch: Omit<DealTask, 'id' | 'created_at'>) {
     const prevAssignee = tasks.find(t => t.id === id)?.assignee ?? null
@@ -344,9 +347,24 @@ function TasksSection() {
   // GHL rows are mirrors: complete and delete both write back to GHL. No EDIT —
   // the text lives in GHL. (Delete added 2026-08-04: "I can not delete this.")
   const renderTask = (t: BoardTask) => isGhlTask(t) ? (
+    // Reassign is the one edit a mirrored row supports — title and description
+    // live in GHL, but WHO OWNS a task is a dashboard-shaped decision. Not
+    // offered on completed rows: they aren't in ghl_tasks, so the route 404s.
+    reassigning === t.ghl_task_id ? (
+      <GhlReassign
+        key={t.id}
+        task={t}
+        onDone={assignee => {
+          setGhlTasks(prev => prev.map(x => x.ghl_task_id === t.ghl_task_id ? { ...x, assignee } : x))
+          setReassigning(null)
+        }}
+        onCancel={() => setReassigning(null)}
+      />
+    ) : (
     <TaskRow
       key={t.id}
       task={t}
+      onEdit={t.completed_at ? undefined : () => setReassigning(t.ghl_task_id ?? null)}
       hideAssignee
       badge="GHL"
       contactName={t.contact_name}
@@ -360,6 +378,7 @@ function TasksSection() {
       toggleTitle={t.completed_at ? 'Reopen in GoHighLevel' : undefined}
       onDelete={t.completed_at ? undefined : () => deleteMirroredTask(t)}
     />
+    )
   ) : editingId === t.id ? (
     <NewTaskForm
       key={t.id}

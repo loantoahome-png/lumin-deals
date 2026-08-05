@@ -52,6 +52,7 @@ import {
   type LiveUnreadLike, type FubUnansweredLike,
 } from '@/lib/followUpQueue'
 import { AssigneeColumn, TaskRow, type ColumnView } from '@/components/TaskBoard'
+import GhlReassign from '@/components/GhlReassign'
 import {
   toBoardTask, isGhlTask, completeGhlTask, deleteGhlTask, byDueAsc,
   type BoardTask, type GhlTaskRow,
@@ -222,6 +223,8 @@ export default function FollowUpCockpit() {
   // that are actually due under everything scheduled for next month. /tasks
   // keeps its own per-column default; only this page changes.
   const [dashView, setDashView] = useState<ColumnView>('now')
+  // Which mirrored GHL row has its reassign picker open (by ghl_task_id).
+  const [reassigning, setReassigning] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!lo) return
@@ -595,8 +598,24 @@ export default function FollowUpCockpit() {
               onAdd={() => setNewDashTask({ assignee: lo })}
               maxHeightClass="max-h-[40rem]"
               renderTask={(t: BoardTask) => isGhlTask(t) ? (
-                // Mirrored from GHL: complete and delete both write back; no
-                // edit, the text lives in GHL.
+                // Mirrored from GHL: complete and delete write back, and the row
+                // can be REASSIGNED. Title and description still live in GHL —
+                // only ownership is editable from here.
+                reassigning === t.ghl_task_id ? (
+                  <GhlReassign
+                    key={t.id}
+                    task={t}
+                    onDone={assignee => {
+                      // This cockpit only lists THIS LO's tasks, so handing one
+                      // to someone else takes it off this board entirely.
+                      setGhlTasks(prev => assignee === lo
+                        ? prev.map(x => x.ghl_task_id === t.ghl_task_id ? { ...x, assignee } : x)
+                        : prev.filter(x => x.ghl_task_id !== t.ghl_task_id))
+                      setReassigning(null)
+                    }}
+                    onCancel={() => setReassigning(null)}
+                  />
+                ) : (
                 <TaskRow
                   key={t.id}
                   task={t}
@@ -608,8 +627,10 @@ export default function FollowUpCockpit() {
                     ghl_contact_id: t.ghl_contact_id, ghl_location_id: t.ghl_location_id, loan_officer: lo,
                   }) ?? undefined}
                   onToggle={() => completeMirroredTask(t)}
+                  onEdit={() => setReassigning(t.ghl_task_id ?? null)}
                   onDelete={() => deleteMirroredTask(t)}
                 />
+                )
               ) : (
                 <TaskRow
                   key={t.id}
