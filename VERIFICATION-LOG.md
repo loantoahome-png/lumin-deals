@@ -1,14 +1,14 @@
 
 # Verification Log — Lumin Deals
 
-### [2026-08-04] Reassign on the deal page too
+### [2026-08-05] Reassign on the deal page too
 **Status:** VERIFIED on prod through Efrain's logged-in session, on a real deal.
 **Issue:** Efrain: *"can you also add this to the deal page"* — reassign had shipped on `/tasks` and the Follow-Up cockpit but not the deal-page task card.
 **Changes:** [components/DealTasks.tsx](components/DealTasks.tsx) — same `GhlReassign` picker behind the row's click-to-edit. ⚠️ This file has its OWN local `TaskRow`, not the shared `TaskBoard` card, so it needed wiring separately rather than inheriting the change like the cockpit did.
 **Test Method:** opened a real deal with a mirrored GHL task in the logged-in prod tab, opened the picker, read the options, cancelled without writing.
 **Result:** picker renders on the deal card with that sub-account's real users and the current owner pre-selected. No guard needed for completed rows here — the mirror is open-only, so a GHL row on this card is never completed. 21/21 suites; tsc unchanged at 7 pre-existing; `next build` OK.
 
-### [2026-08-04] Reassign a mirrored GHL task from the dashboard
+### [2026-08-05] Reassign a mirrored GHL task from the dashboard
 **Status:** ROUTE VERIFIED end-to-end against live GHL on a throwaway task. ⚠️ UI **not** clickable locally — see the note.
 **Issue:** Efrain, pointing at a GHL row: *"Is there any way I can edit this GHL task so I can re-assign to someone else and have it reflect on GHL and the dashboard?"*
 **Scope:** reassign ONLY, not a full edit form — he'd already said not to make this complicated. Title and description stay in GHL; ownership is the one field that's a dashboard-shaped decision. GHL's task update takes a **partial** body, so sending just `assignedTo` leaves everything else untouched (proven below).

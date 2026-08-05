@@ -20,7 +20,7 @@ GHL "LD stage" workflow's `monetaryValue → {{opportunity.lead_value}}` custom 
 `loan-amount-provenance` memory + `~/.claude/handoffs/lumin-deals.md`. NOTE: visible on the next "Sync GHL";
 the opp value may not always equal the loan amount (GHL data quality — watch the in-process volume).
 
-## Recent Changes (2026-08-04) — GHL tasks are on the board, two-way
+## Recent Changes (2026-08-04 → 08-05) — GHL tasks are on the board, two-way
 - **`ghl_tasks` mirror (SHIPPED).** GHL's own per-contact tasks now render alongside `deal_tasks` on
   **`/tasks`, both Follow-Up cockpits, a new Dashboard-home widget, and the deal page** — 65 open GHL tasks
   vs 20 dashboard tasks, so the board was showing about a quarter of the real workload. Open tasks only,
@@ -28,7 +28,35 @@ the opp value may not always equal the loan amount (GHL data quality — watch t
   `deal_id` resolves. Adapter `lib/ghlTasks.ts` puts a GHL row into the `DealTask` shape (id namespaced
   `ghl:`), so every existing filter/chip/column/bucket/sort works untouched.
 - **Two-way.** Complete → `PUT /contacts/{cid}/tasks/{id}/completed`; delete → `DELETE` the same path;
-  create → "New GHL Task" on `/tasks` + "GHL task" on the deal card. **No EDIT** — the text lives in GHL.
+  create → "New GHL Task" on `/tasks` + "GHL task" on the deal card.
+- **Completed GHL tasks are visible + reopenable (SHIPPED 2026-08-04).** The mirror keeps NO completed
+  history — completing DELETES the row — so a mis-click used to leave no trace. The **Completed** chip on
+  `/tasks` now also asks GHL live (`GET /api/ghl/tasks/completed?days=90`, one keyset search per location,
+  200-row cap). Rows are namespaced `ghl:` like any mirror row and **reopen** on click
+  (`POST /api/ghl/tasks/reopen` → `PUT …/completed {completed:false}`, then re-mirrored so the board updates
+  without waiting for the sweep). `completed_at` is GHL's **`dateUpdated` = last modified**, not a true
+  completion stamp; the UI says so. A completed row shows WHEN it was done instead of its due date.
+- **REASSIGN is the one edit a mirrored row supports (SHIPPED 2026-08-05).** Click any GHL row on `/tasks`,
+  a Follow-Up cockpit, or the deal card → inline picker → `POST /api/ghl/tasks/reassign`. GHL's task update
+  takes a **PARTIAL** body, so sending only `assignedTo` leaves title/due/description untouched (verified).
+  Options come from the task's OWN sub-account via `lib/ghlUsers.ts` (shared with create). Still **no
+  title/description edit** — that text lives in GHL. ⚠️ `components/DealTasks.tsx` has its own local
+  `TaskRow`, so it does NOT inherit board changes; wire it separately.
+- **⚠️ GHL task writes take ~2s — every UI write must be OPTIMISTIC.** Measured: `/complete` 2644ms end to
+  end (~2000ms is GHL's own PUT), `/reopen` 3779ms. Handlers used to await the round-trip before touching
+  state, so the row sat on screen the whole time. Complete/reopen/delete now drop the row immediately and
+  restore only on a real refusal, on all three surfaces (row gone in 460ms after).
+- **⚠️ `tasks/search` is EVENTUALLY CONSISTENT — it will report a working write as failed.** A first reopen
+  probe concluded the endpoint was a no-op returning a lying 200; the index was still showing the previous
+  state, and a just-created task appeared in NEITHER bucket. **The single-task
+  `GET /contacts/{cid}/tasks/{id}` is read-your-write and the only ground truth.** One task per method when
+  probing. Both write routes re-read the single task rather than trusting the 200.
+- **⚠️ CORRECTION — the search payload DOES carry `body`.** The old "no body, only the single-task GET" claim
+  was generalised from a sample of tasks that had no description. 8 of 94 real rows carry one today, and it's
+  **HTML**. Descriptions are therefore mirrorable at zero extra API cost — not built (needs a column).
+- **Column tab "Future" → "Due this week"** (rolling 7 days, same window as the page's "This week" chip,
+  excluding anything already in Overdue & today; longer-dated tasks stay in **All**). ⚠️ The `'future'` KEY
+  is unchanged on purpose — it's persisted in `localStorage` (`tasks:columnViews`).
 - **⚠️ Endpoint map — every obvious guess 404s.** Use `POST /locations/{id}/tasks/search` (keyset-paged on
   each row's `searchAfter`). NOT `/tasks/search`, `/contacts/tasks/search`, `GET /tasks?locationId=`, or v1.
 - **⚠️ A deleted GHL task is a TOMBSTONE** — it stays in the search index with `deleted:false` and its
@@ -38,8 +66,10 @@ the opp value may not always equal the loan amount (GHL data quality — watch t
   and 29 tasks land silently in "Unassigned & other". `dueDate` is **required** on create (422 without one).
 - **Undated tasks no longer hide.** They surface in **Overdue & today** (dashboard tasks) and **Due today**
   (FUB tasks), at the TOP of that bucket, while the **All** view stays in strict urgency order.
-- ⚠️ `ghl_tasks` RLS is `TO authenticated` → the `LOCAL_AUTH_BYPASS` dev server renders it empty. Verify on
-  prod or via a service-role script. Full detail: `docs/specs/2026-08-03-ghl-tasks-two-way-spec.md`.
+- ⚠️ `ghl_tasks` RLS is `TO authenticated` → the `LOCAL_AUTH_BYPASS` dev server renders it empty, so **open
+  GHL rows cannot be clicked locally**. Verify on prod or via a service-role script. The `/completed` route
+  is the exception — it uses a service client + the GHL API, so it works fine on the local bypass server.
+  Full detail: `docs/specs/2026-08-03-ghl-tasks-two-way-spec.md`.
 
 ## Recent Changes (2026-06-30)
 - **Lender List** (`/lenders`) — editable directory of ~82 approved lenders. `lib/lenders.ts` (from
