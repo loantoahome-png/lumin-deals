@@ -216,7 +216,7 @@ export default function FollowUpCockpit() {
     { dealId?: string | null; assignee?: string; task?: DealTask } | null
   >(null)
   const [newFubTask, setNewFubTask] = useState<{ personId: number | null } | null>(null)
-  // Same 'Overdue & today / Future / All' cut the /tasks column uses, but this
+  // Same 'Overdue & today / Due this week / All' cut the /tasks column uses, but this
   // page opens on **Overdue & today** (Efrain 2026-07-30). The cockpit answers
   // "who do I contact today" — a task list defaulting to All buries the two
   // that are actually due under everything scheduled for next month. /tasks
