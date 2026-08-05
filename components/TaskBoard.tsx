@@ -105,12 +105,22 @@ export function isDueNow(t: DealTask, todayEnd: number): boolean {
 
 export const OTHER_COLUMN = 'Unassigned & other'
 
+// ⚠️ The 'future' KEY is deliberately unchanged even though its label is now
+// "Due this week" — the key is persisted per column in localStorage
+// (tasks:columnViews), and renaming it would leave saved prefs pointing at a
+// view that no longer exists, silently falling through to "All".
 export type ColumnView = 'now' | 'future' | 'all'
 export const COLUMN_VIEWS: { key: ColumnView; label: string }[] = [
   { key: 'now',    label: 'Overdue & today' },
-  { key: 'future', label: 'Future' },
+  { key: 'future', label: 'Due this week' },
   { key: 'all',    label: 'All' },
 ]
+
+/** Same window the page's "This week" chip uses: a rolling 7 days from today,
+ *  so the two controls can't mean different things by the same words. */
+export function endOfWeekWindow(): number {
+  return startOfDay().getTime() + 7 * 86_400_000
+}
 
 export const COLUMN_STYLES: Record<string, string> = {
   'Efrain Ramirez':    'text-blue-800 bg-blue-50 border-blue-100',
@@ -256,15 +266,25 @@ export function AssigneeColumn({ name, tasks, view, onViewChange, renderTask, on
   // Stable within the day, so it's a safe memo dep — the board doesn't need to
   // re-slice on every render just because the clock ticked.
   const todayEnd = endOfDay().getTime()
+  const weekEnd = endOfWeekWindow()
   const { now, future } = useMemo(() => {
     const due = tasks.filter(t => isDueNow(t, todayEnd))
     return {
       // Undated leads THIS bucket only (Efrain 2026-08-03) — the incoming order
       // is urgency-sorted and All keeps it, so the float-to-top happens here.
       now:    [...due.filter(t => !t.due_at), ...due.filter(t => t.due_at)],
-      future: tasks.filter(t => !isDueNow(t, todayEnd)),
+      // "Due this week": dated, NOT already in Overdue & today, and landing
+      // inside the 7-day window (Efrain 2026-08-04 — the old "Future" swept up
+      // everything forever, including follow-ups years out, which made it
+      // useless for planning the week). Anything past the window is still
+      // reachable in All — this view narrows, it never hides the only copy.
+      future: tasks.filter(t => {
+        if (isDueNow(t, todayEnd)) return false
+        const d = t.due_at ? new Date(t.due_at).getTime() : NaN
+        return !isNaN(d) && d <= weekEnd
+      }),
     }
-  }, [tasks, todayEnd])
+  }, [tasks, todayEnd, weekEnd])
   const counts: Record<ColumnView, number> = { now: now.length, future: future.length, all: tasks.length }
   const visible = view === 'now' ? now : view === 'future' ? future : tasks
 

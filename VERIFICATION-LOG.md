@@ -1,6 +1,15 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-04] Column tab "Future" → "Due this week"
+**Status:** VERIFIED in the browser against real data.
+**Issue:** Efrain: the per-person column's **Future** tab swept up every dated task forever — including GHL follow-ups years out — so it was useless for planning the week.
+**Changes:** [components/TaskBoard.tsx](components/TaskBoard.tsx) — label is now "Due this week"; the bucket is dated tasks that are NOT already in Overdue & today AND fall inside a rolling 7-day window (`endOfWeekWindow()`, the same window the page's "This week" chip uses, so two controls on one page can't mean different things by the same words). Anything past the window stays reachable in **All** — the view narrows, it never hides the only copy of a task.
+**⚠️ The `'future'` KEY is deliberately unchanged.** It's persisted per column in `localStorage` (`tasks:columnViews`); renaming it would leave saved prefs pointing at a view that no longer exists and silently fall through to "All".
+**Test Method:** read each bucket's actual rows out of the DOM (with a wait for the re-render — reading synchronously after the click returns the *previous* bucket).
+**Result:** today = Tue Aug 4, window ends Aug 11. Moe's column: Overdue & today = the Aug 3 task; **Due this week = Aug 5 + Aug 6, no overlap**; Aug 12 (8 days out) and Aug 31 correctly excluded and still present in All (5). 21/21 suites; tsc unchanged at 7 pre-existing; `next build` OK.
+**Note:** `AssigneeColumn` is shared, so the Follow-Up cockpit columns get the same tab — intended, they're the same control.
+
 ### [2026-08-04] GHL task clicks felt broken — 2–4s before the row moved
 **Status:** VERIFIED locally by timing the real routes and then the real click.
 **Issue:** Efrain: *"when I click the completion button, there is a 2-4 second delay before the task leaves the list."* Not a hang — the handler awaited the whole GHL round-trip before touching state, so the row sat there for the entire write.
