@@ -83,7 +83,9 @@ eq('board: assignee drives the column', board.assignee, 'Brianne Han')
 eq('board: due maps to due_at', board.due_at, '2027-06-16T15:00:00.000Z')
 eq('board: keeps the contact + location needed to write back', [board.ghl_contact_id, board.ghl_location_id],
   ['oz9XkKwbXSdK8nFe50hD', LOC])
-eq('board: description stays empty (search rows carry no body)', board.description, null)
+// ⚠️ This used to assert `description === null` "because search rows carry no
+// body". That premise was false — see the body block below.
+eq('board: no body set → no description', board.description, null)
 eq('board: tagged as a GHL row', isGhlTask(board), true)
 eq('board: a plain deal_task is not', isGhlTask({
   id: 'e7a1', deal_id: null, title: 'x', description: null, due_at: null, assignee: null,
@@ -143,6 +145,44 @@ eq('reopen: keeps GHL\'s newer updated stamp', reopened.ghl_updated_at, '2026-08
 // route rejects it before calling GHL, and the mapper agrees.
 eq('reopen: a tombstone still cannot be re-mirrored',
   mapGhlTask({ ...doneRaw, completed: false, contactId: null }, LOC, dealFor), null)
+
+// ── task descriptions (`body`) ───────────────────────────────────────────────
+// The mirror shipped without descriptions because the search row was believed to
+// carry none. Re-probed live 2026-08-05 across BOTH locations: 105 rows, `body`
+// non-empty on 10, HTML on 8, only <p> tags, 18-200 chars. The shapes below are
+// copied from that response, not invented.
+eq('body: stored RAW so the table mirrors GHL',
+  mapGhlTask(raw({ body: '<p>Call after 5pm</p>' }), LOC, dealFor)!.body, '<p>Call after 5pm</p>')
+eq('body: absent → null, never an empty string', mapGhlTask(raw(), LOC, dealFor)!.body, null)
+eq('body: whitespace-only is null, not a blank description line',
+  mapGhlTask(raw({ body: '   ' }), LOC, dealFor)!.body, null)
+
+const withBody = (b: string) => toBoardTask({ ...mapGhlTask(raw({ body: b }), LOC, dealFor)!, created_at: null })
+eq('body: the board gets plain text, not markup',
+  withBody('<p>Call after 5pm</p>').description, 'Call after 5pm')
+eq('body: multiple paragraphs become newlines (whitespace-pre-wrap renders them)',
+  withBody('<p>Called, no answer</p><p>Try mobile</p>').description, 'Called, no answer\nTry mobile')
+eq('body: <br> is a line break too', withBody('a<br>b').description, 'a\nb')
+eq('body: plain text (2 of 10 live rows) passes through untouched',
+  withBody('needs updated paystubs').description, 'needs updated paystubs')
+eq('body: entities are decoded', withBody('<p>Docs &amp; conditions</p>').description, 'Docs & conditions')
+eq('body: &nbsp; becomes a real space', withBody('<p>a&nbsp;b</p>').description, 'a b')
+eq('body: numeric entities decode', withBody('<p>fee &#39;as is&#39;</p>').description, "fee 'as is'")
+eq('body: list items keep their shape',
+  withBody('<ul><li>W2s</li><li>Bank stmts</li></ul>').description, '• W2s\n• Bank stmts')
+eq('body: runs of blank lines collapse', withBody('<p>a</p><p></p><p></p><p>b</p>').description, 'a\n\nb')
+// ⚠️ THE ORDER PROPERTY. Tags are stripped BEFORE entities are decoded. Decode
+// first and this input becomes real `<script>` syntax after the strip pass has
+// already run — the escaped text must survive as literal, visible characters.
+eq('body: an escaped tag stays literal text and is never re-formed into markup',
+  withBody('<p>use &lt;script&gt; carefully</p>').description, 'use <script> carefully')
+eq('body: a real script tag is stripped entirely',
+  withBody('<p>ok</p><script>alert(1)</script>').description, 'ok')
+eq('body: an empty body yields null, not "" (falsy check in the row render)',
+  withBody('<p></p>').description, null)
+eq('body: completed rows carry their description too',
+  toCompletedBoardTask(mapCompletedGhlTask(
+    { ...doneRaw, body: '<p>Left voicemail</p>' }, LOC, dealFor)!).description, 'Left voicemail')
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} ghl-tasks-check: ${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)

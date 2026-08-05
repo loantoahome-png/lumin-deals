@@ -12,9 +12,12 @@
 //   PUT  /contacts/{contactId}/tasks/{taskId}/completed  { completed: true }
 //   The obvious guesses 404: /tasks/search, /contacts/tasks/search, v1 /tasks.
 //
-// ⚠️ The search row has NO body/description — only the single-task GET does.
-// Their titles are full sentences, so v1 shows the title alone rather than
-// paying an extra GET per task on every sweep.
+// ⚠️ CORRECTION (2026-08-05): the search row DOES carry `body` — the task's
+// description. The earlier "only the single-task GET has it" note was generalised
+// from a sample of tasks that simply had none set, and cost the board descriptions
+// for nothing. Re-probed across BOTH locations: 105 rows, `body` non-empty on 10,
+// HTML on 8 (only <p>), 18-200 chars. It is already in the sweep's response, so
+// mirroring it costs no extra request.
 
 import { resolveLO } from './loanOfficer'
 import type { DealTask } from './types'
@@ -26,6 +29,7 @@ export type GhlTaskSearchRow = {
   _id: string
   locationId?: string | null
   title?: string | null
+  body?: string | null          // the description; usually <p>-wrapped HTML
   completed?: boolean
   deleted?: boolean
   dueDate?: string | null
@@ -47,6 +51,7 @@ export type GhlTaskRow = {
   deal_id: string | null
   contact_name: string | null
   title: string
+  body: string | null           // raw GHL description; plain-texted in toBoardTask
   assignee: string | null
   assigned_user_id: string | null
   due_at: string | null
@@ -74,6 +79,38 @@ function fullName(p?: { firstName?: string | null; lastName?: string | null } | 
  *  "Matthew Park" → "Matt Park"; Brianne/Efrain pass through untouched. */
 export function taskAssignee(raw: GhlTaskSearchRow): string | null {
   return resolveLO(fullName(raw.assignedToUserDetails))
+}
+
+const ENTITIES: Record<string, string> = {
+  '&nbsp;': ' ', '&amp;': '&', '&lt;': '<', '&gt;': '>',
+  '&quot;': '"', '&#39;': "'", '&#x27;': "'", '&apos;': "'",
+}
+
+/**
+ * GHL task description (HTML) → plain text for the board.
+ *
+ * The board already renders `description` as plain text with `whitespace-pre-wrap`
+ * (TaskBoard and DealTasks both do), so flattening here means no new render code,
+ * no `dangerouslySetInnerHTML`, and no sanitizer on the task path at all.
+ *
+ * ⚠️ Tags are STRIPPED BEFORE entities are decoded, never after. Decoding first
+ * would turn a literal `&lt;script&gt;` into real tag syntax that the strip pass
+ * has already gone by. Order is the whole safety argument here.
+ */
+export function taskBodyText(html: string | null | undefined): string | null {
+  if (!html) return null
+  let s = String(html)
+  // Elements whose CONTENT is not prose. Stripping only the tags would leave the
+  // script/style source sitting in the description as visible text.
+  s = s.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
+  s = s.replace(/<br\s*\/?>/gi, '\n')                       // explicit breaks
+  s = s.replace(/<\/(p|div|li|h[1-6]|tr)\s*>/gi, '\n')      // block ends
+  s = s.replace(/<li\b[^>]*>/gi, '• ')                      // keep list shape
+  s = s.replace(/<[^>]*>/g, '')                             // strip what's left
+  s = s.replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
+  s = s.replace(/&nbsp;|&amp;|&lt;|&gt;|&quot;|&#x27;|&apos;/gi, m => ENTITIES[m.toLowerCase()] ?? m)
+  s = s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n')
+  return s.trim() || null
 }
 
 /** Contact name, title-cased — GHL stores them lowercase ("john betterman"). */
@@ -109,6 +146,8 @@ export function mapGhlTask(
     deal_id: dealIdFor(raw.contactId),
     contact_name: taskContactName(raw),
     title: (raw.title ?? '').trim() || 'Untitled GHL task',
+    // Stored raw — the table mirrors GHL; flattening is the board's job.
+    body: (raw.body ?? '').trim() || null,
     assignee: taskAssignee(raw),
     assigned_user_id: raw.assignedToUserDetails?.id ?? raw.assignedTo ?? null,
     due_at: raw.dueDate ?? null,
@@ -164,7 +203,7 @@ export function toBoardTask(row: GhlTaskRow & { created_at?: string | null }): B
     id: GHL_TASK_PREFIX + row.ghl_task_id,
     deal_id: row.deal_id,
     title: row.title,
-    description: null,
+    description: taskBodyText(row.body),
     due_at: row.due_at,
     assignee: row.assignee,
     assigned_by: null,

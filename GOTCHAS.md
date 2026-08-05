@@ -380,6 +380,40 @@ rows). Clean up the window globals afterwards. Used 2026-07-16 to add `deals.ven
 **Project:** lumin-deals (works for any Supabase project ref)
 **Date:** 2026-07-16
 
+### Control Chrome `execute_javascript` runs in the ACTIVE tab, not the one you just opened
+**Tried:** the DDL recipe above. `open_url` the dashboard, read the token into `window.__tok` (worked — the
+result came back with the supabase.com href), then `fetch` the Management API from the page. Every follow-up
+call died on `TypeError: Failed to fetch`, which reads exactly like a CORS/CSP block on api.supabase.com.
+**Failed because:** it wasn't CORS. Between calls Chrome's active tab had moved to an unrelated tab, and
+`execute_javascript` follows the ACTIVE tab, not the tab `open_url` created. So the fetch was firing from
+`https://www.google.com` with `window.__tok` undefined — a cross-origin request with `Bearer undefined`. The
+tell was cheap and I should have checked it first: return `location.origin` alongside the result. It said
+`https://www.google.com` while I was assuming supabase.com.
+**What works:** grab the tab id from `list_tabs` and pass `tab_id` on EVERY `execute_javascript` call, not just
+the first. Also: an `async` IIFE returns a promise that marshals back as the useless string
+`"JavaScript executed"` — assign the result to a global (`window.__res`) and read it in a second call.
+Cheap invariant for any multi-call page session: have each call return `location.origin` and
+`typeof window.__yourGlobal` so a silent tab switch shows up immediately instead of as a fake network error.
+**Project:** any (Control Chrome generally)
+**Date:** 2026-08-05
+
+### An unverified claim written as a code comment becomes load-bearing and blocks real work
+**Tried:** the GHL task mirror shipped with `// ⚠️ The search row has NO body/description — only the
+single-task GET does.` On that basis, task descriptions were scoped out **twice** as "an extra GET per task per
+sweep" — a cost nobody wanted.
+**Failed because:** the comment was generalised from a handful of tasks that simply had no description set. A
+live re-probe of both locations (105 rows) found `body` sitting in the payload all along, non-empty on 10. The
+feature had been priced as expensive for months on the strength of a sentence no one re-checked, and the fix
+turned out to be one field carried through the mapper — the render already existed.
+**What works:** probe before pricing. A comment asserting what an API does NOT return is a claim with a
+shelf-life, not a fact; when it's the reason something isn't built, re-verify it against the live payload
+before accepting the tradeoff. Note the shape of the mistake: a *negative* claim ("X is not in the response")
+generalised from a small sample is the easiest kind to get wrong and the least likely to be re-tested, because
+nothing ever fails because of it. Same failure mode as the `tasks/search` "reopen is impossible" call on
+2026-08-04 — both were beliefs about an endpoint, held without a probe, that cost a feature.
+**Project:** lumin-deals
+**Date:** 2026-08-05
+
 ### GHL workflow-builder edits can NOT be automated via Control Chrome
 **Tried:** (1) driving the workflows UI by JS — it lives in a CROSS-ORIGIN iframe
 (`client-app-automation-workflows.leadconnectorhq.com`), unreachable from the parent frame; (2) opening that

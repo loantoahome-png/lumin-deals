@@ -1,6 +1,21 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-05] Mirrored GHL tasks now show their description
+**Status:** CHANGED — prod column applied and verified; code verified by fixtures + build. Please confirm on `/tasks` by [method] below.
+**Issue:** Mirrored GHL rows showed the title only. The reason on record — a comment at the top of `lib/ghlTasks.ts` stating *"the search row has NO body/description — only the single-task GET does"* — made this look like it would cost one extra GET per task per sweep, so it was deferred twice.
+**⚠️ That comment was FALSE, and it had become load-bearing.** Re-probed live across **both** configured locations before writing any code: **105 search rows** (27 open + 14 completed primary, 49 + 15 matt) and `body` **is** in the payload — non-empty on **10**, HTML on **8**, only `<p>` tags, 18–200 chars. The description was already arriving in the sweep's existing response and being discarded. The extra-GET cost that justified dropping it never existed.
+**Changes:**
+- NEW [supabase-add-ghl-task-body.sql](supabase-add-ghl-task-body.sql) — `ghl_tasks.body TEXT`.
+- [lib/ghlTasks.ts](lib/ghlTasks.ts) — corrected the false comment; `body` on `GhlTaskSearchRow` + `GhlTaskRow`; `mapGhlTask` stores it **raw** (the table mirrors GHL); NEW pure `taskBodyText()` flattens HTML → plain text; `toBoardTask` feeds the result into `description`.
+- [scripts/ghl-tasks-check.ts](scripts/ghl-tasks-check.ts) — 46 → **62** assertions.
+- **No render code changed.** `TaskBoard` and `DealTasks` already render `task.description` with `whitespace-pre-wrap`, so flattening at the adapter meant no `dangerouslySetInnerHTML`, no DOMPurify, and no sanitizer anywhere on the task path.
+**⚠️ Ordering, both kinds:**
+1. **Migration before deploy.** `syncGhlTasks` upserts the whole mapped row (`{ ...r, last_seen_at, updated_at }`). With `body` in the object but not the table, PostgREST rejects the upsert and the location is skipped `pruned: false` — no new GHL task reaches the board. Column was applied **first**, before the push.
+2. **Tags are stripped BEFORE entities are decoded.** Decoding first would turn a literal `&lt;script&gt;` into real tag syntax *after* the strip pass had already run. Fixture-locked in both directions: escaped markup stays visible text, a real `<script>` element is dropped **with its contents** (stripping only the tags left `alert(1)` sitting in the description — the fixture caught it).
+**Test Method:** live probe of `POST /locations/{id}/tasks/search` on both locations (read-only, no writes, no contact names printed); `information_schema` read before and after the DDL; full fixture suite. **To confirm:** open `/tasks` — the ~10 tasks that have a description in GHL should show it as a muted second line under the title. It fills in on the next 15-min sweep (or hit "Sync GHL").
+**Result:** prod column live — `body / text / is_nullable YES`. **21/21 suites** by exit code, `ghl-tasks-check` **62 passed, 0 failed**. `tsc --noEmit` unchanged at exactly **7 pre-existing** errors, none in a touched file. `next build` OK.
+
 ### [2026-08-05] Reassign on the deal page too
 **Status:** VERIFIED on prod through Efrain's logged-in session, on a real deal.
 **Issue:** Efrain: *"can you also add this to the deal page"* — reassign had shipped on `/tasks` and the Follow-Up cockpit but not the deal-page task card.
