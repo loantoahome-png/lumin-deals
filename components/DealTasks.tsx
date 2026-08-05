@@ -13,6 +13,7 @@ import {
   type BoardTask, type GhlTaskRow,
 } from '@/lib/ghlTasks'
 import GhlTaskForm from '@/components/GhlTaskForm'
+import GhlReassign from '@/components/GhlReassign'
 import {
   CheckCircle2, Circle, Trash2, Plus, X, Calendar, User,
   ExternalLink, Flame,
@@ -169,6 +170,8 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
     setShowForm(false)
   }
 
+  // Which mirrored GHL row has its reassign picker open (by ghl_task_id).
+  const [reassigning, setReassigning] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   async function updateTask(id: string, patch: Omit<DealTask, 'id' | 'created_at'>) {
     const prevAssignee = tasks.find(t => t.id === id)?.assignee ?? null
@@ -251,15 +254,29 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
       ) : (
         <div className="space-y-1.5">
           {sorted.map(task => isGhlTask(task) ? (
-            // Mirrored from GHL: complete and delete both write back; no edit,
-            // the text lives in GHL.
+            // Mirrored from GHL: complete and delete write back, and the row can
+            // be REASSIGNED. Title and description still live in GHL — only
+            // ownership is editable from here.
+            reassigning === task.ghl_task_id ? (
+              <GhlReassign
+                key={task.id}
+                task={task}
+                onDone={assignee => {
+                  setTasks(prev => prev.map(x => x.ghl_task_id === task.ghl_task_id ? { ...x, assignee } : x))
+                  setReassigning(null)
+                }}
+                onCancel={() => setReassigning(null)}
+              />
+            ) : (
             <TaskRow
               key={task.id}
               task={task}
               badge="GHL"
               onToggle={() => toggleComplete(task)}
+              onEdit={() => setReassigning(task.ghl_task_id ?? null)}
               onDelete={() => deleteMirroredTask(task)}
             />
+            )
           ) : editingId === task.id ? (
             <TaskForm
               key={task.id}
