@@ -2,7 +2,7 @@
 # Verification Log — Lumin Deals
 
 ### [2026-08-05] Processor Checklist on the deal page
-**Status:** CHANGED — code verified by fixtures + build + route mount. ⚠️ **NOT deployed and NOT visually verified.** Two blockers below, both needing Efrain.
+**Status:** **VERIFIED on prod.** Column applied first, then deployed (`c36adb9` → `lumin-deals-f62n5xd16`), then checked on a real in-process deal through Efrain's logged-in tab, read-only. ⚠️ One thing still unverified and one still open — see the bottom.
 **Issue:** Efrain: *"Is there a way to add a button here that will lead to a processor checklist for that specific file? I only need this page to be on loans that in the Loans in Process pipeline. Once it funds I will no longer need this page. I just need this so we can know what has already been done on the file and know where we are at."*
 **Decisions he made:** separate page (not an inline panel); one template for all in-process loans (not per loan-type); stamp **who + when** per item; **note field** per item.
 **Changes:**
@@ -19,9 +19,18 @@
 **⚠️ Every write uses `.select()` and checks `data.length`.** Per the reply-inbox gotcha, an RLS-refused client write returns no error and 0 rows — without this the page would show every tick as saved and lose them all. Surfaces as a red banner.
 **Test Method:** `npx tsx scripts/processor-checklist-check.ts`; full suite by exit code; `npx tsc --noEmit`; `npx next build`; route mounted in a local dev-bypass browser.
 **Result:** **72/72** new fixtures pass. **22/22** suites exit 0 (was 21 + this one). `tsc --noEmit` = exactly **7 pre-existing** errors, **none** in any new or touched file (confirmed by filename). `next build` ✓ with `/deals/[id]/checklist` registered. Route mounts clean — renders its "Deal not found" state with no console errors.
-**⚠️ NOT verified — needs Efrain:**
-1. **The populated UI was never seen.** `deals` rejects anonymous reads, so the dev-bypass browser returns 0 rows, and typing his password is off-limits. Everything past "the component mounts" is untested visually.
-2. **The 26 checklist items are a DRAFT and are not his process.** The phase spine is derived from the real `PIPELINE_STATUSES['Loans in Process']`; the sub-steps (appraisal / title / HOI / VOE / payoff / CD) are **guesses** pending his edit. `ord-payoff` is refi-only but present on every file, since he chose one template for all.
+**Prod verification (2026-08-05, read-only through Efrain's logged-in tab):**
+- Migration applied FIRST via the Management API recipe — `information_schema` returned `processor_checklist / jsonb / YES`. Dashboard token was held in `window.__tok`, never echoed, and both page globals were deleted afterwards.
+- `lumin-deals.vercel.app` alias confirmed pointing at `lumin-deals-f62n5xd16` (target production, ● Ready) — checked with `vercel inspect` rather than trusting the deploy output, which also prints a "Promote to production" hint.
+- Button renders on a real in-process deal: *"Processor Checklist · 0 of 25 complete · Start →"*.
+- **The refi gate works on live data:** that deal's `loan_purpose` is **Purchase**, and the page renders **25** checkboxes with "Payoff ordered" absent. 25 = 26 − 1, exactly as the fixture predicts.
+- Checklist page loads with no save-error banner. **Nothing was ticked on a real file.**
+
+**⚠️ STILL NOT verified:**
+- **No write has ever executed.** Ticking an item on prod was deliberately not done — the standing rule is to never write test data to Efrain's real records, and there's no throwaway deal to use. The write path is the same client-side `supabase.from('deals').update()` that `EscrowTracker.saveField` and the deal page already run in production, and the column now exists, so the risk is low — but it is inference, not observation. The failure mode is loud by design (red banner on 0 rows returned).
+
+**⚠️ STILL OPEN — needs Efrain:**
+- **The 25 items are a DRAFT, not his process.** The phase spine comes from the real `PIPELINE_STATUSES['Loans in Process']`; the sub-steps (appraisal / title / HOI / VOE / payoff / CD) are **guesses** awaiting his edit. Changing them is a pure edit to `CHECKLIST_TEMPLATE` — labels and order are free, ids are not.
 
 ### [2026-08-05] Mirrored GHL tasks now show their description
 **Status:** CHANGED — prod column applied and verified; code verified by fixtures + build. Please confirm on `/tasks` by [method] below.
