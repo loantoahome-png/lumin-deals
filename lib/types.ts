@@ -1,3 +1,5 @@
+import type { ChecklistState } from './processorChecklist'
+
 // One PERSON (Contacts Phase 2). id = the canonical borrower_id; deals.borrower_id
 // is the foreign key. Derived + maintained by the identity resolver — not hand-edited.
 export type Contact = {
@@ -142,6 +144,10 @@ export type Deal = {
   ghl_status: string | null                     // GHL opportunity status: 'open' | 'won' | 'lost' | 'abandoned'
   communications: Communication[] | null      // contact log per deal
   documents: DealDocument[] | null             // per-deal document checklist
+  // Processor checklist STATE only — the item definitions live in
+  // lib/processorChecklist.ts. NULL = never opened. See that file for why the
+  // two are split (renaming a step must not need a data migration).
+  processor_checklist: ChecklistState[] | null
   created_at: string
   updated_at: string
 }

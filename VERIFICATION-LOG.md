@@ -1,6 +1,28 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-05] Processor Checklist on the deal page
+**Status:** CHANGED — code verified by fixtures + build + route mount. ⚠️ **NOT deployed and NOT visually verified.** Two blockers below, both needing Efrain.
+**Issue:** Efrain: *"Is there a way to add a button here that will lead to a processor checklist for that specific file? I only need this page to be on loans that in the Loans in Process pipeline. Once it funds I will no longer need this page. I just need this so we can know what has already been done on the file and know where we are at."*
+**Decisions he made:** separate page (not an inline panel); one template for all in-process loans (not per loan-type); stamp **who + when** per item; **note field** per item.
+**Changes:**
+- NEW [supabase-add-processor-checklist.sql](supabase-add-processor-checklist.sql) — `deals.processor_checklist JSONB`. **NOT YET APPLIED.**
+- NEW [lib/processorChecklist.ts](lib/processorChecklist.ts) — the template (26 draft items over 5 phases) + pure helpers: `mergeChecklist`, `toState`, `checklistProgress`, `toggleItem`, `setNote`, `phasesPresent`, `currentPhase`.
+- NEW [app/deals/[id]/checklist/page.tsx](app/deals/[id]/checklist/page.tsx) — the page; auto-saves; progress bar; grouped by phase.
+- NEW [scripts/processor-checklist-check.ts](scripts/processor-checklist-check.ts) — **72** fixtures.
+**Payoff is refi-only (Efrain, follow-up).** `ChecklistDef.only?: 'Purchase' | 'Refinance'` + `applicableTemplate()`; `ord-payoff` is the only gated step. This is a per-item exception, NOT a second template — his "one template for all" decision stands. ⚠️ A null / blank / unrecognised `loan_purpose` shows the item: silently dropping a step a processor needed beats one extra line to ignore. ⚠️ Flipping a loan Refinance→Purchase after payoff was ticked RETAINS it as retired (with its real label, not the raw id) rather than erasing it, and flipping back restores it as a normal row — both fixture-locked, as is "saving a purchase does not drop the retained refi state".
+- [app/deals/[id]/page.tsx](app/deals/[id]/page.tsx) — the button at the Next-Step/detail seam, gated on `pipeline_group === 'Loans in Process'`, showing done/total + current phase.
+- [lib/types.ts](lib/types.ts) — `processor_checklist` on `Deal`; [components/DealForm.tsx](components/DealForm.tsx) — same key on `emptyDeal`.
+**⚠️ Key design point — definitions in CODE, state in the DB.** The column stores only `{id, done_at, done_by, note}`. Renaming a label or reordering the list is therefore a pure code edit with **no data migration**. The `id` is the sole join key, so **an id must never change once shipped** — changing one silently orphans every tick recorded against it. Fixture-locked (`drift: renaming a LABEL keeps the tick`).
+**⚠️ Deleting a template line cannot erase recorded work.** A removed item that was ticked (or carries a note) is retained and flagged `retired`, sorted last, excluded from progress. Only *untouched* removed items are dropped. Fixture-locked in both directions.
+**⚠️ Migration before deploy.** The page reads and writes `deals.processor_checklist`. Deploying first means every tick silently fails. `fetchAllDeals`'s explicit column list was deliberately **left untouched** so an un-migrated DB can't break the shared deal queries; the deal page uses `select('*')`, where a missing column is simply absent.
+**⚠️ Every write uses `.select()` and checks `data.length`.** Per the reply-inbox gotcha, an RLS-refused client write returns no error and 0 rows — without this the page would show every tick as saved and lose them all. Surfaces as a red banner.
+**Test Method:** `npx tsx scripts/processor-checklist-check.ts`; full suite by exit code; `npx tsc --noEmit`; `npx next build`; route mounted in a local dev-bypass browser.
+**Result:** **72/72** new fixtures pass. **22/22** suites exit 0 (was 21 + this one). `tsc --noEmit` = exactly **7 pre-existing** errors, **none** in any new or touched file (confirmed by filename). `next build` ✓ with `/deals/[id]/checklist` registered. Route mounts clean — renders its "Deal not found" state with no console errors.
+**⚠️ NOT verified — needs Efrain:**
+1. **The populated UI was never seen.** `deals` rejects anonymous reads, so the dev-bypass browser returns 0 rows, and typing his password is off-limits. Everything past "the component mounts" is untested visually.
+2. **The 26 checklist items are a DRAFT and are not his process.** The phase spine is derived from the real `PIPELINE_STATUSES['Loans in Process']`; the sub-steps (appraisal / title / HOI / VOE / payoff / CD) are **guesses** pending his edit. `ord-payoff` is refi-only but present on every file, since he chose one template for all.
+
 ### [2026-08-05] Mirrored GHL tasks now show their description
 **Status:** CHANGED — prod column applied and verified; code verified by fixtures + build. Please confirm on `/tasks` by [method] below.
 **Issue:** Mirrored GHL rows showed the title only. The reason on record — a comment at the top of `lib/ghlTasks.ts` stating *"the search row has NO body/description — only the single-task GET does"* — made this look like it would cost one extra GET per task per sweep, so it was deferred twice.

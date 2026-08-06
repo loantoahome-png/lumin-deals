@@ -101,6 +101,7 @@ const emptyDeal: DealFormData = {
   comm_unread_count: null,
   communications: null,
   documents: null,
+  processor_checklist: null,
   // Purchase contingency dates (added with the contingency tracker)
   escrow_start_date: null,
   inspection_contingency_date: null,

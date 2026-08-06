@@ -27,6 +27,8 @@ import { isNonDel, discountCredit } from '@/lib/comp'
 import DealTasks from '@/components/DealTasks'
 import { PROCESSORS } from '@/lib/types'
 import type { REOProperty } from '@/lib/types'
+import { mergeChecklist, checklistProgress, currentPhase } from '@/lib/processorChecklist'
+import type { ChecklistState } from '@/lib/processorChecklist'
 
 // ── Format helpers ──────────────────────────────────────────────────────────
 function fmtMoneyShort(n: number | null | undefined): string {
@@ -680,6 +682,45 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
         </div>
         <NextStepLog deal={form as Deal} onUpdate={updateNextStep} />
       </div>
+
+      {/* ── Processor Checklist ───────────────────────────────────────────
+           Only while the loan is actually in processing. `pipeline_group`
+           flips to 'Funded' the moment the status becomes Loan Funded /
+           Broker Check Received / Loan Finalized (pipelineGroupForStatus in
+           lib/ariveCsv.ts checks FUNDED first), so this button retires itself
+           on funding with no extra logic. The page behind it stays reachable
+           by URL — funding hides the workflow, it doesn't delete the record. */}
+      {form.pipeline_group === 'Loans in Process' && (() => {
+        const rows = mergeChecklist(
+          form.processor_checklist as ChecklistState[] | null,
+          undefined,
+          form.loan_purpose as string | null,
+        )
+        const p = checklistProgress(rows)
+        const phase = currentPhase(rows)
+        return (
+          <Link
+            href={`/deals/${form.id}/checklist`}
+            className="group mb-5 flex items-center gap-3 rounded-xl bg-white border border-slate-200 shadow-sm px-4 py-3 hover:border-blue-400 hover:shadow transition-all"
+          >
+            <ClipboardList className="w-4 h-4 text-blue-600 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <span className="text-sm font-semibold text-slate-800">Processor Checklist</span>
+                <span className="text-xs text-slate-500">
+                  {p.done} of {p.total} complete{phase ? ` · in ${phase}` : ''}
+                </span>
+              </div>
+              <div className="mt-1.5 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${p.pct}%` }} />
+              </div>
+            </div>
+            <span className="text-xs font-medium text-blue-600 group-hover:underline shrink-0">
+              {p.done === 0 ? 'Start' : 'Open'} →
+            </span>
+          </Link>
+        )
+      })()}
 
       {error && (
         <div className="mb-4 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg">{error}</div>
