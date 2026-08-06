@@ -167,3 +167,35 @@ export function resolveLeadSource(...candidates: Array<string | null | undefined
   }
   return null
 }
+
+// ── Date inputs: make the WHOLE field open the picker ───────────────────────
+// Chrome's `<input type="date">` only opens its calendar when you hit the
+// ~16px indicator glyph at the right edge. Everywhere else in the field just
+// puts a caret in a segment, so a click that misses by a few pixels looks
+// like the picker is broken. Efrain reported exactly that on the task form.
+//
+// Nothing in this app blocks the native picker — verified on a live page:
+// the input isn't readOnly/disabled, nothing overlays the indicator
+// (`elementFromPoint` at the glyph hits the input itself), no CSS touches
+// `::-webkit-calendar-picker-indicator` beyond opacity, and `showPicker()`
+// resolves fine from a trusted click. The hit target is simply tiny.
+//
+// So: widen the target to the entire field.
+//
+// ⚠️ `showPicker()` THROWS rather than returning an error —
+//    `NotAllowedError` without user activation, `InvalidStateError` in some
+//    states — and doesn't exist at all on older Safari/Firefox. Every failure
+//    mode must be swallowed: the native indicator still works underneath, so
+//    the worst case is the old behaviour, never a crashed handler.
+//
+// Usage: <input type="date" onClick={openDatePicker} … />
+export function openDatePicker(e: { currentTarget: HTMLInputElement }): void {
+  const el = e.currentTarget
+  try {
+    // Optional-chained: absent on browsers that never shipped showPicker.
+    (el as HTMLInputElement & { showPicker?: () => void }).showPicker?.()
+  } catch {
+    // Already open, no user activation, or unsupported — the native
+    // indicator still handles it. Deliberately silent.
+  }
+}

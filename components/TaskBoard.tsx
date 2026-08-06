@@ -10,7 +10,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Calendar, CheckCircle2, Circle, ExternalLink, Flame, Plus, Trash2, User, X } from 'lucide-react'
-import { TIME_OPTIONS } from '@/lib/utils'
+import { TIME_OPTIONS, openDatePicker } from '@/lib/utils'
 import { TASK_ASSIGNEES, type Deal, type DealTask } from '@/lib/types'
 
 // ── Time helpers (all-day tasks are stored at 23:59 local) ───────────────────
@@ -492,7 +492,7 @@ export function NewTaskForm({ deals, initialTask, initialAssignee, onSubmit, onC
               </button>
             )}
           </div>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm" />
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} onClick={openDatePicker} className="w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm" />
         </div>
         <div>
           <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Due time</label>

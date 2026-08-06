@@ -1,6 +1,18 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-06] Clicking a date field opens the picker (whole field, not just the glyph)
+**Status:** CHANGED — mechanism verified live, but ⚠️ **the reported failure was never reproduced.** Please confirm on the task form.
+**Issue:** Efrain: *"When I click on the calendar icon, the calendar to pick a date does not pop up."*
+**⚠️ I could NOT reproduce it, and everything measurable came back healthy.** Probed a live page directly: the input is not `readOnly`/`disabled`; `pointer-events` is `auto`; `elementFromPoint` at the calendar glyph hits the **input itself**, so nothing overlays it; the only CSS touching `::-webkit-calendar-picker-indicator` sets `opacity` (the nearby `pointer-events: none` in globals.css belongs to the *notes editor* placeholder, a different rule); there are no timers that could remount the input mid-click (the sole `setInterval` is NotificationBell's 5-minute refresh); and `showPicker()` resolves fine from a **trusted** click. So the native picker is not being blocked.
+**What it is instead:** Chrome only opens the calendar from the ~16px indicator glyph at the right edge. Every other pixel of the field just drops a caret into a date segment — a click that misses by a hair looks exactly like "the picker is broken". The fix widens the hit target to the whole field rather than guessing at a cause the evidence doesn't support.
+**Changes:** NEW `openDatePicker()` in [lib/utils.ts](lib/utils.ts), wired to `onClick` on the five hand-filled date inputs: [TaskBoard](components/TaskBoard.tsx) (NewTaskForm), [DealTasks](components/DealTasks.tsx), [GhlTaskForm](components/GhlTaskForm.tsx), [FollowUpTaskModals](components/FollowUpTaskModals.tsx) (FUB task), and `DateInput` on [the deal page](app/deals/[id]/page.tsx).
+**⚠️ `showPicker()` throws rather than returning an error** — `NotAllowedError` without user activation, `InvalidStateError` in some states — and doesn't exist on older Safari/Firefox. Every failure mode is swallowed: the native glyph still works underneath, so the worst case is the old behaviour, never a broken handler.
+**⚠️ Double-fire checked, not assumed:** clicking the native glyph now ALSO runs our handler. Armed a logging handler and clicked the glyph directly with a **trusted** click — `showPicker()` returned OK with no throw and no toggle-shut, matching the spec's "if the picker is already showing, return" path.
+**Test Method:** live browser. Trusted clicks via the automation's real input path (not synthetic events, which carry no user activation). ⚠️ CDP screenshots do **not** capture native popups, so "did the calendar visibly appear" is not screenshot-verifiable — hence the `showPicker()` return value was used as the signal instead.
+**Result:** tsc unchanged at exactly **7** pre-existing, none in a touched file; **22/22** suites exit 0; `next build` ✓. **Still needs Efrain:** confirm on the actual task form, and say which screen it was — if it still fails there while the field-wide click works elsewhere, that narrows it to that surface.
+**Not touched:** the filter/report date inputs (lead-cohorts, reports, lead-roi, pipeline). Same one-line fix applies if wanted; they're filters rather than data entry, so they were left out of scope.
+
 ### [2026-08-06] Due today is VIOLET, everywhere — superseded the blue attempt below
 **Status:** **VERIFIED on prod** by computed styles across the task board, the deal page and Active Escrows.
 **Issue:** Efrain, on the blue version: *"Actually yea do a different color, blue should be an indicator for a link."* Correct — blue is the link/primary colour throughout this app, so a due date wearing it invites a click that does nothing. Same message asked to align the escrow chips.

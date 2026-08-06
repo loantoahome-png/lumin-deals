@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { notifyTask } from '@/lib/notifyTask'
-import { TIME_OPTIONS } from '@/lib/utils'
+import { TIME_OPTIONS, openDatePicker } from '@/lib/utils'
 import { DealTask, TASK_ASSIGNEES } from '@/lib/types'
 // This contact's GoHighLevel tasks show here too — same mirror /tasks and the
 // Follow-Up cockpit read, matched to this deal at sync time.
@@ -475,6 +475,7 @@ function TaskForm({ initialTask, onSubmit, onCancel, forcedDealId }: {
             type="date"
             value={date}
             onChange={e => setDate(e.target.value)}
+            onClick={openDatePicker}
             className="w-full px-2 py-1.5 border border-slate-200 rounded-md text-sm"
           />
         </div>

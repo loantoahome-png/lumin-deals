@@ -21,7 +21,7 @@ import CoborrowerManager from '@/components/CoborrowerManager'
 import RealEstateOwned from '@/components/RealEstateOwned'
 import ConversationThread from '@/components/ConversationThread'
 import { ghlContactUrl } from '@/lib/ghlLinks'
-import { isChannelBlocked, dndLabel } from '@/lib/utils'
+import { isChannelBlocked, dndLabel, openDatePicker } from '@/lib/utils'
 import { isFunded } from '@/lib/leadReport'
 import { isNonDel, discountCredit } from '@/lib/comp'
 import DealTasks from '@/components/DealTasks'
@@ -135,6 +135,7 @@ function DateInput({ value, onChange }: {
       type="date"
       value={v}
       onChange={e => onChange(e.target.value)}
+      onClick={openDatePicker}
       className={`${inp} ${v === '' ? 'date-empty' : ''}`}
     />
   )

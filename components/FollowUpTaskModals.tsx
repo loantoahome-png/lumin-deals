@@ -13,6 +13,7 @@
 // the deal/person pre-filled.
 
 import { useEffect, useMemo, useState } from 'react'
+import { openDatePicker } from '@/lib/utils'
 import { X, ListTodo, Search } from 'lucide-react'
 import { NewTaskForm } from '@/components/TaskBoard'
 import type { Deal, DealTask } from '@/lib/types'
@@ -176,7 +177,7 @@ export function NewFubTaskModal({ people, initialPersonId, onCreate, onClose }: 
           </div>
           <div>
             <label className={labelCls}>Due date <span className="text-slate-400">(FUB tasks have no time)</span></label>
-            <input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} />
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} onClick={openDatePicker} className={inputCls} />
           </div>
         </div>
 

@@ -14,7 +14,7 @@
 
 import { useMemo, useState } from 'react'
 import { Deal, TASK_ASSIGNEES } from '@/lib/types'
-import { TIME_OPTIONS } from '@/lib/utils'
+import { TIME_OPTIONS, openDatePicker } from '@/lib/utils'
 import { combineDateTime } from '@/components/TaskBoard'
 import { toBoardTask, type BoardTask, type GhlTaskRow } from '@/lib/ghlTasks'
 import { X, Loader2 } from 'lucide-react'
@@ -102,6 +102,7 @@ export default function GhlTaskForm({
         <div>
           <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Due date (required by GHL)</label>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} required
+            onClick={openDatePicker}
             className="w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm" />
         </div>
         <div>
