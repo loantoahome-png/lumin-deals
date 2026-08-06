@@ -68,7 +68,7 @@ function relativeDue(iso: string | null): { label: string; tone: DueTone } {
   // All-day tasks: no time shown, not "overdue" until the day fully passes.
   if (isAllDay(iso)) {
     if (dayDelta < 0)  return { label: dayDelta === -1 ? 'Overdue · yesterday' : `Overdue ${-dayDelta}d`, tone: 'red' }
-    if (dayDelta === 0) return { label: 'Today', tone: 'blue' }
+    if (dayDelta === 0) return { label: 'Today', tone: 'violet' }
     if (dayDelta === 1) return { label: 'Tomorrow', tone: 'slate' }
     return { label: dateStr, tone: 'slate' }
   }
@@ -79,7 +79,7 @@ function relativeDue(iso: string | null): { label: string; tone: DueTone } {
     const ago = Math.abs(days)
     return { label: ago === 0 ? `Overdue · was ${time}` : `Overdue ${ago}d`, tone: 'red' }
   }
-  if (dayDelta === 0) return { label: `Today · ${time}`, tone: 'blue' }
+  if (dayDelta === 0) return { label: `Today · ${time}`, tone: 'violet' }
   if (dayDelta === 1) return { label: `Tomorrow · ${time}`, tone: 'slate' }
   return { label: `${dateStr} · ${time}`, tone: 'slate' }
 }

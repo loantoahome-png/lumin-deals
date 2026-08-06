@@ -242,7 +242,7 @@ export default function Dashboard() {
                 )}
                 {overdueItems.length > 0 && dueTodayItems.length > 0 && ' · '}
                 {dueTodayItems.length > 0 && (
-                  <span className="font-semibold text-amber-600">{dueTodayItems.length} due today</span>
+                  <span className="font-semibold text-violet-600">{dueTodayItems.length} due today</span>
                 )}
               </span>
             </div>
@@ -261,9 +261,9 @@ export default function Dashboard() {
                   href={`/deals/${d.id}`}
                   className="flex items-center gap-3 px-5 py-2.5 hover:bg-slate-50 transition group"
                 >
-                  <div className={`shrink-0 w-1 h-10 rounded-full ${isOverdueRow ? 'bg-red-500' : 'bg-amber-400'}`} />
+                  <div className={`shrink-0 w-1 h-10 rounded-full ${isOverdueRow ? 'bg-red-500' : 'bg-violet-500'}`} />
                   <div className="shrink-0 w-20 text-right">
-                    <div className={`text-xs font-semibold ${isOverdueRow ? 'text-red-700' : 'text-amber-700'}`}>
+                    <div className={`text-xs font-semibold ${isOverdueRow ? 'text-red-700' : 'text-violet-700'}`}>
                       {isOverdueRow ? 'Overdue' : time}
                     </div>
                     <div className="text-[10px] text-slate-400">
@@ -304,7 +304,7 @@ export default function Dashboard() {
               <span className="text-xs text-slate-500 flex items-center gap-1">
                 {tasksOverdue > 0 && <span className="font-semibold text-red-600">{tasksOverdue} overdue</span>}
                 {tasksOverdue > 0 && tasksToday > 0 && '·'}
-                {tasksToday > 0 && <span className="font-semibold text-amber-600">{tasksToday} due today</span>}
+                {tasksToday > 0 && <span className="font-semibold text-violet-600">{tasksToday} due today</span>}
                 {tasksUndated > 0 && (tasksOverdue > 0 || tasksToday > 0) && '·'}
                 {tasksUndated > 0 && <span className="font-semibold text-slate-500">{tasksUndated} no date</span>}
               </span>

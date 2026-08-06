@@ -1,7 +1,15 @@
 
 # Verification Log — Lumin Deals
 
-### [2026-08-06] Tasks due today are blue, not amber
+### [2026-08-06] Due today is VIOLET, everywhere — superseded the blue attempt below
+**Status:** **VERIFIED on prod** by computed styles across the task board, the deal page and Active Escrows.
+**Issue:** Efrain, on the blue version: *"Actually yea do a different color, blue should be an indicator for a link."* Correct — blue is the link/primary colour throughout this app, so a due date wearing it invites a click that does nothing. Same message asked to align the escrow chips.
+**Colour reasoning (all three rejects matter):** ~~amber~~ neighbours red and collapses under red-green colour blindness. ~~blue~~ is the link colour. ~~teal~~ was the other cool candidate and is the interesting reject: it sits next to `emerald`, which marks a **completed** task *in the very same row* — swapping "done" for "due today" is a worse failure than the one being fixed. **Violet** is far from red, isn't the link colour, and doesn't neighbour emerald. It's used categorically elsewhere (Pitching, FUB badge, Referral source) but never inside a task row or escrow card, so it carries no competing meaning where it now appears.
+**Escrow surfaces aligned (`next_action_due`):** the Today filter chip, the card border+ring highlight, the "Today" alert badge, and the due label under the date picker — plus the dashboard Next Steps bar/label and both "N due today" counters. `FilterChip` gained a `violet` tone.
+**⚠️ Amber deliberately KEPT where it isn't "due today":** the **Blocked** chip (a different warning, and it must stay distinct from Today now that they're adjacent chips), the unassigned-processor filter, the Disclosed status colour, the unsaved-date hint, the KPI accent, and the data-health "Missing:" note. Grepped the touched files to confirm every surviving `amber` is one of those.
+**Result:** tsc unchanged at exactly **7** pre-existing, none in a touched file; **22/22** suites exit 0; `next build` ✓. Prod computed styles below.
+
+### [2026-08-06] Tasks due today are blue, not amber — SUPERSEDED same day (blue reads as a link)
 **Status:** **VERIFIED on prod** by reading computed styles off the live `/tasks` board.
 **Issue:** Efrain: *"I think we should differentiate the color for tasks due today and tasks that are overdue."* They were already different — `text-red-700` vs `text-amber-700` — but not differently *enough*: neighbouring hues at 11px read as one warm colour, and red/amber is the exact pair that collapses under red-green colour blindness. The two states hardest to tell apart were the two that most needed telling apart.
 **Changes:** today's tone `'amber'` → `'blue'` in BOTH copies of `relativeDue` ([components/TaskBoard.tsx](components/TaskBoard.tsx), [components/DealTasks.tsx](components/DealTasks.tsx)). Blue is the furthest common hue from red, survives both problems, and fits the meaning — a task due today isn't late, so it shouldn't wear a warning colour.

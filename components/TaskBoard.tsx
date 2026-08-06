@@ -59,27 +59,33 @@ export function relativeCompleted(iso: string | null): string {
 // ── Due-date tone ───────────────────────────────────────────────────────────
 // 'red' = late, 'blue' = due today (not late), 'slate' = later / undated.
 //
-// ⚠️ Today is BLUE, not amber. Red and amber are neighbouring hues: at this
-//    text size they read as the same "warm" colour at a glance, and they are
-//    the exact pair that collapses under red-green colour blindness, so
-//    "Overdue" and "Today" were the two states hardest to tell apart. Blue is
-//    the furthest common hue from red and survives both problems. It also
-//    matches the meaning — a task due today is NOT late, so it shouldn't wear
-//    a warning colour at all.
-export type DueTone = 'red' | 'blue' | 'slate'
+// ⚠️ Today is VIOLET. Not amber, and not blue.
+//    - NOT amber: red and amber are neighbouring hues that read as one warm
+//      colour at 11px, and they're the exact pair that collapses under
+//      red-green colour blindness — so the two states hardest to tell apart
+//      were the two that most needed it.
+//    - NOT blue: blue means "link" in this app. A due date isn't clickable.
+//    Violet is far from red on the hue wheel, isn't the link colour, and —
+//    the reason teal was rejected — doesn't sit next to `emerald`, which marks
+//    a COMPLETED task in this very same row. Violet is used categorically
+//    elsewhere (Pitching, the FUB badge, Referral source) but never inside a
+//    task row or an escrow card, so it carries no competing meaning here.
+//    It also fits: a task due today is NOT late and shouldn't wear a warning
+//    colour at all.
+export type DueTone = 'red' | 'violet' | 'slate'
 
 /** tone → text classes. Single source: three surfaces render this. */
 export const DUE_TONE_TEXT: Record<DueTone, string> = {
-  red:   'text-red-700 font-semibold',
-  blue:  'text-blue-700 font-semibold',
-  slate: 'text-slate-500',
+  red:    'text-red-700 font-semibold',
+  violet: 'text-violet-700 font-semibold',
+  slate:  'text-slate-500',
 }
 
 /** tone → the small colour bar on the dashboard widget. */
 export const DUE_TONE_BAR: Record<DueTone, string> = {
-  red:   'bg-red-500',
-  blue:  'bg-blue-500',
-  slate: 'bg-slate-300',
+  red:    'bg-red-500',
+  violet: 'bg-violet-500',
+  slate:  'bg-slate-300',
 }
 
 export function relativeDue(iso: string | null): { label: string; tone: DueTone } {
@@ -102,7 +108,7 @@ export function relativeDue(iso: string | null): { label: string; tone: DueTone 
   // All-day tasks: no time shown, and not "overdue" until the day fully passes.
   if (allDay) {
     if (dayDelta < 0)   return { label: dayDelta === -1 ? 'Overdue · yesterday' : `Overdue ${-dayDelta}d`, tone: 'red' }
-    if (dayDelta === 0) return { label: 'Today', tone: 'blue' }
+    if (dayDelta === 0) return { label: 'Today', tone: 'violet' }
     if (dayDelta === 1) return { label: 'Tomorrow', tone: 'slate' }
     return { label: dateStr, tone: 'slate' }
   }
@@ -114,7 +120,7 @@ export function relativeDue(iso: string | null): { label: string; tone: DueTone 
     const hrs = Math.floor((now.getTime() - due.getTime()) / 3_600_000)
     return { label: hrs >= 1 ? `Overdue ${hrs}h` : 'Overdue', tone: 'red' }
   }
-  if (dayDelta === 0) return { label: `Today ${time}`, tone: 'blue' }
+  if (dayDelta === 0) return { label: `Today ${time}`, tone: 'violet' }
   if (dayDelta === 1) return { label: `Tomorrow ${time}`, tone: 'slate' }
   return { label: `${dateStr} ${time}`, tone: 'slate' }
 }

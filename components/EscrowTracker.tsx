@@ -337,7 +337,7 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
           <FilterChip active={filter==='all'}        onClick={() => setFilter('all')}        label="All"           count={counts.all} />
           <FilterChip active={filter==='mine'}       onClick={() => setFilter('mine')}       label="My follow-ups" count={counts.mine} disabled={!currentUser} />
           <FilterChip active={filter==='overdue'}    onClick={() => setFilter('overdue')}    label="Overdue"       count={counts.overdue} tone="red" />
-          <FilterChip active={filter==='today'}      onClick={() => setFilter('today')}      label="Today"         count={counts.today} tone="amber" />
+          <FilterChip active={filter==='today'}      onClick={() => setFilter('today')}      label="Today"         count={counts.today} tone="violet" />
           <FilterChip active={filter==='week'}       onClick={() => setFilter('week')}       label="This week"     count={counts.week} />
           <FilterChip active={filter==='blocked'}    onClick={() => setFilter('blocked')}    label="Blocked"       count={counts.blocked} tone="amber" />
           <FilterChip active={filter==='above_sla'}  onClick={() => setFilter('above_sla')}  label="Above SLA"     count={counts.above_sla} />
@@ -534,10 +534,14 @@ function DraggableEscrowCard({ deal, onUpdate }: {
 }
 
 function FilterChip({ active, onClick, label, count, tone, disabled }: {
-  active: boolean; onClick: () => void; label: string; count: number; tone?: 'red'|'amber'; disabled?: boolean
+  active: boolean; onClick: () => void; label: string; count: number; tone?: 'red'|'amber'|'violet'; disabled?: boolean
 }) {
+  // ⚠️ 'violet' = due today, matching the task board's DueTone. 'amber' is
+  //    still Blocked — a genuinely different warning, kept distinct on purpose.
   const activeColor = tone === 'red'
     ? 'bg-red-50 text-red-700 ring-1 ring-red-200'
+    : tone === 'violet'
+    ? 'bg-violet-50 text-violet-700 ring-1 ring-violet-200'
     : tone === 'amber'
     ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
     : 'bg-white text-slate-900 shadow-sm'
@@ -586,7 +590,7 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
   const borderClass = overdue
     ? 'border-red-300 ring-2 ring-red-100'
     : today
-    ? 'border-amber-300 ring-2 ring-amber-100'
+    ? 'border-violet-300 ring-2 ring-violet-100'
     : 'border-slate-200'
 
   const ghlUrl = ghlContactUrl(deal)
@@ -659,7 +663,7 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
             </span>
           )}
           {today && (
-            <span className="flex items-center gap-0.5 text-amber-700">
+            <span className="flex items-center gap-0.5 text-violet-700">
               <Clock className="w-3 h-3" /> Today
             </span>
           )}
@@ -927,7 +931,7 @@ function FollowUpPicker({ value, onChange, overdue, today }: {
           Pick a time to save · defaults to 9:00 AM if you click away
         </p>
       ) : value ? (
-        <p className={`text-[10px] mt-1 font-medium ${overdue ? 'text-red-700' : today ? 'text-amber-700' : 'text-slate-500'}`}>
+        <p className={`text-[10px] mt-1 font-medium ${overdue ? 'text-red-700' : today ? 'text-violet-700' : 'text-slate-500'}`}>
           {formatDueLabel(value)}
         </p>
       ) : null}
