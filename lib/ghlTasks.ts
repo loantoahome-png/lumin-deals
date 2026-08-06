@@ -232,6 +232,21 @@ export function toCompletedBoardTask(row: GhlCompletedTaskRow): BoardTask {
   return { ...toBoardTask(row), completed_at: row.completed_at }
 }
 
+/**
+ * Does a re-read of a GHL task mean "it isn't there any more"?
+ *
+ * ⚠️ GHL answers a deleted task with **400 `{"message":"The task id is
+ *    invalid."}`**, not 404. A check that only accepts 404 reports a delete
+ *    that genuinely worked as a failure — which is exactly how the first pass
+ *    at clearing the orphaned ZZ TEST tasks read (see GOTCHAS 2026-08-05).
+ *
+ * Both codes count, so a repeated delete is idempotent instead of a 502.
+ */
+export function isTaskGoneResponse(status: number, body: string): boolean {
+  if (status === 404) return true
+  return status === 400 && /task id is invalid/i.test(body)
+}
+
 export function isGhlTask(t: BoardTask): boolean {
   return t.source === 'ghl' || t.id.startsWith(GHL_TASK_PREFIX)
 }

@@ -6,7 +6,7 @@
 
 import {
   mapGhlTask, toBoardTask, isGhlTask, taskAssignee, taskContactName,
-  mapCompletedGhlTask, toCompletedBoardTask,
+  mapCompletedGhlTask, toCompletedBoardTask, isTaskGoneResponse,
   GHL_TASK_PREFIX, type GhlTaskSearchRow,
 } from '../lib/ghlTasks'
 
@@ -183,6 +183,26 @@ eq('body: an empty body yields null, not "" (falsy check in the row render)',
 eq('body: completed rows carry their description too',
   toCompletedBoardTask(mapCompletedGhlTask(
     { ...doneRaw, body: '<p>Left voicemail</p>' }, LOC, dealFor)!).description, 'Left voicemail')
+
+// ── isTaskGoneResponse — "did the delete land?" ─────────────────────────────
+// ⚠️ GHL answers a DELETED task with 400 "The task id is invalid.", not 404.
+// Real bodies, captured 2026-08-05 while clearing the orphaned ZZ TEST tasks.
+const INVALID = '{"message":"The task id is invalid.","error":"Bad Request","statusCode":400}'
+
+eq('gone: 404 is gone', isTaskGoneResponse(404, ''), true)
+eq('⚠️ gone: 400 "task id is invalid" is ALSO gone (a working delete, not a failure)',
+  isTaskGoneResponse(400, INVALID), true)
+eq('gone: matching is case-insensitive', isTaskGoneResponse(400, 'The Task Id Is Invalid.'), true)
+eq('gone: 200 (task still readable) is NOT gone',
+  isTaskGoneResponse(200, '{"task":{"id":"abc","title":"Follow up"}}'), false)
+eq('gone: a DIFFERENT 400 is not gone — never swallow a real bad request',
+  isTaskGoneResponse(400, '{"message":["isLocation should not be empty"],"statusCode":400}'), false)
+eq('gone: 401 is not gone (bad key must surface, not read as success)',
+  isTaskGoneResponse(401, '{"message":"Invalid JWT"}'), false)
+eq('gone: 403 is not gone', isTaskGoneResponse(403, 'forbidden'), false)
+eq('gone: 500 is not gone — a flaky upstream must not look like a delete',
+  isTaskGoneResponse(500, 'internal error'), false)
+eq('gone: empty 400 body is not gone', isTaskGoneResponse(400, ''), false)
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} ghl-tasks-check: ${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)

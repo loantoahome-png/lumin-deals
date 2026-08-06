@@ -1,18 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { GHL_BASE, ghlHeaders, resolveApiKey } from '@/lib/ghl'
+import { isTaskGoneResponse } from '@/lib/ghlTasks'
 
 // Delete a GoHighLevel task from the dashboard.
 //   POST /api/ghl/tasks/delete  { taskId: string }
 //
 // Same key-selection rule as the complete route: the sub-account comes from OUR
-// stored row, never the client. GHL: DELETE /contacts/{contactId}/tasks/{taskId}
-// → {"succeeded":true}.
+// stored row, never the client.
 //
-// ⚠️ Deleting in GHL does NOT evict the task from its search index — the row
-// keeps coming back from tasks/search with its contactId stripped. mapGhlTask
-// drops contact-less rows for exactly that reason; this route also deletes the
-// mirror row so the board updates immediately.
+// GHL: DELETE /locations/{locationId}/tasks/{taskId} → 200 {"succeded":true}
+// (their typo, not ours).
+//
+// ⚠️ The LOCATION-scoped endpoint is used deliberately, not the contact-scoped
+//    one. It works whether or not the task still has a contact, and it was
+//    verified against a contact-bearing task too — so there is one path here,
+//    not two. The old code deleted via /contacts/{contactId}/tasks/{taskId}
+//    and, when `contact_id` was null, gave up: it dropped the mirror row and
+//    returned ok. That silently abandoned a LIVE task in GHL every time it
+//    fired, which is how 12 orphaned tasks accumulated in Efrain's task list
+//    unnoticed. A contact-less search row is NOT a deleted tombstone — the row
+//    carries `"deleted": false`. See GOTCHAS.md 2026-08-05.
+//
+// ⚠️ Deleting does NOT immediately evict the task from GHL's search index, and
+//    the index is eventually consistent. `mapGhlTask` drops contact-less rows,
+//    and this route deletes the mirror row too so the board updates at once.
 
 export async function POST(req: NextRequest) {
   let taskId: string
@@ -39,19 +51,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: `no GHL key for location ${row.location_id}` }, { status: 400 })
   }
 
-  // A row with no contact can't be deleted in GHL (there's no URL for it), but
-  // it also shouldn't be on the board — drop the mirror so it stops showing.
-  if (!row.contact_id) {
-    await supabase.from('ghl_tasks').delete().eq('ghl_task_id', taskId)
-    return NextResponse.json({ ok: true, taskId, note: 'removed from the board (no GHL contact to delete against)' })
-  }
-
+  let alreadyGone = false
   try {
-    const res = await fetch(`${GHL_BASE}/contacts/${row.contact_id}/tasks/${taskId}`, {
+    const res = await fetch(`${GHL_BASE}/locations/${row.location_id}/tasks/${taskId}`, {
       method: 'DELETE',
       headers: ghlHeaders(apiKey),
     })
-    if (!res.ok) throw new Error(`GHL ${res.status}: ${(await res.text()).slice(0, 200)}`)
+    if (!res.ok) {
+      const body = (await res.text()).slice(0, 200)
+      // A second delete (double-click, retry) is a no-op, not an error — GHL
+      // says 400 "task id is invalid" once the task is already gone.
+      if (!isTaskGoneResponse(res.status, body)) throw new Error(`GHL ${res.status}: ${body}`)
+      alreadyGone = true
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     console.error('[GHL delete] failed:', msg)
@@ -61,6 +73,6 @@ export async function POST(req: NextRequest) {
   const { error: delErr } = await supabase.from('ghl_tasks').delete().eq('ghl_task_id', taskId)
   if (delErr) console.warn('[GHL delete] local delete failed (sweep will clear it):', delErr.message)
 
-  console.log(`[GHL delete] task ${taskId} (${row.assignee ?? 'unassigned'}) deleted`)
-  return NextResponse.json({ ok: true, taskId })
+  console.log(`[GHL delete] task ${taskId} (${row.assignee ?? 'unassigned'})${alreadyGone ? ' was already gone' : ' deleted'}`)
+  return NextResponse.json({ ok: true, taskId, ...(alreadyGone ? { note: 'was already gone in GHL' } : {}) })
 }

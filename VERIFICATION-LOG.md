@@ -1,6 +1,20 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-05] GHL task delete no longer abandons contact-less tasks
+**Status:** **VERIFIED end-to-end** against live GHL on a throwaway task, on the exact input that used to fail.
+**Issue:** Efrain: *"I see these in my GHL, can you get rid of them"* — 12 leftover `ZZ TEST — … (auto-deleted)` tasks. Cleared them, then found the mechanism that let them pile up.
+**Root cause:** `app/api/ghl/tasks/delete/route.ts` deleted via `/contacts/{contactId}/tasks/{taskId}` and, when `contact_id` was null, **gave up**: it dropped the mirror row and returned `ok: true`. The task stayed **alive** in GHL while the board reported success. ⚠️ Two beliefs behind that were both wrong — a contact-less search row is NOT a deleted tombstone (the row carries `"deleted": false`), and there IS a URL for it.
+**Changes:**
+- [app/api/ghl/tasks/delete/route.ts](app/api/ghl/tasks/delete/route.ts) — deletes via `DELETE /locations/{locationId}/tasks/{taskId}` **always**. Contact-scoped call and give-up branch both removed: one path, not two. A repeat delete is now idempotent instead of a 502.
+- [lib/ghlTasks.ts](lib/ghlTasks.ts) — NEW pure `isTaskGoneResponse(status, body)`.
+- [scripts/ghl-tasks-check.ts](scripts/ghl-tasks-check.ts) — 62 → **71**.
+**⚠️ GHL answers a re-read of a deleted task with `400 {"message":"The task id is invalid."}`, not 404.** My first cleanup verifier accepted only 404 and so reported a delete that had genuinely worked as `FAIL`. The search index is what disproved it (8 ZZ rows → 7). Fixtures pin the negatives too — a *different* 400, a 401 and a 500 must not read as "gone", or a bad API key would look like a successful delete.
+**Single path is safe because it was checked, not assumed:** the location endpoint was verified to delete a task that DOES have a contact (throwaway created, deleted, confirmed gone) before the contact-scoped call was removed.
+**Test Method:** created a throwaway GHL task, inserted a mirror row with `contact_id: NULL` (the exact abandoned case), called the route on localhost, then read GHL for ground truth.
+**Result:** route `200 {"ok":true}` → GHL recheck **gone** → mirror row cleared. Old behaviour on that identical input was `ok:true, note:"no GHL contact to delete against"` with the task still live. All 12 originals gone: **0** ZZ TEST rows across both locations, open and completed, re-probed after every write. `ghl_tasks` mirror was already clean (contact-less rows are dropped by `mapGhlTask`, so they were never mirrored — which is also why nobody noticed). 71 fixtures; **22/22** suites exit 0; tsc unchanged at exactly **7** pre-existing, none in a touched file; `next build` ✓.
+**⚠️ Every write used a throwaway task, created and deleted, never one of Efrain's.** The only deletions of his data were the 12 ZZ TEST rows he asked for, behind a `/ZZ\s*TEST/i` guard that re-read each task's LIVE title before writing.
+
 ### [2026-08-05] Processor Checklist on the deal page
 **Status:** **VERIFIED on prod.** Column applied first, then deployed (`c36adb9` → `lumin-deals-f62n5xd16`), then checked on a real in-process deal through Efrain's logged-in tab, read-only. ⚠️ One thing still unverified and one still open — see the bottom.
 **Issue:** Efrain: *"Is there a way to add a button here that will lead to a processor checklist for that specific file? I only need this page to be on loans that in the Loans in Process pipeline. Once it funds I will no longer need this page. I just need this so we can know what has already been done on the file and know where we are at."*
