@@ -14,6 +14,7 @@ import {
 } from '@/lib/ghlTasks'
 import GhlTaskForm from '@/components/GhlTaskForm'
 import GhlReassign from '@/components/GhlReassign'
+import { DUE_TONE_TEXT, type DueTone } from '@/components/TaskBoard'
 import {
   CheckCircle2, Circle, Trash2, Plus, X, Calendar, User,
   ExternalLink, Flame,
@@ -44,7 +45,11 @@ function combineDateTime(date: string, time: string): string | null {
   const d = new Date(`${date}T${time || ALL_DAY_TIME}`)
   return isNaN(d.getTime()) ? null : d.toISOString()
 }
-function relativeDue(iso: string | null): { label: string; tone: 'red' | 'amber' | 'slate' } {
+// ⚠️ This file keeps its OWN relativeDue and TaskRow (see GOTCHAS) — the
+// wording differs slightly from the board's. The TONE VOCABULARY and its
+// class map are shared with TaskBoard on purpose, so the deal page can never
+// drift into showing "Today" in a different colour from /tasks.
+function relativeDue(iso: string | null): { label: string; tone: DueTone } {
   if (!iso) return { label: 'No due date', tone: 'slate' }
   const due = new Date(iso)
   const now = new Date()
@@ -63,7 +68,7 @@ function relativeDue(iso: string | null): { label: string; tone: 'red' | 'amber'
   // All-day tasks: no time shown, not "overdue" until the day fully passes.
   if (isAllDay(iso)) {
     if (dayDelta < 0)  return { label: dayDelta === -1 ? 'Overdue · yesterday' : `Overdue ${-dayDelta}d`, tone: 'red' }
-    if (dayDelta === 0) return { label: 'Today', tone: 'amber' }
+    if (dayDelta === 0) return { label: 'Today', tone: 'blue' }
     if (dayDelta === 1) return { label: 'Tomorrow', tone: 'slate' }
     return { label: dateStr, tone: 'slate' }
   }
@@ -74,7 +79,7 @@ function relativeDue(iso: string | null): { label: string; tone: 'red' | 'amber'
     const ago = Math.abs(days)
     return { label: ago === 0 ? `Overdue · was ${time}` : `Overdue ${ago}d`, tone: 'red' }
   }
-  if (dayDelta === 0) return { label: `Today · ${time}`, tone: 'amber' }
+  if (dayDelta === 0) return { label: `Today · ${time}`, tone: 'blue' }
   if (dayDelta === 1) return { label: `Tomorrow · ${time}`, tone: 'slate' }
   return { label: `${dateStr} · ${time}`, tone: 'slate' }
 }
@@ -350,11 +355,7 @@ function TaskRow({ task, onToggle, onDelete, onEdit, dealName, showDealLink, bad
         )}
         <div className="flex items-center gap-2 mt-1 flex-wrap text-[11px]">
           {task.due_at && (
-            <span className={`flex items-center gap-0.5 ${
-              due.tone === 'red' ? 'text-red-700 font-semibold' :
-              due.tone === 'amber' ? 'text-amber-700 font-semibold' :
-              'text-slate-500'
-            }`}>
+            <span className={`flex items-center gap-0.5 ${DUE_TONE_TEXT[due.tone]}`}>
               <Calendar className="w-3 h-3" /> {due.label}
             </span>
           )}

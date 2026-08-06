@@ -56,7 +56,33 @@ export function relativeCompleted(iso: string | null): string {
   })}`
 }
 
-export function relativeDue(iso: string | null): { label: string; tone: 'red' | 'amber' | 'slate' } {
+// ── Due-date tone ───────────────────────────────────────────────────────────
+// 'red' = late, 'blue' = due today (not late), 'slate' = later / undated.
+//
+// ⚠️ Today is BLUE, not amber. Red and amber are neighbouring hues: at this
+//    text size they read as the same "warm" colour at a glance, and they are
+//    the exact pair that collapses under red-green colour blindness, so
+//    "Overdue" and "Today" were the two states hardest to tell apart. Blue is
+//    the furthest common hue from red and survives both problems. It also
+//    matches the meaning — a task due today is NOT late, so it shouldn't wear
+//    a warning colour at all.
+export type DueTone = 'red' | 'blue' | 'slate'
+
+/** tone → text classes. Single source: three surfaces render this. */
+export const DUE_TONE_TEXT: Record<DueTone, string> = {
+  red:   'text-red-700 font-semibold',
+  blue:  'text-blue-700 font-semibold',
+  slate: 'text-slate-500',
+}
+
+/** tone → the small colour bar on the dashboard widget. */
+export const DUE_TONE_BAR: Record<DueTone, string> = {
+  red:   'bg-red-500',
+  blue:  'bg-blue-500',
+  slate: 'bg-slate-300',
+}
+
+export function relativeDue(iso: string | null): { label: string; tone: DueTone } {
   if (!iso) return { label: 'No due date', tone: 'slate' }
   const due = new Date(iso)
   const now = new Date()
@@ -76,7 +102,7 @@ export function relativeDue(iso: string | null): { label: string; tone: 'red' | 
   // All-day tasks: no time shown, and not "overdue" until the day fully passes.
   if (allDay) {
     if (dayDelta < 0)   return { label: dayDelta === -1 ? 'Overdue · yesterday' : `Overdue ${-dayDelta}d`, tone: 'red' }
-    if (dayDelta === 0) return { label: 'Today', tone: 'amber' }
+    if (dayDelta === 0) return { label: 'Today', tone: 'blue' }
     if (dayDelta === 1) return { label: 'Tomorrow', tone: 'slate' }
     return { label: dateStr, tone: 'slate' }
   }
@@ -88,7 +114,7 @@ export function relativeDue(iso: string | null): { label: string; tone: 'red' | 
     const hrs = Math.floor((now.getTime() - due.getTime()) / 3_600_000)
     return { label: hrs >= 1 ? `Overdue ${hrs}h` : 'Overdue', tone: 'red' }
   }
-  if (dayDelta === 0) return { label: `Today ${time}`, tone: 'amber' }
+  if (dayDelta === 0) return { label: `Today ${time}`, tone: 'blue' }
   if (dayDelta === 1) return { label: `Tomorrow ${time}`, tone: 'slate' }
   return { label: `${dateStr} ${time}`, tone: 'slate' }
 }
@@ -183,11 +209,7 @@ export function TaskRow({ task, dealName, ghlUrl, hideAssignee, badge, contactNa
               <CheckCircle2 className="w-3 h-3" /> {relativeCompleted(task.completed_at)}
             </span>
           ) : task.due_at && (
-            <span className={`flex items-center gap-1 ${
-              due.tone === 'red' ? 'text-red-700 font-semibold' :
-              due.tone === 'amber' ? 'text-amber-700 font-semibold' :
-              'text-slate-500'
-            }`}>
+            <span className={`flex items-center gap-1 ${DUE_TONE_TEXT[due.tone]}`}>
               <Calendar className="w-3 h-3" /> {due.label}
             </span>
           )}

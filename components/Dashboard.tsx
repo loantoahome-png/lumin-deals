@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal, DealTask, LOAN_OFFICERS } from '@/lib/types'
 import { resolveLO } from '@/lib/loanOfficer'
-import { endOfDay, isDueNow, relativeDue } from '@/components/TaskBoard'
+import { endOfDay, isDueNow, relativeDue, DUE_TONE_TEXT, DUE_TONE_BAR } from '@/components/TaskBoard'
 import { toBoardTask, isGhlTask, byDueAsc, type BoardTask, type GhlTaskRow } from '@/lib/ghlTasks'
 import { formatCurrency } from '@/lib/utils'
 import UnreadInbox from '@/components/UnreadInbox'
@@ -316,7 +316,7 @@ export default function Dashboard() {
           <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
             {taskDueNow.slice(0, 12).map(t => {
               const due = relativeDue(t.due_at)
-              const bar = due.tone === 'red' ? 'bg-red-500' : due.tone === 'amber' ? 'bg-amber-400' : 'bg-slate-300'
+              const bar = DUE_TONE_BAR[due.tone]
               const label = t.due_at ? due.label : 'No date'
               // GHL rows link to the matched deal when there is one; without a
               // deal there is nothing to open here, so the row stays a plain div.
@@ -324,9 +324,7 @@ export default function Dashboard() {
                 <>
                   <div className={`shrink-0 w-1 h-10 rounded-full ${bar}`} />
                   <div className="shrink-0 w-24 text-right">
-                    <div className={`text-xs font-semibold ${
-                      due.tone === 'red' ? 'text-red-700' : due.tone === 'amber' ? 'text-amber-700' : 'text-slate-500'
-                    }`}>
+                    <div className={`text-xs ${DUE_TONE_TEXT[due.tone]}`}>
                       {label}
                     </div>
                     <div className="text-[10px] text-slate-400">{isGhlTask(t) ? 'GHL' : 'task'}</div>
