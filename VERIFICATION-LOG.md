@@ -1,6 +1,15 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-06] Tasks due today are blue, not amber
+**Status:** **VERIFIED on prod** by reading computed styles off the live `/tasks` board.
+**Issue:** Efrain: *"I think we should differentiate the color for tasks due today and tasks that are overdue."* They were already different — `text-red-700` vs `text-amber-700` — but not differently *enough*: neighbouring hues at 11px read as one warm colour, and red/amber is the exact pair that collapses under red-green colour blindness. The two states hardest to tell apart were the two that most needed telling apart.
+**Changes:** today's tone `'amber'` → `'blue'` in BOTH copies of `relativeDue` ([components/TaskBoard.tsx](components/TaskBoard.tsx), [components/DealTasks.tsx](components/DealTasks.tsx)). Blue is the furthest common hue from red, survives both problems, and fits the meaning — a task due today isn't late, so it shouldn't wear a warning colour.
+**Also de-duplicated:** the tone → class mapping was three copies of the same ternary (board row, deal-page row, dashboard widget). Now exported `DUE_TONE_TEXT` / `DUE_TONE_BAR` + a `DueTone` type. ⚠️ `DealTasks` keeps its OWN `relativeDue` (the wording genuinely differs) but now imports the tone vocabulary — the labels may differ, the colours can't. No import cycle: `TaskBoard` doesn't reference `DealTasks`.
+**Test Method:** live prod DOM — collected every "Overdue…"/"Today…" label on `/tasks` and read `getComputedStyle().color`.
+**Result:** Overdue = `lab(40.4 67.3 53.7)`, Today = `lab(36.9 35.1 -85.7)`. **~139 units apart on the blue-yellow axis**, where amber sat in the same warm quadrant as red. Applies to all 4 label variants seen live (`Overdue 3d`, `Overdue · yesterday`, `Overdue 5h`, `Today 2:00 PM`). tsc unchanged at exactly **7** pre-existing, none in a touched file; **22/22** suites exit 0; `next build` ✓.
+**Deliberately NOT changed:** the Overdue/Today filter chips in [components/EscrowTracker.tsx](components/EscrowTracker.tsx) still use amber for today. Those read `next_action_due` (escrow follow-ups), a different field from task due dates, and weren't what was reported.
+
 ### [2026-08-05] GHL task delete no longer abandons contact-less tasks
 **Status:** **VERIFIED end-to-end** against live GHL on a throwaway task, on the exact input that used to fail.
 **Issue:** Efrain: *"I see these in my GHL, can you get rid of them"* — 12 leftover `ZZ TEST — … (auto-deleted)` tasks. Cleared them, then found the mechanism that let them pile up.
