@@ -42,11 +42,21 @@ Loan Finalized**. He is **Broker** channel, so the points are not in the dashboa
 math ([[non-del-total-comp]] gates the Final Price credit to Non-Del) — the entire
 −$1,500 is the `Compensation Amount` field itself.
 
-⚠️ **The business reason lives in Arive / the broker check, not in this repo.** The
-stage-advance correlation is suggestive but unconfirmed — do not assert a cause
-without asking Matt or checking the lender's settlement. Per
-[[dont-invent-meaning-on-real-data]], the money fact comes from the person who
-received the check.
+✅ **ANSWERED by Efrain, same day: it is a SPLIT PAYMENT.** "They are getting paid
+$6,000 today and the other $1,500 later." So the loan earned the full **$7,500**;
+Arive's `Compensation Amount` reports the check that *settled*, not the total
+earned — which is why the drop landed exactly as the stage hit *Loan Finalized*.
+The dashboard is temporarily $1,500 light on this loan.
+
+**Efrain also confirmed the mechanism: Arive catches up.** When the rest posts, its
+Compensation Amount rises to $7,500 and the next import writes it. **That is why no
+"pending comp" field was built** — a manually tracked $1,500 would double-count the
+moment Arive updated, reporting $9,000 on a $7,500 loan. The correct handling is to
+wait for the next import.
+
+(The original correlation was recorded here as suggestive-but-unconfirmed rather
+than asserted as cause — per [[dont-invent-meaning-on-real-data]], the money fact
+comes from the person receiving the checks. It did, and it was right.)
 
 ## Everything else the import did (full audit)
 
@@ -89,15 +99,44 @@ OwnUp), so the two gains land outside the Agg-leads scope while Mutschler's loss
 (Lending Tree) lands inside it. Flip the scope toggle to **All sources** and the same
 import reads as +$5.4k.
 
+## Was this a pattern? — the whole archive, swept
+
+Peak-vs-current compensation across all 22 archived exports (6/22 → 8/07), against
+the live book: **15 of 88 funded loans sit below their peak.** Two clean populations:
+
+- **Settlement noise — 8 loans, $3–$200.** All at *Broker Check Received → Loan
+  Finalized*, comp settling 2.500% → ~2.40%. The check landed a hair under the
+  estimate. ~$960 total across all three LOs. Nothing to do.
+- **Large drops — 6 loans.** Two are already handled correctly and are NOT
+  shortfalls: **Lory Ruiz** (−$4,291) and **Fabian Burrage** (−$2,344) were
+  re-splits into points, and the Non-Del credit adds that money back — Ruiz now
+  totals $9,000.84, above her old peak ([[non-del-total-comp]]). Of the remaining
+  four, **Efrain confirmed only Mutschler is a split payment**; Cynthia Southerby
+  (Moe, −$4,606), Marian Cooper (Matt, −$1,507) and Judith Colin (Matt, −$1,047)
+  are **genuine reductions and the lower figure is correct**.
+
+⚠️ **A gap is NOT a receivable.** Comp legitimately drops. "Below its historical
+peak" is a detection signal for review, never a number to report as revenue.
+
 ## Action
 
-**No code change.** If the $6,000 is wrong, the fix is in Arive → re-export → re-import;
-the dashboard will track it. If it's right, Matt's Lending Tree ROI genuinely moved
-2.82× → 2.77×.
+**No change to the revenue math, by decision.** Arive is authoritative and catches
+up on its own; the dashboard tracks no pending comp. Mutschler self-heals on the
+first import after the second check posts, and the other 14 are correct today.
 
-**Optional, deferred:** an import summary that reports net revenue delta per LO
-("this import moved Matt −$1,500 on 1 funded loan") would have answered this in one
-glance instead of a CSV diff. Not built — logging as an idea, not a plan.
+**Built instead (2026-08-07):**
+- **Revenue impact panel** on the import preview — net revenue delta **per loan
+  officer**, all-sources and agg-leads side by side, with a per-loan breakdown.
+  `lib/importRevenue.ts`, 52 fixtures. This is what would have answered the
+  original question in one glance instead of a CSV diff.
+- **`scripts/comp-drift-report.ts`** — the sweep above, on demand. Bare gives the
+  review list; with an Arive id it prints that loan's full export-by-export
+  timeline (Mutschler: $7,500 flat from 7/17 through 8/06, then $6,000 exactly as
+  the stage hit *Loan Finalized*). ⚠️ Deliberately not named `*-check.ts`: the
+  fixture runner globs that pattern and this needs `.env.local` plus the local
+  export archive.
+- **`re-priced ↓` flag** in the panel on any funded loan losing compensation,
+  tooltipped with the split-payment explanation and the drill-down command.
 
 See also [[non-del-total-comp]], [[loan-amount-provenance]],
 [[arive-import-funded-guard]], [[lead-roi]].

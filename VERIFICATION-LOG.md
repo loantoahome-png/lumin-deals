@@ -1,6 +1,17 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-07] Comp-drift report + a "re-priced ↓" flag — after Efrain confirmed the split payment
+**Status:** **VERIFIED locally.** No change to the revenue math, by Efrain's decision.
+**Issue:** Efrain: *"So they are getting paid $6,000 today and the other $1,500 later."* Mutschler #17248386 earned the full **$7,500**; Arive's `Compensation Amount` reports the check that SETTLED. Two follow-up questions were put to him because guessing either way corrupts money in opposite directions. His answers: **(1) Arive catches up** — the field rises to $7,500 when the rest posts, so a re-import self-heals; **(2) the other three large gaps are genuine reductions**, only Mutschler is a split.
+**⚠️ Therefore NO pending-comp field was built.** A manually tracked $1,500 would double-count the instant Arive updated, reporting $9,000 on a $7,500 loan. Decision recorded so it isn't re-proposed.
+**Archive sweep (the evidence behind the questions):** peak-vs-current comp across all **22** exports (6/22 → 8/07) vs the live book — **15 of 88** funded loans below peak, in two clean populations: **8 settlement-noise** ($3–$200, all at *Broker Check Received → Loan Finalized*, 2.500% → ~2.40%, ~$960 total) and **6 large**, of which **Ruiz (−$4,291) and Burrage (−$2,344) are already correct** (re-splits into points; the Non-Del credit adds it back — Ruiz now totals $9,000.84, above her old peak).
+**Changes:** NEW [scripts/comp-drift-report.ts](scripts/comp-drift-report.ts) — bare gives the review list, with an Arive id gives that loan's export-by-export timeline. A `re-priced ↓` flag on [the import panel](app/import/arive/page.tsx) for any funded loan losing comp, tooltipped with the split-payment explanation + the drill-down command. Presentational only; `lib/importRevenue.ts` untouched.
+**⚠️ NOT named `*-check.ts`** — the fixture runner globs `scripts/*-check.ts`, and this script needs `.env.local` AND the local `~/Downloads` archive, so it would fail that sweep on any other machine. It's a report, not a test. Confirmed: suite count held at **23**, not 24.
+**Test Method:** ran the report both ways against the live DB; browser-probed the flag with a real Mutschler row knocked to $5,000 so it reads as a drop.
+**Result:** Report reproduces the 15-row list and Mutschler's timeline (**$7,500 flat 7/17 → 8/06, then $6,000 exactly as the stage hit *Loan Finalized***). Flag renders `re-priced ↓` in amber with the full tooltip. tsc unchanged at exactly **7** pre-existing, none in a touched file; **23/23** suites exit 0; `next build` ✓. Console clean (HMR socket noise + a deliberate 400 from my own API-reachability probe). **No writes** — preview only, Apply never clicked.
+**⚠️ Documented in the script itself: a gap is NOT a receivable.** Comp legitimately drops. "Below peak" is a review signal to check against actual checks, never a number to report as revenue.
+
 ### [2026-08-07] Arive import preview reports net revenue delta per loan officer
 **Status:** **VERIFIED locally against the real 8/06 export and the live DB.** Ready for Efrain to use on his next import.
 **Issue:** Efrain imported Arive on 8/07 and Matt's Lead ROI revenue dropped. The preview counts FIELDS ("5 will overwrite") and says nothing about DOLLARS, so answering "why" took a hand-written diff of two CSVs in ~/Downloads. Root cause was one loan Arive had re-priced — David Mutschler #17248386, comp 7500 → 6000. See [the diagnosis](docs/diagnoses/2026-08-07-matt-comp-drop-diagnosis.md).

@@ -712,6 +712,25 @@ const KIND_LABEL: Record<LoanImpact['kind'], string> = {
   reassigned:   'reassigned',
 }
 
+// A comp DROP on an already-funded loan is the one worth a second look: it is
+// usually a real reduction (a pricing hit or a cure), but it is also what a
+// SPLIT PAYMENT looks like — Arive's Compensation Amount reports the check that
+// settled, so a loan paid $6,000 now and $1,500 later reads as a $1,500 loss
+// until the rest posts. Efrain confirmed that shape on David Mutschler
+// #17248386 (2026-08-07). The dashboard deliberately does NOT track the pending
+// piece: Arive catches up on its own, and a manual "pending comp" would
+// double-count the moment it did. So this is a flag, not a number — hence a
+// label and a tooltip rather than any change to the math.
+function kindLabel(l: LoanImpact): { label: string; title?: string } {
+  if (l.kind === 'reprice' && l.delta < 0) return {
+    label: 're-priced ↓',
+    title: 'This funded loan lost compensation. Usually a real reduction — but a split payment looks identical, '
+         + 'since Arive reports the check that settled. If the rest is still coming, Arive will raise it and the '
+         + 'next import will pick it up. Check the history: npx tsx scripts/comp-drift-report.ts ' + (l.ariveFileNo ?? ''),
+  }
+  return { label: KIND_LABEL[l.kind] }
+}
+
 function RevenueImpact({ impact, onReview }: { impact: ImportRevenueImpact; onReview: () => void }) {
   const [open, setOpen] = useState<Set<string>>(new Set())
   const toggle = (lo: string) => setOpen(prev => {
@@ -806,9 +825,15 @@ function RevenueImpact({ impact, onReview }: { impact: ImportRevenueImpact; onRe
                           {formatCurrency(l.before)} → {formatCurrency(l.after)}
                         </span>
                         <span className={`font-bold tabular-nums w-24 text-right ${lt.text}`}>{signedMoney(l.delta)}</span>
-                        <span className="text-[9px] uppercase font-bold text-slate-400 w-28 text-right shrink-0">
-                          {KIND_LABEL[l.kind]}{l.counterparty ? ` · ${l.counterparty}` : ''}
-                        </span>
+                        {(() => {
+                          const k = kindLabel(l)
+                          return (
+                            <span className={`text-[9px] uppercase font-bold w-28 text-right shrink-0 ${k.title ? 'text-amber-600 cursor-help underline decoration-dotted' : 'text-slate-400'}`}
+                              title={k.title}>
+                              {k.label}{l.counterparty ? ` · ${l.counterparty}` : ''}
+                            </span>
+                          )
+                        })()}
                       </div>
                     )
                   })}
