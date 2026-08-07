@@ -1,29 +1,14 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { Upload, FileText, X, Check, AlertTriangle, Loader2, Shield, ChevronDown, ChevronRight, Download, Search } from 'lucide-react'
-
-type FieldChange = {
-  field: string
-  current: unknown
-  next: unknown
-  action: 'fill' | 'overwrite' | 'unchanged' | 'blocked'
-}
-type RowPlan = {
-  rowIndex: number
-  borrower: string
-  arive_file_no: string | null
-  matched: boolean
-  matchedVia?: 'arive_file_no' | 'email' | 'phone' | 'name' | 'name_firstlast'
-  dealId?: string
-  reason?: string
-  changes: FieldChange[]
-  action?: 'update' | 'create_loan' | 'create_new'
-  coborrower?: { name: string | null; email: string | null; phone: string | null }
-  dedupWarning?: string
-  funded?: boolean
-  fundedRegressionBlocked?: boolean
-}
+import { Upload, FileText, X, Check, AlertTriangle, Loader2, Shield, ChevronDown, ChevronRight, Download, Search, TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { formatCurrency } from '@/lib/utils'
+import { importRevenueImpact, type ImportRevenueImpact, type LoanImpact } from '@/lib/importRevenue'
+// The plan shape is owned by lib/ariveCsv (the module that builds it). These were
+// hand-copied here once and immediately went stale — the copy never learned about
+// `snapshot`, which is what the revenue panel reads. Type-only import: erased at
+// compile time, so nothing server-side ships to the browser.
+import type { FieldChange, RowPlan } from '@/lib/ariveCsv'
 type Summary = {
   total_rows: number
   matched: number
@@ -105,7 +90,7 @@ export default function AriveImportPage() {
   const [loading, setLoading]       = useState(false)
   const [createUnmatched, setCreateUnmatched] = useState(false)
   const [protectedFields, setProtectedFields] = useState<Set<string>>(new Set())
-  const [rowFilter, setRowFilter] = useState<'all' | 'overwrites' | 'new' | 'funded' | 'unmatched' | 'warnings'>('all')
+  const [rowFilter, setRowFilter] = useState<'all' | 'overwrites' | 'money' | 'new' | 'funded' | 'unmatched' | 'warnings'>('all')
   const [rowSearch, setRowSearch] = useState('')
   const [hideNoChange, setHideNoChange] = useState(true)
   const [fieldFilter, setFieldFilter] = useState<string | null>(null)
@@ -222,6 +207,21 @@ export default function AriveImportPage() {
   const fundedCount = (preview?.plans ?? []).filter(p => p.funded).length
   const fundedRegressionCount = (preview?.plans ?? []).filter(p => p.fundedRegressionBlocked).length
 
+  // ── Revenue impact ──────────────────────────────────────────────────────────
+  // What this import does to the MONEY, per loan officer. Computed from the same
+  // `fieldWrites` predicate that drives the field counts and the per-row diff, so
+  // the dollars can never disagree with what the preview says will be written —
+  // and it re-runs as the user flips modes or shields a field.
+  const revenue: ImportRevenueImpact | null = preview?.plans
+    ? importRevenueImpact(preview.plans, c => fieldWrites(c, mode, protectedFields))
+    : null
+  // Same figure for the post-commit receipt, locked to what was actually applied.
+  const committedRevenue: ImportRevenueImpact | null = committed?.plans
+    ? importRevenueImpact(committed.plans, c => fieldWrites(c, committed.mode === 'overwrite' ? 'overwrite' : 'fill_blanks', protectedFields))
+    : null
+  // Row indexes whose revenue moved — powers the "Money" row filter.
+  const revenueRows = new Set((revenue?.byLo ?? []).flatMap(b => b.loans.map(l => l.rowIndex)))
+
   // Rows to show after search + filter + hide-no-change.
   const totalRows = preview?.plans?.length ?? 0
   const visiblePlans = (preview?.plans ?? []).filter(p => {
@@ -234,6 +234,7 @@ export default function AriveImportPage() {
     const writes = p.changes.filter(c => fieldWrites(c, mode, protectedFields)).length
     const hasOverwrite = p.changes.some(c => c.action === 'overwrite' && mode === 'overwrite' && !protectedFields.has(c.field))
     if (rowFilter === 'overwrites') return hasOverwrite
+    if (rowFilter === 'money')      return revenueRows.has(p.rowIndex)
     if (rowFilter === 'new')        return p.action === 'create_new' || p.action === 'create_loan'
     if (rowFilter === 'funded')     return !!p.funded
     if (rowFilter === 'unmatched')  return !p.matched
@@ -327,6 +328,9 @@ export default function AriveImportPage() {
               <Metric label="Will overwrite"   value={recountedSummary?.overwrite ?? 0} tone={mode === 'overwrite' && recountedSummary?.overwrite ? 'amber' : undefined} />
             </div>
           </div>
+
+          {/* What this does to the money — the question a field count can't answer */}
+          {revenue && <RevenueImpact impact={revenue} onReview={() => setRowFilter('money')} />}
 
           {/* Funded-regression guard — announce when it fires so it's never silent */}
           {mode === 'overwrite' && fundedRegressionCount > 0 && (
@@ -460,7 +464,7 @@ export default function AriveImportPage() {
                     className="pl-7 pr-2 py-1 text-xs border border-slate-200 rounded-lg w-52 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div className="flex bg-slate-100 rounded-lg p-0.5 gap-0.5">
-                  {([['all', 'All'], ['overwrites', 'Overwrites'], ['new', 'New loans'], ['funded', 'Funded'], ['unmatched', 'Unmatched'], ['warnings', 'Warnings']] as const).map(([key, label]) => (
+                  {([['all', 'All'], ['overwrites', 'Overwrites'], ['money', 'Money'], ['new', 'New loans'], ['funded', 'Funded'], ['unmatched', 'Unmatched'], ['warnings', 'Warnings']] as const).map(([key, label]) => (
                     <button key={key} onClick={() => setRowFilter(key)}
                       className={`text-[11px] font-semibold px-2 py-0.5 rounded ${rowFilter === key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                       {label}
@@ -640,6 +644,21 @@ export default function AriveImportPage() {
                 mode: <strong>{committed.mode}</strong>
                 {committed.summary?.unmatched ? <> · <span className="text-amber-700">{committed.summary.unmatched} unmatched (skipped)</span></> : null}
               </p>
+              {committedRevenue && committedRevenue.byLo.length > 0 && (
+                <p className="text-sm text-slate-700 mt-2">
+                  Revenue moved{' '}
+                  <strong className={committedRevenue.delta >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                    {signedMoney(committedRevenue.delta)}
+                  </strong>{' '}
+                  across {committedRevenue.movedLoans} funded loan{committedRevenue.movedLoans === 1 ? '' : 's'}
+                  {' '}({committedRevenue.byLo.map(b => `${b.loanOfficer} ${signedMoney(b.delta)}`).join(' · ')})
+                  {Math.abs(committedRevenue.aggDelta - committedRevenue.delta) > 0.005 && (
+                    <> · <span className={committedRevenue.aggDelta >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                      {signedMoney(committedRevenue.aggDelta)}
+                    </span> of it inside the Agg-leads view</>
+                  )}
+                </p>
+              )}
               {committed.errors && committed.errors.length > 0 && (
                 <div className="mt-3 bg-red-50 border border-red-200 rounded p-2 text-xs">
                   <p className="font-medium text-red-800 mb-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Errors:</p>
@@ -664,6 +683,146 @@ export default function AriveImportPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Revenue impact ──────────────────────────────────────────────────────────
+// Revenue = Arive comp + the Non-Del price credit, on FUNDED loans only — the
+// same definition /lead-roi reports. Two totals are always shown together: the
+// firm-wide one and the "Agg leads" one, because the 2026-08-07 import moved
+// them in OPPOSITE directions (−$1,500 on agg leads, +$5,379 all in), and
+// showing either alone is what made a net gain read as a loss.
+
+/** Signed money, with the sign always explicit so a gain can't be misread. */
+function signedMoney(n: number): string {
+  if (Math.abs(n) < 0.005) return formatCurrency(0)
+  return n > 0 ? `+${formatCurrency(n)}` : formatCurrency(n)
+}
+function toneFor(n: number): { text: string; bg: string; Icon: typeof TrendingUp } {
+  if (n > 0.005)  return { text: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200', Icon: TrendingUp }
+  if (n < -0.005) return { text: 'text-rose-700',    bg: 'bg-rose-50 border-rose-200',       Icon: TrendingDown }
+  return             { text: 'text-slate-600',       bg: 'bg-slate-50 border-slate-200',     Icon: Minus }
+}
+
+const KIND_LABEL: Record<LoanImpact['kind'], string> = {
+  newly_funded: 'newly funded',
+  reprice:      're-priced',
+  left_funded:  'no longer funded',
+  reassigned:   'reassigned',
+}
+
+function RevenueImpact({ impact, onReview }: { impact: ImportRevenueImpact; onReview: () => void }) {
+  const [open, setOpen] = useState<Set<string>>(new Set())
+  const toggle = (lo: string) => setOpen(prev => {
+    const next = new Set(prev)
+    if (next.has(lo)) next.delete(lo); else next.add(lo)
+    return next
+  })
+
+  // Nothing moved — say so plainly. "No money changes" is a real, reassuring
+  // answer, and silence would leave it ambiguous whether the check even ran.
+  if (impact.byLo.length === 0) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center gap-2.5">
+        <Minus className="w-4 h-4 text-slate-400 shrink-0" />
+        <p className="text-xs text-slate-600">
+          <span className="font-semibold text-slate-700">No revenue impact.</span>{' '}
+          Nothing this import writes changes what a funded loan earned.
+        </p>
+      </div>
+    )
+  }
+
+  const net = toneFor(impact.delta)
+  const agg = toneFor(impact.aggDelta)
+  // The two headline numbers disagreeing IS the story — call it out explicitly
+  // rather than leaving the reader to spot two opposite signs.
+  const opposed = impact.delta * impact.aggDelta < 0
+
+  return (
+    <div className={`border rounded-xl p-4 ${net.bg}`}>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <net.Icon className={`w-4 h-4 ${net.text}`} />
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">Revenue impact</h3>
+        </div>
+        <button onClick={onReview} className={`text-[11px] font-semibold underline ${net.text} hover:opacity-80`}>
+          Review the {impact.movedLoans} loan{impact.movedLoans === 1 ? '' : 's'}
+        </button>
+      </div>
+
+      <div className="mt-2 flex items-baseline gap-4 flex-wrap">
+        <div>
+          <p className={`text-2xl font-bold tabular-nums ${net.text}`}>{signedMoney(impact.delta)}</p>
+          <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">All sources</p>
+        </div>
+        <div>
+          <p className={`text-lg font-bold tabular-nums ${agg.text}`}>{signedMoney(impact.aggDelta)}</p>
+          <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Agg leads · the default Lead ROI view</p>
+        </div>
+      </div>
+
+      {opposed && (
+        <p className="mt-2 text-[11px] text-slate-700 bg-white/70 border border-slate-200 rounded-lg px-2.5 py-1.5">
+          ⚠ These point in <strong>opposite directions</strong>. Lead ROI opens on <strong>Agg leads</strong>, so it will
+          show <span className={agg.text}>{signedMoney(impact.aggDelta)}</span> — the rest lands on organic/referral
+          sources that view filters out.
+        </p>
+      )}
+
+      <div className="mt-3 space-y-1.5">
+        {impact.byLo.map(b => {
+          const t = toneFor(b.delta)
+          const ta = toneFor(b.aggDelta)
+          const isOpen = open.has(b.loanOfficer)
+          return (
+            <div key={b.loanOfficer} className="bg-white border border-slate-200 rounded-lg">
+              <button onClick={() => toggle(b.loanOfficer)} className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left">
+                {isOpen ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+                <span className="text-sm font-semibold text-slate-800 flex-1 truncate">{b.loanOfficer}</span>
+                <span className="text-[11px] text-slate-400 tabular-nums hidden sm:inline">
+                  {formatCurrency(b.before)} → {formatCurrency(b.after)}
+                </span>
+                <span className={`text-sm font-bold tabular-nums w-24 text-right ${t.text}`}>{signedMoney(b.delta)}</span>
+                <span className={`text-[11px] font-semibold tabular-nums w-24 text-right ${ta.text}`}
+                  title="Change within the Agg-leads scope — purchased/aggregator sources only">
+                  {signedMoney(b.aggDelta)} agg
+                </span>
+              </button>
+              {isOpen && (
+                <div className="border-t border-slate-100 divide-y divide-slate-100">
+                  {b.loans.map(l => {
+                    const lt = toneFor(l.delta)
+                    return (
+                      <div key={`${l.rowIndex}-${l.loanOfficer}`} className="flex items-center gap-2 px-2.5 py-1 text-[11px]">
+                        <span className="font-medium text-slate-700 flex-1 truncate">{l.borrower}</span>
+                        {l.ariveFileNo && <span className="text-slate-400 font-mono hidden sm:inline">#{l.ariveFileNo}</span>}
+                        <span className={`px-1.5 py-0.5 rounded font-medium shrink-0 ${l.agg ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'}`}
+                          title={l.agg ? 'Purchased lead — counts in the default Agg-leads view' : 'Organic/referral — the default Agg-leads view filters this out'}>
+                          {l.source}
+                        </span>
+                        <span className="text-slate-400 tabular-nums hidden sm:inline w-32 text-right">
+                          {formatCurrency(l.before)} → {formatCurrency(l.after)}
+                        </span>
+                        <span className={`font-bold tabular-nums w-24 text-right ${lt.text}`}>{signedMoney(l.delta)}</span>
+                        <span className="text-[9px] uppercase font-bold text-slate-400 w-28 text-right shrink-0">
+                          {KIND_LABEL[l.kind]}{l.counterparty ? ` · ${l.counterparty}` : ''}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      <p className="mt-2 text-[10px] text-slate-500">
+        Revenue = Arive compensation + the Non-Del price credit, on funded loans only — the same math Lead ROI uses.
+        A comp change on an in-process loan shows $0 until it funds.
+      </p>
     </div>
   )
 }

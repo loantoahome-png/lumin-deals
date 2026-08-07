@@ -198,6 +198,20 @@ function trimStr(v: string | null): string | null {
   return t || null
 }
 
+// Coercions for reading a stored DB record (values arrive as `unknown`), used by
+// the revenue snapshot. `num` above parses Arive's `$1,234.56` CSV strings; these
+// read Postgres values, where a numeric column can come back as a bare string.
+function strOrNull(v: unknown): string | null {
+  if (v == null) return null
+  const t = String(v).trim()
+  return t || null
+}
+function numOrNull(v: unknown): number | null {
+  if (v == null || v === '') return null
+  const n = typeof v === 'number' ? v : parseFloat(String(v))
+  return Number.isFinite(n) ? n : null
+}
+
 /** Normalize Arive's lien-position strings ("First Lien", "Second Lien", etc.)
  *  to dashboard values ("1st Lien", "2nd Lien", "3rd Lien"). */
 function normLienPosition(v: string | null): string | null {
@@ -489,6 +503,26 @@ export type FieldChange = {
   action: 'fill' | 'overwrite' | 'unchanged' | 'blocked'
 }
 
+// The current dashboard values a REVENUE delta needs, snapshotted onto every
+// matched update row. Revenue is `totalComp` on funded deals only, so the money
+// impact of an import depends on four comp inputs plus the funded gate, the LO
+// the money lands on, and the lead source that decides which /lead-roi scope
+// sees it — none of which are derivable from `changes` alone (a change entry
+// only exists for fields the CSV actually carried a value for, and `source` is
+// never written by this importer at all). Without the snapshot the client would
+// have to re-fetch every matched deal to answer "what did this import do to the
+// numbers?". See lib/importRevenue.ts.
+export type DealRevenueSnapshot = {
+  loan_officer: string | null
+  source: string | null
+  status: string | null
+  pipeline_group: string | null
+  compensation_amount: number | null
+  loan_amount: number | null
+  broker_corr: string | null
+  net_discount_points: number | null
+}
+
 export type RowPlan = {
   rowIndex: number
   borrower: string
@@ -513,6 +547,10 @@ export type RowPlan = {
   // ── Funded-loan awareness ─────────────────────────────────────────────────
   funded?: boolean             // the matched deal is currently in the Funded group
   fundedRegressionBlocked?: boolean  // an overwrite would have un-funded it → blocked
+  // ── Revenue impact ────────────────────────────────────────────────────────
+  // Set on matched UPDATE rows only. Create rows have no prior state (their
+  // "before" is $0) and carry every value they need in `changes`.
+  snapshot?: DealRevenueSnapshot
 }
 
 // "Arive" is our LOS, not a marketing lead source. When it shows up in the
@@ -696,6 +734,19 @@ export function buildPlan(args: {
     // in the preview and the regression guard below.
     const dealIsFunded = FUNDED.has(String(deal.status ?? '')) || deal.pipeline_group === 'Funded'
     if (dealIsFunded) plan.funded = true
+
+    // Snapshot the money inputs BEFORE any change is applied — the "before" side
+    // of the revenue delta (see lib/importRevenue.ts).
+    plan.snapshot = {
+      loan_officer:         strOrNull(deal.loan_officer),
+      source:               strOrNull(deal.source),
+      status:               strOrNull(deal.status),
+      pipeline_group:       strOrNull(deal.pipeline_group),
+      compensation_amount:  numOrNull(deal.compensation_amount),
+      loan_amount:          numOrNull(deal.loan_amount),
+      broker_corr:          strOrNull(deal.broker_corr),
+      net_discount_points:  numOrNull(deal.net_discount_points),
+    }
 
     for (const [field, value] of Object.entries(patch)) {
       if (field.startsWith('__')) continue                 // skip carrier fields

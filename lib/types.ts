@@ -1,5 +1,13 @@
 import type { ChecklistState } from './processorChecklist'
 
+// Historical Arive-only loans Efrain parked out of the pipeline. `fetchAllDeals`
+// filters this group out of every list and report surface (only `/old-deals` opts
+// back in), so a parked deal contributes nothing to any number — see the fuller
+// note at the filter site in lib/fetchAllDeals.ts, which re-exports this.
+// Defined HERE because lib/types.ts is pure: reading the constant must not pull
+// in the Supabase browser client.
+export const OLD_DEALS_GROUP = 'Old Deals'
+
 // One PERSON (Contacts Phase 2). id = the canonical borrower_id; deals.borrower_id
 // is the foreign key. Derived + maintained by the identity resolver — not hand-edited.
 export type Contact = {

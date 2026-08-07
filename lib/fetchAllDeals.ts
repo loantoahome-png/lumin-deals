@@ -53,7 +53,14 @@ export const DEAL_COLUMNS = [
 // SAFE AS A .neq: there are zero rows with a NULL pipeline_group (checked
 // 2026-07-28), so this cannot silently drop group-less deals the way a bare .neq
 // against a nullable column would.
-export const OLD_DEALS_GROUP = 'Old Deals'
+//
+// The constant itself now lives in lib/types.ts (pure) and is re-exported here so
+// the 19 existing `from './fetchAllDeals'` imports keep working. Moved because
+// this module instantiates the Supabase BROWSER client at import time, which a
+// pure aggregation lib (lib/importRevenue.ts) and its node fixture script must
+// not drag in just to read one string.
+import { OLD_DEALS_GROUP } from './types'
+export { OLD_DEALS_GROUP }
 
 // PostgREST caps a single .select() at 1000 rows. Any page that loads the full
 // deal set for analysis/display must paginate or it silently truncates.
