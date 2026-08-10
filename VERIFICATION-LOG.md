@@ -1,6 +1,15 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-10] Processing Desk — Checklist button on the collapsed row
+**Status:** **CHANGED — deployed, Efrain to eyeball on prod.** Build + route verified locally; the button itself can't be seen locally (the desk is empty under auth-bypass, `deals` RLS).
+**Issue:** Efrain: *"include a button to jump straight to the processing checklist to the corresponding loan"*, with the empty space on the collapsed row circled. The checklist was only reachable after expanding a row — three clicks on the thing a processor does all day. Checklist progress was sitting in the meta row as dead text that looked clickable and wasn't.
+**Changes:** A Checklist pill in the row actions beside the task button ([app/processing/page.tsx](app/processing/page.tsx)), showing `done/total` and tinting slate → cyan → emerald as it fills. The dead meta-row text is gone, so progress lives in exactly one place and that place is a link.
+**Round trip:** links carry `?from=processing`, and [the checklist page](app/deals/[id]/checklist/page.tsx) uses it to point its back link at `/processing` ("Back to Processing Desk") instead of the deal page. The desk is a queue — you open a file, tick, come back for the next. Any other value keeps the original behaviour, so the deal-page entry point is untouched.
+**⚠️ `useSearchParams` forced a Suspense boundary** on the checklist route. Without one, Next opts the whole route into client-side rendering and `next build` fails. The page body became `ChecklistPage`; the default export is now the wrapper.
+**Test Method:** `next build` (the Suspense requirement is a build-time failure, so a clean build IS the check); both `/deals/<id>/checklist` and `?from=processing` fetched → 200, page renders its not-found state without error. Fixture suites for regression.
+**Result:** **25/25** suites exit 0, `next build` ✓, tsc unchanged at exactly **7** pre-existing errors, none in a touched file. Deployed `lumin-deals-ojlv71f3y` ● Ready.
+
 ### [2026-08-10] Processor task board — her + Efrain + Brianne only, no Bulletin
 **Status:** **CHANGED — admin path verified in the browser, processor path verified by fixture only.** Efrain signed in as Hanh on prod and asked for this; he's the one who can confirm the result.
 **Issue:** Efrain, after logging in as Hanh: *"On the task list for her view, only show her tasks, and tasks for Brianne and I, do not show the bulletin."* She was getting the full 5-column board (Moe, Matt, and the Unassigned & other catch-all) plus the team Bulletin.
