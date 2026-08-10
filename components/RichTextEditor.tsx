@@ -22,50 +22,100 @@ import {
 const FONTS = ['Default', 'Arial', 'Georgia', 'Times New Roman', 'Courier New', 'Verdana']
 const SIZES = ['12', '14', '16', '18', '20', '24', '30']
 
+// Indentable block types and the size of one step.
+const INDENTABLE = ['paragraph', 'heading'] as const
+const INDENT_STEP_PX = 32
+const MAX_INDENT = 10
+
+/**
+ * Nudge the indent of every paragraph/heading touched by the selection.
+ *
+ * ⚠️ This is the half that was missing, and it's the half that matters most
+ *    here: the pasted document is mostly PARAGRAPHS ("8/6 Appraisal in for:",
+ *    "Requested 8/10", the title lines), not list items. An earlier version
+ *    handled only lists and silently did nothing everywhere else, which is
+ *    indistinguishable from "Tab is broken".
+ */
+function shiftIndent(editor: Editor, delta: number): boolean {
+  const { state } = editor
+  const { from, to } = state.selection
+  const tr = state.tr
+  let changed = false
+
+  state.doc.nodesBetween(from, to, (node, pos) => {
+    if (!(INDENTABLE as readonly string[]).includes(node.type.name)) return
+    const cur = Number(node.attrs.indent) || 0
+    const next = Math.max(0, Math.min(MAX_INDENT, cur + delta))
+    if (next === cur) return
+    tr.setNodeMarkup(pos, undefined, { ...node.attrs, indent: next })
+    changed = true
+  })
+
+  if (changed) editor.view.dispatch(tr)
+  // TRUE either way — see the note on the extension. Returning false when
+  // already at indent 0 would hand Tab back to the browser and let focus
+  // escape, which is the original bug.
+  return true
+}
+
 // ── Tab = indent ────────────────────────────────────────────────────────────
 // Efrain 2026-08-10: "I'm trying to indent a line but when I press tab it gets
-// out of the editing pane."
+// out of the editing pane." Then, after a lists-only first attempt: "the tab
+// function is still not working."
 //
-// That's the browser default — Tab moves focus to the next control, which in a
-// document editor means your cursor leaves mid-sentence. Anyone pasting from
-// Google Docs expects Tab to nest a list item, because that's what it does
-// there.
+// Tab's browser default is move-focus, which in a document editor means the
+// cursor leaves mid-sentence. Two separate things have to work:
 //
-// ⚠️ Every shortcut here returns TRUE even when it does nothing. Returning
-//    false hands the key back to the browser, which is exactly the
-//    focus-escaping behaviour being fixed — so Tab must never fall through.
+//   LIST ITEM  → nest under the item above (sinkListItem).
+//   PARAGRAPH  → an `indent` attribute rendered as margin-left. There is no
+//                built-in indent in this schema, so it's added below.
 //
-// ⚠️ Consequence, stated rather than discovered: Tab no longer tabs OUT of the
-//    editor, so keyboard-only users leave it with Escape or a click. That's the
-//    standard trade every rich-text editor makes (Google Docs included), and
-//    it's the behaviour that was asked for.
+// ⚠️ Every shortcut returns TRUE even when nothing changed. Returning false
+//    hands the key back to the browser — the exact focus-escape being fixed.
+//
+// ⚠️ Consequence, stated not discovered: Tab no longer tabs OUT of the editor.
+//    Leave it with Escape or a click. Same trade Google Docs makes.
 const TabIndent = Extension.create({
   name: 'tabIndent',
+
+  // The indent lives on the node so it survives save → reload as real HTML
+  // (`style="margin-left: 32px"`), rather than as invisible whitespace.
+  addGlobalAttributes() {
+    return [{
+      types: [...INDENTABLE],
+      attributes: {
+        indent: {
+          default: 0,
+          parseHTML: (el: HTMLElement) => {
+            const px = parseInt(el.style.marginLeft || '0', 10)
+            if (!Number.isFinite(px) || px <= 0) return 0
+            return Math.min(Math.round(px / INDENT_STEP_PX), MAX_INDENT)
+          },
+          renderHTML: (attrs: Record<string, unknown>) => {
+            const n = Number(attrs.indent) || 0
+            return n > 0 ? { style: `margin-left: ${n * INDENT_STEP_PX}px` } : {}
+          },
+        },
+      },
+    }]
+  },
+
   addKeyboardShortcuts() {
     return {
       Tab: () => {
-        // Inside a list, Tab nests one level — the case that actually matters
-        // here (the pasted doc is nested numbered lists).
+        // A list item nests under the one above it — but only if there IS one
+        // above it. Google Docs pastes each item as its own list, which is why
+        // lib/htmlLists.ts merges them on load; without that this always fails.
         if (this.editor.can().sinkListItem('listItem')) {
           return this.editor.commands.sinkListItem('listItem')
         }
-        // Not in a list, or a lone list item with nothing above it to nest
-        // under. Swallow the key rather than invent whitespace.
-        //
-        // ⚠️ This used to insert non-breaking spaces. Don't bring that back: it
-        //    silently pollutes the saved HTML with invisible characters, and it
-        //    fires exactly when the user expected a visible indent and didn't
-        //    get one — so they press Tab again, and again. Caught by testing
-        //    against the real pasted document, which arrived as ~13 one-item
-        //    lists and put five &nbsp; into a live line. The list merge below
-        //    is what actually makes Tab work.
-        return true
+        return shiftIndent(this.editor, +1)
       },
       'Shift-Tab': () => {
         if (this.editor.can().liftListItem('listItem')) {
           return this.editor.commands.liftListItem('listItem')
         }
-        return true   // swallow it — never let focus escape
+        return shiftIndent(this.editor, -1)
       },
     }
   },
