@@ -27,6 +27,7 @@ import {
   Archive,
   PhoneCall,
   UserCog,
+  ListChecks,
 } from 'lucide-react'
 import GlobalSearch from './GlobalSearch'
 import NotificationBell from './NotificationBell'
@@ -50,6 +51,9 @@ const navGroups = [
       // them rather than by loan officer. It's the whole app for a `processor`
       // role, and a window into Hanh's workload for everyone else.
       { href: '/processing', label: 'Processing', icon: UserCog },
+      // The escrow checklist transposed — grouped by action instead of by loan.
+      // Replaces the shared Google Doc the three of them were keeping by hand.
+      { href: '/worklist', label: 'Work List', icon: ListChecks },
       { href: '/hot-leads', label: 'Hot Leads', icon: Target },
       { href: '/follow-up', label: 'Follow-Up', icon: PhoneCall },
       { href: '/funded', label: 'Funded', icon: DollarSign },

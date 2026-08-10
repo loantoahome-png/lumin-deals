@@ -73,7 +73,9 @@ for (const p of ['/', '/lead-roi', '/funded', '/reports', '/import/arive', '/pro
 
 // ── 6. Route access — a processor is confined to her desk ──────────────────
 eq('processor: /processing', canAccess('processor', '/processing'), true)
+eq('processor: /worklist', canAccess('processor', '/worklist'), true)
 eq('processor: /tasks', canAccess('processor', '/tasks'), true)
+eq('nav: processor sees Work List', canSeeNavItem('processor', '/worklist'), true)
 eq('processor: a specific file', canAccess('processor', '/deals/abc-123'), true)
 eq('processor: that file’s checklist', canAccess('processor', '/deals/abc-123/checklist'), true)
 

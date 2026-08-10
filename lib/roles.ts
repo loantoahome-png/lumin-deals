@@ -58,6 +58,7 @@ export function displayName(user: UserLike): string | null {
 // board, which /processing deliberately replaces with her own.
 const PROCESSOR_ALLOWED = [
   '/processing',
+  '/worklist',
   '/deals/',
   '/tasks',
 ]
@@ -85,7 +86,7 @@ export function canAccess(role: Role, pathname: string): boolean {
  */
 export function canSeeNavItem(role: Role, href: string): boolean {
   if (role === 'admin') return true
-  return href === PROCESSOR_HOME || href === '/tasks'
+  return href === PROCESSOR_HOME || href === '/worklist' || href === '/tasks'
 }
 
 // ── The task board, as a processor sees it ─────────────────────────────────
