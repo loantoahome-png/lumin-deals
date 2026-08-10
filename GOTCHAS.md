@@ -550,3 +550,22 @@ the substituted body; the raw list never leaves the server. Contact/user tokens
 nothing secret. `lib/mergeFields.ts` splits the two on purpose.
 **Project:** lumin-deals
 **Date:** 2026-07-31
+
+### Supabase `app_metadata` cannot be edited from the dashboard any more
+**Tried:** documenting "Authentication → Users → click the user → **Raw App Meta Data**
+→ add `{"role":"processor"}`", which is how it worked in older Supabase dashboards.
+**Failed because:** current dashboards removed that editable box. The user panel now shows
+`Overview | Logs | Raw JSON`, and the Raw JSON tab is **read-only**. There is no field to
+type into — Efrain went looking for it and it isn't there.
+**Why it's actually correct:** `app_metadata` is writable only with the service-role key.
+That's the entire reason the app's role gate reads from it instead of `user_metadata` —
+`supabase.auth.updateUser()` lets any signed-in browser rewrite user_metadata, so a role
+stored there could be self-promoted to admin from the console.
+**What works:** `npx tsx scripts/set-user-role.ts <email> [processor|admin] ["Name"]`
+(Admin API, `auth.admin.updateUserById`). Run it with no role argument to read current
+state without changing anything.
+**⚠️ MERGE, never replace.** `app_metadata` also holds `provider` / `providers`, which
+Supabase uses for sign-in. A script that assigns a fresh object clobbers them and the
+account can no longer log in. The script spreads the existing object.
+**Project:** lumin-deals (`lib/roles.ts`, `docs/runbooks/add-a-user.md`)
+**Date:** 2026-08-10
