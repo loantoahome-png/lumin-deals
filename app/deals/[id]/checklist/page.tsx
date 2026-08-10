@@ -9,8 +9,9 @@
 // banner) so nothing recorded ever disappears — the button going away is what
 // takes it out of the daily workflow.
 
-import { useEffect, useState, useCallback, use } from 'react'
+import { useEffect, useState, useCallback, use, Suspense } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Deal } from '@/lib/types'
 import {
@@ -40,8 +41,13 @@ function stamp(iso: string | null): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-export default function ProcessorChecklistPage({ params }: { params: Promise<{ id: string }> }) {
+// `?from=processing` — set by the Checklist button on the Processing Desk so the
+// back link returns to the desk instead of dumping you on the deal page. The
+// desk is a work queue: you open a file, tick, and go back for the next one.
+// Any other value (or none) keeps the original "back to the deal" behaviour.
+function ChecklistPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  const fromProcessing = useSearchParams().get('from') === 'processing'
 
   const [deal, setDeal] = useState<Deal | null>(null)
   const [rows, setRows] = useState<ChecklistRow[]>([])
@@ -127,10 +133,11 @@ export default function ProcessorChecklistPage({ params }: { params: Promise<{ i
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <Link
-        href={`/deals/${id}`}
+        href={fromProcessing ? '/processing' : `/deals/${id}`}
         className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 mb-4 transition-colors"
       >
-        <ArrowLeft className="w-3.5 h-3.5" /> Back to {deal.name || 'deal'}
+        <ArrowLeft className="w-3.5 h-3.5" />
+        {fromProcessing ? 'Back to Processing Desk' : `Back to ${deal.name || 'deal'}`}
       </Link>
 
       {/* ── Header + progress ─────────────────────────────────────────── */}
@@ -261,5 +268,19 @@ export default function ProcessorChecklistPage({ params }: { params: Promise<{ i
         {savedAt ? 'Saved automatically.' : 'Changes save automatically.'}
       </p>
     </div>
+  )
+}
+
+// useSearchParams needs a Suspense boundary in the App Router — without it the
+// whole route opts into client-side rendering and `next build` fails.
+export default function ProcessorChecklistPage(props: { params: Promise<{ id: string }> }) {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center h-full py-20">
+        <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+      </div>
+    }>
+      <ChecklistPage {...props} />
+    </Suspense>
   )
 }

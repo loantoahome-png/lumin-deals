@@ -294,10 +294,9 @@ export default function ProcessingPage() {
                       {deal.loan_amount != null && <span className="tabular-nums">{formatCurrency(deal.loan_amount)}</span>}
                       {deal.loan_type && <span>{deal.loan_type}</span>}
                       {deal.investor && <span className="truncate max-w-[160px]">{deal.investor}</span>}
-                      <span className="flex items-center gap-1">
-                        <ClipboardList className="w-3 h-3" />
-                        Checklist {chk.done}/{chk.total}
-                      </span>
+                      {/* Checklist progress used to sit here as dead text. It's
+                          now the clickable pill in the row actions — one place,
+                          and that one place goes somewhere. */}
                       {deal.waiting_on && deal.waiting_on !== 'No one' && (
                         <span className="text-amber-700">Waiting on {deal.waiting_on}</span>
                       )}
@@ -314,13 +313,31 @@ export default function ProcessingPage() {
                     )}
                   </div>
 
-                  {/* Task counters — the reason this page exists. */}
+                  {/* Row actions — the two things a processor does from here.
+                      Both live on the COLLAPSED row on purpose (Efrain
+                      2026-08-10): the checklist is the daily work, and burying
+                      it behind an expand made it a three-click job. */}
                   <div className="flex items-center gap-2 shrink-0">
                     {overdue.length > 0 && (
                       <span className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 rounded-full px-2 py-0.5 tabular-nums">
                         {overdue.length} overdue
                       </span>
                     )}
+                    {/* Straight to THIS loan's processor checklist. */}
+                    <Link
+                      href={`/deals/${deal.id}/checklist?from=processing`}
+                      title={`Open the processor checklist for ${deal.name} — ${chk.done} of ${chk.total} complete`}
+                      className={`flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5 tabular-nums border transition ${
+                        chk.total > 0 && chk.done === chk.total
+                          ? 'text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
+                          : chk.done > 0
+                          ? 'text-cyan-700 bg-cyan-50 border-cyan-200 hover:bg-cyan-100'
+                          : 'text-slate-500 bg-slate-50 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      <ClipboardList className="w-3 h-3" />
+                      Checklist {chk.done}/{chk.total}
+                    </Link>
                     <button
                       onClick={() => toggleRow(deal.id)}
                       className={`text-[10px] font-semibold rounded-full px-2 py-0.5 tabular-nums border transition ${
@@ -398,7 +415,7 @@ export default function ProcessingPage() {
                       </label>
 
                       <div className="ml-auto flex items-center gap-2 text-[11px]">
-                        <Link href={`/deals/${deal.id}/checklist`} className="flex items-center gap-1 text-cyan-700 hover:text-cyan-900 font-medium">
+                        <Link href={`/deals/${deal.id}/checklist?from=processing`} className="flex items-center gap-1 text-cyan-700 hover:text-cyan-900 font-medium">
                           <ClipboardList className="w-3.5 h-3.5" /> Checklist ({chk.pct}%)
                         </Link>
                         <Link href={`/deals/${deal.id}`} className="flex items-center gap-1 text-slate-600 hover:text-slate-900 font-medium">
