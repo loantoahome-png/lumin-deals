@@ -3,7 +3,7 @@
 import {
   rangeBounds, monthsBetween, parseLocalMs, anchorDate, filterDeals, buildSourceStats,
   rollupKpis, funnel, stateRows, monthlySeries, projection, sourceLabel,
-  optout7dStats, insights,
+  optout7dStats, insights, netOf, LO_SPLIT,
   type CostRow, type RoiFilters,
 } from '../lib/leadRoi'
 import type { Deal } from '../lib/types'
@@ -86,17 +86,40 @@ eq('FRU funded (incl. undatable)', fru.funded, 2)
 approx('FRU leadCost', fru.leadCost, 50)
 approx('FRU retainer 100×2', fru.retainer, 200)
 approx('FRU blended spend', fru.spend, 250)
-approx('FRU revenue (comp on funded)', fru.revenue, 3000)
-approx('FRU ROI = rev÷spend multiple', fru.roi, 12)
-approx('FRU net = rev − spend', fru.netProfit, 2750)
-approx('FRU cost/funded = spend÷funded', fru.costPerFunded, 125)
+approx('FRU revenue (comp on funded) stays GROSS', fru.revenue, 3000)
 eq('responded excludes cold new-lead rows', fru.responded, 3)   // a (Pitching) + f + g funded
+
+// ── LO split: 85% of gross is what actually pays off a lead (2026-08-10) ───────
+// Revenue keeps reporting the gross commission; netRevenue is the LO's share, and
+// netProfit + roi are computed from NET, never gross. These four are the whole
+// change — if one of them regresses to gross, every vendor looks ~18% better than
+// it is and a losing source can read as profitable.
+eq('LO_SPLIT is 85%', LO_SPLIT, 0.85)
+approx('netOf applies the split', netOf(1000), 850)
+approx('FRU netRevenue = revenue × 85%', fru.netRevenue, 2550)          // 3000 × 0.85
+approx('FRU ROI = NET rev ÷ spend (was 12× on gross)', fru.roi, 10.2)   // 2550 ÷ 250
+approx('FRU net profit = NET rev − spend', fru.netProfit, 2300)         // 2550 − 250
+approx('FRU cost/funded = spend÷funded (unchanged by the split)', fru.costPerFunded, 125)
+
+// The 0.85–1.00 band is the reason this change matters: a source that clears its
+// cost on gross can still lose money once the house takes its cut.
+const marginal = buildSourceStats(
+  [deal({ id: 'm', source: 'Marginal', pipeline_group: 'Funded', status: 'Loan Funded',
+          funded_date: '2026-06-01', lead_price: 1000, compensation_amount: 1100 })],
+  new Map(), 1)[0]
+approx('gross would have read 1.10× …', marginal.revenue / marginal.spend, 1.1)
+approx('… but net ROI is under 1× — underwater', marginal.roi, 0.935)   // 935 ÷ 1000
+eq('and net profit is negative', marginal.netProfit < 0, true)
 
 // ── KPI rollup + funnel ────────────────────────────────────────────────────────
 const k = rollupKpis(stats)
 eq('kpis leads', k.totalLeads, 4)
-approx('kpis roi', k.roi, 12)
-approx('kpis avgComp', k.avgComp, 1500)   // 3000 across 2 funded
+approx('kpis revenue is GROSS', k.revenue, 3000)
+approx('kpis netRevenue = 85%', k.netRevenue, 2550)
+approx('kpis roi runs on net', k.roi, 10.2)
+approx('kpis netProfit runs on net', k.netProfit, 2300)
+approx('kpis avgComp = GROSS ÷ funded', k.avgComp, 1500)      // 3000 across 2 funded
+approx('kpis avgNetComp = NET ÷ funded', k.avgNetComp, 1275)  // what cost/funded must beat
 const fn = funnel(k)
 eq('funnel stages', fn.map(s => s.n), [4, 3, 2, 2])   // 0 active → became-a-loan = funded
 
@@ -111,10 +134,14 @@ const ms = monthlySeries(moes, 0)
 // revenue lands Jun (funded_date 2026-06-15, comp 3000); span fills Mar..Jun
 eq('series spans Mar–Jun', ms.map(p => p.key), ['2026-03', '2026-04', '2026-05', '2026-06'])
 approx('Mar spend', ms[0].spend, 50)
-approx('Jun revenue', ms[3].revenue, 3000)
-eq('empty months are zero', [ms[1].spend, ms[1].revenue], [0, 0])
+approx('Jun revenue stays gross on the point', ms[3].revenue, 3000)
+approx('Jun netRevenue = 85% (what the bar plots)', ms[3].netRevenue, 2550)
+eq('Jun ROI is null — revenue but no spend that month', ms[3].roi, null)
+eq('empty months are zero', [ms[1].spend, ms[1].revenue, ms[1].netRevenue], [0, 0, 0])
 const msr = monthlySeries(moes, 10)   // retainer spread: every month +10
 approx('retainer spread into each month', msr[1].spend, 10)
+// Jun now has $10 of retainer spend against $3000 gross / $2550 net comp.
+approx('monthly ROI chip runs on NET, not gross', msr[3].roi, 255)   // 2550 ÷ 10, not 300
 
 // ── Non-Del revenue: comp + Final Price credit (lib/comp.ts) ───────────────────
 // Revenue must be totalComp, not the Arive comp column — on a Non-Del loan the
@@ -132,8 +159,12 @@ const ndRev = ndStats.find(s => s.source === 'Lendgo')!
 const brRev = ndStats.find(s => s.source === 'LMB')!
 approx('Non-Del revenue = comp + price credit', ndRev.revenue, 21461.61)
 approx('Broker revenue = comp alone', brRev.revenue, 8946)
+// The 85% split takes BOTH halves (Efrain 2026-08-10) — the price credit is not
+// exempt, so netRevenue is 85% of the combined figure, not comp×0.85 + credit.
+approx('split applies to comp AND the Non-Del credit', ndRev.netRevenue, 18242.37)   // 21461.61 × 0.85
 const ndSeries = monthlySeries(nonDelBook, 0)
 approx('monthly revenue carries the credit', ndSeries.find(p => p.key === '2026-05')!.revenue, 30407.61)
+approx('monthly netRevenue splits the credit too', ndSeries.find(p => p.key === '2026-05')!.netRevenue, 25846.47)
 
 // ── Projection ─────────────────────────────────────────────────────────────────
 const withActive: Deal[] = [
@@ -147,8 +178,13 @@ const proj = projection(stats2, k2)
 eq('projection counts actives', proj.activeCount, 2)
 eq('projection estimates comp-less actives', proj.estimatedCount, 1)
 // avgComp over comp-bearing deals: f(3000) + h(2000) = 2500; addComp = 2000 + 2500
-approx('projection addComp', proj.addComp, 4500)
-approx('projection revenue', proj.projRevenue, 7500)
+approx('projection addComp is GROSS', proj.addComp, 4500)
+approx('projection addNetComp = 85%', proj.addNetComp, 3825)
+approx('projection revenue is GROSS', proj.projRevenue, 7500)
+// A projected loan is split like a funded one — 7500 × 0.85.
+approx('projection netRevenue = 85% of projected gross', proj.projNetRevenue, 6375)
+approx('projected net profit runs on net', proj.projNetProfit, 6375 - k2.spend)
+approx('projected ROI runs on net', proj.projRoi, 6375 / k2.spend)
 eq('projection funded', proj.projFunded, 4)
 
 // ── Opt-out rate + early opt-out (≤7d) ─────────────────────────────────────────
@@ -205,7 +241,11 @@ const insBook: Deal[] = [
 ]
 const insStats = buildSourceStats(insBook, new Map(), 1)
 const ins = insights(insStats, 20)
-eq('bestRoi = Beta (8×)', ins.bestRoi?.source, 'Beta')
+// The split is uniform, so RANKINGS are unchanged — but the reported multiples are
+// net. Beta was 8× on gross ($800 comp ÷ $100 spend); it is 6.8× on what Beta's
+// leads actually put in the LO's pocket.
+eq('bestRoi = Beta (ranking survives the split)', ins.bestRoi?.source, 'Beta')
+approx('…and its ROI is reported NET', ins.bestRoi?.roi ?? null, 6.8)
 eq('topNet = Alpha (biggest $)', ins.topNet?.source, 'Alpha')
 eq('bestResponse needs ≥20 leads', ['Alpha', 'Gamma'].includes(ins.bestResponse?.source ?? ''), true)
 eq('worstRoi = Delta (underwater)', ins.worstRoi?.source, 'Delta')

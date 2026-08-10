@@ -5,7 +5,8 @@
  *
  * One filter bar, one set of definitions (docs/specs/2026-07-13-lead-roi-unified-spec.md):
  *   • Per-LO ONLY — single-LO tabs, no combined view (Efrain's call 2026-07-13).
- *   • ROI = revenue ÷ spend as a multiple; spend = lead prices + retainers.
+ *   • Net revenue = revenue × 85% — the LO's share (LO_SPLIT in lib/leadRoi.ts).
+ *   • ROI = NET revenue ÷ spend as a multiple; spend = lead prices + retainers.
  *   • Funded = isFunded (group OR funded statuses) everywhere.
  *
  * All aggregation lives in lib/leadRoi.ts (pure, fixture-tested via
@@ -23,7 +24,7 @@ import { rrBand, isFunded, PURCHASED_SOURCES, type Purpose, type SourceScope } f
 import { totalComp, discountCredit, hasDiscountCredit } from '@/lib/comp'
 import {
   RANGE_OPTIONS, rangeBounds, monthsBetween, filterDeals, buildSourceStats, rollupKpis,
-  funnel, stateRows, monthlySeries, projection, optout7dStats, insights,
+  funnel, stateRows, monthlySeries, projection, optout7dStats, insights, netOf, LO_SPLIT,
   type RangeKey, type CostRow,
 } from '@/lib/leadRoi'
 import {
@@ -51,6 +52,8 @@ const LO_ACCENT: Record<string, string> = {
 
 const pct = (x: number) => x.toFixed(1) + '%'
 const money = (x: number | null | undefined) => (x == null ? '—' : formatCurrency(x))
+// "85%" — derived from LO_SPLIT so the copy can never drift from the arithmetic.
+const SPLIT_LABEL = `${(LO_SPLIT * 100).toFixed(LO_SPLIT * 100 % 1 === 0 ? 0 : 1)}%`
 const roiFmt = (x: number | null) => (x == null ? '—' : x.toFixed(2) + '×')
 const roiColor = (x: number | null) => (x == null ? 'text-slate-400' : x >= 1 ? 'text-emerald-600' : 'text-red-600')
 const RR_COLOR: Record<'good' | 'mid' | 'bad', string> = {
@@ -135,7 +138,7 @@ export default function LeadRoiPage() {
       .sort((a, b) => new Date(b.funded_date || b.created_at).getTime() - new Date(a.funded_date || a.created_at).getTime())
     const volume = list.reduce((a, d) => a + (d.loan_amount ?? 0), 0)
     const comp = list.reduce((a, d) => a + totalComp(d), 0)
-    return { list, volume, comp }
+    return { list, volume, comp, netComp: netOf(comp) }
   }, [visibleDeals])
 
   const allKnownSources = useMemo(() => {
@@ -165,7 +168,8 @@ export default function LeadRoiPage() {
     const headers = [
       'Source', 'Leads', 'Responded', 'Resp %', 'No Resp', 'Opt-out', 'Opt-out %', 'Team-removed', 'Team-removed %',
       'Open', 'Active', 'Lost', 'Funded', 'Fund %', 'Funded Volume', 'Avg Funded',
-      'Lead Cost', 'Retainer', 'Spend', 'Revenue', 'Net Profit', 'ROI x', 'Cost per Funded', 'Monthly Cost',
+      'Lead Cost', 'Retainer', 'Spend', 'Revenue (gross)', `Net Revenue (${SPLIT_LABEL})`,
+      'Net Profit', 'ROI x', 'Cost per Funded', 'Monthly Cost',
     ]
     const escape = (v: unknown) => {
       const s = v == null ? '' : String(v)
@@ -174,7 +178,7 @@ export default function LeadRoiPage() {
     const rows = visibleSources.map(s => [
       s.source, s.total, s.responded, s.rr.toFixed(1), s.cold, s.optout, s.orate.toFixed(1), s.teamRemoved, s.trate.toFixed(1),
       s.open, s.active, s.lost, s.funded, s.fr.toFixed(1), s.fundedVolume, s.fundedAvg.toFixed(0),
-      s.leadCost.toFixed(0), s.retainer.toFixed(0), s.spend.toFixed(0), s.revenue.toFixed(0),
+      s.leadCost.toFixed(0), s.retainer.toFixed(0), s.spend.toFixed(0), s.revenue.toFixed(0), s.netRevenue.toFixed(0),
       s.netProfit.toFixed(0), s.roi == null ? '' : s.roi.toFixed(2), s.costPerFunded == null ? '' : s.costPerFunded.toFixed(0),
       s.costPerMonth,
     ].map(escape).join(','))
@@ -279,14 +283,15 @@ export default function LeadRoiPage() {
     )
   }
 
-  const renderMonthTooltip = (props: { active?: boolean; label?: string; payload?: Array<{ payload: { label: string; spend: number; revenue: number; roi: number | null } }> }) => {
+  const renderMonthTooltip = (props: { active?: boolean; label?: string; payload?: Array<{ payload: { label: string; spend: number; revenue: number; netRevenue: number; roi: number | null } }> }) => {
     if (!props.active || !props.payload?.length) return null
     const p = props.payload[0].payload
     return (
       <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-xs space-y-0.5">
         <p className="font-semibold text-slate-900">{p.label}</p>
         <p className="text-rose-600">Spend {formatCurrency(p.spend)}</p>
-        <p className="text-emerald-700">Revenue {formatCurrency(p.revenue)}</p>
+        <p className="text-slate-400">Gross revenue {formatCurrency(p.revenue)}</p>
+        <p className="text-emerald-700">Net revenue {formatCurrency(p.netRevenue)}</p>
         <p className={p.roi != null && p.roi >= 1 ? 'text-emerald-700 font-semibold' : 'text-red-600 font-semibold'}>
           ROI {p.roi == null ? '—' : p.roi.toFixed(2) + '×'}
         </p>
@@ -470,8 +475,9 @@ export default function LeadRoiPage() {
                       <b className={RR_COLOR[rrBand(kpis.rr)]}>{pct(kpis.rr)} responded</b>,{' '}
                       <b className="text-slate-900">{kpis.funded} funded</b> ({pct(kpis.fr)}) for{' '}
                       <b className="text-slate-900">{formatCurrency(kpis.volume)}</b> in volume.{' '}
-                      {kpis.spend > 0 && <>Spent <b className="text-rose-600">{formatCurrency(kpis.spend)}</b>, earned back{' '}
-                      <b className="text-emerald-700">{formatCurrency(kpis.revenue)}</b> —{' '}
+                      {kpis.spend > 0 && <>Spent <b className="text-rose-600">{formatCurrency(kpis.spend)}</b>, earned{' '}
+                      <b className="text-emerald-700">{formatCurrency(kpis.revenue)}</b> gross —{' '}
+                      <b className="text-emerald-700">{formatCurrency(kpis.netRevenue)}</b> kept at {SPLIT_LABEL} —{' '}
                       <b className={kpis.netProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}>{kpis.netProfit >= 0 ? '+' : ''}{formatCurrency(kpis.netProfit)} net</b>
                       {kpis.roi != null && <> at <b className={roiColor(kpis.roi)}>{kpis.roi.toFixed(2)}× ROI</b></>}.{' '}</>}
                       {kpis.optout > 0 && <>
@@ -485,7 +491,7 @@ export default function LeadRoiPage() {
                       <div className="flex flex-wrap gap-2 mt-2.5">
                         {ins.bestRoi && (
                           <span className="inline-flex items-center gap-1.5 text-xs bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-full px-3 py-1">
-                            🏆 <b>Best performer: {ins.bestRoi.source}</b> · {ins.bestRoi.roi?.toFixed(2)}× ROI ({formatCurrency(ins.bestRoi.spend)} → {formatCurrency(ins.bestRoi.revenue)})
+                            🏆 <b>Best performer: {ins.bestRoi.source}</b> · {ins.bestRoi.roi?.toFixed(2)}× ROI ({formatCurrency(ins.bestRoi.spend)} → {formatCurrency(ins.bestRoi.netRevenue)} net)
                           </span>
                         )}
                         {ins.topNet && ins.topNet.source !== ins.bestRoi?.source && (
@@ -524,19 +530,25 @@ export default function LeadRoiPage() {
                 <Kpi icon={<TrendingUp className="w-4 h-4 text-amber-500" />} label="Active escrows" value={kpis.active.toLocaleString()} />
                 <Kpi icon={<CheckCircle2 className="w-4 h-4 text-emerald-600" />} label="Funded" value={kpis.funded.toLocaleString()} sub={`${pct(kpis.fr)} · ${formatCurrency(kpis.volume)}`} highlight="good" />
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              {/* Money row — Revenue is GROSS, Net revenue is the LO's share, and every
+                  box to the right of it (net profit, ROI, cost/funded) is computed on NET. */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 <Kpi icon={<DollarSign className="w-4 h-4 text-rose-500" />} label="Spend" value={kpis.spend > 0 ? formatCurrency(kpis.spend) : '—'}
                   sub={kpis.retainer > 0 ? `${formatCurrency(kpis.leadCost)} leads + ${formatCurrency(kpis.retainer)} retainers` : 'lead prices'} />
-                <Kpi icon={<DollarSign className="w-4 h-4 text-emerald-600" />} label="Revenue" value={kpis.revenue > 0 ? formatCurrency(kpis.revenue) : '—'} sub="comp on funded only" />
+                <Kpi icon={<DollarSign className="w-4 h-4 text-emerald-600" />} label="Revenue" value={kpis.revenue > 0 ? formatCurrency(kpis.revenue) : '—'} sub="gross comp on funded" />
+                <Kpi icon={<DollarSign className="w-4 h-4 text-emerald-600" />} label={`Net revenue (${SPLIT_LABEL})`} subWrap
+                  value={kpis.netRevenue > 0 ? formatCurrency(kpis.netRevenue) : '—'}
+                  sub={kpis.revenue > 0 ? `${formatCurrency(kpis.revenue)} × ${SPLIT_LABEL} — the LO's share; drives net profit & ROI` : `${SPLIT_LABEL} of gross comp`} />
                 <Kpi icon={<DollarSign className="w-4 h-4 text-emerald-700" />} label="Net profit"
                   value={(kpis.revenue > 0 || kpis.spend > 0) ? formatCurrency(kpis.netProfit) : '—'}
+                  sub="net revenue − spend"
                   highlight={kpis.netProfit >= 0 ? 'good' : 'bad'} />
                 <Kpi icon={<TrendingUp className="w-4 h-4 text-emerald-700" />} label="ROI" value={roiFmt(kpis.roi)}
-                  sub={kpis.roi != null ? `$${kpis.roi.toFixed(2)} back per $1` : 'no priced spend'}
+                  sub={kpis.roi != null ? `$${kpis.roi.toFixed(2)} kept per $1 spent` : 'no priced spend'}
                   highlight={kpis.roi != null && kpis.roi >= 1 ? 'good' : kpis.roi != null ? 'bad' : undefined} />
-                <Kpi icon={<Target className="w-4 h-4 text-indigo-500" />} label="Cost / funded"
+                <Kpi icon={<Target className="w-4 h-4 text-indigo-500" />} label="Cost / funded" subWrap
                   value={kpis.costPerFunded != null ? formatCurrency(kpis.costPerFunded) : '—'}
-                  sub={kpis.avgComp != null ? `vs ${formatCurrency(kpis.avgComp)} avg comp` : undefined} highlight />
+                  sub={kpis.avgNetComp != null ? `vs ${formatCurrency(kpis.avgNetComp)} avg net comp` : undefined} highlight />
               </div>
             </div>
 
@@ -573,11 +585,11 @@ export default function LeadRoiPage() {
             {/* Monthly spend vs revenue */}
             {monthly.length > 1 && (
               <div className="px-6 py-4 bg-white border-b border-slate-200">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Spend vs revenue by month</h3>
-                <p className="text-[11px] text-slate-400 mb-3">Revenue lands on the funding month; spend on the month the lead came in{retainerPerMonth > 0 ? ` (+ ${formatCurrency(retainerPerMonth)}/mo retainers)` : ''}.</p>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Spend vs net revenue by month</h3>
+                <p className="text-[11px] text-slate-400 mb-3">Revenue lands on the funding month; spend on the month the lead came in{retainerPerMonth > 0 ? ` (+ ${formatCurrency(retainerPerMonth)}/mo retainers)` : ''}. Bars and chips use <b className="font-semibold text-slate-500">net</b> revenue ({SPLIT_LABEL} of gross) — hover for both.</p>
                 <div className="flex items-center gap-4 text-[11px] text-slate-600 mb-2">
                   <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-rose-600 inline-block" /> Spend</span>
-                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-600 inline-block" /> Revenue</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-600 inline-block" /> Net revenue</span>
                 </div>
                 <div style={{ width: '100%', height: 240 }}>
                   <ResponsiveContainer width="100%" height="100%">
@@ -588,7 +600,7 @@ export default function LeadRoiPage() {
                         tickFormatter={(v: number) => v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${v}`} width={44} />
                       <Tooltip content={renderMonthTooltip as never} cursor={{ fill: 'rgba(148,163,184,0.08)' }} />
                       <Bar dataKey="spend" fill="#e11d48" radius={[3, 3, 0, 0]} maxBarSize={34} />
-                      <Bar dataKey="revenue" fill="#059669" radius={[3, 3, 0, 0]} maxBarSize={34} />
+                      <Bar dataKey="netRevenue" fill="#059669" radius={[3, 3, 0, 0]} maxBarSize={34} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -632,9 +644,10 @@ export default function LeadRoiPage() {
                           <th className="px-2 py-2.5 text-right">Fund %</th>
                           <th className="px-2 py-2.5 text-right">Volume</th>
                           <th className="px-2 py-2.5 text-right border-l border-slate-200" title="Σ lead price + monthly retainer × months in range">Spend</th>
-                          <th className="px-2 py-2.5 text-right" title="Σ Compensation on funded deals (Arive)">Revenue</th>
-                          <th className="px-2 py-2.5 text-right" title="Revenue − Spend">Net</th>
-                          <th className="px-2 py-2.5 text-right" title="Revenue ÷ Spend, as a multiple">ROI</th>
+                          <th className="px-2 py-2.5 text-right" title="Σ Compensation on funded deals (Arive) — GROSS, before the LO split">Revenue</th>
+                          <th className="px-2 py-2.5 text-right" title={`Revenue × ${SPLIT_LABEL} — the loan officer's share, and the figure Net and ROI are computed from`}>Net rev</th>
+                          <th className="px-2 py-2.5 text-right" title="Net revenue − Spend">Net</th>
+                          <th className="px-2 py-2.5 text-right" title="Net revenue ÷ Spend, as a multiple">ROI</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -676,7 +689,11 @@ export default function LeadRoiPage() {
                                 <td className="px-2 py-2 text-right tabular-nums text-rose-600 border-l border-slate-200" title={s.retainer > 0 ? `${formatCurrency(s.leadCost)} leads + ${formatCurrency(s.retainer)} retainer` : undefined}>
                                   {s.spend > 0 ? formatCurrency(s.spend) : <span className="text-slate-300">—</span>}
                                 </td>
-                                <td className="px-2 py-2 text-right tabular-nums text-emerald-700">{s.revenue > 0 ? formatCurrency(s.revenue) : <span className="text-slate-300">—</span>}</td>
+                                <td className="px-2 py-2 text-right tabular-nums text-slate-500">{s.revenue > 0 ? formatCurrency(s.revenue) : <span className="text-slate-300">—</span>}</td>
+                                <td className="px-2 py-2 text-right tabular-nums text-emerald-700 font-medium"
+                                  title={s.revenue > 0 ? `${formatCurrency(s.revenue)} × ${SPLIT_LABEL}` : undefined}>
+                                  {s.netRevenue > 0 ? formatCurrency(s.netRevenue) : <span className="text-slate-300">—</span>}
+                                </td>
                                 <td className={`px-2 py-2 text-right tabular-nums font-semibold ${
                                   (s.revenue === 0 && s.spend === 0) ? 'text-slate-300' : s.netProfit >= 0 ? 'text-emerald-700' : 'text-red-600'
                                 }`}>
@@ -690,7 +707,7 @@ export default function LeadRoiPage() {
                               </tr>
                               {isExpanded && (
                                 <tr className="bg-indigo-50/30">
-                                  <td colSpan={15} className="px-6 py-3">
+                                  <td colSpan={16} className="px-6 py-3">
                                     <div className="flex items-center flex-wrap gap-2 mb-3 text-xs bg-white border border-slate-200 rounded px-3 py-2">
                                       <span className="text-slate-500 font-medium whitespace-nowrap">Flat monthly cost:</span>
                                       {editingCost === s.source ? (
@@ -741,7 +758,8 @@ export default function LeadRoiPage() {
                           <td className="px-2 py-2.5 text-right tabular-nums">{pct(kpis.fr)}</td>
                           <td className="px-2 py-2.5 text-right tabular-nums">{formatCurrency(kpis.volume)}</td>
                           <td className="px-2 py-2.5 text-right tabular-nums text-rose-600 border-l border-slate-200">{kpis.spend > 0 ? formatCurrency(kpis.spend) : '—'}</td>
-                          <td className="px-2 py-2.5 text-right tabular-nums text-emerald-700">{kpis.revenue > 0 ? formatCurrency(kpis.revenue) : '—'}</td>
+                          <td className="px-2 py-2.5 text-right tabular-nums text-slate-500">{kpis.revenue > 0 ? formatCurrency(kpis.revenue) : '—'}</td>
+                          <td className="px-2 py-2.5 text-right tabular-nums text-emerald-700">{kpis.netRevenue > 0 ? formatCurrency(kpis.netRevenue) : '—'}</td>
                           <td className={`px-2 py-2.5 text-right tabular-nums ${kpis.netProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
                             {(kpis.revenue > 0 || kpis.spend > 0) ? formatCurrency(kpis.netProfit) : '—'}
                           </td>
@@ -834,14 +852,16 @@ export default function LeadRoiPage() {
                     </h3>
                     <span className="text-xs text-slate-500">
                       adds <span className="font-semibold text-violet-700">{formatCurrency(proj.addComp)}</span> projected comp
+                      {' '}(<span className="font-semibold text-violet-700">{formatCurrency(proj.addNetComp)}</span> net)
                       {proj.estimatedCount > 0 && <span className="text-slate-400"> · {proj.estimatedCount} est. at avg {formatCurrency(proj.avgComp)}</span>}
                     </span>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 p-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 p-4">
                     {[
                       { label: 'Funded', now: kpis.funded.toLocaleString(), next: proj.projFunded.toLocaleString(), tone: 'up' as const },
                       { label: 'Conversion', now: pct(kpis.fr), next: proj.projConversion.toFixed(1) + '%', tone: 'up' as const },
                       { label: 'Revenue', now: kpis.revenue > 0 ? formatCurrency(kpis.revenue) : '—', next: formatCurrency(proj.projRevenue), tone: 'up' as const },
+                      { label: `Net revenue (${SPLIT_LABEL})`, now: kpis.netRevenue > 0 ? formatCurrency(kpis.netRevenue) : '—', next: formatCurrency(proj.projNetRevenue), tone: 'up' as const },
                       { label: 'Net profit', now: (kpis.revenue > 0 || kpis.spend > 0) ? formatCurrency(kpis.netProfit) : '—', next: formatCurrency(proj.projNetProfit), tone: (proj.projNetProfit >= 0 ? 'up' : 'down') as 'up' | 'down' },
                       { label: 'ROI', now: roiFmt(kpis.roi), next: roiFmt(proj.projRoi), tone: (proj.projRoi != null && proj.projRoi >= 1 ? 'up' : 'down') as 'up' | 'down' },
                     ].map(t => {
@@ -873,7 +893,7 @@ export default function LeadRoiPage() {
                           <tr className="text-left text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
                             <th className="px-4 py-2.5">Source</th>
                             <th className="px-3 py-2.5 text-right">Active</th>
-                            <th className="px-3 py-2.5 text-right">+ Proj. Comp</th>
+                            <th className="px-3 py-2.5 text-right" title={`Gross comp the active loans would add (net = × ${SPLIT_LABEL})`}>+ Proj. Comp</th>
                             <th className="px-3 py-2.5 text-right">Net Profit → Proj.</th>
                             <th className="px-3 py-2.5 text-right pr-4">ROI → Proj.</th>
                           </tr>
@@ -883,7 +903,9 @@ export default function LeadRoiPage() {
                             <tr key={r.source}>
                               <td className="px-4 py-2.5 font-medium text-slate-800">{r.source}</td>
                               <td className="px-3 py-2.5 text-right tabular-nums text-amber-600">{r.activeCount}</td>
-                              <td className="px-3 py-2.5 text-right tabular-nums text-violet-700">{formatCurrency(r.addComp)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-violet-700 whitespace-nowrap" title={`${formatCurrency(r.addNetComp)} net after the ${SPLIT_LABEL} split`}>
+                                {formatCurrency(r.addComp)} <span className="text-[11px] text-slate-400">/ {formatCurrency(r.addNetComp)} net</span>
+                              </td>
                               <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
                                 <span className="text-slate-400">{formatCurrency(r.netProfit)}</span>
                                 <ArrowRight className="inline w-3 h-3 text-slate-300 mx-1" />
@@ -901,7 +923,7 @@ export default function LeadRoiPage() {
                     </div>
                   )}
                   <div className="px-4 py-2.5 text-[11px] text-slate-400 border-t border-slate-100 leading-relaxed">
-                    Hypothetical — adds each <strong>Active</strong> (Loans in Process) loan&apos;s Arive compensation to revenue with spend unchanged{proj.estimatedCount > 0 ? `; ${proj.estimatedCount} without a comp yet ${proj.estimatedCount === 1 ? 'is' : 'are'} estimated at the ${formatCurrency(proj.avgComp)} average` : ''}. Not a forecast of close probability.
+                    Hypothetical — adds each <strong>Active</strong> (Loans in Process) loan&apos;s Arive compensation to revenue with spend unchanged{proj.estimatedCount > 0 ? `; ${proj.estimatedCount} without a comp yet ${proj.estimatedCount === 1 ? 'is' : 'are'} estimated at the ${formatCurrency(proj.avgComp)} average` : ''}. Projected loans are split at {SPLIT_LABEL} like funded ones, so the projected net profit and ROI are on the LO&apos;s share. Not a forecast of close probability.
                   </div>
                 </div>
               )}
@@ -917,7 +939,8 @@ export default function LeadRoiPage() {
                     <span className="text-xs text-slate-500">
                       <span className="font-semibold text-slate-700">{fundedView.list.length}</span> funded
                       {' · '}<span className="font-semibold text-slate-700">{formatCurrency(fundedView.volume)}</span> volume
-                      {fundedView.comp > 0 && <>{' · '}<span className="font-semibold text-emerald-700">{formatCurrency(fundedView.comp)}</span> comp</>}
+                      {fundedView.comp > 0 && <>{' · '}<span className="font-semibold text-slate-700">{formatCurrency(fundedView.comp)}</span> gross comp
+                        {' · '}<span className="font-semibold text-emerald-700">{formatCurrency(fundedView.netComp)}</span> net</>}
                     </span>
                   </div>
                   <div className="overflow-x-auto">
@@ -928,7 +951,8 @@ export default function LeadRoiPage() {
                           <th className="px-3 py-2.5">Source</th>
                           <th className="px-3 py-2.5 text-right">Funded</th>
                           <th className="px-3 py-2.5 text-right">Loan Amount</th>
-                          <th className="px-3 py-2.5 text-right pr-4">Revenue</th>
+                          <th className="px-3 py-2.5 text-right">Revenue</th>
+                          <th className="px-3 py-2.5 text-right pr-4" title={`Revenue × ${SPLIT_LABEL} — the loan officer's share`}>Net ({SPLIT_LABEL})</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -940,7 +964,8 @@ export default function LeadRoiPage() {
                             <td className="px-3 py-2.5 text-slate-600">{(d.source ?? '').trim() || '—'}</td>
                             <td className="px-3 py-2.5 text-right tabular-nums text-slate-600 whitespace-nowrap">{fmtDate(d.funded_date)}</td>
                             <td className="px-3 py-2.5 text-right tabular-nums font-medium text-slate-800">{d.loan_amount ? formatCurrency(d.loan_amount) : '—'}</td>
-                            <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700 pr-4" title={hasDiscountCredit(d) ? `Arive comp ${formatCurrency(d.compensation_amount ?? 0)} + Non-Del price credit ${formatCurrency(discountCredit(d))}` : undefined}>{totalComp(d) ? formatCurrency(totalComp(d)) : '—'}</td>
+                            <td className="px-3 py-2.5 text-right tabular-nums text-slate-500" title={hasDiscountCredit(d) ? `Arive comp ${formatCurrency(d.compensation_amount ?? 0)} + Non-Del price credit ${formatCurrency(discountCredit(d))}` : undefined}>{totalComp(d) ? formatCurrency(totalComp(d)) : '—'}</td>
+                            <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700 font-medium pr-4">{totalComp(d) ? formatCurrency(netOf(totalComp(d))) : '—'}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -948,7 +973,8 @@ export default function LeadRoiPage() {
                         <tr className="bg-slate-50 border-t border-slate-200 font-semibold text-slate-800">
                           <td className="px-4 py-2.5" colSpan={3}>Total</td>
                           <td className="px-3 py-2.5 text-right tabular-nums">{formatCurrency(fundedView.volume)}</td>
-                          <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700 pr-4">{formatCurrency(fundedView.comp)}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{formatCurrency(fundedView.comp)}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700 pr-4">{formatCurrency(fundedView.netComp)}</td>
                         </tr>
                       </tfoot>
                     </table>
@@ -967,8 +993,9 @@ export default function LeadRoiPage() {
                   <p><b>Responded:</b> engaged at least once — <b>Ghosted counts</b>; only New Lead / Attempted Contact / Non-Responsive are &ldquo;no response.&rdquo; Team-removed leads (Remove from All Automations) split by real contact — counted as Responded only if they have a logged inbound message, else No-response (verified 2026-07-17: ~18% had inbound). <b>Opted out / DND</b> is its own bucket; the table shows count · % of that source&apos;s leads.</p>
                   <p><b>Fast opt-outs (≤7d):</b> of the CUSTOMER opt-outs (STOP / DND-SMS) that have a logged opt-out event, the share whose FIRST opt-out landed within 7 days of the lead&apos;s creation date — i.e. leads that bailed almost immediately. The headline % is those fast opt-outs ÷ <i>all leads</i> (e.g. 6 ÷ 646 ≈ 0.9%). It&apos;s a FLOOR — only opt-outs with a logged timestamp can be counted, so the card shows the coverage (e.g. &ldquo;17/81 opt-outs&rdquo; timed) and the real rate may be higher. &ldquo;Remove from All Automations&rdquo; is excluded — that&apos;s a team disposition from the Hot Leads triage button, not the borrower opting out (it was 61% of the old merged bucket and rose with triage adoption, making lead quality look worse than it is). Forward-only log — opt-outs from before the webhook went live (~Jul 8) have no timing, hence the coverage count. The summary&apos;s best-performer picks: Best ROI needs ≥1 funded + real spend; rate picks need ≥20 leads.</p>
                   <p><b>Funded:</b> Loan Funded / Broker Check Received / Loan Finalized (or the Funded group) — used for the pipeline tallies too. Funded loans anchor on <b>funded date</b>; everything else on the date the lead was added; date-less rows appear only under All time.</p>
-                  <p><b>Spend:</b> Σ per-lead price (GHL) <b>plus</b> flat monthly retainers × months in range. <b>Revenue:</b> Σ Arive compensation on funded loans only. <b>Net profit</b> = revenue − spend.</p>
-                  <p><b>ROI:</b> revenue ÷ spend as a multiple — 1.62× means $1.62 back per $1 (the old Lead Spend percent is this minus one). Lead price coverage is ~84%, so spend on price-less leads is understated — set a retainer for flat-billed sources.</p>
+                  <p><b>Spend:</b> Σ per-lead price (GHL) <b>plus</b> flat monthly retainers × months in range. <b>Revenue:</b> Σ Arive compensation on funded loans only — <i>gross</i>, what the loan earned before the split.</p>
+                  <p><b>Net revenue ({SPLIT_LABEL}):</b> revenue × {SPLIT_LABEL} — the loan officer&apos;s share. The other {(100 - LO_SPLIT * 100).toFixed(0)}% never reaches the LO, so it can&apos;t count toward paying off a lead. The split applies to the <i>whole</i> figure, including the Non-Del Final Price credit, and is the same {SPLIT_LABEL} for every LO. <b>Net profit</b> = net revenue − spend.</p>
+                  <p><b>ROI:</b> <b>net</b> revenue ÷ spend as a multiple — 1.62× means $1.62 <i>kept</i> per $1 spent. This is the true return on lead spend; measuring against gross commission overstates every source by about 18% (1 ÷ {SPLIT_LABEL}), enough for a barely-losing vendor to read as profitable. Break-even is now {(1 / LO_SPLIT).toFixed(2)}× on gross. Lead price coverage is ~84%, so spend on price-less leads is understated — set a retainer for flat-billed sources.</p>
                   <p><b>Purpose:</b> Refinance includes HELOCs — both a HELOC <i>purpose</i> and, when no purpose was recorded, a HELOC/HELOAN loan <i>type</i>. Leads with neither still count only under &ldquo;All purposes,&rdquo; so Purchase + Refinance can be less than the total.</p>
                 </div>
               </details>

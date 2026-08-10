@@ -16,7 +16,7 @@ import { rrBand, isFunded, PURCHASED_SOURCES, type Purpose, type SourceScope } f
 import { totalComp } from '@/lib/comp'
 import {
   RANGE_OPTIONS, rangeBounds, monthsBetween, filterDeals, buildSourceStats, rollupKpis,
-  funnel, stateRows, monthlySeries, projection, optout7dStats, insights,
+  funnel, stateRows, monthlySeries, projection, optout7dStats, insights, netOf, LO_SPLIT,
   type RangeKey, type CostRow,
 } from '@/lib/leadRoi'
 import { Printer } from 'lucide-react'
@@ -27,6 +27,8 @@ const LEAD_COLS = 'id,name,source,loan_officer,pipeline_group,status,loan_amount
 
 const pct = (x: number) => x.toFixed(1) + '%'
 const roiFmt = (x: number | null) => (x == null ? '—' : x.toFixed(2) + '×')
+// Mirrors the page — derived from LO_SPLIT so the report can't state a stale split.
+const SPLIT_LABEL = `${(LO_SPLIT * 100).toFixed(LO_SPLIT * 100 % 1 === 0 ? 0 : 1)}%`
 const fmtDate = (iso: string | null | undefined) => {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -122,7 +124,9 @@ function ReportBody() {
     sourcesParam ? `${sourcesParam.split('|').length} sources selected` : 'All sources',
   ]
 
-  const maxMonthVal = Math.max(1, ...monthly.flatMap(p => [p.spend, p.revenue]))
+  // Scaled to what is actually PLOTTED (spend + net revenue) — using gross here
+  // would shrink every bar by the split and leave dead space at the top.
+  const maxMonthVal = Math.max(1, ...monthly.flatMap(p => [p.spend, p.netRevenue]))
   const FUNNEL_BG = ['#c7d2fe', '#a5b4fc', '#818cf8', '#4f46e5']
 
   // Donut geometry (pure SVG — prints reliably, unlike a responsive chart lib)
@@ -186,8 +190,9 @@ function ReportBody() {
                 <b className={RR_TXT[rrBand(kpis.rr)]}>{pct(kpis.rr)} responded</b>,{' '}
                 <b className="text-slate-900">{kpis.funded} funded</b> ({pct(kpis.fr)}) for{' '}
                 <b className="text-slate-900">{formatCurrency(kpis.volume)}</b> in volume.{' '}
-                {kpis.spend > 0 && <>Spent <b className="text-rose-600">{formatCurrency(kpis.spend)}</b>, earned back{' '}
-                <b className="text-emerald-700">{formatCurrency(kpis.revenue)}</b> —{' '}
+                {kpis.spend > 0 && <>Spent <b className="text-rose-600">{formatCurrency(kpis.spend)}</b>, earned{' '}
+                <b className="text-emerald-700">{formatCurrency(kpis.revenue)}</b> gross —{' '}
+                <b className="text-emerald-700">{formatCurrency(kpis.netRevenue)}</b> kept at {SPLIT_LABEL} —{' '}
                 <b className={kpis.netProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}>{kpis.netProfit >= 0 ? '+' : ''}{formatCurrency(kpis.netProfit)} net</b>
                 {kpis.roi != null && <> at <b className={kpis.roi >= 1 ? 'text-emerald-700' : 'text-red-600'}>{kpis.roi.toFixed(2)}× ROI</b></>}.{' '}</>}
                 {kpis.optout > 0 && <>
@@ -201,7 +206,7 @@ function ReportBody() {
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {ins.bestRoi && (
                     <span className="text-[11px] bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-full px-2.5 py-0.5">
-                      🏆 <b>Best performer: {ins.bestRoi.source}</b> · {ins.bestRoi.roi?.toFixed(2)}× ROI ({formatCurrency(ins.bestRoi.spend)} → {formatCurrency(ins.bestRoi.revenue)})
+                      🏆 <b>Best performer: {ins.bestRoi.source}</b> · {ins.bestRoi.roi?.toFixed(2)}× ROI ({formatCurrency(ins.bestRoi.spend)} → {formatCurrency(ins.bestRoi.netRevenue)} net)
                     </span>
                   )}
                   {ins.topNet && ins.topNet.source !== ins.bestRoi?.source && (
@@ -233,12 +238,15 @@ function ReportBody() {
             <RKpi label="Active escrows" value={kpis.active.toLocaleString()} valueClass="text-amber-600" />
             <RKpi label="Funded" value={kpis.funded.toLocaleString()} sub={`${pct(kpis.fr)} · ${formatCurrency(kpis.volume)}`} tone="good" />
           </div>
-          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5 mt-2.5">
+          {/* Net revenue sits between gross Revenue and the figures derived from it —
+              net profit, ROI and cost/funded are all computed on the LO's share. */}
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5 mt-2.5">
             <RKpi label="Spend" value={kpis.spend > 0 ? formatCurrency(kpis.spend) : '—'} sub={kpis.retainer > 0 ? 'leads + retainers' : 'lead prices'} valueClass="text-rose-600" />
-            <RKpi label="Revenue" value={kpis.revenue > 0 ? formatCurrency(kpis.revenue) : '—'} sub="comp on funded only" valueClass="text-emerald-700" />
-            <RKpi label="Net profit" value={(kpis.revenue > 0 || kpis.spend > 0) ? formatCurrency(kpis.netProfit) : '—'} tone={kpis.netProfit >= 0 ? 'good' : 'bad'} />
-            <RKpi label="ROI" value={roiFmt(kpis.roi)} sub={kpis.roi != null ? `$${kpis.roi.toFixed(2)} back per $1` : undefined} tone={kpis.roi != null && kpis.roi >= 1 ? 'good' : kpis.roi != null ? 'bad' : undefined} />
-            <RKpi label="Cost / funded" value={kpis.costPerFunded != null ? formatCurrency(kpis.costPerFunded) : '—'} sub={kpis.avgComp != null ? `vs ${formatCurrency(kpis.avgComp)} avg comp` : undefined} tone="hl" />
+            <RKpi label="Revenue" value={kpis.revenue > 0 ? formatCurrency(kpis.revenue) : '—'} sub="gross comp on funded" valueClass="text-slate-600" />
+            <RKpi label={`Net revenue (${SPLIT_LABEL})`} value={kpis.netRevenue > 0 ? formatCurrency(kpis.netRevenue) : '—'} sub="the LO's share" valueClass="text-emerald-700" />
+            <RKpi label="Net profit" value={(kpis.revenue > 0 || kpis.spend > 0) ? formatCurrency(kpis.netProfit) : '—'} sub="net revenue − spend" tone={kpis.netProfit >= 0 ? 'good' : 'bad'} />
+            <RKpi label="ROI" value={roiFmt(kpis.roi)} sub={kpis.roi != null ? `$${kpis.roi.toFixed(2)} kept per $1` : undefined} tone={kpis.roi != null && kpis.roi >= 1 ? 'good' : kpis.roi != null ? 'bad' : undefined} />
+            <RKpi label="Cost / funded" value={kpis.costPerFunded != null ? formatCurrency(kpis.costPerFunded) : '—'} sub={kpis.avgNetComp != null ? `vs ${formatCurrency(kpis.avgNetComp)} avg net comp` : undefined} tone="hl" />
           </div>
         </Section>
 
@@ -268,18 +276,18 @@ function ReportBody() {
 
         {/* Monthly trend — CSS bars, deterministic in print */}
         {monthly.length > 1 && (
-          <Section title="Spend vs revenue by month">
+          <Section title="Spend vs net revenue by month">
             <div className="flex items-center gap-4 text-[11px] text-slate-600 mb-2">
               <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-rose-600 inline-block" /> Spend</span>
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-600 inline-block" /> Revenue</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-600 inline-block" /> Net revenue ({SPLIT_LABEL})</span>
               {retainerPerMonth > 0 && <span className="text-slate-400">incl. {formatCurrency(retainerPerMonth)}/mo retainers</span>}
             </div>
             <div className="flex items-end gap-2 h-44 border-b border-slate-200 pb-px overflow-x-auto">
               {monthly.map(p => (
-                <div key={p.key} className="flex-1 min-w-[44px] flex flex-col items-center justify-end gap-1 h-full" title={`${p.label}: spend ${formatCurrency(p.spend)} · revenue ${formatCurrency(p.revenue)}`}>
+                <div key={p.key} className="flex-1 min-w-[44px] flex flex-col items-center justify-end gap-1 h-full" title={`${p.label}: spend ${formatCurrency(p.spend)} · net revenue ${formatCurrency(p.netRevenue)} (gross ${formatCurrency(p.revenue)})`}>
                   <div className="flex items-end gap-1 w-full justify-center h-full">
                     <div className="w-[38%] max-w-[30px] rounded-t bg-rose-600" style={{ height: `${(p.spend / maxMonthVal) * 100}%` }} />
-                    <div className="w-[38%] max-w-[30px] rounded-t bg-emerald-600" style={{ height: `${(p.revenue / maxMonthVal) * 100}%` }} />
+                    <div className="w-[38%] max-w-[30px] rounded-t bg-emerald-600" style={{ height: `${(p.netRevenue / maxMonthVal) * 100}%` }} />
                   </div>
                 </div>
               ))}
@@ -305,7 +313,7 @@ function ReportBody() {
                 <tr className="text-[9px] uppercase tracking-wide text-slate-500 bg-slate-50 border-b-2 border-slate-200">
                   <Th left>Source</Th><Th>Leads</Th><Th>Resp %</Th><Th>Opt-out</Th>
                   <Th>Open</Th><Th>Active</Th><Th>Lost</Th><Th>Funded</Th><Th>Fund %</Th>
-                  <Th>Volume</Th><Th>Spend</Th><Th>Revenue</Th><Th>Net</Th><Th>ROI</Th>
+                  <Th>Volume</Th><Th>Spend</Th><Th>Revenue</Th><Th>Net rev</Th><Th>Net</Th><Th>ROI</Th>
                 </tr>
               </thead>
               <tbody>
@@ -322,7 +330,8 @@ function ReportBody() {
                     <Td dim>{pct(s.fr)}</Td>
                     <Td>{s.fundedVolume > 0 ? formatCurrency(s.fundedVolume) : '—'}</Td>
                     <Td className="text-rose-600">{s.spend > 0 ? formatCurrency(s.spend) : '—'}</Td>
-                    <Td className="text-emerald-700">{s.revenue > 0 ? formatCurrency(s.revenue) : '—'}</Td>
+                    <Td dim>{s.revenue > 0 ? formatCurrency(s.revenue) : '—'}</Td>
+                    <Td className="text-emerald-700">{s.netRevenue > 0 ? formatCurrency(s.netRevenue) : '—'}</Td>
                     <Td bold className={(s.revenue === 0 && s.spend === 0) ? 'text-slate-300' : s.netProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}>
                       {(s.revenue === 0 && s.spend === 0) ? '—' : formatCurrency(s.netProfit)}
                     </Td>
@@ -343,7 +352,8 @@ function ReportBody() {
                   <Td>{pct(kpis.fr)}</Td>
                   <Td>{formatCurrency(kpis.volume)}</Td>
                   <Td className="text-rose-600">{kpis.spend > 0 ? formatCurrency(kpis.spend) : '—'}</Td>
-                  <Td className="text-emerald-700">{kpis.revenue > 0 ? formatCurrency(kpis.revenue) : '—'}</Td>
+                  <Td dim>{kpis.revenue > 0 ? formatCurrency(kpis.revenue) : '—'}</Td>
+                  <Td className="text-emerald-700">{kpis.netRevenue > 0 ? formatCurrency(kpis.netRevenue) : '—'}</Td>
                   <Td className={kpis.netProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}>{(kpis.revenue > 0 || kpis.spend > 0) ? formatCurrency(kpis.netProfit) : '—'}</Td>
                   <Td className={kpis.roi == null ? '' : kpis.roi >= 1 ? 'text-emerald-700' : 'text-red-600'}>{roiFmt(kpis.roi)}</Td>
                 </tr>
@@ -405,13 +415,14 @@ function ReportBody() {
             <div className="border border-violet-200 rounded-xl overflow-hidden">
               <div className="bg-violet-50 px-4 py-2.5 flex items-baseline justify-between gap-2 flex-wrap">
                 <span className="text-[13px] font-extrabold text-violet-700">If all {proj.activeCount} active loans fund</span>
-                <span className="text-[11px] text-slate-500 tabular-nums">adds {formatCurrency(proj.addComp)} projected comp{proj.estimatedCount > 0 ? ` · ${proj.estimatedCount} estimated at the ${formatCurrency(proj.avgComp)} average` : ''}</span>
+                <span className="text-[11px] text-slate-500 tabular-nums">adds {formatCurrency(proj.addComp)} projected comp ({formatCurrency(proj.addNetComp)} net){proj.estimatedCount > 0 ? ` · ${proj.estimatedCount} estimated at the ${formatCurrency(proj.avgComp)} average` : ''}</span>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 p-3.5 tabular-nums">
+              <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5 p-3.5 tabular-nums">
                 {[
                   { l: 'Funded', a: kpis.funded.toLocaleString(), b: proj.projFunded.toLocaleString() },
                   { l: 'Conversion', a: pct(kpis.fr), b: proj.projConversion.toFixed(1) + '%' },
                   { l: 'Revenue', a: formatCurrency(kpis.revenue), b: formatCurrency(proj.projRevenue) },
+                  { l: `Net revenue (${SPLIT_LABEL})`, a: formatCurrency(kpis.netRevenue), b: formatCurrency(proj.projNetRevenue) },
                   { l: 'Net profit', a: formatCurrency(kpis.netProfit), b: formatCurrency(proj.projNetProfit) },
                   { l: 'ROI', a: roiFmt(kpis.roi), b: roiFmt(proj.projRoi) },
                 ].map(x => (
@@ -422,7 +433,7 @@ function ReportBody() {
                 ))}
               </div>
               <div className="px-4 py-2 text-[10px] text-slate-400 border-t border-violet-100">
-                Hypothetical — adds each active loan&apos;s Arive compensation to revenue with spend unchanged. Not a forecast of close probability.
+                Hypothetical — adds each active loan&apos;s Arive compensation to revenue with spend unchanged, split at {SPLIT_LABEL} like a funded loan. Not a forecast of close probability.
               </div>
             </div>
           </Section>
@@ -468,7 +479,7 @@ function ReportBody() {
         <Section title="Definitions">
           <div className="text-[11px] text-slate-500 leading-relaxed space-y-1">
             <p><b className="text-slate-700">Responded</b> — engaged at least once; Ghosted counts. <b className="text-slate-700">Opted out / DND</b> is its own bucket (shown as count · % of that source&apos;s leads). <b className="text-slate-700">Fast opt-outs (≤7d)</b> — the share of ALL leads whose first logged opt-out fell within 7 days of lead creation. A floor: only opt-outs with a logged timestamp count (forward-only stage log), so the coverage is shown. <b className="text-slate-700">Funded</b> — Loan Funded / Broker Check Received / Loan Finalized; funded loans anchor on funded date, everything else on the date the lead was added.</p>
-            <p><b className="text-slate-700">Spend</b> — Σ per-lead price (GHL) + flat monthly retainers × months in range. <b className="text-slate-700">Revenue</b> — Σ Arive compensation on funded loans only. <b className="text-slate-700">Net profit</b> = revenue − spend. <b className="text-slate-700">ROI</b> — revenue ÷ spend as a multiple ($ back per $1).</p>
+            <p><b className="text-slate-700">Spend</b> — Σ per-lead price (GHL) + flat monthly retainers × months in range. <b className="text-slate-700">Revenue</b> — Σ Arive compensation on funded loans only, gross. <b className="text-slate-700">Net revenue</b> — revenue × {SPLIT_LABEL}, the loan officer&apos;s share (the rest never reaches the LO, so it can&apos;t pay off a lead); applied to the whole figure including the Non-Del price credit. <b className="text-slate-700">Net profit</b> = net revenue − spend. <b className="text-slate-700">ROI</b> — net revenue ÷ spend as a multiple ($ kept per $1 spent); break-even is {(1 / LO_SPLIT).toFixed(2)}× on gross.</p>
             <p>Purchased scope covers {PURCHASED_SOURCES.join(', ')}. Stats are per-LO — this report is {lo} only.</p>
           </div>
         </Section>

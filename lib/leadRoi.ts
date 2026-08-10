@@ -21,7 +21,12 @@
 //                     credit (net discount points × loan amount) — that second half is
 //                     real earned money Arive never puts in the comp column, and on
 //                     Edward Fadel it was the LARGER half. See lib/comp.ts.
-//   • ROI           — revenue ÷ spend as a multiple; null when spend is 0.
+//   • Net revenue   — revenue × LO_SPLIT. The loan officer does not keep the whole
+//                     commission; the house takes its cut first, so the only figure that
+//                     can be honestly compared against lead spend is the LO's share.
+//                     Gross revenue is still reported beside it — it's what the loan
+//                     produced — but every profit and ROI number is computed on NET.
+//   • ROI           — NET revenue ÷ spend as a multiple; null when spend is 0.
 //   • LO            — single LO at a time via resolveLO (Efrain 2026-07-13: no combined
 //                     view). Tabs render from LOAN_OFFICERS so a future LO auto-appears.
 import type { Deal } from './types'
@@ -32,6 +37,26 @@ import { totalComp } from './comp'
 
 export const NO_SOURCE = '(no source set)'
 export const sourceLabel = (d: Pick<Deal, 'source'>): string => (d.source ?? '').trim() || NO_SOURCE
+
+// ── LO revenue split ───────────────────────────────────────────────────────────
+// The loan officer keeps 85% of what a funded loan earns; the remaining 15% never
+// reaches them. Efrain, 2026-08-10: "the loan officer does not keep 100% of that,
+// they keep 85% … use net revenue in the calculations to find the TRUE ROI on the
+// lead spend." Measuring a lead's return against gross commission overstates every
+// vendor by ~18% (1 ÷ 0.85), which is enough to make an underwater source read as
+// profitable — a 1.15× gross source is really 0.98× and losing money.
+//
+// FLAT for every LO by Efrain's call (2026-08-10) — not per-LO, not stored. If a
+// comp plan ever splits by officer, this becomes a lookup keyed on the canonical
+// LO name (and the fixtures in scripts/lead-roi-check.ts pin the arithmetic).
+//
+// Applied to the WHOLE totalComp, both halves: the Arive compensation line AND the
+// Non-Del Final Price credit. Efrain confirmed 2026-08-10 the split takes 85% of
+// both, so netRevenue() wraps totalComp rather than reaching inside lib/comp.ts.
+export const LO_SPLIT = 0.85
+
+/** The LO's share of a gross figure. Single chokepoint — never inline 0.85. */
+export const netOf = (gross: number): number => gross * LO_SPLIT
 
 // ── Date rules ─────────────────────────────────────────────────────────────────
 export type RangeKey = 'this_month' | 'last_month' | '90d' | 'ytd' | 'all' | 'custom'
@@ -135,9 +160,10 @@ export type SourceStats = {
   leadCost: number                // Σ lead_price
   retainer: number                // cost_per_month × months in range
   spend: number                   // leadCost + retainer (blended)
-  revenue: number                 // Σ comp on funded
-  netProfit: number               // revenue − spend
-  roi: number | null              // revenue ÷ spend (multiple); null when spend 0
+  revenue: number                 // Σ totalComp on funded — GROSS, what the loan earned
+  netRevenue: number              // revenue × LO_SPLIT — what the LO actually keeps
+  netProfit: number               // netRevenue − spend
+  roi: number | null              // netRevenue ÷ spend (multiple); null when spend 0
   costPerFunded: number | null    // spend ÷ funded; null when funded 0 or spend 0
   costPerMonth: number            // the raw retainer setting (for the editor)
   deals: Deal[]
@@ -154,7 +180,7 @@ export function buildSourceStats(deals: Deal[], costs: Map<string, CostRow>, mon
         teamRemoved: 0, trate: 0,
         open: 0, active: 0, lost: 0, funded: 0, fr: 0,
         fundedVolume: 0, fundedAvg: 0,
-        leadCost: 0, retainer: cpm * months, spend: 0, revenue: 0, netProfit: 0,
+        leadCost: 0, retainer: cpm * months, spend: 0, revenue: 0, netRevenue: 0, netProfit: 0,
         roi: null, costPerFunded: null, costPerMonth: cpm, deals: [],
       }
       map.set(src, s)
@@ -201,8 +227,10 @@ export function buildSourceStats(deals: Deal[], costs: Map<string, CostRow>, mon
     s.fr = s.total ? (100 * s.funded) / s.total : 0
     s.fundedAvg = s.funded ? s.fundedVolume / s.funded : 0
     s.spend = s.leadCost + s.retainer
-    s.netProfit = s.revenue - s.spend
-    s.roi = s.spend > 0 ? s.revenue / s.spend : null
+    // Profit and ROI run on the LO's SHARE, not the gross commission — see LO_SPLIT.
+    s.netRevenue = netOf(s.revenue)
+    s.netProfit = s.netRevenue - s.spend
+    s.roi = s.spend > 0 ? s.netRevenue / s.spend : null
     s.costPerFunded = s.funded > 0 && s.spend > 0 ? s.spend / s.funded : null
   }
   return [...map.values()].sort((a, b) => b.total - a.total)
@@ -219,10 +247,13 @@ export type RoiKpis = {
   funded: number; fr: number
   volume: number
   leadCost: number; retainer: number; spend: number
-  revenue: number; netProfit: number
-  roi: number | null
+  revenue: number                 // GROSS comp on funded
+  netRevenue: number              // revenue × LO_SPLIT — the LO's share
+  netProfit: number               // netRevenue − spend
+  roi: number | null              // netRevenue ÷ spend
   costPerFunded: number | null
-  avgComp: number | null          // revenue ÷ funded
+  avgComp: number | null          // GROSS revenue ÷ funded
+  avgNetComp: number | null       // netRevenue ÷ funded — the figure cost/funded must beat
 }
 
 export function rollupKpis(sources: SourceStats[]): RoiKpis {
@@ -236,15 +267,20 @@ export function rollupKpis(sources: SourceStats[]): RoiKpis {
   }
   const spend = leadCost + retainer
   const safe = totalLeads || 1
+  // Rolled up from GROSS then split once, rather than summing each source's already-
+  // split netRevenue: identical result (the split is linear) but no drift from
+  // per-source rounding, and it keeps one definition of where the 15% comes off.
+  const netRevenue = netOf(revenue)
   return {
     totalLeads, responded, rr: (100 * responded) / safe,
     cold, crate: (100 * cold) / safe, optout, orate: (100 * optout) / safe,
     teamRemoved, trate: (100 * teamRemoved) / safe,
     active, funded, fr: (100 * funded) / safe, volume,
-    leadCost, retainer, spend, revenue, netProfit: revenue - spend,
-    roi: spend > 0 ? revenue / spend : null,
+    leadCost, retainer, spend, revenue, netRevenue, netProfit: netRevenue - spend,
+    roi: spend > 0 ? netRevenue / spend : null,
     costPerFunded: funded > 0 && spend > 0 ? spend / funded : null,
     avgComp: funded > 0 ? revenue / funded : null,
+    avgNetComp: funded > 0 ? netRevenue / funded : null,
   }
 }
 
@@ -285,7 +321,10 @@ export function stateRows(deals: Deal[]): StateRow[] {
 // Spend lands on the month the lead came in (date_added_ghl) — retainers are spread
 // evenly across the span's months. Revenue lands on the funding month (funded_date).
 // Undatable rows are skipped (the KPI band still counts them).
-export type MonthPoint = { key: string; label: string; spend: number; revenue: number; roi: number | null }
+// The monthly ROI chip is the same question as the headline ROI, one month at a
+// time — so it runs on netRevenue too. `revenue` stays on the point (gross, for the
+// tooltip); the plotted bar and the chip both use netRevenue.
+export type MonthPoint = { key: string; label: string; spend: number; revenue: number; netRevenue: number; roi: number | null }
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const ymKey = (ms: number): string => {
   const d = new Date(ms)
@@ -326,11 +365,12 @@ export function monthlySeries(deals: Deal[], retainerPerMonth: number, maxMonths
     const k = `${y}-${String(m).padStart(2, '0')}`
     const spend = (spendBy.get(k) ?? 0) + retainerPerMonth
     const revenue = revBy.get(k) ?? 0
+    const netRevenue = netOf(revenue)
     points.push({
       key: k,
       label: `${MONTH_NAMES[m - 1]} ${String(y).slice(2)}`,
-      spend, revenue,
-      roi: spend > 0 ? revenue / spend : null,
+      spend, revenue, netRevenue,
+      roi: spend > 0 ? netRevenue / spend : null,
     })
   }
   return points.slice(-maxMonths)
@@ -381,8 +421,12 @@ export function optout7dStats(
 // ── Page-top insights — computed callouts, no editorializing beyond the math ───
 // Guards keep small samples from stealing the headline: money picks need a funded
 // loan + real spend; rate picks need a minimum lead count.
+// Every money pick below reads SourceStats.roi / .netProfit, which are NET-based
+// (LO_SPLIT applied) — so "best performer" and "underwater" are judged on money the
+// LO actually keeps. A source between 0.85× and 1.00× net WILL now be flagged
+// underwater despite clearing its cost on gross; that is the point of the change.
 export type Insights = {
-  bestRoi: SourceStats | null       // highest ROI (funded ≥ 1, spend > 0)
+  bestRoi: SourceStats | null       // highest net ROI (funded ≥ 1, spend > 0)
   topNet: SourceStats | null        // biggest net profit in $ (may differ from bestRoi)
   bestResponse: SourceStats | null  // highest resp % (total ≥ minLeads)
   worstRoi: SourceStats | null      // underwater (< 1×) with the lowest ROI, if any
@@ -408,7 +452,8 @@ export function insights(sources: SourceStats[], minLeads = 20): Insights {
 export type ProjectionRow = {
   source: string
   activeCount: number
-  addComp: number
+  addComp: number                 // GROSS comp the actives would add
+  addNetComp: number              // the LO's share of it
   estimated: number               // how many actives had no comp and used the average
   projNetProfit: number
   projRoi: number | null
@@ -419,12 +464,14 @@ export type Projection = {
   rows: ProjectionRow[]           // only sources with active loans, by addComp desc
   activeCount: number
   estimatedCount: number
-  addComp: number
+  addComp: number                 // GROSS
+  addNetComp: number              // × LO_SPLIT
   addVolume: number
-  avgComp: number
-  projRevenue: number
-  projNetProfit: number
-  projRoi: number | null
+  avgComp: number                 // GROSS average comp of comp-bearing deals in view
+  projRevenue: number             // GROSS revenue if every active funds
+  projNetRevenue: number          // the LO's share of that
+  projNetProfit: number           // projNetRevenue − spend
+  projRoi: number | null          // projNetRevenue ÷ spend
   projFunded: number
   projVolume: number
   projConversion: number
@@ -451,21 +498,23 @@ export function projection(sources: SourceStats[], k: RoiKpis): Projection {
       vol += d.loan_amount ?? 0
     }
     activeCount += actives.length; estimatedCount += est; addComp += add; addVolume += vol
-    const projNet = s.revenue + add - s.spend
+    // A projected loan is split like a funded one — the LO would keep 85% of it too.
+    const projNetRev = netOf(s.revenue + add)
     rows.push({
-      source: s.source, activeCount: actives.length, addComp: add, estimated: est,
+      source: s.source, activeCount: actives.length, addComp: add, addNetComp: netOf(add), estimated: est,
       netProfit: s.netProfit, roi: s.roi,
-      projNetProfit: projNet,
-      projRoi: s.spend > 0 ? (s.revenue + add) / s.spend : null,
+      projNetProfit: projNetRev - s.spend,
+      projRoi: s.spend > 0 ? projNetRev / s.spend : null,
     })
   }
   rows.sort((a, b) => b.addComp - a.addComp)
   const projRevenue = k.revenue + addComp
+  const projNetRevenue = netOf(projRevenue)
   return {
-    rows, activeCount, estimatedCount, addComp, addVolume, avgComp,
-    projRevenue,
-    projNetProfit: projRevenue - k.spend,
-    projRoi: k.spend > 0 ? projRevenue / k.spend : null,
+    rows, activeCount, estimatedCount, addComp, addNetComp: netOf(addComp), addVolume, avgComp,
+    projRevenue, projNetRevenue,
+    projNetProfit: projNetRevenue - k.spend,
+    projRoi: k.spend > 0 ? projNetRevenue / k.spend : null,
     projFunded: k.funded + activeCount,
     projVolume: k.volume + addVolume,
     projConversion: k.totalLeads > 0 ? (100 * (k.funded + activeCount)) / k.totalLeads : 0,
