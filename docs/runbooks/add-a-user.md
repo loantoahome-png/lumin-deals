@@ -10,14 +10,15 @@ Written 2026-08-10 for adding **Hanh Nguyen**.
 
 ## Before you start
 
-You need Hanh's **work email address**. Everything below keys off it, and it's
-also what the task-notification email uses. Don't guess it.
+Hanh's work email is **`hnguyen@lucentmg.com`** (Efrain, 2026-08-10). Note the
+domain — it is *not* `@luminlending.com` like Brianne's. Everything below keys
+off this address.
 
 ## 1. Create the account
 
 1. Supabase dashboard → the **lumin-deals** project → **Authentication** → **Users**.
 2. **Add user** → **Create new user**.
-3. Email: Hanh's work address.
+3. Email: `hnguyen@lucentmg.com`.
 4. Password: type one. Use a generated password, not a memorable one — she can
    change it later from the app's **Forgot password** link.
 5. Tick **Auto Confirm User**. Without it she can't sign in until she clicks a
@@ -58,14 +59,18 @@ Have her sign out and back in if she was already signed in — `app_metadata` is
 read from the session, so a session issued before the change still carries the
 old (admin) value until it refreshes.
 
-## 3. Turn on her task emails
+## 3. Task emails — already done
 
-`PROCESSOR_EMAIL_HANH` in Vercel → lumin-deals → Settings → Environment
-Variables → Production. Value = her work email. Redeploy for it to take effect.
+`PROCESSOR_EMAIL_HANH = hnguyen@lucentmg.com` was set on Production 2026-08-10
+and deployed. Nothing to do here unless her address changes, in which case:
+Vercel → lumin-deals → Settings → Environment Variables → Production, then
+redeploy (env vars are baked in at build time — editing the value alone does
+nothing until the next deploy).
 
-Without it, tasks assigned to her still appear on her board and on `/tasks` —
-she just doesn't get the email. There is intentionally no hard-coded fallback
-address (guessing one would mail a stranger).
+There is intentionally no hard-coded fallback address in
+`app/api/tasks/notify/route.ts` (guessing one would mail a stranger). If the
+variable ever goes missing, tasks assigned to her still appear on her desk and
+on `/tasks` — she just stops getting the email, silently.
 
 ## 4. Verify — takes two minutes, do it
 
