@@ -33,31 +33,44 @@ Lead ROI, lead spend, and compensation. That is deliberate (every existing
 teammate account has empty metadata and must keep working), which means an
 account you forget to restrict is a wide-open one. Do this step immediately.
 
-1. Still in **Authentication → Users**, click the new user.
-2. Find **Raw App Meta Data** — the `app_metadata` block. **Not** *Raw User Meta
-   Data*; user metadata is rewritable by the browser and the app ignores it for
-   permissions on purpose.
-3. It will contain something like `{"provider":"email","providers":["email"]}`.
-   Add the two keys, keeping whatever's already there:
+**⚠️ There is no dashboard field for this.** Older Supabase dashboards had an
+editable *Raw App Meta Data* box on the user panel; current ones don't. The
+`Raw JSON` tab beside `Overview` will *show* `app_metadata`, but read-only. That
+is not an oversight — `app_metadata` is writable only with the service-role key,
+which is exactly why the role lives there and not in `user_metadata` (that one
+IS writable from a signed-in browser, so a restricted account could promote
+itself).
 
-```json
-{
-  "provider": "email",
-  "providers": ["email"],
-  "role": "processor",
-  "display_name": "Hanh Nguyen"
-}
+Use the script:
+
+```bash
+npx tsx scripts/set-user-role.ts hnguyen@lucentmg.com processor "Hanh Nguyen"
 ```
 
-4. Save.
+Run it with no role first to see the current state without changing anything:
+
+```bash
+npx tsx scripts/set-user-role.ts hnguyen@lucentmg.com
+```
+
+To lift the restriction later, `... admin` — which *removes* the `role` key,
+since absence of the key is what means admin.
+
+The script **merges** into `app_metadata` rather than replacing it. That matters:
+the block also holds `provider` / `providers`, which Supabase uses for sign-in.
+Overwrite those and the account can't log in.
 
 `display_name` must match the **Processor** value on her deals *exactly* —
 `Hanh Nguyen`. It's what pins her desk to her own files and what gets stamped on
 tasks she creates. A typo here shows her an empty desk.
 
-Have her sign out and back in if she was already signed in — `app_metadata` is
-read from the session, so a session issued before the change still carries the
-old (admin) value until it refreshes.
+Have her sign out and back in if she was already signed in — the role is read
+from the session, so one issued before the change still carries the old (admin)
+value until it refreshes.
+
+**Status: done for Hanh, 2026-08-10.** `app_metadata` is now
+`{"display_name":"Hanh Nguyen","provider":"email","providers":["email"],"role":"processor"}`.
+Efrain, Brianne, Moe, Matt and Randy verified still admin.
 
 ## 3. Task emails — already done
 
@@ -92,9 +105,13 @@ session — recheck step 2 and have her sign out and in.
 
 ## Adding a normal (admin) teammate
 
-Steps 1 only. Skip step 2 entirely — no `role` key means full access, same as
-Efrain, Brianne, Moe and Matt today. Optionally set `display_name` so their name
-is stamped on tasks they create instead of being derived from their email.
+Step 1 only. Skip step 2 entirely — no `role` key means full access, same as
+Efrain, Brianne, Moe and Matt today. Optionally give them a display name so it's
+stamped on tasks they create instead of being derived from their email:
+
+```bash
+npx tsx scripts/set-user-role.ts someone@luminlending.com admin "Their Name"
+```
 
 ## Adding another processor later
 
