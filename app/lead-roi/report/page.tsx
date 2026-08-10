@@ -11,7 +11,7 @@ import React, { Suspense, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal, LOAN_OFFICERS } from '@/lib/types'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatDate as fmtDate } from '@/lib/utils'
 import { rrBand, isFunded, PURCHASED_SOURCES, type Purpose, type SourceScope } from '@/lib/leadReport'
 import { totalComp } from '@/lib/comp'
 import {
@@ -29,11 +29,7 @@ const pct = (x: number) => x.toFixed(1) + '%'
 const roiFmt = (x: number | null) => (x == null ? '—' : x.toFixed(2) + '×')
 // Mirrors the page — derived from LO_SPLIT so the report can't state a stale split.
 const SPLIT_LABEL = `${(LO_SPLIT * 100).toFixed(LO_SPLIT * 100 % 1 === 0 ? 0 : 1)}%`
-const fmtDate = (iso: string | null | undefined) => {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
+// Same date-only fix as the dashboard — see the note in app/lead-roi/page.tsx.
 const RR_TXT: Record<'good' | 'mid' | 'bad', string> = {
   good: 'text-emerald-700', mid: 'text-amber-600', bad: 'text-red-600',
 }

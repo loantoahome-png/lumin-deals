@@ -19,7 +19,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal, LOAN_OFFICERS, PIPELINE_GROUPS, PIPELINE_STATUSES } from '@/lib/types'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatDate as fmtDate } from '@/lib/utils'
 import { rrBand, isFunded, PURCHASED_SOURCES, type Purpose, type SourceScope } from '@/lib/leadReport'
 import { totalComp, discountCredit, hasDiscountCredit } from '@/lib/comp'
 import {
@@ -62,11 +62,10 @@ const RR_COLOR: Record<'good' | 'mid' | 'bad', string> = {
 const RR_PILL: Record<'good' | 'mid' | 'bad', string> = {
   good: 'bg-emerald-50 text-emerald-700', mid: 'bg-amber-50 text-amber-700', bad: 'bg-red-50 text-red-600',
 }
-const fmtDate = (iso: string | null | undefined) => {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
+// fmtDate is lib/utils' formatDate — it parses a date-only "YYYY-MM-DD" as LOCAL
+// midnight. The local copy this replaced did not, so every `funded_date` (a DATE
+// column, no time) rendered one day EARLY in Pacific: Larisa Fuchs funded
+// 2026-06-02 read "Jun 1, 2026". Do not reintroduce a bare `new Date(iso)` here.
 
 // Lead-in → funded, in whole days. Null when either end is missing or unparseable.
 const daysToFund = (d: Pick<Deal, 'date_added_ghl' | 'funded_date'>) => {
