@@ -1,6 +1,19 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-10] Monthly Reports (/monthly-reports) — cohort by the month the lead came IN
+**Status:** **VERIFIED against live data via a service-role report** (the browser can't see this page — `deals` RLS). Fixtures 57/57, tsc clean, `next build` ✓, deployed.
+**Issue:** Efrain: *"examine the data that came IN during that month — if we look at May, how many leads and spend occurred in May, and how many of those MAY leads actually funded."*
+**Why it's a different page, not a filter on /lead-roi:** there a funded loan anchors on `funded_date` and everything else on `date_added_ghl`, so a May lead that closes in August puts its **cost in May and its revenue in August**. That's the right shape for "how did August close" and the wrong shape for "was May's buy any good". Here every figure — spend and outcome — belongs to the month the lead arrived. Both views are correct; they answer different questions, and the methodology block on the page says so.
+**Three calls Efrain made:** purchased leads only · new page, `/reports` untouched · one LO at a time (same rule as /lead-roi, matched through `resolveLO` so a 4th LO appears for free instead of inheriting someone else's leads).
+**⚠️ Purchased-only is evidence-backed, not a preference.** Anchor coverage measured live: purchased **2,586/2,588 leads (99.9%)** and 99.9% of spend carry a lead-in date; warm/organic carries it on only **46 of 139 funded loans (33%)**. A cohort built from warm sources would silently under-report funding, so it's excluded and the excluded count is shown next to the period picker rather than folded into a denominator.
+**⚠️ Maturity is the trap this page had to handle.** A cohort keeps earning after its month closes — Larisa Fuchs came in 05-01 and funded 06-02, so judging May on May 31 scores her a miss. Each month is labelled *Mature* / *Still filling in* / *Too new to judge* against the median lead-to-funding time. Never read a young cohort's funded rate as final.
+**Changes:** NEW [lib/monthlyCohort.ts](lib/monthlyCohort.ts) (pure, all the math), [app/monthly-reports/page.tsx](app/monthly-reports/page.tsx), [scripts/monthly-cohort-check.ts](scripts/monthly-cohort-check.ts) (57 fixtures), [scripts/monthly-cohort-report.ts](scripts/monthly-cohort-report.ts) (live verification — the `processor-desk-report` pattern), sidebar entry under Insights.
+**⚠️ Two bugs the fixtures caught before ship:** `daysToFund` subtracted a full timestamp from a bare DATE and rounded Larisa's 32-day cycle to 31 — both ends now flatten to local midnight. And date-only lead-in values had to parse as LOCAL midnight or a 1st-of-month lead falls out of its own cohort in Pacific (same class as the `parseLocalMs` note in leadRoi).
+**Test Method:** `npx tsx scripts/monthly-cohort-report.ts` — runs the page's exact functions over the real table.
+**Result:** 3,670 deals · **41 of 42 purchased funded loans place into a month cohort**, 1 unplaceable for want of a lead-in date. Per-LO medians: Matt 30d, Moe 11d, Randy 26d. Deployed https://lumin-deals-9itbzqvmi-loantoahome-pngs-projects.vercel.app · ● Ready.
+**Known distortion, clears with the backfill below:** Moe's June cohort currently shows Larisa Fuchs and Mario Nieto at **0 days** because their stored lead-in dates postdate their own funding. They belong to May and April.
+
 ### [2026-08-10] Lead ROI — "Lead In" column on the Funded loans table
 **Status:** **CHANGED — compiles and deploys; the rendered column is UNVERIFIED locally.** `deals` RLS rejects anon reads, so under the dev-bypass the funded list is empty and the table doesn't render at all — there was nothing to screenshot. Needs a signed-in look.
 **Issue:** Efrain, pointing at the gap between Source and Funded on /lead-roi: *"I want to include a column for when the lead came in on the Funded Loans section."*
