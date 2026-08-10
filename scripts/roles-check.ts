@@ -12,7 +12,10 @@
 //      writes user_metadata, so a restricted account must not be able to
 //      promote itself by setting {role:'admin'} there.
 
-import { roleFromUser, displayName, canAccess, canSeeNavItem, PROCESSOR_HOME } from '../lib/roles'
+import {
+  roleFromUser, displayName, canAccess, canSeeNavItem, PROCESSOR_HOME,
+  taskColumnsFor, canSeeTask, canSeeBulletin,
+} from '../lib/roles'
 
 let pass = 0, fail = 0
 function eq(label: string, got: unknown, want: unknown) {
@@ -102,6 +105,45 @@ eq('nav: processor does NOT see Active Escrows', canSeeNavItem('processor', '/de
 eq('nav: processor does NOT see Lead ROI', canSeeNavItem('processor', '/lead-roi'), false)
 eq('nav: processor does NOT see Dashboard', canSeeNavItem('processor', '/'), false)
 eq('nav: admin sees Lead ROI', canSeeNavItem('admin', '/lead-roi'), true)
+
+// ── 8. The task board, per role ────────────────────────────────────────────
+// Efrain 2026-08-10: "only show her tasks, and tasks for Brianne and I, do not
+// show the bulletin."
+const ADMIN_COLUMNS = ['Efrain Ramirez', 'Brianne Han', 'Hanh Nguyen', 'Moe Sefati', 'Matt Park'] as const
+
+eq('admin board is unchanged', taskColumnsFor('admin', 'Efrain Ramirez', ADMIN_COLUMNS), [...ADMIN_COLUMNS])
+eq('processor board: her first, then Efrain + Brianne',
+  taskColumnsFor('processor', 'Hanh Nguyen', ADMIN_COLUMNS),
+  ['Hanh Nguyen', 'Efrain Ramirez', 'Brianne Han'])
+// No display_name → don't invent a column named after nobody.
+eq('processor with no name gets peers only',
+  taskColumnsFor('processor', null, ADMIN_COLUMNS),
+  ['Efrain Ramirez', 'Brianne Han'])
+// The admin list must not leak in through the third argument.
+eq('processor board never includes Moe',
+  taskColumnsFor('processor', 'Hanh Nguyen', ADMIN_COLUMNS).includes('Moe Sefati'), false)
+eq('processor board never includes Matt',
+  taskColumnsFor('processor', 'Hanh Nguyen', ADMIN_COLUMNS).includes('Matt Park'), false)
+
+// canSeeTask scopes the WHOLE list — chip counts, search, and the Completed
+// view, which renders full task titles. Column-level filtering alone would
+// leave other people's text on her screen.
+eq('processor sees her own task', canSeeTask('processor', 'Hanh Nguyen', 'Hanh Nguyen'), true)
+eq('processor sees a task she gave Brianne', canSeeTask('processor', 'Hanh Nguyen', 'Brianne Han'), true)
+eq('processor sees a task she gave Efrain', canSeeTask('processor', 'Hanh Nguyen', 'Efrain Ramirez'), true)
+eq('processor does NOT see Moe’s task', canSeeTask('processor', 'Hanh Nguyen', 'Moe Sefati'), false)
+eq('processor does NOT see Matt’s task', canSeeTask('processor', 'Hanh Nguyen', 'Matt Park'), false)
+eq('processor does NOT see Randy’s task', canSeeTask('processor', 'Hanh Nguyen', 'Randy Mathis'), false)
+// An unassigned task has no column on her board, so it must not be visible —
+// otherwise it lands in a catch-all she isn't supposed to have.
+eq('processor does NOT see an unassigned task', canSeeTask('processor', 'Hanh Nguyen', null), false)
+eq('processor does NOT see a legacy/typo name', canSeeTask('processor', 'Hanh Nguyen', 'Hanh'), false)
+eq('admin sees everything, incl. unassigned', canSeeTask('admin', 'Efrain Ramirez', null), true)
+eq('admin sees Randy’s task', canSeeTask('admin', 'Efrain Ramirez', 'Randy Mathis'), true)
+
+// ── 9. Bulletin ────────────────────────────────────────────────────────────
+eq('admin sees the Bulletin', canSeeBulletin('admin'), true)
+eq('processor does NOT see the Bulletin', canSeeBulletin('processor'), false)
 
 console.log(`\n${fail === 0 ? '✓' : '✗'} roles-check: ${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)

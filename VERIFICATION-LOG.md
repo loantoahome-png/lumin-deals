@@ -1,6 +1,18 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-10] Processor task board — her + Efrain + Brianne only, no Bulletin
+**Status:** **CHANGED — admin path verified in the browser, processor path verified by fixture only.** Efrain signed in as Hanh on prod and asked for this; he's the one who can confirm the result.
+**Issue:** Efrain, after logging in as Hanh: *"On the task list for her view, only show her tasks, and tasks for Brianne and I, do not show the bulletin."* She was getting the full 5-column board (Moe, Matt, and the Unassigned & other catch-all) plus the team Bulletin.
+**Changes:** `taskColumnsFor`, `canSeeTask`, `canSeeBulletin` in [lib/roles.ts](lib/roles.ts) — same file as the route gate, so board scope and route scope can't drift. [app/tasks/page.tsx](app/tasks/page.tsx) builds its columns from `taskColumnsFor` instead of the `BOARD_COLUMNS` constant. Sidebar relabels the item `Bulletin/Tasks` → `Tasks` for a processor, since half that name pointed at something she can't open.
+**⚠️ The scope is applied to the TASK LIST, not just the columns.** Filtering only where columns are built would still have shown her Moe's and Matt's work: the chip counts are computed off the same list, and **Completed renders full task titles**. `canSeeTask` runs first in `filtered`, before the mode and search filters, so counts / search / Completed all agree.
+**⚠️ The `?tab=bulletin` deep link is gated too, not just the tab button.** Hiding the button alone leaves the board one hand-typed URL away. `showBulletin` also gates the **mount**, so a hidden `NotesBoard` isn't sitting in the DOM fetching notes. It's false until the session resolves, so it can't flash open for a frame.
+**⚠️ `Clear completed` is now admin-only** — noticed while reading the handler: it hard-deletes **every** completed `deal_tasks` row team-wide and irreversibly, not just the ones on the visible board. Not something to leave on a restricted account's screen.
+**An unassigned task is invisible to a processor**, deliberately — she has no catch-all column, so a visible-but-uncolumned task would have nowhere to land.
+**Test Method:** 17 new fixtures in [scripts/roles-check.ts](scripts/roles-check.ts) (55 → **72**), covering both directions per person, the no-`display_name` fallback, unassigned, and a typo'd name. Browser for the admin regression check.
+**Result:** Admin board unchanged — 5 columns, Bulletin tab, Clear completed all still present. **72/72** roles fixtures pass, **25/25** suites exit 0, `next build` ✓, tsc unchanged at exactly **7** pre-existing errors, none in a touched file.
+**Outstanding:** Efrain re-checks as Hanh on prod — 3 columns (Hanh / Efrain / Brianne), no Bulletin tab, no Clear completed, and the chip counts reflecting only those three.
+
 ### [2026-08-10] Processing Desk (/processing) + role-gated logins for a processor account
 **Status:** **CHANGED — code verified, ONE STEP OUTSTANDING.** Logic, build and data path are verified below. The `processor`-role experience itself is **NOT yet verified live**, because the account doesn't exist yet — Hanh's Supabase user has to be created first (see [docs/runbooks/add-a-user.md](docs/runbooks/add-a-user.md)). Please run the 6-row verify table in that runbook once her login exists, then flip this to VERIFIED.
 **Issue:** Efrain: *"a new page for Hanh, Brianne and me to look at all the active escrows Hanh is assigned to; Hanh should be able to create tasks and assign them to me or Brianne. Also add logins for Hanh Nguyen."*

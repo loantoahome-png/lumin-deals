@@ -9,6 +9,8 @@ import { notifyTask } from '@/lib/notifyTask'
 import { TIME_OPTIONS } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { DealTask, Deal, TASK_ASSIGNEES } from '@/lib/types'
+import { useCurrentUser } from '@/lib/useCurrentUser'
+import { taskColumnsFor, canSeeTask, canSeeBulletin } from '@/lib/roles'
 // GHL keeps its own per-contact tasks; they are mirrored into ghl_tasks and
 // rendered right alongside deal_tasks so the board is the whole workload.
 import {
@@ -36,14 +38,19 @@ type FilterMode = 'open' | 'today' | 'overdue' | 'week' | 'completed' | 'all'
 // never produce — so it doubles as an "all day / no specific time" marker.
 
 
-// The board is one column per person: Efrain / Brianne / Hanh on the first row,
-// Moe / Matt on the second. Anyone NOT in this list (Randy, an unassigned task,
-// a legacy name) falls into the "Unassigned & other" column so no task can be
-// hidden just because it doesn't belong to one of the five.
+// The ADMIN board is one column per person: Efrain / Brianne / Hanh on the first
+// row, Moe / Matt on the second. Anyone NOT in this list (Randy, an unassigned
+// task, a legacy name) falls into the "Unassigned & other" column so no task can
+// be hidden just because it doesn't belong to one of the five.
 //
 // Hanh is the processing desk — tasks she raises on an escrow land in the
 // assignee's column here, and anything handed back to her lands in hers. Keep in
 // step with TASK_ASSIGNEES (lib/types.ts).
+//
+// ⚠️ A `processor` sees a DIFFERENT board — herself + Efrain + Brianne only, and
+//    no catch-all. That list comes from taskColumnsFor() in lib/roles.ts, and the
+//    task set itself is scoped to match (see `visible` below), so the chip counts
+//    and the Completed view can't show her other people's task titles.
 const BOARD_COLUMNS = ['Efrain Ramirez', 'Brianne Han', 'Hanh Nguyen', 'Moe Sefati', 'Matt Park'] as const
 
 // Each column carries its own time cut on top of the global chips, so you can
@@ -54,6 +61,16 @@ const COLUMN_VIEWS_KEY = 'tasks:columnViews'
 const DEFAULT_COLUMN_VIEW: ColumnView = 'all'
 
 function TasksSection() {
+  const me = useCurrentUser()
+  // Which columns this person's board has, and therefore which tasks they may
+  // see at all. Both derive from one call so a column can never exist without
+  // its tasks, or vice versa.
+  const boardColumns = useMemo(
+    () => taskColumnsFor(me.role, me.name, BOARD_COLUMNS),
+    [me.role, me.name],
+  )
+  const isAdmin = me.role === 'admin'
+
   const [dealTasks, setDealTasks] = useState<DealTask[]>([])
   const [ghlTasks, setGhlTasks] = useState<BoardTask[]>([])
   const [deals, setDeals] = useState<Deal[]>([])
@@ -160,6 +177,12 @@ function TasksSection() {
     const q = search.trim().toLowerCase()
 
     return tasks.filter(t => {
+      // ⚠️ Role scope FIRST, before any other filter. This is what keeps the chip
+      // counts, the search and the Completed view (which renders full task text)
+      // from showing a processor other people's work. Filtering only when the
+      // columns are built would leave all of it on screen.
+      if (!canSeeTask(me.role, me.name, t.assignee)) return false
+
       // Filter mode
       const due = t.due_at ? new Date(t.due_at) : null
       switch (filter) {
@@ -191,19 +214,22 @@ function TasksSection() {
       }
       return new Date(b.completed_at!).getTime() - new Date(a.completed_at!).getTime()
     })
-  }, [tasks, filter, search, dealNames])
+  }, [tasks, filter, search, dealNames, me.role, me.name])
 
-  // Split the filtered list into the four per-person columns + the catch-all.
+  // Split the filtered list into the per-person columns + the catch-all.
   // Search and the status chips above still apply across every column.
+  //
+  // A processor has no catch-all: `filtered` already dropped everything outside
+  // her columns, so `other` is always empty for her and the section never renders.
   const columns = useMemo(() => {
-    const byPerson = new Map<string, BoardTask[]>(BOARD_COLUMNS.map(n => [n, [] as BoardTask[]]))
+    const byPerson = new Map<string, BoardTask[]>(boardColumns.map(n => [n, [] as BoardTask[]]))
     const other: BoardTask[] = []
     for (const t of filtered) {
       const col = t.assignee && byPerson.has(t.assignee) ? byPerson.get(t.assignee)! : other
       col.push(t)
     }
     return { byPerson, other }
-  }, [filtered])
+  }, [filtered, boardColumns])
 
   // Counts for filter pills
   const counts = useMemo(() => {
@@ -417,7 +443,9 @@ function TasksSection() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {counts.completed > 0 && (
+          {/* Admin only — this hard-deletes EVERY completed deal_task, team-wide
+              and irreversibly, not just the ones on the visible board. */}
+          {isAdmin && counts.completed > 0 && (
             <button
               onClick={clearCompleted}
               className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-red-50 hover:text-red-700 hover:border-red-200 transition"
@@ -523,10 +551,11 @@ function TasksSection() {
         </div>
       ) : (
         <>
-          {/* Five people. 3-up on a wide screen (Efrain / Brianne / Hanh, then
-              Moe / Matt), 2-up on laptop widths, stacked on mobile. */}
+          {/* Admin: five people, 3-up on a wide screen (Efrain / Brianne / Hanh,
+              then Moe / Matt). Processor: her three, which fill the same 3-up row.
+              2-up on laptop widths, stacked on mobile. */}
           <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 items-start">
-            {BOARD_COLUMNS.map(name => (
+            {boardColumns.map(name => (
               <AssigneeColumn
                 key={name}
                 name={name}
@@ -593,10 +622,24 @@ const TABS: { key: PageTab; label: string; icon: typeof ClipboardList; accent: s
 ]
 
 function BulletinTasksPageInner() {
+  const me = useCurrentUser()
+  // The Bulletin is team-wide chatter — off a processor's board entirely
+  // (Efrain 2026-08-10: "do not show the bulletin").
+  //
+  // ⚠️ Gate the DEEP LINK too, not just the tab button. `?tab=bulletin` is a
+  // hand-typed URL away, and hiding only the button would still render the
+  // board. `showBulletin` is false until the session resolves, so it can't
+  // flash open for a frame either.
+  const showBulletin = me.loaded && canSeeBulletin(me.role)
+
   // ?tab=tasks|bulletin deep-links a tab (default: tasks).
   const searchParams = useSearchParams()
   const initialTab: PageTab = searchParams.get('tab') === 'bulletin' ? 'bulletin' : 'tasks'
   const [tab, setTab] = useState<PageTab>(initialTab)
+  // Derived, so a processor who lands on ?tab=bulletin is on Tasks from the
+  // first paint rather than being bounced after the session loads.
+  const activeTab: PageTab = tab === 'bulletin' && !showBulletin ? 'tasks' : tab
+  const visibleTabs = showBulletin ? TABS : TABS.filter(t => t.key !== 'bulletin')
 
   // Each panel fetches its own data (tasks pulls the whole deal list), so a panel
   // is mounted on first visit and then kept mounted behind `hidden` — switching
@@ -609,10 +652,12 @@ function BulletinTasksPageInner() {
 
   return (
     <div>
-      <div className="max-w-6xl mx-auto px-6 pt-6">
+      {/* With the Bulletin gone there's only one tab left, and a full-width
+          button that switches to the page you're already on is just noise. */}
+      <div className={`max-w-6xl mx-auto px-6 pt-6 ${visibleTabs.length > 1 ? '' : 'hidden'}`}>
         <div className="flex gap-2">
-          {TABS.map(t => {
-            const active = tab === t.key
+          {visibleTabs.map(t => {
+            const active = activeTab === t.key
             const Icon = t.icon
             return (
               <button
@@ -630,10 +675,12 @@ function BulletinTasksPageInner() {
       </div>
 
       {mounted.has('tasks') && (
-        <div className={tab === 'tasks' ? undefined : 'hidden'}><TasksSection /></div>
+        <div className={activeTab === 'tasks' ? undefined : 'hidden'}><TasksSection /></div>
       )}
-      {mounted.has('bulletin') && (
-        <div className={tab === 'bulletin' ? undefined : 'hidden'}><NotesBoard embedded /></div>
+      {/* `showBulletin` gates the MOUNT, not just the visibility — a hidden
+          NotesBoard would still fetch and sit in the DOM. */}
+      {showBulletin && mounted.has('bulletin') && (
+        <div className={activeTab === 'bulletin' ? undefined : 'hidden'}><NotesBoard embedded /></div>
       )}
     </div>
   )

@@ -108,7 +108,14 @@ export default function Sidebar() {
   const visibleGroups = useMemo(() => {
     if (!me.loaded) return []
     return navGroups
-      .map(g => ({ ...g, items: g.items.filter(it => canSeeNavItem(me.role, it.href)) }))
+      .map(g => ({
+        ...g,
+        items: g.items
+          .filter(it => canSeeNavItem(me.role, it.href))
+          // A processor has no Bulletin tab, so "Bulletin/Tasks" would name a
+          // thing she can't reach.
+          .map(it => it.href === '/tasks' && me.role !== 'admin' ? { ...it, label: 'Tasks' } : it),
+      }))
       .filter(g => g.items.length > 0)
   }, [me.loaded, me.role])
 

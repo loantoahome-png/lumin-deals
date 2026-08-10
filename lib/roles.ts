@@ -87,3 +87,39 @@ export function canSeeNavItem(role: Role, href: string): boolean {
   if (role === 'admin') return true
   return href === PROCESSOR_HOME || href === '/tasks'
 }
+
+// ── The task board, as a processor sees it ─────────────────────────────────
+// Efrain 2026-08-10, after signing in as Hanh: "only show her tasks, and tasks
+// for Brianne and I, do not show the bulletin."
+//
+// The people a processor hands work to. Moe, Matt, Randy and the
+// "Unassigned & other" catch-all are all off her board — their tasks are not
+// hers to see or work.
+const PROCESSOR_TASK_PEERS = ['Efrain Ramirez', 'Brianne Han']
+
+/**
+ * Ordered board columns for a role. A processor gets herself first, then the
+ * two people she hands off to. `myName` is the signed-in user's display_name;
+ * if it's missing we fall back to peers only rather than inventing a column.
+ */
+export function taskColumnsFor(role: Role, myName: string | null, adminColumns: readonly string[]): string[] {
+  if (role === 'admin') return [...adminColumns]
+  return myName ? [myName, ...PROCESSOR_TASK_PEERS] : [...PROCESSOR_TASK_PEERS]
+}
+
+/**
+ * Is this task visible to `role`? Used to scope the WHOLE list, not just the
+ * columns — the filter-chip counts, the search, and especially the Completed
+ * view all read from it, and Completed renders full task titles. Filtering only
+ * at the column level would leave Moe's and Matt's task text on her screen.
+ */
+export function canSeeTask(role: Role, myName: string | null, assignee: string | null | undefined): boolean {
+  if (role === 'admin') return true
+  const visible = taskColumnsFor(role, myName, [])
+  return !!assignee && visible.includes(assignee)
+}
+
+/** The Bulletin board is team-wide chatter — not part of a processor's desk. */
+export function canSeeBulletin(role: Role): boolean {
+  return role === 'admin'
+}
