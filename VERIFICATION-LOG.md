@@ -1,6 +1,16 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-10] Lead-in date (`date_added_ghl`) — self-healing sync + backfill APPLIED
+**Status:** **VERIFIED.** 35 rows written, 0 failed; the funded-row drift sweep now reports **0 still to fix**.
+**Issue:** Efrain, on Larisa Fuchs's row: *"This makes no sense, look at the dates."* Her Lead In read Jun 2 against a Funded of Jun 1. Two independent bugs — the display one is logged below; this is the data one.
+**Root cause:** `date_added_ghl` is the GHL **contact's** `dateAdded` ([app/api/sync/ghl/route.ts](app/api/sync/ghl/route.ts)) and it was written **only on insert** — absent from the update patch — so it froze whatever contact was attached when the row was first created and never re-stamped. We held 2026-06-02; live GHL contact `0clxp7o4IZuKYIBFHZ6f` says **2026-05-01**, matching Efrain's screenshot; the opportunity was created 06-03. The stored value matched **none of the three**.
+**⚠️ The fix is NOT "re-stamp from live".** GHL contacts get re-created/merged and `dateAdded` moves **forward** — 3 of the 5 drifted funded rows had a live date *later* than stored, and Gustavo Magana's live contact reads 2026-06-01 on a loan that funded 2026-03-20. A naive re-stamp would have made those worse. **Rule: earliest of {stored, live} wins** — repairs stale-late rows, can never push a lead-in date forward into nonsense, and leaves genuinely pre-GHL leads (Return Clients) alone rather than inventing a date.
+**Changes:** sync update patch now carries `date_added_ghl` under the earliest-wins guard (`DealKey`/`DedupRow` + both dedup selects gained the column so the stored value is available to compare); NEW [scripts/lead-in-backfill.ts](scripts/lead-in-backfill.ts) (dry-run default, `--apply` to write) and [scripts/lead-in-drift-report.ts](scripts/lead-in-drift-report.ts).
+**Test Method:** `npx tsx scripts/lead-in-drift-report.ts --funded-only` before and after.
+**Result:** 3,582 rows swept → **35 written** (31 blank gained a date, 4 moved earlier), 2,579 already earliest, 968 whose opportunity is no longer in GHL left untouched. Only **3 leads changed month**. Funded rows affected: **Mario Nieto Jun 8 → Apr 16** (funded May 10 — he no longer funds before he arrives) and **Larisa Fuchs Jun 2 → May 1** (funded Jun 2, a true 32-day cycle). Post-sweep: 80 correct · 3 correctly kept earlier · **0 still to fix**.
+**Knock-on, all improvements:** purchased funded loans placed into a cohort went **41/42 → 42/42**; Moe's leads without a lead-in date **1 → 0**; his median lead→fund **11d → 29d** (the false 0-day rows were dragging it down); his May cohort **1 funded / −$4,494 / 0.40× → 3 funded / +$6,894 / 2.34×**, and June **4 → 2 funded** as Larisa and Mario moved to their real months. May was being reported as a losing buy and was not.
+
 ### [2026-08-10] Monthly Reports (/monthly-reports) — cohort by the month the lead came IN
 **Status:** **VERIFIED against live data via a service-role report** (the browser can't see this page — `deals` RLS). Fixtures 57/57, tsc clean, `next build` ✓, deployed.
 **Issue:** Efrain: *"examine the data that came IN during that month — if we look at May, how many leads and spend occurred in May, and how many of those MAY leads actually funded."*
@@ -12,7 +22,7 @@
 **⚠️ Two bugs the fixtures caught before ship:** `daysToFund` subtracted a full timestamp from a bare DATE and rounded Larisa's 32-day cycle to 31 — both ends now flatten to local midnight. And date-only lead-in values had to parse as LOCAL midnight or a 1st-of-month lead falls out of its own cohort in Pacific (same class as the `parseLocalMs` note in leadRoi).
 **Test Method:** `npx tsx scripts/monthly-cohort-report.ts` — runs the page's exact functions over the real table.
 **Result:** 3,670 deals · **41 of 42 purchased funded loans place into a month cohort**, 1 unplaceable for want of a lead-in date. Per-LO medians: Matt 30d, Moe 11d, Randy 26d. Deployed https://lumin-deals-9itbzqvmi-loantoahome-pngs-projects.vercel.app · ● Ready.
-**Known distortion, clears with the backfill below:** Moe's June cohort currently shows Larisa Fuchs and Mario Nieto at **0 days** because their stored lead-in dates postdate their own funding. They belong to May and April.
+**~~Known distortion~~ CLEARED** by the backfill logged above — Larisa and Mario moved to their real months, and every purchased funded loan (42/42) now places into a cohort.
 
 ### [2026-08-10] Lead ROI — "Lead In" column on the Funded loans table
 **Status:** **CHANGED — compiles and deploys; the rendered column is UNVERIFIED locally.** `deals` RLS rejects anon reads, so under the dev-bypass the funded list is empty and the table doesn't render at all — there was nothing to screenshot. Needs a signed-in look.

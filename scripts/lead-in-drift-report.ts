@@ -36,17 +36,21 @@ async function ghl(path: string) {
 const fundedOnly = process.argv.includes('--funded-only')
 
 async function main() {
-  let q = sb.from('deals')
+  // Built as one expression per branch rather than reassigning `q` — reassigning a
+  // supabase-js builder makes tsc chase its chained generics until it gives up
+  // (TS2589 "type instantiation is excessively deep"). Runtime was always fine.
+  const base = () => sb.from('deals')
     .select('id,name,source,ghl_opportunity_id,ghl_contact_id,date_added_ghl,funded_date,pipeline_group')
     .not('ghl_opportunity_id', 'is', null)
-  if (fundedOnly) q = q.not('funded_date', 'is', null)
-  const { data, error } = await q.limit(5000)
+  const { data, error } = fundedOnly
+    ? await base().not('funded_date', 'is', null).limit(5000)
+    : await base().limit(5000)
   if (error) { console.error(error); process.exit(1) }
   const rows = data ?? []
   console.log(`Checking ${rows.length} rows against live GHL contacts…\n`)
 
   const changed: { name: string; source: string | null; had: string | null; live: string; days: number; funded: string | null }[] = []
-  let same = 0, noContact = 0, failed = 0
+  let same = 0, noContact = 0, failed = 0, keptEarlier = 0
 
   for (let i = 0; i < rows.length; i++) {
     const d = rows[i]
@@ -60,12 +64,16 @@ async function main() {
     if (!live) { failed++; continue }
     const had = d.date_added_ghl as string | null
     if (had && Math.abs(new Date(had).getTime() - new Date(live).getTime()) < 60_000) { same++; continue }
+    // EARLIEST WINS. A live date LATER than the stored one is not drift to repair —
+    // GHL contacts get re-created and dateAdded moves forward (Gustavo Magana's live
+    // contact postdates his own closing). Only a live date that is EARLIER is a fix.
+    if (had && new Date(live).getTime() >= new Date(had).getTime()) { keptEarlier++; continue }
     const days = had ? Math.round((new Date(had).getTime() - new Date(live).getTime()) / 86_400_000) : -1
     changed.push({ name: d.name, source: d.source, had, live, days, funded: d.funded_date })
   }
 
   console.log(`\n${'═'.repeat(78)}`)
-  console.log(`already correct: ${same} · would change: ${changed.length} · no contact: ${noContact} · fetch failed: ${failed}`)
+  console.log(`already correct: ${same} · stored is EARLIER, kept (correct): ${keptEarlier} · still to fix: ${changed.length} · no contact: ${noContact} · fetch failed: ${failed}`)
 
   const wasNull = changed.filter(c => !c.had)
   const drifted = changed.filter(c => c.had)
