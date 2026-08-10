@@ -1,11 +1,13 @@
 'use client'
 
 import { useEditor, EditorContent, type Editor } from '@tiptap/react'
+import { Extension } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { TextStyleKit } from '@tiptap/extension-text-style'
 import TextAlign from '@tiptap/extension-text-align'
 import Highlight from '@tiptap/extension-highlight'
 import Image from '@tiptap/extension-image'
+import { mergeAdjacentLists } from '@/lib/htmlLists'
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
   List, ListOrdered, AlignLeft, AlignCenter, AlignRight,
@@ -19,6 +21,55 @@ import {
 
 const FONTS = ['Default', 'Arial', 'Georgia', 'Times New Roman', 'Courier New', 'Verdana']
 const SIZES = ['12', '14', '16', '18', '20', '24', '30']
+
+// ── Tab = indent ────────────────────────────────────────────────────────────
+// Efrain 2026-08-10: "I'm trying to indent a line but when I press tab it gets
+// out of the editing pane."
+//
+// That's the browser default — Tab moves focus to the next control, which in a
+// document editor means your cursor leaves mid-sentence. Anyone pasting from
+// Google Docs expects Tab to nest a list item, because that's what it does
+// there.
+//
+// ⚠️ Every shortcut here returns TRUE even when it does nothing. Returning
+//    false hands the key back to the browser, which is exactly the
+//    focus-escaping behaviour being fixed — so Tab must never fall through.
+//
+// ⚠️ Consequence, stated rather than discovered: Tab no longer tabs OUT of the
+//    editor, so keyboard-only users leave it with Escape or a click. That's the
+//    standard trade every rich-text editor makes (Google Docs included), and
+//    it's the behaviour that was asked for.
+const TabIndent = Extension.create({
+  name: 'tabIndent',
+  addKeyboardShortcuts() {
+    return {
+      Tab: () => {
+        // Inside a list, Tab nests one level — the case that actually matters
+        // here (the pasted doc is nested numbered lists).
+        if (this.editor.can().sinkListItem('listItem')) {
+          return this.editor.commands.sinkListItem('listItem')
+        }
+        // Not in a list, or a lone list item with nothing above it to nest
+        // under. Swallow the key rather than invent whitespace.
+        //
+        // ⚠️ This used to insert non-breaking spaces. Don't bring that back: it
+        //    silently pollutes the saved HTML with invisible characters, and it
+        //    fires exactly when the user expected a visible indent and didn't
+        //    get one — so they press Tab again, and again. Caught by testing
+        //    against the real pasted document, which arrived as ~13 one-item
+        //    lists and put five &nbsp; into a live line. The list merge below
+        //    is what actually makes Tab work.
+        return true
+      },
+      'Shift-Tab': () => {
+        if (this.editor.can().liftListItem('listItem')) {
+          return this.editor.commands.liftListItem('listItem')
+        }
+        return true   // swallow it — never let focus escape
+      },
+    }
+  },
+})
 
 export default function RichTextEditor({
   initialHtml,
@@ -38,8 +89,17 @@ export default function RichTextEditor({
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       Highlight,
       Image,
+      // ⚠️ AFTER StarterKit on purpose. Later extensions win on conflicting
+      //    keyboard shortcuts, and StarterKit's list extensions bind Tab
+      //    themselves — put this first and it gets overridden silently.
+      TabIndent,
     ],
-    content: initialHtml || '',
+    // ⚠️ Normalised on the way IN. Google Docs pastes each list item as its own
+    //    <ol>, which makes Tab a no-op (nothing above to nest under) and
+    //    restarts numbering at 1 on every line. Merging adjacent same-type
+    //    lists is what makes the Tab binding above actually do something.
+    //    See lib/htmlLists.ts — it deliberately won't merge across a paragraph.
+    content: mergeAdjacentLists(initialHtml || ''),
     editorProps: { attributes: { class: 'note-prose min-h-[36vh] focus:outline-none' } },
     onUpdate: ({ editor }) => onChange(editor.getHTML()),
   })
