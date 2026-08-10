@@ -551,13 +551,25 @@ function TasksSection() {
         </div>
       ) : (
         <>
-          {/* Admin: five people, 3-up on a wide screen (Efrain / Brianne / Hanh,
-              then Moe / Matt). Processor: her three, which fill the same 3-up row.
-              2-up on laptop widths, stacked on mobile. */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 items-start">
+          {/* Two layouts on purpose (Efrain 2026-08-10, looking at Hanh's board):
+              a three-person board in a 3-up grid gives each column ~360px, and
+              once the card's checkbox, GHL badge and contact link take their
+              share the title is squeezed to about 100px — "Follow / up / with /
+              Theo", one word per line. Stacking the three FULL WIDTH gives every
+              title the whole row and the wrapping problem disappears.
+
+              Admin keeps the grid: five people stacked full-width would be a very
+              long scroll, and at five columns the same width pressure isn't there
+              because it's already wrapping to a second row. */}
+          <div className={
+            isAdmin
+              ? 'grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 items-start'
+              : 'flex flex-col gap-4'
+          }>
             {boardColumns.map(name => (
               <AssigneeColumn
                 key={name}
+                wide={!isAdmin}
                 name={name}
                 tasks={columns.byPerson.get(name)!}
                 view={columnViews[name] ?? DEFAULT_COLUMN_VIEW}

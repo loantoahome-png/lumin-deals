@@ -282,7 +282,7 @@ export function TaskRow({ task, dealName, ghlUrl, hideAssignee, badge, contactNa
 
 // ── The per-person column ────────────────────────────────────────────────────
 
-export function AssigneeColumn({ name, tasks, view, onViewChange, renderTask, onAdd, composing, maxHeightClass }: {
+export function AssigneeColumn({ name, tasks, view, onViewChange, renderTask, onAdd, composing, maxHeightClass, wide }: {
   name: string
   tasks: DealTask[]
   view: ColumnView
@@ -292,6 +292,11 @@ export function AssigneeColumn({ name, tasks, view, onViewChange, renderTask, on
   composing?: React.ReactNode
   /** Defaults to the board's 30rem cap; the cockpit gives it more room. */
   maxHeightClass?: string
+  /** Full-width stacked layout (the processor board) rather than a grid cell.
+   *  Only affects the time-cut row: its buttons are `flex-1`, which reads as a
+   *  neat segmented control in a 360px column and as three enormous stretched
+   *  buttons across 1150px. */
+  wide?: boolean
 }) {
   // Stable within the day, so it's a safe memo dep — the board doesn't need to
   // re-slice on every render just because the clock ticked.
@@ -344,7 +349,7 @@ export function AssigneeColumn({ name, tasks, view, onViewChange, renderTask, on
       </div>
 
       {/* This person's own time cut — independent of every other column. */}
-      <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-slate-100 bg-slate-50/70">
+      <div className={`flex items-center gap-0.5 px-2 py-1.5 border-b border-slate-100 bg-slate-50/70 ${wide ? '[&>button]:flex-none [&>button]:px-3' : ''}`}>
         {COLUMN_VIEWS.map(v => {
           const active = view === v.key
           const urgent = v.key === 'now' && counts.now > 0

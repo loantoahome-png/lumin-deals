@@ -18,6 +18,9 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal } from '@/lib/types'
+import { useCurrentUser } from '@/lib/useCurrentUser'
+import { canSeeTask, type Role } from '@/lib/roles'
+import { isOnDesk } from '@/lib/processorDesk'
 import {
   Bell, Lock, CheckSquare, X, Clock,
 } from 'lucide-react'
@@ -66,11 +69,22 @@ type TaskRow = {
   deal_id: string | null; assignee: string | null
 }
 
-function computeNotifs(deals: Deal[], tasks: TaskRow[]): Notif[] {
+/**
+ * ⚠️ Both signal types are ROLE-SCOPED, and both need it for the same reason the
+ * task board does: a processor's bell would otherwise announce lock expiries on
+ * Moe's and Matt's files and overdue tasks belonging to people whose column she
+ * can't even see — with the borrower's name right in the title. Scoping the
+ * board but not the bell just moves the leak somewhere noisier.
+ *
+ * For an admin both predicates are always true, so this is a no-op for everyone
+ * who had the bell before.
+ */
+function computeNotifs(deals: Deal[], tasks: TaskRow[], role: Role, myName: string | null): Notif[] {
   const out: Notif[] = []
 
   // 1. Lock expiring — locked deals with ≤7 days left (or already expired)
   for (const d of deals) {
+    if (role !== 'admin' && !(myName && isOnDesk(d, myName))) continue
     if (d.locked !== 'Yes' || !d.lock_expiration) continue
     const left = daysUntil(d.lock_expiration)
     if (left === null || left > 7) continue
@@ -91,6 +105,7 @@ function computeNotifs(deals: Deal[], tasks: TaskRow[]): Notif[] {
   const now = Date.now()
   const endOfToday = new Date(); endOfToday.setHours(23, 59, 59, 999)
   for (const t of tasks) {
+    if (!canSeeTask(role, myName, t.assignee)) continue
     if (t.completed_at || !t.due_at) continue
     const due = new Date(t.due_at).getTime()
     if (isNaN(due)) continue
@@ -120,6 +135,7 @@ const TYPE_ICON: Record<NotifType, React.ReactNode> = {
 }
 
 export default function NotificationBell() {
+  const me = useCurrentUser()
   const [notifs, setNotifs] = useState<Notif[]>([])
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
   const [seen, setSeen] = useState<Set<string>>(new Set())
@@ -128,13 +144,20 @@ export default function NotificationBell() {
   const panelRef = useRef<HTMLDivElement>(null)
 
   const refresh = useCallback(async () => {
+    // Don't compute anything until we know WHO is asking — running with the
+    // default role would flash another team's borrower names into the bell for
+    // a processor before the session resolved.
+    if (!me.loaded) return
     // Paginate the deals past PostgREST's 1000-row cap — without it, lock-expiry
     // and stale-stage notifications silently skipped the oldest deals.
+    // ⚠️ processor_status / processor / pipeline_group are selected because
+    //    isOnDesk() reads all three — dropping them silently empties a
+    //    processor's bell instead of erroring.
     const [deals, { data: tasks }] = await Promise.all([
-      fetchAllDeals(undefined, 'id, name, status, locked, lock_expiration'),
+      fetchAllDeals(undefined, 'id, name, status, locked, lock_expiration, processor_status, processor, pipeline_group'),
       supabase.from('deal_tasks').select('id, title, due_at, completed_at, deal_id, assignee'),
     ])
-    const computed = computeNotifs(deals, (tasks as TaskRow[]) || [])
+    const computed = computeNotifs(deals, (tasks as TaskRow[]) || [], me.role, me.name)
     setNotifs(computed)
 
     // Prune dismissed/seen sets so they don't grow unbounded — keep only ids
@@ -150,7 +173,9 @@ export default function NotificationBell() {
       saveSet(SEEN_KEY, next)
       return next
     })
-  }, [])
+    // Re-runs once the session resolves, which is also what performs the first
+    // real fetch (the initial call bails on !me.loaded).
+  }, [me.loaded, me.role, me.name])
 
   // Hydrate from localStorage, then fetch
   useEffect(() => {
