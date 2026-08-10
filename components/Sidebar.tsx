@@ -28,6 +28,7 @@ import {
   PhoneCall,
   UserCog,
   ListChecks,
+  CalendarRange,
 } from 'lucide-react'
 import GlobalSearch from './GlobalSearch'
 import NotificationBell from './NotificationBell'
@@ -65,6 +66,7 @@ const navGroups = [
     label: 'Insights',
     items: [
       { href: '/reports', label: 'Reports', icon: BarChart3 },
+      { href: '/monthly-reports', label: 'Monthly Reports', icon: CalendarRange },
       { href: '/reports/escrows', label: 'Escrow Report', icon: FileText },
       { href: '/lead-roi', label: 'Lead ROI', icon: Target },
       { href: '/lead-cohorts', label: 'Lead Cohorts', icon: Users },

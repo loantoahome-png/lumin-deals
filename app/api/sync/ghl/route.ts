@@ -745,7 +745,7 @@ async function syncAccount(
   //   FULL sync: page through every deal (cap 1 000/page from PostgREST).
   //   INCREMENTAL: scoped query — only deals matching the changed opps' ids
   //   or their contact_ids. Cuts a multi-thousand-row scan to a few dozen.
-  type DealKey = { id: string; pipeline_group: string | null }
+  type DealKey = { id: string; pipeline_group: string | null; date_added_ghl: string | null }
   const byOppId = new Map<string, DealKey>()
   // arive_file_no → deal. Fallback match key so a deleted+recreated GHL opportunity
   // (new id, same loan) re-points the existing card instead of spawning a duplicate.
@@ -754,10 +754,10 @@ async function syncAccount(
   const emailToBorrower = new Map<string, string>()
   const phoneToBorrower = new Map<string, string>()
 
-  type DedupRow = { id: string; ghl_contact_id: string | null; ghl_opportunity_id: string | null; arive_file_no: string | null; email: string | null; phone: string | null; borrower_id: string | null; pipeline_group: string | null }
+  type DedupRow = { id: string; ghl_contact_id: string | null; ghl_opportunity_id: string | null; arive_file_no: string | null; email: string | null; phone: string | null; borrower_id: string | null; pipeline_group: string | null; date_added_ghl: string | null }
   const ingestDedupRow = (d: DedupRow) => {
-    if (d.ghl_opportunity_id && !byOppId.has(d.ghl_opportunity_id)) byOppId.set(d.ghl_opportunity_id, { id: d.id, pipeline_group: d.pipeline_group })
-    if (d.arive_file_no && !byAriveNo.has(d.arive_file_no)) byAriveNo.set(d.arive_file_no, { id: d.id, pipeline_group: d.pipeline_group })
+    if (d.ghl_opportunity_id && !byOppId.has(d.ghl_opportunity_id)) byOppId.set(d.ghl_opportunity_id, { id: d.id, pipeline_group: d.pipeline_group, date_added_ghl: d.date_added_ghl })
+    if (d.arive_file_no && !byAriveNo.has(d.arive_file_no)) byAriveNo.set(d.arive_file_no, { id: d.id, pipeline_group: d.pipeline_group, date_added_ghl: d.date_added_ghl })
     if (d.borrower_id) {
       if (d.ghl_contact_id && !contactToBorrower.has(d.ghl_contact_id)) contactToBorrower.set(d.ghl_contact_id, d.borrower_id)
       const e = normEmail(d.email); if (e && !emailToBorrower.has(e)) emailToBorrower.set(e, d.borrower_id)
@@ -771,7 +771,7 @@ async function syncAccount(
     for (;;) {
       const { data: pageRows, error: pageErr } = await supabase
         .from('deals')
-        .select('id, ghl_contact_id, ghl_opportunity_id, arive_file_no, email, phone, borrower_id, pipeline_group')
+        .select('id, ghl_contact_id, ghl_opportunity_id, arive_file_no, email, phone, borrower_id, pipeline_group, date_added_ghl')
         .order('id', { ascending: true })
         .range(offset, offset + DEDUP_PAGE - 1)
       if (pageErr) {
@@ -803,7 +803,7 @@ async function syncAccount(
         const chunk = arr.slice(i, i + CHUNK)
         const { data, error } = await supabase
           .from('deals')
-          .select('id, ghl_contact_id, ghl_opportunity_id, arive_file_no, email, phone, borrower_id, pipeline_group')
+          .select('id, ghl_contact_id, ghl_opportunity_id, arive_file_no, email, phone, borrower_id, pipeline_group, date_added_ghl')
           .in(col, chunk)
         if (error) {
           console.error(`[GHL Sync:${label}] Scoped dedup query (${col}) failed:`, error.message)
@@ -1070,6 +1070,30 @@ async function syncAccount(
             // Arive-authoritative loan fields, sourced from the opportunity overlay above.
             'purchase_price','compensation_amount','housing_payment','pi_payment',
           ].forEach(maybeSet)
+          // ── Lead-in date: EARLIEST wins, never later ──────────────────────
+          // date_added_ghl used to be insert-only, so it froze whatever contact
+          // was attached the moment the row was first created and never re-stamped.
+          // Larisa Fuchs proved the damage: we held 2026-06-02, GHL's contact says
+          // 2026-05-01 — a month of her cycle invented, on a loan that funded 06-02.
+          //
+          // But re-stamping from the live contact is NOT safe on its own: GHL
+          // contacts get re-created and merged, so dateAdded can move FORWARD.
+          // Gustavo Magana's live contact reads 2026-06-01 on a loan that funded
+          // 2026-03-20 — a person cannot arrive after their own closing. Of the 5
+          // drifted funded rows, 3 had a live date LATER than the stored one.
+          //
+          // So: keep the EARLIEST evidence of the person. That fixes the stale-late
+          // rows and can never push a lead-in date forward into nonsense. A truly
+          // pre-GHL lead (Return Clients) stays wrong-but-stable — GHL simply does
+          // not know when they first came in, and this sync will not invent it.
+          const liveAdded = dealData.date_added_ghl as string | null
+          const heldAdded = existing.date_added_ghl
+          if (liveAdded) {
+            const liveMs = Date.parse(liveAdded)
+            const heldMs = heldAdded ? Date.parse(heldAdded) : NaN
+            if (!isNaN(liveMs) && (isNaN(heldMs) || liveMs < heldMs)) patch.date_added_ghl = liveAdded
+          }
+
           // In-process loans (Arive-backed or not): loan_amount mirrors the GHL
           // opportunity value — write it even when the opp value is 0/empty so a stale
           // figure (e.g. an old custom-field import that put $297,500 on a $0 opp) is
