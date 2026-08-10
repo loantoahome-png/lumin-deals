@@ -1,6 +1,15 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-10] Lead ROI — "Lead In" column on the Funded loans table
+**Status:** **CHANGED — compiles and deploys; the rendered column is UNVERIFIED locally.** `deals` RLS rejects anon reads, so under the dev-bypass the funded list is empty and the table doesn't render at all — there was nothing to screenshot. Needs a signed-in look.
+**Issue:** Efrain, pointing at the gap between Source and Funded on /lead-roi: *"I want to include a column for when the lead came in on the Funded Loans section."*
+**Changes:** [app/lead-roi/page.tsx](app/lead-roi/page.tsx) — new **Lead In** column rendering `date_added_ghl` between Source and Funded; the cell's `title` carries the lead→funding gap in days via a new `daysToFund()` helper; the footer's Total `colSpan` 3 → 4. Same column added to the printable [app/lead-roi/report/page.tsx](app/lead-roi/report/page.tsx) (header, cell, the "… N more" colSpan 5 → 6, and a filler `<Td>` in tfoot) so the two tables don't drift.
+**No query change** — `date_added_ghl` was already in `LEAD_COLS` on both pages.
+**Provenance:** `date_added_ghl` is the same field the page already anchors non-funded rows on (`anchorDate`, [lib/leadRoi.ts:106](lib/leadRoi.ts)) and the field spend is attributed by, so the new column is consistent with the range filter above it.
+**Test Method:** open /lead-roi signed in, All time, and confirm the Lead In dates read earlier than Funded on every row.
+**Result:** tsc clean for both files (repo-wide count unchanged at the pre-existing errors), `npm run build` ✓. Deployed **8ac678f** → https://lumin-deals-1m3vyqbt9-loantoahome-pngs-projects.vercel.app · ● Ready.
+
 ### [2026-08-10] Work List — replaced the generated version with a shared document
 **Status:** **VERIFIED locally, end to end.** Everything on this page is service-role or client-side, so unlike the rest of today's work there was nothing RLS could hide.
 **Issue:** Efrain, signed in as Hanh and looking at the generated Work List: *"Get rid of this, maybe we can just make a word page so I can copy and paste what she has already?"* The generated version rendered exactly the 63-row wall predicted in the entry below.
