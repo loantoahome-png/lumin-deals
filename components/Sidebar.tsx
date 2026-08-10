@@ -70,6 +70,7 @@ const navGroups = [
       { href: '/reports/escrows', label: 'Escrow Report', icon: FileText },
       { href: '/lead-roi', label: 'Lead ROI', icon: Target },
       { href: '/lead-cohorts', label: 'Lead Cohorts', icon: Users },
+      { href: '/calls', label: 'Call Report', icon: PhoneCall },
       { href: '/report-import', label: 'Report Import', icon: FileUp },
     ],
   },
@@ -87,6 +88,7 @@ const navGroups = [
     label: 'Data',
     items: [
       { href: '/import/arive', label: 'Import Arive', icon: FileUp },
+      { href: '/import/calls', label: 'Import Calls', icon: FileUp },
       { href: '/health', label: 'Data Health', icon: Activity },
       { href: '/duplicates', label: 'Duplicates', icon: GitMerge },
       // Last item on purpose — parked historical loans, kept for the record and
