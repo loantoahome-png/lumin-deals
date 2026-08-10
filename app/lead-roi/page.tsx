@@ -68,6 +68,14 @@ const fmtDate = (iso: string | null | undefined) => {
   return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+// Lead-in → funded, in whole days. Null when either end is missing or unparseable.
+const daysToFund = (d: Pick<Deal, 'date_added_ghl' | 'funded_date'>) => {
+  if (!d.date_added_ghl || !d.funded_date) return null
+  const inMs = new Date(d.date_added_ghl).getTime(), fundedMs = new Date(d.funded_date).getTime()
+  if (isNaN(inMs) || isNaN(fundedMs)) return null
+  return Math.max(0, Math.round((fundedMs - inMs) / 86_400_000))
+}
+
 // Donut palette — validated distinct hues (not the old all-green ramp); gray = Other.
 const DONUT_COLORS = ['#059669', '#4f46e5', '#b45309', '#0369a1', '#0d9488', '#7c3aed', '#be185d', '#4d7c0f']
 
@@ -949,6 +957,7 @@ export default function LeadRoiPage() {
                         <tr className="text-left text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
                           <th className="px-4 py-2.5">Borrower</th>
                           <th className="px-3 py-2.5">Source</th>
+                          <th className="px-3 py-2.5 text-right" title="The date the lead came in (date added in GHL)">Lead In</th>
                           <th className="px-3 py-2.5 text-right">Funded</th>
                           <th className="px-3 py-2.5 text-right">Loan Amount</th>
                           <th className="px-3 py-2.5 text-right">Revenue</th>
@@ -962,6 +971,7 @@ export default function LeadRoiPage() {
                               <Link href={`/deals/${d.id}`} className="font-medium text-slate-900 hover:text-blue-700">{d.name || '(no name)'}</Link>
                             </td>
                             <td className="px-3 py-2.5 text-slate-600">{(d.source ?? '').trim() || '—'}</td>
+                            <td className="px-3 py-2.5 text-right tabular-nums text-slate-500 whitespace-nowrap" title={daysToFund(d) != null ? `${daysToFund(d)} days from lead to funding` : undefined}>{fmtDate(d.date_added_ghl)}</td>
                             <td className="px-3 py-2.5 text-right tabular-nums text-slate-600 whitespace-nowrap">{fmtDate(d.funded_date)}</td>
                             <td className="px-3 py-2.5 text-right tabular-nums font-medium text-slate-800">{d.loan_amount ? formatCurrency(d.loan_amount) : '—'}</td>
                             <td className="px-3 py-2.5 text-right tabular-nums text-slate-500" title={hasDiscountCredit(d) ? `Arive comp ${formatCurrency(d.compensation_amount ?? 0)} + Non-Del price credit ${formatCurrency(discountCredit(d))}` : undefined}>{totalComp(d) ? formatCurrency(totalComp(d)) : '—'}</td>
@@ -971,7 +981,7 @@ export default function LeadRoiPage() {
                       </tbody>
                       <tfoot>
                         <tr className="bg-slate-50 border-t border-slate-200 font-semibold text-slate-800">
-                          <td className="px-4 py-2.5" colSpan={3}>Total</td>
+                          <td className="px-4 py-2.5" colSpan={4}>Total</td>
                           <td className="px-3 py-2.5 text-right tabular-nums">{formatCurrency(fundedView.volume)}</td>
                           <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{formatCurrency(fundedView.comp)}</td>
                           <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700 pr-4">{formatCurrency(fundedView.netComp)}</td>

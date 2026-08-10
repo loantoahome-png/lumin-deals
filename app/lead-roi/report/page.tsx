@@ -446,7 +446,7 @@ function ReportBody() {
               <table className="w-full text-[12px]">
                 <thead>
                   <tr className="text-[9px] uppercase tracking-wide text-slate-500 bg-slate-50 border-b-2 border-slate-200">
-                    <Th left>Borrower</Th><Th left>Source</Th><Th>Funded</Th><Th>Loan amount</Th><Th>Comp</Th>
+                    <Th left>Borrower</Th><Th left>Source</Th><Th>Lead in</Th><Th>Funded</Th><Th>Loan amount</Th><Th>Comp</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -454,18 +454,19 @@ function ReportBody() {
                     <tr key={d.id} className="border-b border-slate-100 last:border-0">
                       <Td left bold>{d.name || '(no name)'}</Td>
                       <Td left dim>{(d.source ?? '').trim() || '—'}</Td>
+                      <Td dim>{fmtDate(d.date_added_ghl)}</Td>
                       <Td dim>{fmtDate(d.funded_date)}</Td>
                       <Td>{d.loan_amount ? formatCurrency(d.loan_amount) : '—'}</Td>
                       <Td className="text-emerald-700">{totalComp(d) ? formatCurrency(totalComp(d)) : '—'}</Td>
                     </tr>
                   ))}
                   {fundedList.length > 40 && (
-                    <tr><td colSpan={5} className="px-3 py-2 text-center text-[11px] text-slate-400">… {fundedList.length - 40} more (see the dashboard)</td></tr>
+                    <tr><td colSpan={6} className="px-3 py-2 text-center text-[11px] text-slate-400">… {fundedList.length - 40} more (see the dashboard)</td></tr>
                   )}
                 </tbody>
                 <tfoot>
                   <tr className="font-extrabold bg-slate-50 border-t-2 border-slate-200">
-                    <Td left bold>Total ({fundedList.length})</Td><Td left> </Td><Td> </Td>
+                    <Td left bold>Total ({fundedList.length})</Td><Td left> </Td><Td> </Td><Td> </Td>
                     <Td>{formatCurrency(fundedList.reduce((a, d) => a + (d.loan_amount ?? 0), 0))}</Td>
                     <Td className="text-emerald-700">{formatCurrency(fundedList.reduce((a, d) => a + totalComp(d), 0))}</Td>
                   </tr>
