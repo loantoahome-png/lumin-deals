@@ -36,11 +36,15 @@ type FilterMode = 'open' | 'today' | 'overdue' | 'week' | 'completed' | 'all'
 // never produce — so it doubles as an "all day / no specific time" marker.
 
 
-// The board is one column per person, laid out 2×2: Efrain / Brianne on top,
-// Moe / Matt below. Anyone NOT in this list (Randy, an unassigned task, a
-// legacy name) falls into the "Unassigned & other" column so no task can be
-// hidden just because it doesn't belong to one of the four.
-const BOARD_COLUMNS = ['Efrain Ramirez', 'Brianne Han', 'Moe Sefati', 'Matt Park'] as const
+// The board is one column per person: Efrain / Brianne / Hanh on the first row,
+// Moe / Matt on the second. Anyone NOT in this list (Randy, an unassigned task,
+// a legacy name) falls into the "Unassigned & other" column so no task can be
+// hidden just because it doesn't belong to one of the five.
+//
+// Hanh is the processing desk — tasks she raises on an escrow land in the
+// assignee's column here, and anything handed back to her lands in hers. Keep in
+// step with TASK_ASSIGNEES (lib/types.ts).
+const BOARD_COLUMNS = ['Efrain Ramirez', 'Brianne Han', 'Hanh Nguyen', 'Moe Sefati', 'Matt Park'] as const
 
 // Each column carries its own time cut on top of the global chips, so you can
 // park one person on "what's on fire" while another shows everything — all in
@@ -519,8 +523,9 @@ function TasksSection() {
         </div>
       ) : (
         <>
-          {/* Efrain / Brianne on top, Moe / Matt below */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+          {/* Five people. 3-up on a wide screen (Efrain / Brianne / Hanh, then
+              Moe / Matt), 2-up on laptop widths, stacked on mobile. */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 items-start">
             {BOARD_COLUMNS.map(name => (
               <AssigneeColumn
                 key={name}

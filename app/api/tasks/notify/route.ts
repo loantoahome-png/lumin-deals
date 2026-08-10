@@ -32,6 +32,11 @@ function emailForName(name: string | null | undefined): string | null {
   if (n.includes('moe')  || n.includes('sefati')) return process.env.LO_EMAIL_MOE  || null
   if (n.includes('efrain'))                        return process.env.ADMIN_EMAIL_EFRAIN || 'efrain@loantoahome.com'
   if (n.includes('brianne'))                       return process.env.PROCESSOR_EMAIL_BRIANNE || 'brianne.han@luminlending.com'
+  // No hard-coded fallback for Hanh on purpose — her address hasn't been
+  // confirmed, and guessing it would silently mail a stranger. Set
+  // PROCESSOR_EMAIL_HANH in Vercel (or add her to TASK_ASSIGNEE_EMAILS) and the
+  // notification starts working; until then the task still lands on her board.
+  if (n.includes('hanh') || n.includes('nguyen'))   return process.env.PROCESSOR_EMAIL_HANH || null
   return null
 }
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
@@ -26,11 +26,14 @@ import {
   FileText,
   Archive,
   PhoneCall,
+  UserCog,
 } from 'lucide-react'
 import GlobalSearch from './GlobalSearch'
 import NotificationBell from './NotificationBell'
 import LastSyncBadge from './LastSyncBadge'
 import { supabase } from '@/lib/supabase'
+import { useCurrentUser } from '@/lib/useCurrentUser'
+import { canSeeNavItem } from '@/lib/roles'
 
 const navGroups = [
   {
@@ -43,6 +46,10 @@ const navGroups = [
       { href: '/contacts', label: 'Contacts', icon: Users },
       { href: '/pipeline', label: 'Pipeline', icon: Kanban },
       { href: '/deals', label: 'Active Escrows', icon: Table2 },
+      // The processor desk — the same active escrows, cut by who's processing
+      // them rather than by loan officer. It's the whole app for a `processor`
+      // role, and a window into Hanh's workload for everyone else.
+      { href: '/processing', label: 'Processing', icon: UserCog },
       { href: '/hot-leads', label: 'Hot Leads', icon: Target },
       { href: '/follow-up', label: 'Follow-Up', icon: PhoneCall },
       { href: '/funded', label: 'Funded', icon: DollarSign },
@@ -89,9 +96,25 @@ const DEFAULT_COLLAPSED: Record<string, boolean> = { data: true }
 export default function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
+  const me = useCurrentUser()
   const [syncing, setSyncing] = useState(false)
   const [fullSyncing, setFullSyncing] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(DEFAULT_COLLAPSED)
+
+  // Role-filtered nav. Until the session resolves we render NOTHING role-dependent
+  // — defaulting to the full nav would flash Lead ROI / Funded at a processor for
+  // a frame before it disappeared. Groups that end up empty drop out entirely, so
+  // a restricted user doesn't see a bare "Insights" header with nothing under it.
+  const visibleGroups = useMemo(() => {
+    if (!me.loaded) return []
+    return navGroups
+      .map(g => ({ ...g, items: g.items.filter(it => canSeeNavItem(me.role, it.href)) }))
+      .filter(g => g.items.length > 0)
+  }, [me.loaded, me.role])
+
+  // Admin-only chrome. The sync buttons hit /api/sync/ghl, which rewrites the
+  // whole deals table — not something a processor account should be able to fire.
+  const isAdmin = me.loaded && me.role === 'admin'
 
   // Restore the user's collapse preferences across sessions.
   useEffect(() => {
@@ -165,10 +188,13 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Global Search */}
-      <div className="pt-4">
-        <GlobalSearch />
-      </div>
+      {/* Global Search — admin only. It searches every deal and contact in the
+          book, including leads that have nothing to do with a processor's desk. */}
+      {isAdmin && (
+        <div className="pt-4">
+          <GlobalSearch />
+        </div>
+      )}
 
       {/* Notifications */}
       <div className="pt-2">
@@ -177,7 +203,7 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-2 space-y-2 overflow-y-auto">
-        {navGroups.map(group => {
+        {visibleGroups.map(group => {
           const noHeader = 'noHeader' in group && group.noHeader
           const hasActive = group.items.some(it => pathname === it.href)
           // Always show the group that contains the current page, even if collapsed.
@@ -221,27 +247,36 @@ export default function Sidebar() {
 
       {/* Footer */}
       <div className="px-3 py-3 border-t border-slate-700 space-y-2">
-        {/* GHL sync health indicator — color tells you if cron is firing */}
-        <div className="px-1">
-          <LastSyncBadge />
-        </div>
-        <button
-          onClick={handleSync}
-          disabled={syncing}
-          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 shrink-0 ${syncing ? 'animate-spin' : ''}`} />
-          {syncing ? 'Syncing…' : 'Sync GHL'}
-        </button>
-        <button
-          onClick={handleFullSync}
-          disabled={fullSyncing || syncing}
-          title="Re-pull EVERYTHING from GHL (~20–40s) — use after renaming a contact in GHL"
-          className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-        >
-          <RefreshCw className={`w-3 h-3 shrink-0 ${fullSyncing ? 'animate-spin' : ''}`} />
-          {fullSyncing ? 'Full syncing…' : 'Full sync'}
-        </button>
+        {isAdmin && (
+          <>
+            {/* GHL sync health indicator — color tells you if cron is firing */}
+            <div className="px-1">
+              <LastSyncBadge />
+            </div>
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            >
+              <RefreshCw className={`w-4 h-4 shrink-0 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Syncing…' : 'Sync GHL'}
+            </button>
+            <button
+              onClick={handleFullSync}
+              disabled={fullSyncing || syncing}
+              title="Re-pull EVERYTHING from GHL (~20–40s) — use after renaming a contact in GHL"
+              className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            >
+              <RefreshCw className={`w-3 h-3 shrink-0 ${fullSyncing ? 'animate-spin' : ''}`} />
+              {fullSyncing ? 'Full syncing…' : 'Full sync'}
+            </button>
+          </>
+        )}
+        {me.loaded && me.name && (
+          <p className="px-3 text-[11px] text-slate-500 truncate" title={me.email ?? undefined}>
+            Signed in as <span className="text-slate-400 font-medium">{me.name}</span>
+          </p>
+        )}
         <button
           onClick={handleLogout}
           className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"

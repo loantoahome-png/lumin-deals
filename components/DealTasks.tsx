@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { notifyTask } from '@/lib/notifyTask'
 import { TIME_OPTIONS, openDatePicker } from '@/lib/utils'
 import { DealTask, TASK_ASSIGNEES } from '@/lib/types'
+import { useCurrentUser } from '@/lib/useCurrentUser'
 // This contact's GoHighLevel tasks show here too — same mirror /tasks and the
 // Follow-Up cockpit read, matched to this deal at sync time.
 import {
@@ -419,7 +420,12 @@ function TaskForm({ initialTask, onSubmit, onCancel, forcedDealId }: {
   const [date, setDate] = useState(initialDT.date)
   const [time, setTime] = useState(initialDT.time)
   const [assignee, setAssignee] = useState<string>(initialTask?.assignee || '')
-  const [assignedBy, setAssignedBy] = useState<string>(initialTask?.assigned_by || '')
+  // Seeded from the signed-in user on CREATE only, and DERIVED rather than set
+  // from an effect — see the fuller note in components/TaskBoard.tsx's
+  // NewTaskForm. `null` = untouched; the first keystroke wins for good.
+  const me = useCurrentUser()
+  const [assignedByEdit, setAssignedByEdit] = useState<string | null>(initialTask?.assigned_by ?? null)
+  const assignedBy = assignedByEdit ?? (isEdit ? '' : (me.name ?? ''))
   const [priority, setPriority] = useState<string>(initialTask?.priority || 'normal')
 
   function handleSubmit(e: React.FormEvent) {
@@ -506,7 +512,7 @@ function TaskForm({ initialTask, onSubmit, onCancel, forcedDealId }: {
           <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Assigned by</label>
           <select
             value={assignedBy}
-            onChange={e => setAssignedBy(e.target.value)}
+            onChange={e => setAssignedByEdit(e.target.value)}
             className="w-full px-2 py-1.5 border border-slate-200 rounded-md text-sm bg-white"
           >
             <option value="">—</option>

@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { roleFromUser, canAccess, PROCESSOR_HOME } from '@/lib/roles'
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -64,6 +65,28 @@ export async function middleware(request: NextRequest) {
     loginUrl.pathname = '/login'
     loginUrl.searchParams.set('next', pathname)
     return NextResponse.redirect(loginUrl)
+  }
+
+  // ── Role gate ──────────────────────────────────────────────────────────────
+  // A `processor` account (Hanh) is confined to her desk, the files on it, and
+  // the task board. Everything else — Lead ROI, Funded, Reports, Import, the
+  // dashboard — redirects to /processing. An account with no `role` in
+  // app_metadata is an admin, so every existing login is unaffected.
+  //
+  // This is a ROUTING gate, not row-level security: `deals` RLS is unchanged,
+  // so a restricted account still holds an anon key that could query other rows
+  // directly. That is the same trust boundary every other teammate operates
+  // under. Real RLS per role is a separate piece of work.
+  //
+  // API routes are deliberately NOT gated here — /processing and the deal pages
+  // need them, and the write paths they expose are the same ones the UI already
+  // gives her. Gating them per-role would break her own page.
+  const role = roleFromUser(user)
+  if (role !== 'admin' && !pathname.startsWith('/api/') && !canAccess(role, pathname)) {
+    const homeUrl = request.nextUrl.clone()
+    homeUrl.pathname = PROCESSOR_HOME
+    homeUrl.search = ''
+    return NextResponse.redirect(homeUrl)
   }
 
   return response

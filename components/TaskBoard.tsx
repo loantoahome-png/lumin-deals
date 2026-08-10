@@ -12,6 +12,7 @@ import Link from 'next/link'
 import { Calendar, CheckCircle2, Circle, ExternalLink, Flame, Plus, Trash2, User, X } from 'lucide-react'
 import { TIME_OPTIONS, openDatePicker } from '@/lib/utils'
 import { TASK_ASSIGNEES, type Deal, type DealTask } from '@/lib/types'
+import { useCurrentUser } from '@/lib/useCurrentUser'
 
 // ── Time helpers (all-day tasks are stored at 23:59 local) ───────────────────
 
@@ -157,6 +158,7 @@ export function endOfWeekWindow(): number {
 export const COLUMN_STYLES: Record<string, string> = {
   'Efrain Ramirez':    'text-blue-800 bg-blue-50 border-blue-100',
   'Brianne Han':       'text-violet-800 bg-violet-50 border-violet-100',
+  'Hanh Nguyen':       'text-cyan-800 bg-cyan-50 border-cyan-100',
   'Moe Sefati':        'text-emerald-800 bg-emerald-50 border-emerald-100',
   'Matt Park':         'text-amber-800 bg-amber-50 border-amber-100',
   [OTHER_COLUMN]:      'text-slate-600 bg-slate-50 border-slate-200',
@@ -432,7 +434,18 @@ export function NewTaskForm({ deals, initialTask, initialAssignee, onSubmit, onC
   const [date, setDate] = useState(initialDT.date)
   const [time, setTime] = useState(initialDT.time)
   const [assignee, setAssignee] = useState(initialTask?.assignee || initialAssignee || '')
-  const [assignedBy, setAssignedBy] = useState(initialTask?.assigned_by || '')
+  // "Assigned by" defaults to whoever is signed in — the recipient's email says
+  // who to go back to, and nobody has to remember to type their own name. Only
+  // on CREATE: editing an existing task must not re-stamp it to whoever happened
+  // to open it.
+  //
+  // DERIVED, not an effect. `useCurrentUser` resolves a tick after mount, so
+  // seeding via useEffect would setState during render-sync and cascade. `null`
+  // here means "untouched" — the moment the user types anything (including
+  // clearing the box) their value wins and the default stops applying.
+  const me = useCurrentUser()
+  const [assignedByEdit, setAssignedByEdit] = useState<string | null>(initialTask?.assigned_by ?? null)
+  const assignedBy = assignedByEdit ?? (isEdit ? '' : (me.name ?? ''))
   const [priority, setPriority] = useState(initialTask?.priority || 'normal')
   const [dealId, setDealId] = useState<string>(initialTask?.deal_id || '')
   const [dealSearch, setDealSearch] = useState('')
@@ -511,7 +524,7 @@ export function NewTaskForm({ deals, initialTask, initialAssignee, onSubmit, onC
         </div>
         <div>
           <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Assigned by</label>
-          <select value={assignedBy} onChange={e => setAssignedBy(e.target.value)} className="w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm bg-white">
+          <select value={assignedBy} onChange={e => setAssignedByEdit(e.target.value)} className="w-full px-2.5 py-1.5 border border-slate-200 rounded-md text-sm bg-white">
             <option value="">—</option>
             {TASK_ASSIGNEES.map(a => <option key={a} value={a}>{a}</option>)}
           </select>

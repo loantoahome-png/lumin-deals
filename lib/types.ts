@@ -182,8 +182,14 @@ export type DealTask = {
   created_at: string
 }
 
+// Who a task can be handed to. Hanh is here so work flows BOTH ways across the
+// processing desk: she assigns to Efrain/Brianne from /processing, and they
+// assign back to her from /tasks. Must stay in step with BOARD_COLUMNS in
+// app/tasks/page.tsx — a name in one but not the other still shows up, it just
+// lands in the "Unassigned & other" catch-all column instead of its own.
 export const TASK_ASSIGNEES = [
   'Matt Park', 'Moe Sefati', 'Randy Mathis', 'Efrain Ramirez', 'Brianne Han',
+  'Hanh Nguyen',
 ] as const
 
 // ── Document checklist ──────────────────────────────────────────────────────
