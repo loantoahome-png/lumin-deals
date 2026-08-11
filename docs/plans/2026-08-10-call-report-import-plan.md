@@ -3,7 +3,7 @@
 **Date:** 2026-08-10
 **Mode:** Build
 **Source:** docs/specs/2026-08-10-call-report-import-spec.md
-**Status:** EXECUTED 2026-08-10 — 7 of 9 tasks complete; Tasks 1 (apply SQL) and 8 (live check) blocked on the manual Supabase step.
+**Status:** COMPLETE 2026-08-10 — all 9 tasks done; imported 7,346 calls, live check 24/24, UI verified in browser.
 
 ## Tasks
 
@@ -25,7 +25,7 @@
 select is rejected by RLS.
 **Skills:** lint-and-validate
 **Commit:** "Add calls table for GHL call-report CSV import"
-**Status:** [!] SQL file written; BLOCKED on manual run in the Supabase SQL editor (no DATABASE_URL / psql available — DDL cannot be applied from here).
+**Status:** [x] Applied by Efrain in the Supabase SQL editor 2026-08-10; shape, unique index (23505 on dup) and anon-read block all verified.
 
 ### Task 2: CSV parser [P]
 **Files:** `lib/callsCsv.ts`
@@ -136,7 +136,7 @@ Lending Tree $47, Lendgo $26, FRU $32 per connect; no `call_ts` >1h before its d
 **Test:** `npx tsx scripts/calls-live-check.ts` → all assertions pass
 **Skills:** lint-and-validate
 **Commit:** "Add live acceptance check for calls import"
-**Status:** [!] Script written; cannot run until the table exists and the CSVs are imported.
+**Status:** [x] 24/24 passing.
 
 ### Task 9: Verify and deploy
 **Depends on:** Tasks 1-8

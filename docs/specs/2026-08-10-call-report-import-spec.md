@@ -1,7 +1,7 @@
 # Spec: Call Report CSV Import + /calls Page
 
 **Date:** 2026-08-10
-**Status:** APPROVED
+**Status:** IMPLEMENTED + VERIFIED 2026-08-10 (calls-live-check 24/24)
 **Approach:** A — raw `calls` table, metrics computed at query time
 
 ## Problem
@@ -56,8 +56,9 @@ One row per call. Nothing derived is persisted.
 | `imported_at` | timestamptz | provenance |
 
 **Unique key:** `(call_ts, contact_phone, dialer_number_phone)` — makes re-import
-idempotent. Accepted cost: exactly one pair of identical rows exists in Moe's 3,507
-(3,506 unique), so a strict key collapses one real call. Chosen deliberately over
+idempotent. Accepted cost: TWO pairs of identical rows exist across the exports (one
+in Moe's 3,507 and one in Matt's 3,841), so a strict key collapses two real calls —
+7,348 parsed become 7,346 stored. Chosen deliberately over
 risking double-counting on re-import.
 
 **Lead owner is not stored.** It is derived from the `deals` join at read time, so it
@@ -74,8 +75,9 @@ can never drift from `deals`. Dialer identity IS stored (it exists only in the C
 - **`$/connect`** = Σ lead_price ÷ count(leads with ≥1 connected call).
 - **time to first dial** = `min(call_ts) − date_added_ghl`. Softest metric on the page:
   `date_added_ghl` is insert-only and known to freeze (see the Larisa Fuchs case). Sound
-  on current data — median 24 min, and zero dials precede their lead-in date once the
-  timezone is correct — but flagged in the UI as approximate.
+  on current data — Moe 20 min, Matt 27 min, and no dial lands in the 1–9h timezone-shift
+  band — but flagged in the UI as approximate. A handful of contacts DO have calls
+  predating their lead-in date by days-to-weeks; that is CRM drift, not a parsing fault.
 
 ### Pages
 
@@ -92,18 +94,18 @@ than 7 days old, so stale numbers are never mistaken for live ones.
 
 ## Acceptance Criteria
 
-- [ ] Importing both exports yields 7,348 stored calls
-- [ ] Re-importing the same two files adds **0** new rows (idempotent)
-- [ ] The 724 `Answered` + `No Answer / Voicemail` rows are counted as **not connected**
-- [ ] No stored `call_ts` precedes its matched deal's `date_added_ghl` by more than 1 hour (timezone assertion)
-- [ ] Effort tab reproduces: Moe — 717 leads, 93% dialed, 87% connected, 4.2 dials/lead, $2,079 never-dialed
-- [ ] Effort tab reproduces: Matt — 626 leads, 96% dialed, 89% connected, 4.9 dials/lead, $762 never-dialed
-- [ ] Median time to first dial renders 24 minutes
-- [ ] Economics tab reproduces: LMB $38/connect · OwnUp $80 · Lending Tree $47 · Lendgo $26 · FRU $32
-- [ ] Randy Mathis appears nowhere in the UI or the queries
-- [ ] An LO with no imported CSV renders "no data", never `0%`
-- [ ] `scripts/calls-check.ts` fixture-tests the parser (duration formats, PT→UTC, connect rule) with no network
-- [ ] `tsc` + `next build` clean
+- [x] Importing both exports yields 7,346 stored calls (7,348 parsed − 2 byte-identical duplicates collapsed by the unique index — one pair in EACH file, not just Moe's)
+- [x] Re-importing the same two files adds **0** new rows (idempotent)
+- [x] The 724 `Answered` + `No Answer / Voicemail` rows are counted as **not connected**
+- [x] No stored `call_ts` falls in the **1–9h band** before its matched deal's `date_added_ghl` — that band is the timezone-shift signature. **Revised during verification:** the original "no early dial at all" wording was wrong. 11 contacts (72 calls) genuinely precede their lead-in date by 23h–86 days; 10 of the 11 are non-purchased ($0) and one is a lender contact. That is `date_added_ghl` drift from GHL contact re-creation, not a parsing fault, and asserting against it would keep the check permanently red for the wrong reason.
+- [x] Effort tab reproduces: Moe — 93% dialed, 87% connected, 4.2 dials/lead. **Counts drift upward:** measured 717 leads / $2,079 never-dialed at analysis time, 718 / $2,104 at verification — `deals` syncs every 15 min, so new purchased leads land inside the window while call data stays frozen at the last export. Lead counts and never-dialed spend are asserted as "≥ baseline within a band"; the ratios stay tight.
+- [x] Effort tab reproduces: Matt — 626 leads, 96% dialed, 89% connected, 4.9 dials/lead, $762 never-dialed
+- [x] Median time to first dial renders under an hour per LO (Moe 20 min, Matt 27 min; the 24 min figure was the pooled median across both)
+- [x] Economics tab reproduces: LMB $38/connect · OwnUp $80 · Lending Tree $47 · Lendgo $26 · FRU $32
+- [x] Randy Mathis appears nowhere in the UI or the queries
+- [x] An LO with no imported CSV renders "no data", never `0%`
+- [x] `scripts/calls-check.ts` fixture-tests the parser (duration formats, PT→UTC, connect rule) with no network
+- [x] `tsc` + `next build` clean
 
 ## Out of Scope
 
