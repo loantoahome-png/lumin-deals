@@ -556,18 +556,21 @@ function TasksSection() {
       ) : (
         <>
           {/* Two layouts on purpose (Efrain 2026-08-10, looking at Hanh's board):
-              a three-person board in a 3-up grid gives each column ~360px, and
-              once the card's checkbox, GHL badge and contact link take their
-              share the title is squeezed to about 100px — "Follow / up / with /
-              Theo", one word per line. Stacking the three FULL WIDTH gives every
-              title the whole row and the wrapping problem disappears.
+              a three-person board in a 3-up grid gives each column ~360px, which
+              is a cramped home for a task title. Stacking the three FULL WIDTH
+              gives every title the whole row. (The card itself no longer *fights*
+              for that width — see TaskRow — but three narrow columns still read
+              worse than three wide rows.)
 
-              Admin keeps the grid: four people stacked full-width would be a very
-              long scroll, and at four columns the same width pressure isn't there
-              because it's already wrapping to a second row. */}
+              Admin gets a 2-up grid — never 3-up. With four people, three columns
+              strand the fourth alone on its own row beside half a screen of white
+              space (Efrain 2026-08-11: "fix the formatting"), and make every
+              column narrower for nothing. 2×2 is balanced and roughly doubles the
+              width each column gets. Four stacked full-width would be a very long
+              scroll, so the grid stays. */}
           <div className={
             isAdmin
-              ? 'grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 items-start'
+              ? 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-start'
               : 'flex flex-col gap-4'
           }>
             {boardColumns.map(name => (

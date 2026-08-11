@@ -189,26 +189,40 @@ export function TaskRow({ task, dealName, ghlUrl, hideAssignee, badge, contactNa
       >
         {done ? <CheckCircle2 className="w-5 h-5 text-emerald-500" /> : <Circle className="w-5 h-5 text-slate-300 hover:text-slate-500 transition" />}
       </button>
-      {/* Whole info area is click-to-edit */}
-      <button
-        type="button"
-        onClick={onEdit}
-        disabled={!onEdit}
-        className="flex-1 min-w-0 text-left cursor-pointer disabled:cursor-default"
-        title={onEdit ? 'Click to edit' : undefined}
-      >
-        <div className={`text-sm ${done ? 'line-through text-slate-400' : 'text-slate-900 font-medium'}`}>
-          {task.title}
-          {badge && (
-            <span className="ml-1.5 align-middle text-[9px] font-bold tracking-wide text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1 py-px">
-              {badge}
-            </span>
+      {/* One vertical stack: the title owns the FULL width of the card, and
+          everything secondary (due chip, who, and the GHL / deal links) sits on
+          a wrapping meta line underneath.
+
+          ⚠️ The links used to be a `shrink-0` sibling of the title, sharing the
+          row. A long contact name ("Theophilus Nkwopara") therefore claimed its
+          full width first and left the title whatever was over — in a grid
+          column that was ~100px, i.e. "Follow / up / with / Theo", one word per
+          line (Efrain 2026-08-11: "fix the formatting"). Nothing may sit beside
+          the title again; put it on the meta line instead. */}
+      <div className="flex-1 min-w-0">
+        <button
+          type="button"
+          onClick={onEdit}
+          disabled={!onEdit}
+          className="block w-full min-w-0 text-left cursor-pointer disabled:cursor-default"
+          title={onEdit ? 'Click to edit' : undefined}
+        >
+          <div className={`text-sm ${done ? 'line-through text-slate-400' : 'text-slate-900 font-medium'}`}>
+            {task.title}
+            {badge && (
+              <span className="ml-1.5 align-middle text-[9px] font-bold tracking-wide text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1 py-px">
+                {badge}
+              </span>
+            )}
+          </div>
+          {task.description && (
+            <div className="text-xs text-slate-500 mt-0.5 whitespace-pre-wrap">{task.description}</div>
           )}
-        </div>
-        {task.description && (
-          <div className="text-xs text-slate-500 mt-0.5 whitespace-pre-wrap">{task.description}</div>
-        )}
-        <div className="flex items-center gap-3 mt-1.5 flex-wrap text-[11px]">
+        </button>
+        {/* Meta line. The links are real anchors, so they can't live inside the
+            edit <button> above (nesting is invalid and swallows the click) —
+            they're siblings on this row instead. */}
+        <div className="flex items-center gap-x-3 gap-y-1 mt-1.5 flex-wrap text-[11px]">
           {/* A done task shows WHEN it was done, never its due date — an
               "Overdue 34d" chip on something already completed is wrong and
               reads as an alarm. */}
@@ -241,32 +255,29 @@ export function TaskRow({ task, dealName, ghlUrl, hideAssignee, badge, contactNa
               <Flame className="w-3 h-3" /> High
             </span>
           )}
+          {ghlUrl && (
+            <a
+              href={ghlUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={e => e.stopPropagation()}
+              title="Open contact in GoHighLevel"
+              className="flex items-center gap-0.5 text-[10px] font-bold text-blue-700 hover:text-blue-900 px-1.5 py-0.5 rounded bg-blue-100 hover:bg-blue-200 border border-blue-200 transition-colors"
+            >
+              GHL <ExternalLink className="w-2.5 h-2.5" />
+            </a>
+          )}
+          {task.deal_id && (
+            <Link
+              href={`/deals/${task.deal_id}`}
+              onClick={e => e.stopPropagation()}
+              className="flex items-center gap-1 min-w-0 text-[11px] text-blue-600 hover:text-blue-700 font-medium"
+            >
+              <ExternalLink className="w-3 h-3 shrink-0" />
+              <span className="truncate">{dealName || 'Deal'}</span>
+            </Link>
+          )}
         </div>
-      </button>
-
-      {/* Deal link + direct GHL button, kept outside the edit button so they navigate */}
-      <div className="shrink-0 self-center flex items-center gap-2">
-        {ghlUrl && (
-          <a
-            href={ghlUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={e => e.stopPropagation()}
-            title="Open contact in GoHighLevel"
-            className="flex items-center gap-0.5 text-[10px] font-bold text-blue-700 hover:text-blue-900 px-1.5 py-0.5 rounded bg-blue-100 hover:bg-blue-200 border border-blue-200 transition-colors"
-          >
-            GHL <ExternalLink className="w-2.5 h-2.5" />
-          </a>
-        )}
-        {task.deal_id && (
-          <Link
-            href={`/deals/${task.deal_id}`}
-            onClick={e => e.stopPropagation()}
-            className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700 font-medium"
-          >
-            <ExternalLink className="w-3 h-3" /> {dealName || 'Deal'}
-          </Link>
-        )}
       </div>
 
       {onDelete && (
