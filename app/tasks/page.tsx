@@ -38,20 +38,24 @@ type FilterMode = 'open' | 'today' | 'overdue' | 'week' | 'completed' | 'all'
 // never produce — so it doubles as an "all day / no specific time" marker.
 
 
-// The ADMIN board is one column per person: Efrain / Brianne / Hanh on the first
-// row, Moe / Matt on the second. Anyone NOT in this list (Randy, an unassigned
-// task, a legacy name) falls into the "Unassigned & other" column so no task can
-// be hidden just because it doesn't belong to one of the five.
+// The ADMIN board is one column per person: Efrain / Brianne / Moe / Matt.
+// Anyone NOT in this list (Hanh, Randy, an unassigned task, a legacy name) falls
+// into the "Unassigned & other" column so no task can be hidden just because it
+// doesn't belong to one of the four. Keep in step with TASK_ASSIGNEES
+// (lib/types.ts) — that list is who you can ASSIGN to, this one is who gets a
+// column, and they are deliberately not the same.
 //
-// Hanh is the processing desk — tasks she raises on an escrow land in the
-// assignee's column here, and anything handed back to her lands in hers. Keep in
-// step with TASK_ASSIGNEES (lib/types.ts).
+// Hanh is off the admin board (Efrain 2026-08-11: "get rid of Hanh's tasks").
+// She is still an assignee — she keeps her OWN board when signed in as a
+// processor, and a task handed back to her from an escrow still saves — it just
+// lands in the catch-all here rather than taking a column of its own.
 //
 // ⚠️ A `processor` sees a DIFFERENT board — herself + Efrain + Brianne only, and
-//    no catch-all. That list comes from taskColumnsFor() in lib/roles.ts, and the
-//    task set itself is scoped to match (see `visible` below), so the chip counts
-//    and the Completed view can't show her other people's task titles.
-const BOARD_COLUMNS = ['Efrain Ramirez', 'Brianne Han', 'Hanh Nguyen', 'Moe Sefati', 'Matt Park'] as const
+//    no catch-all. That list comes from taskColumnsFor() in lib/roles.ts (it
+//    prepends her own name, so removing her here does not remove her there), and
+//    the task set itself is scoped to match (see `visible` below), so the chip
+//    counts and the Completed view can't show her other people's task titles.
+const BOARD_COLUMNS = ['Efrain Ramirez', 'Brianne Han', 'Moe Sefati', 'Matt Park'] as const
 
 // Each column carries its own time cut on top of the global chips, so you can
 // park one person on "what's on fire" while another shows everything — all in
@@ -558,8 +562,8 @@ function TasksSection() {
               Theo", one word per line. Stacking the three FULL WIDTH gives every
               title the whole row and the wrapping problem disappears.
 
-              Admin keeps the grid: five people stacked full-width would be a very
-              long scroll, and at five columns the same width pressure isn't there
+              Admin keeps the grid: four people stacked full-width would be a very
+              long scroll, and at four columns the same width pressure isn't there
               because it's already wrapping to a second row. */}
           <div className={
             isAdmin

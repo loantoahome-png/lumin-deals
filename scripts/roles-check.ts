@@ -111,7 +111,9 @@ eq('nav: admin sees Lead ROI', canSeeNavItem('admin', '/lead-roi'), true)
 // ── 8. The task board, per role ────────────────────────────────────────────
 // Efrain 2026-08-10: "only show her tasks, and tasks for Brianne and I, do not
 // show the bulletin."
-const ADMIN_COLUMNS = ['Efrain Ramirez', 'Brianne Han', 'Hanh Nguyen', 'Moe Sefati', 'Matt Park'] as const
+// Mirrors BOARD_COLUMNS in app/tasks/page.tsx. Hanh is deliberately NOT on it —
+// she comes back on a processor board from `myName`, never from this list.
+const ADMIN_COLUMNS = ['Efrain Ramirez', 'Brianne Han', 'Moe Sefati', 'Matt Park'] as const
 
 eq('admin board is unchanged', taskColumnsFor('admin', 'Efrain Ramirez', ADMIN_COLUMNS), [...ADMIN_COLUMNS])
 eq('processor board: her first, then Efrain + Brianne',
