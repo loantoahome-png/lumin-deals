@@ -92,7 +92,14 @@ log an `(outbound Call)` event and its unread/waiting flag should clear.
 
 ---
 
-## Part 3 — "Note Added → Dashboard"
+## Part 3 — "Note Added → Dashboard" · ⚠️ DECLINED — DO NOT BUILD OR RE-PROPOSE
+
+**Efrain declined this 2026-08-11** (*"I dont think I need the note workflow either"*). The steps
+below are kept only so nobody has to re-derive them if that ever changes. **Do not pitch this again.**
+
+The handler-side fix shipped anyway (`noteText()` + the multi-deal lookup) because both were genuine
+latent defects — the branch would also have failed for a native `NoteCreate` event on any contact
+owning more than one loan. It is dormant and costs nothing; leave it in place.
 
 Puts notes the team types on a contact in GHL straight onto that loan's LO Notes on the dashboard.
 **Handler support shipped 2026-08-11** — before that commit a workflow-sent note would have been
