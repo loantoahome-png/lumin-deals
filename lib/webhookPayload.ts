@@ -83,6 +83,29 @@ export function channelLabel(type: string | null | undefined): string {
   return 'Text'
 }
 
+/** The note text on a NoteCreate payload, or null.
+ *
+ *  A native app event carries it TOP-LEVEL, but a GHL *Workflow* webhook can
+ *  only send it as Custom Data — which arrives NESTED under `customData`. That
+ *  nesting is exactly what kept the message branch dead until 2026-07-16, and
+ *  reading only top-level here would reject every workflow-sent note as
+ *  "No note content".
+ *
+ *  ⚠️ An unresolved merge tag is rejected rather than written into lo_notes.
+ *  This is not hypothetical: `pipelineStageName` came back unresolved on
+ *  146/146 audited bodies, so a mis-mapped `{{note.body}}` is a live risk and
+ *  a literal "{{note.body}}" pasted on a deal is worse than no note at all. */
+export function noteText(body: Record<string, unknown>, max = 2000): string | null {
+  const cd = getCustomData(body)
+  const raw =
+    pick(body, 'note', 'noteBody', 'content', 'text', 'body', 'message') ||
+    (cd ? pick(cd, 'note', 'noteBody', 'content', 'text', 'body', 'message') : null)
+  if (!raw || raw.includes('{{') || raw.includes('}}')) return null
+  const clean = raw.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+  if (!clean) return null
+  return clean.length > max ? clean.slice(0, max - 1) + '…' : clean
+}
+
 /** The inbound message text as a compact one-line snippet for
  *  deals.last_inbound_message, or null. Emails arrive with huge
  *  invisible-char padding (U+034F), footers and signatures — collapse

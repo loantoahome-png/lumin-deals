@@ -9,7 +9,7 @@
 // Run: npx tsx scripts/webhook-fields-check.ts
 // Payload ground truth: docs/research/2026-07-16-ghl-webhook-payload-audit.md
 import {
-  resolveWebhookEventType, channelLabel, messageSnippet, sanitizeRawBody, cleanGhlId,
+  resolveWebhookEventType, channelLabel, messageSnippet, noteText, sanitizeRawBody, cleanGhlId,
 } from '../lib/webhookPayload'
 
 let pass = 0, fail = 0
@@ -100,6 +100,39 @@ eq('merge tag rejected', cleanGhlId('{{contact.id}}'), null)
 eq('serialized object rejected', cleanGhlId('{"ids":[]}'), null)
 eq('too-short junk rejected', cleanGhlId('abc'), null)
 eq('null → null', cleanGhlId(null), null)
+
+// ── 6. noteText (GHL "Note Added" workflow trigger) ───────────────────────────
+
+// The whole point: a Workflow can only send the note as Custom Data, which
+// arrives NESTED. Top-level-only reading rejected every workflow-sent note.
+eq('workflow note from customData',
+  noteText({ contact_id: 'ibR03XmjLjFYFWt5moDT',
+    customData: { event: 'NoteCreate', contactId: 'ibR03XmjLjFYFWt5moDT', note: 'Called, LM re: rate drop' } }),
+  'Called, LM re: rate drop')
+
+eq('native top-level note still works', noteText({ note: 'Borrower wants to close by the 30th' }),
+  'Borrower wants to close by the 30th')
+eq('top-level outranks customData',
+  noteText({ note: 'top', customData: { note: 'nested' } }), 'top')
+eq('alternate key noteBody', noteText({ customData: { noteBody: 'sent docs' } }), 'sent docs')
+
+// An unresolved merge tag must never reach lo_notes — pipelineStageName came
+// back unresolved on 146/146 audited bodies, so this is a live failure mode.
+eq('unresolved merge tag rejected', noteText({ customData: { note: '{{note.body}}' } }), null)
+eq('partially-unresolved text rejected', noteText({ note: 'FYI {{contact.first_name}} called' }), null)
+
+eq('3+ newlines collapse to a paragraph break', noteText({ note: 'line one\n\n\n\nline two' }), 'line one\n\nline two')
+eq('single newline preserved', noteText({ note: 'line one\nline two' }), 'line one\nline two')
+eq('long note truncates to 2000 with ellipsis', (() => {
+  const s = noteText({ note: 'x'.repeat(4000) })
+  return s !== null && s.length === 2000 && s.endsWith('…')
+})(), true)
+
+eq('empty note → null', noteText({ note: '' }), null)
+eq('whitespace-only note → null', noteText({ customData: { note: '   \n  ' } }), null)
+eq('no note anywhere → null', noteText({ contact_id: 'abc', customData: { contactId: 'abc' } }), null)
+// A message payload's `message` is an OBJECT, not text — must not be picked up.
+eq('message object is not note text', noteText({ message: { body: 'hi', type: 2 } }), null)
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} webhook-fields-check: ${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)

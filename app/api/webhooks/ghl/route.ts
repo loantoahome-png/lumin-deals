@@ -7,7 +7,7 @@ import { resolveLO } from '@/lib/loanOfficer'
 import { logStageEvent } from '@/lib/stageEvents'
 import {
   pick, isOpportunityPayload, getCustomData, cleanGhlId,
-  resolveWebhookEventType, channelLabel, messageSnippet, sanitizeRawBody,
+  resolveWebhookEventType, channelLabel, messageSnippet, noteText, sanitizeRawBody,
 } from '@/lib/webhookPayload'
 
 // ── Signature validation ──────────────────────────────────────────────────────
@@ -392,9 +392,20 @@ export async function POST(req: NextRequest) {
     // NOTE CREATE — append to lo_notes
     // ══════════════════════════════════════════════════════════════════════════
     if (eventType === 'NoteCreate' || eventType === 'note.create') {
-      const noteContent = pick(body, 'note', 'body', 'content', 'text', 'noteBody', 'message')
-      const noteContactId = pick(body, 'contactId', 'contact_id', 'id')
-      const noteUser = pick(body, 'createdBy', 'userId', 'user_id') || 'LO'
+      // Text and ids may arrive top-level (native event) or nested in customData
+      // (Workflow webhook) — noteText handles both. The bare `id` is only trusted
+      // when this is NOT an opportunity payload: GHL's id is polymorphic, and a
+      // note fired on a contact who owns an opportunity carries the OPP id there
+      // (see the 2026-07-16 poisoning saga). A wrong id here can't corrupt data —
+      // it's a read filter — but it silently drops the note.
+      const noteContent = noteText(body)
+      const noteContactId =
+        pick(body, 'contactId', 'contact_id') ||
+        cleanGhlId(customData ? pick(customData, 'contactId', 'contact_id') : null) ||
+        (isOpportunityPayload(body) ? null : pick(body, 'id'))
+      const noteUser =
+        (customData ? pick(customData, 'user', 'userName', 'createdBy') : null) ||
+        pick(body, 'createdBy', 'userId', 'user_id') || 'LO'
 
       if (!noteContent) {
         return NextResponse.json({ success: false, reason: 'No note content' })
@@ -404,8 +415,15 @@ export async function POST(req: NextRequest) {
       const formattedNote = `[${timestamp} — ${noteUser}] ${noteContent}`
 
       if (noteContactId) {
-        const { data: existing } = await supabase
-          .from('deals').select('id, lo_notes').eq('ghl_contact_id', noteContactId).single()
+        // A contact can own several loans, so .single() ERRORS on exactly the
+        // multi-loan borrowers it matters most for and the note is lost. Newest
+        // deal wins — the same rule buildContactDealMap uses for GHL tasks.
+        const { data: noteDeals } = await supabase
+          .from('deals').select('id, lo_notes')
+          .eq('ghl_contact_id', noteContactId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+        const existing = noteDeals?.[0]
 
         if (existing) {
           const updated = existing.lo_notes
