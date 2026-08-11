@@ -3,6 +3,7 @@
 import { ptToUtc, parseDuration, parseCallsCsv, dedupeKey, dedupeRows, type CallRow } from '../lib/callsCsv'
 import {
   isConnected, coveredLos, coverageWindow, effortRollup, economicsRollup, dialerBreakdown,
+  activityBuckets, activityInRange, byHourOfDay, dialersInRange,
   type DealLite,
 } from '../lib/callsReport'
 
@@ -139,6 +140,49 @@ eq('referral (organic) excluded from economics', econ.some(r => r.source === 'Re
 const dialers = dialerBreakdown(parsed, DEALS)
 eq('dialer attributed to lead owner', dialers.map(d => [d.lo, d.dialer, d.calls]),
   [['Matt Park', "Matthew's number", 1], ['Moe Sefati', "Brianne's Number", 2]])
+
+// ── activity buckets ────────────────────────────────────────────────────────
+const buckets = activityBuckets(parsed)
+
+// ⚠️ THE TIMEZONE TRAP: the 15:29 PT call is STORED as 22:29Z. If bucketing used
+// the raw UTC hour it would file under 22 and land on the wrong day near midnight.
+eq('call bucketed to its PT day, not the UTC day', buckets.daily.map(d => d.day), ['2026-08-09', '2026-08-10'])
+eq('hour bucketed in PT (15:29 PT, stored 22:29Z)',
+  buckets.hourly.filter(h => h.day === '2026-08-10').map(h => h.hour), [15])
+eq('weekday from PT date', buckets.daily.find(d => d.day === '2026-08-10')?.weekday, 1) // Mon
+
+// A UTC-evening call belongs to the PREVIOUS PT day — the case a naive slice(0,10) breaks.
+const lateCsv = [
+  'Date & time,Contact name,Contact phone,Number name,Number phone,Direction,Call status,Disposition,First time,Duration',
+  '2026-08-10 18:30:00,Late Call,+13105551234,Brianne\'s Number,+19497495677,outbound,Answered,-,No,01:00',
+].join('\n')
+const late = parseCallsCsv(lateCsv, 'moe')
+eq('6:30pm PT stored as next-day UTC', late[0].call_ts, '2026-08-11T01:30:00.000Z')
+eq('…but still buckets to Aug 10 in PT', activityBuckets(late).daily[0].day, '2026-08-10')
+eq('…at hour 18, not 1', activityBuckets(late).hourly[0].hour, 18)
+
+// Inbound is excluded from the hour analysis (it connects by definition).
+eq('inbound excluded from hourly', buckets.hourly.every(h => h.day !== '2026-08-09'), true)
+eq('inbound still counted in daily', buckets.daily.find(d => d.day === '2026-08-09')?.inbound, 1)
+
+const range = activityInRange(buckets.daily, '2026-08-09', '2026-08-10')
+eq('range totals: calls', range.calls, 3)
+eq('range totals: connects (duration>0 only)', range.connects, 2)
+eq('range totals: talk seconds', range.talkSec, 49 + 120)
+eq('avg conversation divides by CONNECTS, not all calls', range.avgTalkSec, (49 + 120) / 2)
+eq('outbound/inbound split', [range.outbound, range.inbound], [2, 1])
+
+const oneDay = activityInRange(buckets.daily, '2026-08-10', '2026-08-10')
+eq('single-day range excludes other days', oneDay.calls, 2)
+eq('range outside the data is empty', activityInRange(buckets.daily, '2026-01-01', '2026-01-31').calls, 0)
+
+const hours = byHourOfDay(buckets.hourly, '2026-08-09', '2026-08-10')
+eq('hour 15 rate = 1 of 2 dials', [hours[15].calls, hours[15].connects], [2, 1])
+eq('empty hour has zero rate, not NaN', hours[3].rate, 0)
+
+const dialerRows = dialersInRange(buckets.dialerDaily, '2026-08-09', '2026-08-10')
+eq('dialer rollup in range', dialerRows.map(d => [d.dialer, d.calls, d.connects]),
+  [["Brianne's Number", 2, 1], ["Matthew's number", 1, 1]])
 
 // Empty input must not throw or divide by zero.
 eq('empty calls → no window', coverageWindow([]), null)

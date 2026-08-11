@@ -83,6 +83,27 @@ export function ptToUtc(local: string): string {
   return new Date(instant).toISOString()
 }
 
+/**
+ * Split a stored UTC instant back into PT calendar parts.
+ *
+ * Every "when did we call" question — which day, which hour, which weekday — has to
+ * be asked in the office's own timezone. Bucketing the stored UTC hour instead puts
+ * a 3pm call in the 10pm bucket and makes "best time to call" 7-8h wrong.
+ *
+ * weekday: 0 = Sunday … 6 = Saturday.
+ */
+export function ptParts(utcIso: string): { day: string; hour: number; weekday: number } {
+  const parts = PT_FMT.formatToParts(new Date(utcIso))
+  const get = (t: string) => parts.find(p => p.type === t)?.value ?? '00'
+  const day = `${get('year')}-${get('month')}-${get('day')}`
+  const hour = Number(get('hour')) % 24
+  // Weekday from the PT calendar date, read at noon UTC-of-that-date so no
+  // offset can tip it into the neighbouring day.
+  const [Y, M, D] = day.split('-').map(Number)
+  const weekday = new Date(Date.UTC(Y, M - 1, D, 12)).getUTCDay()
+  return { day, hour, weekday }
+}
+
 // ── Duration ────────────────────────────────────────────────────────────────
 /** "00:49" → 49, "01:02:03" → 3723, "-" / "" → 0. */
 export function parseDuration(s: string | null | undefined): number {

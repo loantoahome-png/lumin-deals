@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import type { CallRow } from '@/lib/callsCsv'
 import {
-  effortRollup, dialerBreakdown, economicsRollup, coverageWindow, coveredLos,
+  effortRollup, dialerBreakdown, economicsRollup, coverageWindow, coveredLos, activityBuckets,
   type DealLite,
 } from '@/lib/callsReport'
 
@@ -64,6 +64,11 @@ export async function GET() {
   }
 
   const window = coverageWindow(calls)
+  // Activity is returned PRE-BUCKETED BY PT DAY rather than as raw calls, so the
+  // page can sum any range — today, this week, a custom span — with no refetch,
+  // while the payload stays ~100 rows instead of ~7,000.
+  const buckets = activityBuckets(calls)
+
   return NextResponse.json({
     ok: true,
     totalCalls: calls.length,
@@ -73,5 +78,6 @@ export async function GET() {
     effort: effortRollup(calls, deals),
     dialers: dialerBreakdown(calls, deals),
     economics: economicsRollup(calls, deals),
+    activity: buckets,
   })
 }

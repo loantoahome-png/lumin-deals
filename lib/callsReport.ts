@@ -11,7 +11,7 @@
 
 import { DEFAULT_LOS, resolveLO } from './loanOfficer'
 import { normPhone } from './dealMatcher'
-import type { CallRow } from './callsCsv'
+import { ptParts, type CallRow } from './callsCsv'
 
 export const ACCOUNT_TO_LO: Record<string, string> = {
   moe: 'Moe Sefati',
@@ -236,6 +236,135 @@ export function dialerBreakdown(calls: CallRow[], deals: DealLite[]): DialerRow[
     }
   }
   return [...acc.values()].sort((a, b) => (a.lo === b.lo ? b.calls - a.calls : a.lo.localeCompare(b.lo)))
+}
+
+// ── Activity buckets ────────────────────────────────────────────────────────
+//
+// Pre-aggregated per PT CALENDAR DAY so the page can sum any date range — today,
+// this week, a custom span — instantly on the client without a refetch.
+//
+// ⚠️ Everything here is bucketed in America/Los_Angeles, never in stored UTC.
+// A 3pm call is stored as 22:00Z; bucketing the raw UTC hour would file it under
+// 10pm and shift "best time to call" by the whole offset.
+//
+// ⚠️ Deliberately NO distinct-contact counts. A distinct count cannot be summed
+// across daily buckets (the same lead called Monday and Tuesday would count
+// twice), and a silently-wrong "leads touched" is worse than no metric.
+
+export type DayBucket = {
+  day: string          // PT calendar date, YYYY-MM-DD
+  weekday: number      // 0 = Sunday
+  calls: number
+  connects: number
+  talkSec: number
+  outbound: number
+  inbound: number
+}
+
+export type HourBucket = { day: string; hour: number; calls: number; connects: number }
+export type DialerDayBucket = { day: string; dialer: string; calls: number; connects: number; talkSec: number }
+
+export type ActivityBuckets = {
+  daily: DayBucket[]
+  hourly: HourBucket[]            // OUTBOUND only — see below
+  dialerDaily: DialerDayBucket[]
+}
+
+export function activityBuckets(calls: CallRow[]): ActivityBuckets {
+  const daily = new Map<string, DayBucket>()
+  const hourly = new Map<string, HourBucket>()
+  const dialerDaily = new Map<string, DialerDayBucket>()
+
+  for (const c of calls) {
+    const { day, hour, weekday } = ptParts(c.call_ts)
+    const connected = isConnected(c) ? 1 : 0
+
+    const d = daily.get(day) ?? { day, weekday, calls: 0, connects: 0, talkSec: 0, outbound: 0, inbound: 0 }
+    d.calls++; d.connects += connected; d.talkSec += c.duration_sec
+    if (c.direction === 'inbound') d.inbound++; else d.outbound++
+    daily.set(day, d)
+
+    // "Best time to call" is a question about OUTBOUND dialing. Inbound calls
+    // connect by definition and would wash out the signal entirely.
+    if (c.direction !== 'inbound') {
+      const hk = `${day}|${hour}`
+      const h = hourly.get(hk) ?? { day, hour, calls: 0, connects: 0 }
+      h.calls++; h.connects += connected
+      hourly.set(hk, h)
+    }
+
+    const dialer = c.dialer_number_name ?? 'Unknown'
+    const dk = `${day}|${dialer}`
+    const dd = dialerDaily.get(dk) ?? { day, dialer, calls: 0, connects: 0, talkSec: 0 }
+    dd.calls++; dd.connects += connected; dd.talkSec += c.duration_sec
+    dialerDaily.set(dk, dd)
+  }
+
+  return {
+    daily: [...daily.values()].sort((a, b) => a.day.localeCompare(b.day)),
+    hourly: [...hourly.values()].sort((a, b) => a.day.localeCompare(b.day) || a.hour - b.hour),
+    dialerDaily: [...dialerDaily.values()].sort((a, b) => a.day.localeCompare(b.day)),
+  }
+}
+
+/** Summed activity over a PT day range (inclusive both ends). */
+export function activityInRange(daily: DayBucket[], start: string, end: string) {
+  let calls = 0, connects = 0, talkSec = 0, outbound = 0, inbound = 0, days = 0
+  for (const d of daily) {
+    if (d.day < start || d.day > end) continue
+    days++
+    calls += d.calls; connects += d.connects; talkSec += d.talkSec
+    outbound += d.outbound; inbound += d.inbound
+  }
+  return {
+    calls, connects, talkSec, outbound, inbound, activeDays: days,
+    connectRate: calls ? connects / calls : 0,
+    // Average length of a call that actually CONNECTED. Dividing by all calls
+    // would blend in voicemails and understate every real conversation.
+    avgTalkSec: connects ? talkSec / connects : 0,
+    callsPerActiveDay: days ? calls / days : 0,
+  }
+}
+
+/** Connect rate by PT hour of day, over a range. Outbound only. */
+export function byHourOfDay(hourly: HourBucket[], start: string, end: string) {
+  const out = Array.from({ length: 24 }, (_, hour) => ({ hour, calls: 0, connects: 0, rate: 0 }))
+  for (const h of hourly) {
+    if (h.day < start || h.day > end) continue
+    out[h.hour].calls += h.calls
+    out[h.hour].connects += h.connects
+  }
+  for (const o of out) o.rate = o.calls ? o.connects / o.calls : 0
+  return out
+}
+
+/** Connect rate by weekday, over a range. Outbound only. */
+export function byWeekday(daily: DayBucket[], hourly: HourBucket[], start: string, end: string) {
+  const dayToWeekday = new Map(daily.map(d => [d.day, d.weekday]))
+  const out = Array.from({ length: 7 }, (_, weekday) => ({ weekday, calls: 0, connects: 0, rate: 0 }))
+  for (const h of hourly) {
+    if (h.day < start || h.day > end) continue
+    const w = dayToWeekday.get(h.day)
+    if (w == null) continue
+    out[w].calls += h.calls
+    out[w].connects += h.connects
+  }
+  for (const o of out) o.rate = o.calls ? o.connects / o.calls : 0
+  return out
+}
+
+/** Per-dialer totals over a range. */
+export function dialersInRange(dialerDaily: DialerDayBucket[], start: string, end: string) {
+  const acc = new Map<string, { dialer: string; calls: number; connects: number; talkSec: number }>()
+  for (const d of dialerDaily) {
+    if (d.day < start || d.day > end) continue
+    const e = acc.get(d.dialer) ?? { dialer: d.dialer, calls: 0, connects: 0, talkSec: 0 }
+    e.calls += d.calls; e.connects += d.connects; e.talkSec += d.talkSec
+    acc.set(d.dialer, e)
+  }
+  return [...acc.values()]
+    .map(e => ({ ...e, connectRate: e.calls ? e.connects / e.calls : 0, avgTalkSec: e.connects ? e.talkSec / e.connects : 0 }))
+    .sort((a, b) => b.calls - a.calls)
 }
 
 // ── Economics ───────────────────────────────────────────────────────────────

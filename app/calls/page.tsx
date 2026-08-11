@@ -3,29 +3,35 @@
 /**
  * Call Report — imported from GHL's Reporting → Call report CSV export.
  *
- *   • Effort    — are the leads we paid for actually being worked? Per LO:
- *                 % dialed, % connected, dials/lead, talk time, speed to first
- *                 dial, plus the two lists that cost money: never-dialed and
- *                 dialed-but-never-connected. Also splits DIALER from lead owner
- *                 ("Brianne's Number" places calls in both sub-accounts).
- *   • Economics — cost per connected conversation by lead source. This is CONTACT
- *                 economics, NOT ROI: there is no revenue on this page. Net
- *                 revenue is totalComp() × the 85% LO split and lives on /lead-roi.
+ *   • Activity  — what was DIALED in a date range: calls, connects, talk time,
+ *                 daily trend, best hour/weekday to reach people, per-dialer.
+ *                 This is the only tab the date filter touches.
+ *   • Effort    — are the leads we paid for being worked? Lifetime per-lead
+ *                 coverage across the WHOLE imported window. A date filter would
+ *                 break these: a May lead dialed in May reads as never-dialed
+ *                 "today", so they are deliberately unfiltered and labelled.
+ *   • Economics — cost per connected conversation by source. CONTACT economics,
+ *                 NOT ROI — no revenue here; that's /lead-roi with the 85% split.
  *
  * The connect signal is talk time, never GHL's "Answered" status — 724 rows in
  * the real export are 'Answered' AND dispositioned 'No Answer / Voicemail'.
  *
  * All aggregation lives in lib/callsReport.ts (pure, fixture-tested by
- * scripts/calls-check.ts) and is computed server-side by /api/calls.
+ * scripts/calls-check.ts). Activity arrives pre-bucketed by PT day so every
+ * range — including custom — filters instantly with no refetch.
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
-  PhoneCall, AlertTriangle, RefreshCw, Clock, DollarSign, PhoneOff, ChevronDown, ChevronRight, Info,
+  PhoneCall, AlertTriangle, RefreshCw, DollarSign, Info, PhoneIncoming, PhoneOutgoing, Clock, TrendingUp,
 } from 'lucide-react'
+import {
+  BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell,
+} from 'recharts'
 import { LO_COLORS } from '@/components/LoFilter'
-import type { EffortRow, DialerRow, EconomicsRow } from '@/lib/callsReport'
+import type { EffortRow, DialerRow, EconomicsRow, ActivityBuckets } from '@/lib/callsReport'
+import { activityInRange, byHourOfDay, byWeekday, dialersInRange } from '@/lib/callsReport'
 
 type ApiResponse = {
   ok: boolean
@@ -37,15 +43,21 @@ type ApiResponse = {
   effort: EffortRow[]
   dialers: DialerRow[]
   economics: EconomicsRow[]
+  activity: ActivityBuckets
 }
 
 const money = (n: number) => `$${Math.round(n).toLocaleString()}`
 const pct = (num: number, den: number) => (den ? `${Math.round((num / den) * 100)}%` : '—')
+const rate = (r: number) => `${Math.round(r * 100)}%`
 const hours = (sec: number) => `${(sec / 3600).toFixed(1)}h`
+const mmss = (sec: number) => `${Math.floor(sec / 60)}m ${String(Math.round(sec % 60)).padStart(2, '0')}s`
 const fmtDate = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+const fmtDay = (day: string) => {
+  const [y, m, d] = day.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
 
-/** Median time-to-first-dial, rendered in whichever unit reads naturally. */
 function fmtTtfd(h: number | null): string {
   if (h == null) return '—'
   if (h < 1) return `${Math.round(h * 60)} min`
@@ -53,12 +65,45 @@ function fmtTtfd(h: number | null): string {
   return `${(h / 24).toFixed(1)} d`
 }
 
+// ── PT date helpers ─────────────────────────────────────────────────────────
+// The office runs on Pacific time and calls are bucketed by PT calendar day, so
+// "today" has to mean today IN PT — not the viewer's local day, which would slide
+// the whole range for anyone in another timezone.
+const PT = 'America/Los_Angeles'
+const ptToday = (): string =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: PT, year: 'numeric', month: '2-digit', day: '2-digit' })
+    .format(new Date())
+const addDays = (day: string, n: number): string => {
+  const [y, m, d] = day.split('-').map(Number)
+  const t = new Date(Date.UTC(y, m - 1, d + n))
+  return t.toISOString().slice(0, 10)
+}
+const ptWeekday = (day: string): number => {
+  const [y, m, d] = day.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay()
+}
+
+type Preset = 'today' | 'week' | 'month' | 'last30' | 'all' | 'custom'
+const PRESETS: Array<{ key: Preset; label: string }> = [
+  { key: 'today', label: 'Today' },
+  { key: 'week', label: 'This week' },
+  { key: 'month', label: 'This month' },
+  { key: 'last30', label: 'Last 30 days' },
+  { key: 'all', label: 'All time' },
+  { key: 'custom', label: 'Custom' },
+]
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const hourLabel = (h: number) => (h === 0 ? '12a' : h < 12 ? `${h}a` : h === 12 ? '12p' : `${h - 12}p`)
+
 export default function CallsPage() {
   const [data, setData] = useState<ApiResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
-  const [tab, setTab] = useState<'effort' | 'economics'>('effort')
-  const [openList, setOpenList] = useState<string | null>(null)
+  const [tab, setTab] = useState<'activity' | 'effort' | 'economics'>('activity')
+  const [preset, setPreset] = useState<Preset>('month')
+  const [customStart, setCustomStart] = useState('')
+  const [customEnd, setCustomEnd] = useState('')
 
   const load = async () => {
     setLoading(true); setErr(null)
@@ -75,7 +120,52 @@ export default function CallsPage() {
   }
   useEffect(() => { void load() }, [])
 
-  // Stale-data warning: the page is only as fresh as the last manual export.
+  const daily = data?.activity?.daily ?? []
+  const fullStart = daily[0]?.day ?? ''
+  const fullEnd = daily[daily.length - 1]?.day ?? ''
+
+  // Resolve the preset into a concrete PT day range.
+  const [start, end] = useMemo<[string, string]>(() => {
+    const today = ptToday()
+    switch (preset) {
+      case 'today':  return [today, today]
+      // Week starts Monday — a mortgage week is Mon-Fri, and a Sunday-start week
+      // makes Monday morning look like the middle of the week.
+      case 'week':   { const back = (ptWeekday(today) + 6) % 7; return [addDays(today, -back), today] }
+      case 'month':  return [today.slice(0, 8) + '01', today]
+      case 'last30': return [addDays(today, -29), today]
+      case 'all':    return [fullStart, fullEnd]
+      case 'custom': return [customStart || fullStart, customEnd || fullEnd]
+    }
+  }, [preset, customStart, customEnd, fullStart, fullEnd])
+
+  const act = useMemo(
+    () => activityInRange(daily, start, end),
+    [daily, start, end],
+  )
+  const trend = useMemo(
+    () => daily.filter(d => d.day >= start && d.day <= end).map(d => ({ ...d, label: fmtDay(d.day) })),
+    [daily, start, end],
+  )
+  const hourly = useMemo(
+    () => byHourOfDay(data?.activity?.hourly ?? [], start, end)
+      .filter(h => h.calls >= 5)     // a 1-call hour at 100% is noise, not a signal
+      .map(h => ({ ...h, label: hourLabel(h.hour), ratePct: Math.round(h.rate * 100) })),
+    [data?.activity?.hourly, start, end],
+  )
+  const weekdays = useMemo(
+    () => byWeekday(daily, data?.activity?.hourly ?? [], start, end)
+      .filter(w => w.calls >= 5)
+      .map(w => ({ ...w, label: WEEKDAYS[w.weekday], ratePct: Math.round(w.rate * 100) })),
+    [daily, data?.activity?.hourly, start, end],
+  )
+  const dialers = useMemo(
+    () => dialersInRange(data?.activity?.dialerDaily ?? [], start, end),
+    [data?.activity?.dialerDaily, start, end],
+  )
+
+  const bestHour = useMemo(() => [...hourly].sort((a, b) => b.rate - a.rate)[0], [hourly])
+
   const staleDays = useMemo(() => {
     if (!data?.dataThrough) return null
     return Math.floor((Date.now() - Date.parse(data.dataThrough)) / 86_400_000)
@@ -145,7 +235,6 @@ export default function CallsPage() {
         </div>
       </div>
 
-      {/* Stale warning — CSV ingest means this page can silently age. */}
       {staleDays != null && staleDays > 7 && (
         <div className="mb-4 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900">
           <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
@@ -171,7 +260,7 @@ export default function CallsPage() {
         <>
           {/* Tabs */}
           <div className="flex gap-1 border-b border-gray-200 mb-5">
-            {([['effort', 'Effort'], ['economics', 'Economics']] as const).map(([k, label]) => (
+            {([['activity', 'Activity'], ['effort', 'Effort'], ['economics', 'Economics']] as const).map(([k, label]) => (
               <button
                 key={k}
                 onClick={() => setTab(k)}
@@ -184,10 +273,230 @@ export default function CallsPage() {
             ))}
           </div>
 
+          {/* ── ACTIVITY ─────────────────────────────────────────────────── */}
+          {tab === 'activity' && (
+            <div className="space-y-4">
+              {/* Date filter — Activity only */}
+              <div className="flex flex-wrap items-center gap-2">
+                {PRESETS.map(p => (
+                  <button
+                    key={p.key}
+                    onClick={() => setPreset(p.key)}
+                    className={`px-3 py-1.5 text-sm rounded-lg border transition ${
+                      preset === p.key
+                        ? 'bg-blue-600 border-blue-600 text-white'
+                        : 'border-gray-300 text-gray-600 hover:bg-gray-50 bg-white'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+                {preset === 'custom' && (
+                  <div className="flex items-center gap-2 ml-1">
+                    <input
+                      type="date" value={customStart} min={fullStart} max={fullEnd}
+                      onChange={e => setCustomStart(e.target.value)}
+                      className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
+                    />
+                    <span className="text-gray-400 text-sm">→</span>
+                    <input
+                      type="date" value={customEnd} min={fullStart} max={fullEnd}
+                      onChange={e => setCustomEnd(e.target.value)}
+                      className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                )}
+                <span className="text-xs text-gray-400 ml-auto">
+                  {fmtDay(start)} → {fmtDay(end)} · {act.activeDays} day{act.activeDays === 1 ? '' : 's'} with calls
+                </span>
+              </div>
+
+              {act.calls === 0 ? (
+                <div className="bg-white border border-gray-200 rounded-lg p-10 text-center text-gray-500">
+                  <PhoneCall className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                  No calls in this range.
+                  {end > (data!.dataThrough ?? '').slice(0, 10) && (
+                    <div className="text-sm mt-1">
+                      Call data only runs through {fmtDate(data!.dataThrough)} — re-import to see anything newer.
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {/* Headline numbers */}
+                  <div className="bg-white border border-gray-200 rounded-lg grid grid-cols-2 md:grid-cols-6 divide-x divide-y md:divide-y-0 divide-gray-100">
+                    {[
+                      ['Calls', act.calls.toLocaleString()],
+                      ['Connected', `${act.connects.toLocaleString()}`],
+                      ['Connect rate', rate(act.connectRate)],
+                      ['Talk time', hours(act.talkSec)],
+                      ['Avg conversation', mmss(act.avgTalkSec)],
+                      ['Calls / active day', Math.round(act.callsPerActiveDay).toLocaleString()],
+                    ].map(([label, val]) => (
+                      <div key={label} className="px-4 py-3">
+                        <div className="text-xs text-gray-500">{label}</div>
+                        <div className="text-lg font-semibold text-gray-900">{val}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-wrap gap-3 text-sm">
+                    <span className="inline-flex items-center gap-1.5 bg-white border border-gray-200 rounded-full px-3 py-1.5 text-gray-700">
+                      <PhoneOutgoing className="w-3.5 h-3.5 text-gray-400" /> Outbound {act.outbound.toLocaleString()}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 bg-white border border-gray-200 rounded-full px-3 py-1.5 text-gray-700">
+                      <PhoneIncoming className="w-3.5 h-3.5 text-gray-400" /> Inbound {act.inbound.toLocaleString()}
+                    </span>
+                    {bestHour && (
+                      <span className="inline-flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-full px-3 py-1.5 text-green-800">
+                        <TrendingUp className="w-3.5 h-3.5" /> Best hour to dial: <strong>{bestHour.label}</strong> ({rate(bestHour.rate)} connect)
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Daily trend */}
+                  <div className="bg-white border border-gray-200 rounded-lg p-4">
+                    <div className="text-sm font-semibold text-gray-900 mb-3">Calls per day</div>
+                    <div style={{ width: '100%', height: 220 }}>
+                      {/* Past ~40 days a paired bar per day collapses into invisible 3px
+                          slivers, so long ranges switch to areas. Same two series either way. */}
+                      <ResponsiveContainer>
+                        {trend.length > 40 ? (
+                          <AreaChart data={trend} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                            <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} interval="preserveStartEnd" minTickGap={40} />
+                            <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                            <Tooltip
+                              contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                              formatter={(value, name) =>
+                                [Number(value).toLocaleString(), String(name) === 'connects' ? 'Connected' : 'Calls'] as [string, string]}
+                            />
+                            <Area dataKey="calls" stroke="#93c5fd" fill="#dbeafe" strokeWidth={1.5} />
+                            <Area dataKey="connects" stroke="#2563eb" fill="#bfdbfe" strokeWidth={1.5} />
+                          </AreaChart>
+                        ) : (
+                          <BarChart data={trend} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                            <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} interval="preserveStartEnd" minTickGap={24} />
+                            <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                            <Tooltip
+                              contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                              formatter={(value, name) =>
+                                [Number(value).toLocaleString(), String(name) === 'connects' ? 'Connected' : 'Calls'] as [string, string]}
+                            />
+                            <Bar dataKey="calls" fill="#bfdbfe" radius={[3, 3, 0, 0]} />
+                            <Bar dataKey="connects" fill="#2563eb" radius={[3, 3, 0, 0]} />
+                          </BarChart>
+                        )}
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="text-xs text-gray-400 mt-1">
+                      Light = all calls · Dark = calls with real talk time
+                    </div>
+                  </div>
+
+                  {/* Best time to reach people */}
+                  <div className="grid md:grid-cols-3 gap-4">
+                    <div className="bg-white border border-gray-200 rounded-lg p-4 md:col-span-2">
+                      <div className="text-sm font-semibold text-gray-900">Connect rate by hour</div>
+                      <div className="text-xs text-gray-500 mb-3">
+                        Outbound only, Pacific time. Hours with under 5 dials are hidden — a single lucky call isn&apos;t a pattern.
+                      </div>
+                      <div style={{ width: '100%', height: 200 }}>
+                        <ResponsiveContainer>
+                          <BarChart data={hourly} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                            <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                            <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} unit="%" />
+                            <Tooltip
+                              contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                              formatter={(value, _name, item) => {
+                                const dials = (item as { payload?: { calls?: number } } | undefined)?.payload?.calls ?? 0
+                                return [`${Number(value)}% of ${dials.toLocaleString()} dials`, 'Connect rate'] as [string, string]
+                              }}
+                            />
+                            <Bar dataKey="ratePct" radius={[3, 3, 0, 0]}>
+                              {hourly.map(h => (
+                                <Cell key={h.hour} fill={h.hour === bestHour?.hour ? '#16a34a' : '#93c5fd'} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    <div className="bg-white border border-gray-200 rounded-lg p-4">
+                      <div className="text-sm font-semibold text-gray-900">By weekday</div>
+                      <div className="text-xs text-gray-500 mb-3">Outbound connect rate</div>
+                      <div className="space-y-1.5">
+                        {weekdays.map(w => (
+                          <div key={w.weekday} className="flex items-center gap-2 text-sm">
+                            <span className="w-8 text-gray-500">{w.label}</span>
+                            <div className="flex-1 bg-gray-100 rounded-full h-2.5 overflow-hidden">
+                              <div className="bg-blue-500 h-full rounded-full" style={{ width: `${w.ratePct}%` }} />
+                            </div>
+                            <span className="w-9 text-right font-medium text-gray-800">{w.ratePct}%</span>
+                            <span className="w-12 text-right text-xs text-gray-400">{w.calls.toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Per dialer */}
+                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                    <div className="px-5 py-3 border-b border-gray-100 text-sm font-semibold text-gray-900">
+                      By dialer
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 text-gray-600">
+                          <tr>
+                            {['Dialer', 'Calls', 'Connected', 'Connect rate', 'Talk time', 'Avg conversation'].map((h, i) => (
+                              <th key={h} className={`px-4 py-2 font-medium ${i === 0 ? 'text-left' : 'text-right'}`}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {dialers.map(d => (
+                            <tr key={d.dialer} className="hover:bg-gray-50">
+                              <td className="px-4 py-2.5 font-medium text-gray-900">{d.dialer}</td>
+                              <td className="px-4 py-2.5 text-right text-gray-700">{d.calls.toLocaleString()}</td>
+                              <td className="px-4 py-2.5 text-right text-gray-700">{d.connects.toLocaleString()}</td>
+                              <td className="px-4 py-2.5 text-right font-semibold text-gray-900">{rate(d.connectRate)}</td>
+                              <td className="px-4 py-2.5 text-right text-gray-700">{hours(d.talkSec)}</td>
+                              <td className="px-4 py-2.5 text-right text-gray-700">{mmss(d.avgTalkSec)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="px-5 py-3 border-t border-gray-100 text-xs text-gray-500 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5" />
+                      Connected means real talk time. Avg conversation divides talk time by CONNECTED calls only,
+                      so voicemails don&apos;t drag it down.
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── EFFORT ───────────────────────────────────────────────────── */}
           {tab === 'effort' && (
             <div className="space-y-4">
+              <div className="flex items-start gap-2 bg-blue-50/50 border border-blue-100 rounded-lg px-4 py-3 text-sm text-gray-700">
+                <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-blue-500" />
+                <div>
+                  <strong>Lifetime coverage, not filtered by date.</strong> These are per-lead stats across the whole
+                  imported window ({fmtDate(data!.window?.start ?? null)} – {fmtDate(data!.window?.end ?? null)}).
+                  Filtering them to a single day would count a May lead dialed in May as never dialed today.
+                  For dialing in a date range, use the <button onClick={() => setTab('activity')} className="text-blue-700 underline">Activity</button> tab.
+                </div>
+              </div>
+
               {data!.effort.map(row => {
-                const dialers = dialersByLo.get(row.lo) ?? []
+                const los = dialersByLo.get(row.lo) ?? []
                 return (
                   <div key={row.lo} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
                     <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
@@ -202,7 +511,6 @@ export default function CallsPage() {
                       )}
                     </div>
 
-                    {/* An LO with no import has NO evidence either way — never render 0%. */}
                     {!row.covered ? (
                       <div className="px-5 py-6 text-sm text-gray-500 flex items-start gap-2">
                         <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-gray-400" />
@@ -229,58 +537,11 @@ export default function CallsPage() {
                           ))}
                         </div>
 
-                        {/* Money left on the table */}
-                        <div className="grid md:grid-cols-2 gap-px bg-gray-100 border-t border-gray-100">
-                          {([
-                            ['never', 'Never dialed', row.neverDialed, row.neverDialedSpend, PhoneOff],
-                            ['noconn', 'Dialed, never connected', row.dialedNeverConnected, row.dialedNeverConnectedSpend, Clock],
-                          ] as const).map(([key, label, list, spend, Icon]) => {
-                            const id = `${row.lo}:${key}`
-                            const open = openList === id
-                            return (
-                              <div key={key} className="bg-white">
-                                <button
-                                  onClick={() => setOpenList(open ? null : id)}
-                                  className="w-full px-5 py-3 flex items-center justify-between hover:bg-gray-50 text-left"
-                                >
-                                  <span className="flex items-center gap-2 text-sm text-gray-700">
-                                    {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                                    <Icon className="w-4 h-4 text-gray-400" />
-                                    {label}
-                                  </span>
-                                  <span className="text-sm">
-                                    <span className="font-semibold text-gray-900">{list.length}</span>
-                                    <span className="text-gray-400"> · </span>
-                                    <span className="font-semibold text-red-600">{money(spend)}</span>
-                                  </span>
-                                </button>
-                                {open && (
-                                  <div className="max-h-72 overflow-y-auto border-t border-gray-100">
-                                    {list.length === 0 ? (
-                                      <div className="px-5 py-4 text-sm text-gray-400">None — every lead was worked.</div>
-                                    ) : list.map(l => (
-                                      <Link
-                                        key={l.id}
-                                        href={`/deals/${l.id}`}
-                                        className="flex items-center justify-between px-5 py-2 text-sm hover:bg-blue-50 border-b border-gray-50 last:border-0"
-                                      >
-                                        <span className="text-gray-800 truncate">{l.name || '(no name)'}</span>
-                                        <span className="text-gray-500 ml-3 flex-shrink-0">{money(l.leadPrice)}</span>
-                                      </Link>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            )
-                          })}
-                        </div>
-
-                        {/* Who actually dialed */}
-                        {dialers.length > 0 && (
+                        {los.length > 0 && (
                           <div className="px-5 py-3 border-t border-gray-100">
                             <div className="text-xs text-gray-500 mb-2">Dialed by</div>
                             <div className="flex flex-wrap gap-2">
-                              {dialers.map(d => (
+                              {los.map(d => (
                                 <span key={d.dialer} className="text-sm bg-gray-50 border border-gray-200 rounded-full px-3 py-1 text-gray-700">
                                   {d.dialer}
                                   <span className="text-gray-400"> · </span>
@@ -300,6 +561,7 @@ export default function CallsPage() {
             </div>
           )}
 
+          {/* ── ECONOMICS ────────────────────────────────────────────────── */}
           {tab === 'economics' && (
             <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
               <div className="px-5 py-3 border-b border-gray-100 flex items-start gap-2 bg-blue-50/50">
@@ -344,9 +606,9 @@ export default function CallsPage() {
           )}
 
           <p className="mt-6 text-xs text-gray-400">
-            Purchased leads only ({data!.covered.join(' + ') || 'none'}), scoped to leads that came in between{' '}
-            {fmtDate(data!.window?.start ?? null)} and {fmtDate(data!.window?.end ?? null)} — the range the imported
-            calls cover. Speed-to-first-dial is measured against the lead-in date, which is approximate.
+            {tab === 'activity'
+              ? 'All imported calls in the selected range, bucketed by Pacific calendar day.'
+              : `Purchased leads only (${data!.covered.join(' + ') || 'none'}), scoped to leads that came in between ${fmtDate(data!.window?.start ?? null)} and ${fmtDate(data!.window?.end ?? null)} — the range the imported calls cover.`}
           </p>
         </>
       )}
