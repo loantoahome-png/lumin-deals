@@ -1,5 +1,21 @@
 # GOTCHAS — Lumin Deals
 
+### `channel=Call` on GHL's message export returns ringless voicemail drops as if they were dials
+**Tried:** Automating the call import with `GET /conversations/messages/export?channel=Call`. The filter is named `Call`, the rows come back with `messageType` starting `TYPE_CALL…`, and the obvious move is to store everything the filter returns.
+**Failed because:** the feed mixes **`TYPE_CALL`** (a real dial) with **`TYPE_CAMPAIGN_VOICEMAIL`** (an automated ringless voicemail drop). In one 5-day window that was **615 campaign rows against 713 real calls** — storing them would have inflated dial counts ~45% and destroyed dials/lead, the per-LO effort metric. Nothing errors; the page just quietly reports that the team dials twice as much as it does. The tell that they don't belong: the GHL **Call report CSV excludes them**, and API `TYPE_CALL` alone matched the stored CSV row count for the window **exactly, 713 = 713**.
+**What works:** filter `messageType === 'TYPE_CALL'` in the mapper and reject everything else, including on the way in from any future channel. Fixture-locked as the first assertion in `scripts/calls-api-check.ts`.
+**⚠️ Neighbouring trap in the same payload:** `meta.call.duration` is in **SECONDS**, not the milliseconds the field's bare name suggests — verified on 393 calls where both the CSV and the API report non-zero (ratio 1.000 at p10/p50/p90). And `sortBy` accepts only `createdAt`/`updatedAt`; `dateAdded` 422s.
+**Project:** lumin-deals
+**Date:** 2026-08-12
+
+### Two exports of the SAME GHL call disagree on whether it connected — 27% of the time
+**Tried:** Treating GHL's Call report CSV and the API's message feed as two views of one fact, so the automated import could seamlessly continue where the manual uploads stopped.
+**Failed because:** on **189 of 712** paired calls the two sources disagree about whether the call connected **at all** — 105 where the API reports a duration and the CSV says 0, and 84 the other way (including a CSV row of 4,839s the API calls 0). Where both report a duration they agree exactly. Since `isConnected()` is `duration_sec > 0`, that means the same call can read as a conversation from one source and a no-answer from the other. I tested and **rejected** the obvious explanation — that Brianne dialing into both sub-accounts creates cross-account mispairs — by re-pairing strictly within one account (identical split), confirming no call appears under both labels in the window, and confirming no duplicate API rows. **Which source is right is not determinable from our side.**
+**What works:** don't pick a winner, and don't let the choice leak into history. The sweep is **forward-only** — each account resumes from its own newest stored call and never rewrites a CSV row — and `source_file` marks which source produced each row so the seam stays auditable. The aggregates were measured before committing to this: like-for-like outbound connect rate is **69% on both** sides, so the rollups are unaffected even though individual calls differ.
+**⚠️ Second reason backfilling is banned:** the API's second-truncated timestamp lands **±1s** from the CSV's on ~16% of rows, so those slip past the `(call_ts, contact_phone, dialer_number_phone)` unique index and would DUPLICATE the call. API rows are idempotent against each other (same message → same truncated second), which is what makes re-runs safe.
+**Project:** lumin-deals
+**Date:** 2026-08-12
+
 ### A GHL *Workflow* webhook can only send extra fields NESTED under `customData` — this has now killed two branches
 **Tried:** Writing webhook branches that read their inputs from the top level of the body (`body.note`, `body.event`, `body.channel`). That's correct for GHL's **native** marketplace events, and the code reads naturally.
 **Failed because:** the account doesn't use native events — every webhook here is fired by a GHL **Workflow**, and a workflow can only attach extra data through its **Custom Data** block, which GHL nests under `customData`. Anything the branch needs that isn't part of the standard contact envelope arrives one level down. The branch then finds nothing and rejects the event **with a success-shaped 200**, so nothing ever errors and nothing gets reported.
