@@ -29,6 +29,19 @@ const COLD_START_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000
 /** PostgREST payload guard — the CSV importer chunks at this size too. */
 const CHUNK = 500
 
+/**
+ * Don't ingest a call until it has had time to settle in GHL.
+ *
+ * ⚠️ Observed 2026-08-12: the export returned two just-finished calls with `from`
+ * and `to` EMPTY, so they stored with no dialing number; a later fetch returned
+ * the same calls complete, and — because the dedupe index couldn't match a null
+ * dialer — they inserted a SECOND time. That double-counted Brianne and put a
+ * phantom "Unknown" dialer on a page whose entire purpose is her call volume.
+ * A short lag means the first read of a call is already the complete one.
+ * Cheap: the sweep runs every 30 min, so nothing is ever missed by waiting 5.
+ */
+const SETTLE_MS = 5 * 60 * 1000
+
 export type CallSyncAccountResult = {
   account: AccountLabel
   since: string
@@ -159,7 +172,9 @@ export async function runCallsSync(
           : new Date(Date.now() - COLD_START_LOOKBACK_MS).toISOString()
       res.since = since
 
-      const { messages, truncated } = await fetchCallMessages(acct, { since })
+      // Right edge held back so a call is only ever read once it has settled.
+      const until = new Date(Date.now() - SETTLE_MS).toISOString()
+      const { messages, truncated } = await fetchCallMessages(acct, { since, until })
       res.fetched = messages.length
       res.truncated = truncated
 

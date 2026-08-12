@@ -259,10 +259,15 @@ export type DayBucket = {
   talkSec: number
   outbound: number
   inbound: number
+  /** Who dialed. Buckets are keyed per day PER DIALER so the whole Activity tab
+   *  can be filtered to one person client-side, with no refetch — the property
+   *  that makes every date preset recompute instantly. Unfiltered views sum
+   *  across dialers, so a day now has one row per active dialer, not one row. */
+  dialer: string
 }
 
-export type HourBucket = { day: string; hour: number; calls: number; connects: number }
-export type DialerDayBucket = { day: string; dialer: string; calls: number; connects: number; talkSec: number }
+export type HourBucket = { day: string; hour: number; dialer: string; calls: number; connects: number }
+export type DialerDayBucket = { day: string; dialer: string; account: string; calls: number; connects: number; talkSec: number }
 
 export type ActivityBuckets = {
   daily: DayBucket[]
@@ -278,24 +283,30 @@ export function activityBuckets(calls: CallRow[]): ActivityBuckets {
   for (const c of calls) {
     const { day, hour, weekday } = ptParts(c.call_ts)
     const connected = isConnected(c) ? 1 : 0
+    const dialer = c.dialer_number_name ?? 'Unknown'
 
-    const d = daily.get(day) ?? { day, weekday, calls: 0, connects: 0, talkSec: 0, outbound: 0, inbound: 0 }
+    const dayKey = `${day}|${dialer}`
+    const d = daily.get(dayKey) ?? { day, weekday, dialer, calls: 0, connects: 0, talkSec: 0, outbound: 0, inbound: 0 }
     d.calls++; d.connects += connected; d.talkSec += c.duration_sec
     if (c.direction === 'inbound') d.inbound++; else d.outbound++
-    daily.set(day, d)
+    daily.set(dayKey, d)
 
     // "Best time to call" is a question about OUTBOUND dialing. Inbound calls
     // connect by definition and would wash out the signal entirely.
     if (c.direction !== 'inbound') {
-      const hk = `${day}|${hour}`
-      const h = hourly.get(hk) ?? { day, hour, calls: 0, connects: 0 }
+      const hk = `${day}|${hour}|${dialer}`
+      const h = hourly.get(hk) ?? { day, hour, dialer, calls: 0, connects: 0 }
       h.calls++; h.connects += connected
       hourly.set(hk, h)
     }
 
-    const dialer = c.dialer_number_name ?? 'Unknown'
-    const dk = `${day}|${dialer}`
-    const dd = dialerDaily.get(dk) ?? { day, dialer, calls: 0, connects: 0, talkSec: 0 }
+    // Carries the ACCOUNT too: the same person dials from a different number in
+    // each sub-account (Brianne …5677 in Moe's, …8630 in Matt's, both labelled
+    // "Brianne's Number"), so the label alone merges them. Keeping the account
+    // lets a filtered view show her per-account split — the question this page
+    // exists to answer.
+    const dk = `${day}|${dialer}|${c.account_label}`
+    const dd = dialerDaily.get(dk) ?? { day, dialer, account: c.account_label, calls: 0, connects: 0, talkSec: 0 }
     dd.calls++; dd.connects += connected; dd.talkSec += c.duration_sec
     dialerDaily.set(dk, dd)
   }
@@ -307,15 +318,22 @@ export function activityBuckets(calls: CallRow[]): ActivityBuckets {
   }
 }
 
-/** Summed activity over a PT day range (inclusive both ends). */
-export function activityInRange(daily: DayBucket[], start: string, end: string) {
-  let calls = 0, connects = 0, talkSec = 0, outbound = 0, inbound = 0, days = 0
+/** Summed activity over a PT day range (inclusive both ends), optionally for one
+ *  dialer. `dialer` undefined/null = everyone. */
+export function activityInRange(daily: DayBucket[], start: string, end: string, dialer?: string | null) {
+  let calls = 0, connects = 0, talkSec = 0, outbound = 0, inbound = 0
+  // ⚠️ Buckets are per day PER DIALER, so counting rows would count a day once
+  // per active dialer and silently deflate "calls / active day" by ~4x. Count
+  // DISTINCT days.
+  const activeDays = new Set<string>()
   for (const d of daily) {
     if (d.day < start || d.day > end) continue
-    days++
+    if (dialer && d.dialer !== dialer) continue
+    activeDays.add(d.day)
     calls += d.calls; connects += d.connects; talkSec += d.talkSec
     outbound += d.outbound; inbound += d.inbound
   }
+  const days = activeDays.size
   return {
     calls, connects, talkSec, outbound, inbound, activeDays: days,
     connectRate: calls ? connects / calls : 0,
@@ -326,11 +344,13 @@ export function activityInRange(daily: DayBucket[], start: string, end: string) 
   }
 }
 
-/** Connect rate by PT hour of day, over a range. Outbound only. */
-export function byHourOfDay(hourly: HourBucket[], start: string, end: string) {
+/** Connect rate by PT hour of day, over a range, optionally for one dialer.
+ *  Outbound only. */
+export function byHourOfDay(hourly: HourBucket[], start: string, end: string, dialer?: string | null) {
   const out = Array.from({ length: 24 }, (_, hour) => ({ hour, calls: 0, connects: 0, rate: 0 }))
   for (const h of hourly) {
     if (h.day < start || h.day > end) continue
+    if (dialer && h.dialer !== dialer) continue
     out[h.hour].calls += h.calls
     out[h.hour].connects += h.connects
   }
@@ -338,12 +358,15 @@ export function byHourOfDay(hourly: HourBucket[], start: string, end: string) {
   return out
 }
 
-/** Connect rate by weekday, over a range. Outbound only. */
-export function byWeekday(daily: DayBucket[], hourly: HourBucket[], start: string, end: string) {
+/** Connect rate by weekday, over a range, optionally for one dialer. Outbound only. */
+export function byWeekday(daily: DayBucket[], hourly: HourBucket[], start: string, end: string, dialer?: string | null) {
+  // Several rows share a day (one per dialer) — they carry the same weekday, so
+  // later writes are identical and the map stays correct.
   const dayToWeekday = new Map(daily.map(d => [d.day, d.weekday]))
   const out = Array.from({ length: 7 }, (_, weekday) => ({ weekday, calls: 0, connects: 0, rate: 0 }))
   for (const h of hourly) {
     if (h.day < start || h.day > end) continue
+    if (dialer && h.dialer !== dialer) continue
     const w = dayToWeekday.get(h.day)
     if (w == null) continue
     out[w].calls += h.calls
@@ -353,7 +376,8 @@ export function byWeekday(daily: DayBucket[], hourly: HourBucket[], start: strin
   return out
 }
 
-/** Per-dialer totals over a range. */
+/** Per-dialer totals over a range. Merges a person's two sub-account numbers,
+ *  which both carry the same label. */
 export function dialersInRange(dialerDaily: DialerDayBucket[], start: string, end: string) {
   const acc = new Map<string, { dialer: string; calls: number; connects: number; talkSec: number }>()
   for (const d of dialerDaily) {
@@ -365,6 +389,28 @@ export function dialersInRange(dialerDaily: DialerDayBucket[], start: string, en
   return [...acc.values()]
     .map(e => ({ ...e, connectRate: e.calls ? e.connects / e.calls : 0, avgTalkSec: e.connects ? e.talkSec / e.connects : 0 }))
     .sort((a, b) => b.calls - a.calls)
+}
+
+/** One dialer's totals split BY SUB-ACCOUNT over a range — "how many calls did
+ *  Brianne make in each account", the question this page exists for. Only
+ *  meaningful because a person dials from a different number per account. */
+export function accountsForDialer(dialerDaily: DialerDayBucket[], start: string, end: string, dialer: string) {
+  const acc = new Map<string, { account: string; calls: number; connects: number; talkSec: number }>()
+  for (const d of dialerDaily) {
+    if (d.day < start || d.day > end) continue
+    if (d.dialer !== dialer) continue
+    const e = acc.get(d.account) ?? { account: d.account, calls: 0, connects: 0, talkSec: 0 }
+    e.calls += d.calls; e.connects += d.connects; e.talkSec += d.talkSec
+    acc.set(d.account, e)
+  }
+  return [...acc.values()]
+    .map(e => ({ ...e, connectRate: e.calls ? e.connects / e.calls : 0, avgTalkSec: e.connects ? e.talkSec / e.connects : 0 }))
+    .sort((a, b) => b.calls - a.calls)
+}
+
+/** Distinct dialer names present in a range, busiest first — the filter's options. */
+export function dialerNamesInRange(dialerDaily: DialerDayBucket[], start: string, end: string): string[] {
+  return dialersInRange(dialerDaily, start, end).map(d => d.dialer)
 }
 
 // ── Economics ───────────────────────────────────────────────────────────────

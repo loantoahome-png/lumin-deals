@@ -110,7 +110,16 @@ export function mapApiCall(
   const isInbound = dir === 'inbound'
   const contact_phone = normPhone(isInbound ? m.from : m.to)
   if (!contact_phone) return null              // no join key → useless to the report
-  const dialer_number_phone = normPhone(isInbound ? m.to : m.from)
+  // ⚠️ NEVER null. `calls_dedupe_uniq` is (call_ts, contact_phone,
+  // dialer_number_phone) and Postgres treats NULL as DISTINCT in a unique index —
+  // so a null here silently defeats dedupe and the row can insert forever.
+  // Observed for real on 2026-08-12: GHL returned two calls before it had
+  // populated `from`/`to`, they stored with a null dialer, a later fetch returned
+  // them complete, and both landed a SECOND time — double-counting Brianne and
+  // inventing an "Unknown" dialer on the page whose whole purpose is her volume.
+  // '' collides properly. (No CSV row has a null dialer, so nothing pre-existing
+  // changes key.) The settle window in callsSync stops the incomplete read itself.
+  const dialer_number_phone = normPhone(isInbound ? m.to : m.from) ?? ''
 
   // Duration lives under meta.call. Absent (e.g. campaign rows) → 0, which reads
   // as "not connected" via isConnected() — the same meaning a CSV '-' carries.

@@ -3,7 +3,7 @@
 import { ptToUtc, parseDuration, parseCallsCsv, dedupeKey, dedupeRows, type CallRow } from '../lib/callsCsv'
 import {
   isConnected, coveredLos, coverageWindow, effortRollup, economicsRollup, dialerBreakdown,
-  activityBuckets, activityInRange, byHourOfDay, dialersInRange,
+  activityBuckets, activityInRange, byHourOfDay, dialersInRange, accountsForDialer, dialerNamesInRange,
   type DealLite,
 } from '../lib/callsReport'
 
@@ -183,6 +183,53 @@ eq('empty hour has zero rate, not NaN', hours[3].rate, 0)
 const dialerRows = dialersInRange(buckets.dialerDaily, '2026-08-09', '2026-08-10')
 eq('dialer rollup in range', dialerRows.map(d => [d.dialer, d.calls, d.connects]),
   [["Brianne's Number", 2, 1], ["Matthew's number", 1, 1]])
+
+// ── per-person filter (the page's main job: how much is Brianne calling) ─────
+// Buckets are keyed per day PER DIALER so the whole Activity tab filters
+// client-side with no refetch.
+
+const brianne = activityInRange(buckets.daily, '2026-08-09', '2026-08-10', "Brianne's Number")
+eq('filtered to one dialer: calls', brianne.calls, 2)
+eq('filtered to one dialer: connects', brianne.connects, 1)
+// Brianne's two fixture calls are both outbound; the only inbound one is Matthew's.
+eq('filtered to one dialer: outbound/inbound split', [brianne.outbound, brianne.inbound], [2, 0])
+const matthew = activityInRange(buckets.daily, '2026-08-09', '2026-08-10', "Matthew's number")
+eq('a different dialer sees only their own', matthew.calls, 1)
+eq('the inbound call belongs to the other dialer', [matthew.outbound, matthew.inbound], [0, 1])
+eq('the filters partition the unfiltered total', brianne.calls + matthew.calls, range.calls)
+eq('null dialer = everyone (same as omitting it)',
+  activityInRange(buckets.daily, '2026-08-09', '2026-08-10', null).calls, range.calls)
+eq('unknown name filters to nothing, it does NOT fall back to everyone',
+  activityInRange(buckets.daily, '2026-08-09', '2026-08-10', 'Nobody').calls, 0)
+
+// ⚠️ REGRESSION GUARD. `daily` now holds one row per day PER DIALER, so counting
+// ROWS would count a day once per active dialer and deflate "calls / active day".
+// Aug 10 has two dialers; it is still ONE active day.
+eq('active days counts DISTINCT days, not bucket rows', range.activeDays, 2)
+eq('…and a single-dialer view sees only the days they dialed', matthew.activeDays, 1)
+
+// The hour chart filters too, or "best hour to dial" would describe the team
+// while every number above it describes one person.
+const brianneHours = byHourOfDay(buckets.hourly, '2026-08-09', '2026-08-10', "Brianne's Number")
+eq('hour chart respects the dialer filter', brianneHours[15].calls, 2)
+eq('unfiltered hour 15 is entirely hers', hours[15].calls, brianneHours[15].calls)
+// Matthew's only call is INBOUND, and inbound is excluded from the hour analysis
+// (it connects by definition). So filtering to him yields an empty hour chart —
+// correct, and the reason "no data" must never render as 0%.
+eq('a dialer with only inbound calls has no hour data',
+  byHourOfDay(buckets.hourly, '2026-08-09', '2026-08-10', "Matthew's number").every(h => h.calls === 0), true)
+
+// Per-ACCOUNT split for one person. Only meaningful because the same person
+// dials from a different number in each sub-account, both carrying one label.
+const brianneAccounts = accountsForDialer(buckets.dialerDaily, '2026-08-09', '2026-08-10', "Brianne's Number")
+eq('per-account split for one dialer', brianneAccounts.map(a => [a.account, a.calls]), [['moe', 2]])
+eq('per-account split of someone with no calls is empty',
+  accountsForDialer(buckets.dialerDaily, '2026-08-09', '2026-08-10', 'Nobody'), [])
+eq('account split sums to the dialer total',
+  brianneAccounts.reduce((s, a) => s + a.calls, 0), brianne.calls)
+eq('filter options list every dialer in range, busiest first',
+  dialerNamesInRange(buckets.dialerDaily, '2026-08-09', '2026-08-10'),
+  ["Brianne's Number", "Matthew's number"])
 
 // Empty input must not throw or divide by zero.
 eq('empty calls → no window', coverageWindow([]), null)

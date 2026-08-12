@@ -62,6 +62,17 @@ eq('unknown direction treated as outbound',
 eq('no contact phone → rejected (no join key to deals)',
   mapApiCall({ ...OUTBOUND, to: undefined }, 'moe'), null)
 
+// ⚠️ REGRESSION GUARD — a null dialer defeats calls_dedupe_uniq, because Postgres
+// treats NULL as DISTINCT in a unique index. Two real calls stored twice on
+// 2026-08-12 exactly this way (GHL returned them before populating from/to), which
+// double-counted Brianne. Empty string collides properly; null never can.
+eq('missing dialer number → "" and NEVER null (else dedupe silently fails)',
+  mapApiCall({ ...OUTBOUND, from: undefined }, 'moe')?.dialer_number_phone, '')
+eq('missing dialer number still keeps the call',
+  mapApiCall({ ...OUTBOUND, from: undefined }, 'moe') !== null, true)
+eq('blank dialer number → "" not null',
+  mapApiCall({ ...OUTBOUND, from: '' }, 'moe')?.dialer_number_phone, '')
+
 // ── 4. Second-truncation (what makes the dedupe index work) ───────────────────
 
 eq('ms truncated, not rounded', truncToSecond('2026-08-08T20:36:06.567Z'), '2026-08-08T20:36:06.000Z')

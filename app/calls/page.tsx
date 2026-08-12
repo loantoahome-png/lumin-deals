@@ -31,7 +31,7 @@ import {
 } from 'recharts'
 import { LO_COLORS } from '@/components/LoFilter'
 import type { EffortRow, DialerRow, EconomicsRow, ActivityBuckets } from '@/lib/callsReport'
-import { activityInRange, byHourOfDay, byWeekday, dialersInRange } from '@/lib/callsReport'
+import { activityInRange, byHourOfDay, byWeekday, dialersInRange, accountsForDialer, ACCOUNT_TO_LO } from '@/lib/callsReport'
 
 type ApiResponse = {
   ok: boolean
@@ -104,6 +104,9 @@ export default function CallsPage() {
   const [preset, setPreset] = useState<Preset>('month')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
+  /** null = everyone. Filters the whole Activity tab to one dialer — the page's
+   *  main job is tracking how much Brianne is calling. */
+  const [dialerFilter, setDialerFilter] = useState<string | null>(null)
 
   const load = async () => {
     setLoading(true); setErr(null)
@@ -140,29 +143,55 @@ export default function CallsPage() {
   }, [preset, customStart, customEnd, fullStart, fullEnd])
 
   const act = useMemo(
-    () => activityInRange(daily, start, end),
-    [daily, start, end],
+    () => activityInRange(daily, start, end, dialerFilter),
+    [daily, start, end, dialerFilter],
   )
-  const trend = useMemo(
-    () => daily.filter(d => d.day >= start && d.day <= end).map(d => ({ ...d, label: fmtDay(d.day) })),
-    [daily, start, end],
-  )
+  // Buckets are per day PER DIALER, so the unfiltered trend must SUM a day's rows
+  // rather than render one bar per dialer per day.
+  const trend = useMemo(() => {
+    const byDay = new Map<string, { day: string; calls: number; connects: number }>()
+    for (const d of daily) {
+      if (d.day < start || d.day > end) continue
+      if (dialerFilter && d.dialer !== dialerFilter) continue
+      const e = byDay.get(d.day) ?? { day: d.day, calls: 0, connects: 0 }
+      e.calls += d.calls; e.connects += d.connects
+      byDay.set(d.day, e)
+    }
+    return [...byDay.values()].sort((a, b) => a.day.localeCompare(b.day))
+      .map(d => ({ ...d, label: fmtDay(d.day) }))
+  }, [daily, start, end, dialerFilter])
   const hourly = useMemo(
-    () => byHourOfDay(data?.activity?.hourly ?? [], start, end)
+    () => byHourOfDay(data?.activity?.hourly ?? [], start, end, dialerFilter)
       .filter(h => h.calls >= 5)     // a 1-call hour at 100% is noise, not a signal
       .map(h => ({ ...h, label: hourLabel(h.hour), ratePct: Math.round(h.rate * 100) })),
-    [data?.activity?.hourly, start, end],
+    [data?.activity?.hourly, start, end, dialerFilter],
   )
   const weekdays = useMemo(
-    () => byWeekday(daily, data?.activity?.hourly ?? [], start, end)
+    () => byWeekday(daily, data?.activity?.hourly ?? [], start, end, dialerFilter)
       .filter(w => w.calls >= 5)
       .map(w => ({ ...w, label: WEEKDAYS[w.weekday], ratePct: Math.round(w.rate * 100) })),
-    [daily, data?.activity?.hourly, start, end],
+    [daily, data?.activity?.hourly, start, end, dialerFilter],
   )
   const dialers = useMemo(
     () => dialersInRange(data?.activity?.dialerDaily ?? [], start, end),
     [data?.activity?.dialerDaily, start, end],
   )
+  /** Filter options come from the SELECTED RANGE, not all time — offering a name
+   *  with no calls in view would render an empty page with no explanation. */
+  const dialerOptions = useMemo(() => dialers.map(d => d.dialer), [dialers])
+  /** When one person is selected, the dialer table becomes their per-ACCOUNT
+   *  split — the thing the label alone hides, since both of Brianne's numbers
+   *  carry the same name. */
+  const dialerAccounts = useMemo(
+    () => dialerFilter ? accountsForDialer(data?.activity?.dialerDaily ?? [], start, end, dialerFilter) : [],
+    [data?.activity?.dialerDaily, start, end, dialerFilter],
+  )
+
+  // A selected person who has no calls in a newly-chosen range would silently
+  // show zeros everywhere; drop back to everyone instead.
+  useEffect(() => {
+    if (dialerFilter && dialerOptions.length && !dialerOptions.includes(dialerFilter)) setDialerFilter(null)
+  }, [dialerFilter, dialerOptions])
 
   const bestHour = useMemo(() => [...hourly].sort((a, b) => b.rate - a.rate)[0], [hourly])
 
@@ -311,6 +340,43 @@ export default function CallsPage() {
                 </span>
               </div>
 
+              {/* Who dialed. Everything below reflects this — the page's main job
+                  is seeing how much Brianne is calling, so it belongs beside the
+                  date range, not buried in the dialer table. */}
+              {dialerOptions.length > 1 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium text-gray-500 mr-1">Dialer</span>
+                  <button
+                    onClick={() => setDialerFilter(null)}
+                    className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
+                      dialerFilter === null
+                        ? 'bg-gray-900 text-white border-gray-900'
+                        : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    Everyone
+                  </button>
+                  {dialerOptions.map(name => (
+                    <button
+                      key={name}
+                      onClick={() => setDialerFilter(name === dialerFilter ? null : name)}
+                      className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
+                        dialerFilter === name
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                  {dialerFilter && (
+                    <span className="text-xs text-gray-400">
+                      showing {dialerFilter} only
+                    </span>
+                  )}
+                </div>
+              )}
+
               {act.calls === 0 ? (
                 <div className="bg-white border border-gray-200 rounded-lg p-10 text-center text-gray-500">
                   <PhoneCall className="w-8 h-8 text-gray-300 mx-auto mb-2" />
@@ -452,22 +518,42 @@ export default function CallsPage() {
                       <table className="w-full text-sm">
                         <thead className="bg-gray-50 text-gray-600">
                           <tr>
-                            {['Dialer', 'Calls', 'Connected', 'Connect rate', 'Talk time', 'Avg conversation'].map((h, i) => (
+                            {[dialerFilter ? 'Account' : 'Dialer', 'Calls', 'Connected', 'Connect rate', 'Talk time', 'Avg conversation'].map((h, i) => (
                               <th key={h} className={`px-4 py-2 font-medium ${i === 0 ? 'text-left' : 'text-right'}`}>{h}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                          {dialers.map(d => (
-                            <tr key={d.dialer} className="hover:bg-gray-50">
-                              <td className="px-4 py-2.5 font-medium text-gray-900">{d.dialer}</td>
-                              <td className="px-4 py-2.5 text-right text-gray-700">{d.calls.toLocaleString()}</td>
-                              <td className="px-4 py-2.5 text-right text-gray-700">{d.connects.toLocaleString()}</td>
-                              <td className="px-4 py-2.5 text-right font-semibold text-gray-900">{rate(d.connectRate)}</td>
-                              <td className="px-4 py-2.5 text-right text-gray-700">{hours(d.talkSec)}</td>
-                              <td className="px-4 py-2.5 text-right text-gray-700">{mmss(d.avgTalkSec)}</td>
+                          {/* Filtered to one person → their SUB-ACCOUNT split. The
+                              dialer label merges a person's two numbers, so this is
+                              the only place the per-account answer is visible. */}
+                          {(dialerFilter ? dialerAccounts : dialers).map(d => {
+                            const key = 'account' in d ? d.account : d.dialer
+                            return (
+                              <tr key={key} className="hover:bg-gray-50">
+                                <td className="px-4 py-2.5 font-medium text-gray-900">
+                                  {'account' in d ? (ACCOUNT_TO_LO[d.account] ?? d.account) : d.dialer}
+                                </td>
+                                <td className="px-4 py-2.5 text-right text-gray-700">{d.calls.toLocaleString()}</td>
+                                <td className="px-4 py-2.5 text-right text-gray-700">{d.connects.toLocaleString()}</td>
+                                <td className="px-4 py-2.5 text-right font-semibold text-gray-900">{rate(d.connectRate)}</td>
+                                <td className="px-4 py-2.5 text-right text-gray-700">{hours(d.talkSec)}</td>
+                                <td className="px-4 py-2.5 text-right text-gray-700">{mmss(d.avgTalkSec)}</td>
+                              </tr>
+                            )
+                          })}
+                          {dialerFilter && dialerAccounts.length > 1 && (
+                            <tr className="bg-gray-50/60 font-semibold">
+                              <td className="px-4 py-2.5 text-gray-900">Total</td>
+                              <td className="px-4 py-2.5 text-right text-gray-900">
+                                {dialerAccounts.reduce((s, d) => s + d.calls, 0).toLocaleString()}
+                              </td>
+                              <td className="px-4 py-2.5 text-right text-gray-900">
+                                {dialerAccounts.reduce((s, d) => s + d.connects, 0).toLocaleString()}
+                              </td>
+                              <td colSpan={3} />
                             </tr>
-                          ))}
+                          )}
                         </tbody>
                       </table>
                     </div>
