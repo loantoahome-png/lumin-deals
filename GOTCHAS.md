@@ -1,5 +1,13 @@
 # GOTCHAS — Lumin Deals
 
+### A NULL column in a UNIQUE index silently disables dedupe — Postgres treats NULL as DISTINCT
+**Tried:** Relying on `calls_dedupe_uniq (call_ts, contact_phone, dialer_number_phone)` plus an upsert with `ignoreDuplicates` to make the automated call import idempotent. It was tested and genuinely worked — replaying a window inserted 0 rows.
+**Failed because:** it only works while every column in the key is non-null. GHL returned two just-finished calls with `from` and `to` **empty**, so they stored with `dialer_number_phone = NULL`; a later fetch returned the same calls complete, and **both inserted again** — `NULL != NULL` in a unique index, so the index could never see them as the same row. The damage landed exactly where it hurt most: the two calls were Brianne's, on a page whose entire purpose is tracking her call volume, so she was double-counted AND a phantom "Unknown" dialer appeared. Nothing errored. It surfaced only because Efrain sent a screenshot with an "Unknown" row in it.
+**What works:** never write NULL into a column that participates in a unique index — the mapper emits `''` for a missing dialer number, which collides properly. Belt and braces: the sweep now holds its right edge back 5 minutes (`SETTLE_MS` in `lib/callsSync.ts`) so a call is only ever read once GHL has finished populating it, which removes the incomplete read at the source. Both fixture-locked.
+**⚠️ Generalises:** any "idempotent upsert" claim in this repo is only as strong as the nullability of its conflict target. Check every column in the index for nullability before trusting it — and prefer a sentinel over NULL for anything that can legitimately be absent.
+**Project:** lumin-deals
+**Date:** 2026-08-12
+
 ### `channel=Call` on GHL's message export returns ringless voicemail drops as if they were dials
 **Tried:** Automating the call import with `GET /conversations/messages/export?channel=Call`. The filter is named `Call`, the rows come back with `messageType` starting `TYPE_CALL…`, and the obvious move is to store everything the filter returns.
 **Failed because:** the feed mixes **`TYPE_CALL`** (a real dial) with **`TYPE_CAMPAIGN_VOICEMAIL`** (an automated ringless voicemail drop). In one 5-day window that was **615 campaign rows against 713 real calls** — storing them would have inflated dial counts ~45% and destroyed dials/lead, the per-LO effort metric. Nothing errors; the page just quietly reports that the team dials twice as much as it does. The tell that they don't belong: the GHL **Call report CSV excludes them**, and API `TYPE_CALL` alone matched the stored CSV row count for the window **exactly, 713 = 713**.
