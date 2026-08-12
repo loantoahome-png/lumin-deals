@@ -146,15 +146,19 @@ async function main() {
   near('Moe 93% dialed', (100 * moe.dialed) / moe.leads, 93, 1.5)
   near('Moe 87% connected', (100 * moe.connected) / moe.leads, 87, 1.5)
   near('Moe 4.2 dials/lead', moe.dials / moe.leads, 4.2, 0.15)
-  check('Moe never-dialed spend ≥$2,079', drifted(moe.neverDialedSpend, 2079, 400),
-    `got ${moe.neverDialedSpend.toFixed(2)}, baseline 2079`)
+  // ⚠️ Two-sided since 2026-08-12. This used to be one-sided ("only ever grows"),
+  // which was correct while the call data was a frozen CSV snapshot and only new
+  // leads moved. The automated sweep now adds dials continuously, so a lead that
+  // was never-dialed can BECOME dialed and pull this number DOWN — Matt's fell
+  // 762 → 737 on the first day. Direction is no longer a safe assumption; assert
+  // a band around the baseline instead.
+  near('Moe never-dialed spend ≈$2,079', moe.neverDialedSpend, 2079, 700)
 
   check('Matt ≥626 purchased leads in window', drifted(matt.leads, 626, 300), `got ${matt.leads}, baseline 626`)
   near('Matt 96% dialed', (100 * matt.dialed) / matt.leads, 96, 1.5)
   near('Matt 89% connected', (100 * matt.connected) / matt.leads, 89, 1.5)
   near('Matt 4.9 dials/lead', matt.dials / matt.leads, 4.9, 0.15)
-  check('Matt never-dialed spend ≥$762', drifted(matt.neverDialedSpend, 762, 400),
-    `got ${matt.neverDialedSpend.toFixed(2)}, baseline 762`)
+  near('Matt never-dialed spend ≈$762', matt.neverDialedSpend, 762, 700)
 
   // Median time to first dial ≈ 24 min across both covered LOs.
   const allTtfd = [moe.medianTtfdHours, matt.medianTtfdHours].filter((x): x is number => x != null)

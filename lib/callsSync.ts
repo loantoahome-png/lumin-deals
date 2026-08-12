@@ -37,6 +37,10 @@ export type CallSyncAccountResult = {
   inserted: number       // rows the unique index actually accepted
   duplicates: number     // mapped rows already present (expected on overlap)
   truncated: boolean     // hit the page cap — window incomplete, said out loud
+  /** Rows whose dialing number matched no known label. These land in the
+   *  per-dialer view's 'Unknown' bucket, so a non-zero count is the signal that a
+   *  NEW number started dialing and needs one labelled row to teach the map. */
+  unlabelledDialers: number
   error?: string
 }
 
@@ -82,6 +86,45 @@ async function buildNameMap(supabase: SupabaseClient): Promise<Map<string, strin
 }
 
 /**
+ * dialing number → its human label ("Brianne's Number"), learned from the rows we
+ * already hold.
+ *
+ * ⚠️ Not cosmetic. `effortRollup`/`dialerRollup` group on `dialer_number_name` and
+ * default to 'Unknown', so an unlabelled row disappears from every per-dialer
+ * question — including "how many calls did Brianne make in each account", which is
+ * only answerable at all because she dials from a DIFFERENT number per sub-account
+ * (…5677 in Moe's, …8630 in Matt's).
+ *
+ * Learned rather than hardcoded so a new number picks itself up from the first
+ * labelled row. Most-frequent label wins per number: the same person can appear
+ * under two spellings ("Efrain's Number" vs "Efrain") and the majority is the one
+ * the existing charts already group under.
+ */
+async function buildDialerNameMap(supabase: SupabaseClient): Promise<Map<string, string>> {
+  const counts = new Map<string, Map<string, number>>()
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from('calls').select('dialer_number_phone, dialer_number_name')
+      .not('dialer_number_name', 'is', null)
+      .not('dialer_number_phone', 'is', null)
+      .range(from, from + 999)
+    if (error) throw new Error(`dialer map: ${error.message}`)
+    for (const r of (data ?? []) as { dialer_number_phone: string; dialer_number_name: string }[]) {
+      if (!counts.has(r.dialer_number_phone)) counts.set(r.dialer_number_phone, new Map())
+      const m = counts.get(r.dialer_number_phone)!
+      m.set(r.dialer_number_name, (m.get(r.dialer_number_name) ?? 0) + 1)
+    }
+    if (!data || data.length < 1000) break
+  }
+  const map = new Map<string, string>()
+  for (const [phone, names] of counts) {
+    const best = [...names.entries()].sort((a, b) => b[1] - a[1])[0]
+    if (best) map.set(phone, best[0])
+  }
+  return map
+}
+
+/**
  * Sweep every configured account for calls newer than what we already hold.
  *
  * `dryRun` maps and counts but writes nothing — used by the manual route so a
@@ -95,13 +138,15 @@ export async function runCallsSync(
   const results: CallSyncAccountResult[] = []
   const skipped: string[] = []
   let nameMap: Map<string, string> | null = null
+  let dialerMap: Map<string, string> | null = null
 
   for (const acct of getAccounts()) {
     const label = callAccountLabel(acct.label)
     if (!label) { skipped.push(acct.label); continue }   // Randy — excluded by decision
 
     const res: CallSyncAccountResult = {
-      account: label, since: '', fetched: 0, dials: 0, inserted: 0, duplicates: 0, truncated: false,
+      account: label, since: '', fetched: 0, dials: 0, inserted: 0, duplicates: 0,
+      truncated: false, unlabelledDialers: 0,
     }
     try {
       const mark = opts.sinceOverride ?? await watermark(supabase, label)
@@ -120,17 +165,24 @@ export async function runCallsSync(
 
       const mapped: CallRow[] = []
       for (const m of messages) {
-        const row = mapApiCall(m, label, p => nameMap?.get(p) ?? null)
+        const row = mapApiCall(m, label,
+          p => nameMap?.get(p) ?? null,
+          p => dialerMap?.get(p) ?? null)
         if (row) mapped.push(row)
       }
       res.dials = mapped.length
 
-      // Names are only worth a table scan once we know rows exist. Re-map after
-      // building it so the first sweep of a batch isn't nameless.
+      // Both lookups are only worth a table scan once we know rows exist — an idle
+      // sweep must not scan. Re-apply after building so the first batch isn't blank.
       if (mapped.length && !nameMap) {
         nameMap = await buildNameMap(supabase)
-        for (const r of mapped) r.contact_name = nameMap.get(r.contact_phone) ?? null
+        dialerMap = await buildDialerNameMap(supabase)
+        for (const r of mapped) {
+          r.contact_name = nameMap.get(r.contact_phone) ?? null
+          r.dialer_number_name = r.dialer_number_phone ? dialerMap.get(r.dialer_number_phone) ?? null : null
+        }
       }
+      res.unlabelledDialers = mapped.filter(r => !r.dialer_number_name).length
 
       if (!dryRun && mapped.length) {
         for (let i = 0; i < mapped.length; i += CHUNK) {

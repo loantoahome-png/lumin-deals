@@ -91,7 +91,23 @@ eq('account_label is derived from the queried location', out.account_label, 'moe
 // a metric from it, so API rows carry null rather than a guess.
 eq('disposition is null (CSV-only field)', out.disposition, null)
 eq('first_time is null (CSV-only field)', out.first_time, null)
-eq('dialer_number_name is null (export carries numbers, not labels)', out.dialer_number_name, null)
+// ⚠️ The per-dialer rollup groups on dialer_number_name and defaults to 'Unknown',
+// so an unresolved label silently removes the call from every per-dialer question
+// ("how many calls has Brianne made in each account"). The export carries only the
+// NUMBER, so the label is resolved from it via labels already in the table.
+eq('dialer_number_name resolved from the dialing number',
+  mapApiCall(OUTBOUND, 'moe', undefined, p => p === '9495554999' ? "Mohammad's number" : null)?.dialer_number_name,
+  "Mohammad's number")
+eq('unknown dialing number → null (lands in Unknown, surfaced by unlabelledDialers)',
+  mapApiCall(OUTBOUND, 'moe', undefined, () => null)?.dialer_number_name, null)
+eq('no dialer resolver → null', out.dialer_number_name, null)
+// Brianne dials from a DIFFERENT number per sub-account — that is the only reason
+// her per-account split is answerable at all. The resolver must key on the number,
+// never on the person, or the two accounts collapse into one bucket.
+eq('inbound resolves the dialer from `to`, not `from`',
+  mapApiCall({ ...OUTBOUND, direction: 'inbound' }, 'moe', undefined,
+    p => p === '7145555617' ? "Brianne's Number" : null)?.dialer_number_name,
+  "Brianne's Number")
 // ⚠️ Retained for audit but NEVER the connect signal — 'completed' includes
 // voicemail, exactly like the CSV's 'Answered'. isConnected() uses duration.
 eq('call_status keeps the raw GHL outcome', out.call_status, 'completed')

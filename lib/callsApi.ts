@@ -96,6 +96,7 @@ export function mapApiCall(
   m: ApiCallMessage,
   accountLabel: AccountLabel,
   nameFor?: (phone: string) => string | null,
+  dialerNameFor?: (phone: string) => string | null,
 ): CallRow | null {
   if (m.messageType !== DIALED_CALL_TYPE) return null
   if (!m.dateAdded) return null
@@ -129,7 +130,14 @@ export function mapApiCall(
     // API rows simply carry null.
     disposition: null,
     duration_sec,
-    dialer_number_name: null,   // the export carries numbers, not their GHL labels
+    // ⚠️ LOAD-BEARING. The export carries the dialing NUMBER but not its GHL
+    // label, and lib/callsReport.ts groups the per-dialer breakdown on
+    // `dialer_number_name`, defaulting to 'Unknown'. Leaving this null silently
+    // dumps every automated call into "Unknown" and breaks questions like "how
+    // many calls has Brianne made in each account". The name is therefore
+    // resolved from the number, using the mapping the CSV rows already establish
+    // (resolves 131/131 of the first live batch).
+    dialer_number_name: dialerNameFor?.(dialer_number_phone ?? '') ?? null,
     dialer_number_phone,
     first_time: null,           // CSV-only column; not derivable from a message row
     account_label: accountLabel,
