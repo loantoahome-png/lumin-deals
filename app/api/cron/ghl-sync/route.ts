@@ -5,6 +5,7 @@ import { refreshConversations } from '@/app/api/sync/conversations/route'
 import { runSecondCallbackCheck } from '@/app/api/cron/second-callback/route'
 import { runIdentityResolutionPass } from '@/lib/identityResolver'
 import { runFubSync } from '@/app/api/sync/fub/route'
+import { runCallsSync } from '@/lib/callsSync'
 
 // Scheduled GHL sync — pinged by an external cron (cron-job.org).
 // Reuses the exact same logic as the manual "Sync GHL" button.
@@ -34,6 +35,8 @@ const IDENTITY_RESOLVE_KEY = 'identity_resolve_last'
 const IDENTITY_RESOLVE_INTERVAL_MS = 3 * 60 * 60 * 1000   // 3 h — collapse split borrower_ids (full deal-table scan; Fluid CPU saver, widened 2026-06-17 from 30 min). Force anytime with ?full=1 or POST /api/resolve-identities
 const FUB_SYNC_KEY = 'fub_sync_last'
 const FUB_SYNC_INTERVAL_MS = 55 * 60 * 1000   // ~hourly FUB sweep (piggyback — no new cron job). Force with ?fub=1; runFubSync re-checks this key itself, so the double gate is harmless.
+const CALLS_SYNC_KEY = 'calls_sync_last'
+const CALLS_SYNC_INTERVAL_MS = 30 * 60 * 1000   // 30 min — GHL call sweep (replaces the manual CSV upload). Cheap when idle: it resumes from each account's newest stored call, so an empty window is two API calls and no DB scan.
 
 type LockClient = ReturnType<typeof createServiceClient>
 
@@ -173,6 +176,19 @@ export async function GET(req: NextRequest) {
           console.log(`[Cron GHL Sync] 2nd-callback check:`, JSON.stringify(secondCallback))
         } catch (e) {
           console.error('[Cron GHL Sync] 2nd-callback check failed (non-fatal):', e)
+        }
+      }
+
+      // GHL call sweep for /calls — every 30 min. Non-fatal.
+      // Forward-only: each account resumes from its own newest stored call, so
+      // this never revisits the CSV-imported period (see lib/callsSync.ts).
+      if (full || await isDue(supabase, CALLS_SYNC_KEY, CALLS_SYNC_INTERVAL_MS)) {
+        try {
+          const calls = await runCallsSync(supabase)
+          await markRan(supabase, CALLS_SYNC_KEY)
+          console.log(`[Cron GHL Sync] call sweep:`, JSON.stringify(calls))
+        } catch (e) {
+          console.error('[Cron GHL Sync] call sweep failed (non-fatal):', e)
         }
       }
 

@@ -14,6 +14,7 @@ import {
   type DealLite,
 } from '../lib/callsReport'
 import { normPhone } from '../lib/dealMatcher'
+import { CALL_SOURCE_FILE } from '../lib/callsApi'
 
 const env = readFileSync(`${process.cwd()}/.env.local`, 'utf8')
 const get = (n: string) => env.match(new RegExp(`^${n}=(.+)$`, 'm'))?.[1].trim() ?? ''
@@ -53,10 +54,27 @@ async function main() {
   console.log(`\nloaded ${calls.length} calls, ${deals.length} deals\n`)
 
   // ── Import integrity ────────────────────────────────────────────────────────
-  // 7,348 rows parse out of the two exports; 2 are byte-identical duplicates (one
-  // pair in each file) that the calls_dedupe_uniq index deliberately collapses.
-  check('7,346 calls stored (7,348 parsed − 2 collapsed duplicates)',
-    calls.length === 7346, `got ${calls.length}`)
+  // ⚠️ The table stopped being a frozen CSV snapshot on 2026-08-12: lib/callsSync.ts
+  // appends new calls from GHL's API every 30 min, so ANY fixed total is guaranteed
+  // to go stale. What is still fixed is the CSV-imported portion — 7,348 rows parse
+  // out of the two exports and 2 byte-identical duplicates (one pair per file) are
+  // deliberately collapsed by the calls_dedupe_uniq index.
+  const csvCalls = calls.filter(c => c.source_file !== CALL_SOURCE_FILE)
+  const apiCalls = calls.filter(c => c.source_file === CALL_SOURCE_FILE)
+  // Baseline was 7,346 at build time (7,348 parsed − 2 collapsed duplicates). It
+  // read 7,353 on 2026-08-12 — a later manual CSV upload, which is legitimate and
+  // still possible. So: never shrinks, and stays near the baseline. An exact
+  // equality here was already red before the API sweep existed.
+  check('CSV-imported calls ≥ the 7,346 baseline (manual uploads still allowed)',
+    csvCalls.length >= 7346 && csvCalls.length < 7346 + 500, `got ${csvCalls.length}`)
+  check('table only ever grows, and only via API rows',
+    calls.length === csvCalls.length + apiCalls.length && calls.length >= 7346,
+    `total ${calls.length}, csv ${csvCalls.length}, api ${apiCalls.length}`)
+  // The API sweep must never import ringless voicemail drops — TYPE_CAMPAIGN_VOICEMAIL
+  // is absent from the CSV and would inflate dial counts ~45%. A silent regression
+  // there would show up as an implausible jump in API-sourced dials per day.
+  check('API rows carry a real direction', apiCalls.every(c => c.direction === 'inbound' || c.direction === 'outbound'),
+    `${apiCalls.filter(c => c.direction !== 'inbound' && c.direction !== 'outbound').length} bad`)
 
   const keys = new Set(calls.map(c => `${c.call_ts}|${c.contact_phone}|${c.dialer_number_phone ?? ''}`))
   check('no duplicate rows (import is idempotent)', keys.size === calls.length,
@@ -117,16 +135,21 @@ async function main() {
   // "at least the measured baseline, within a small drift band" rather than exact
   // equality; the RATIOS (dialed %, connected %, dials/lead) are the stable figures
   // and stay tight.
+  // ⚠️ Bands widened 2026-08-12. Lead counts drifted upward already (the 15-min
+  // `deals` sync keeps adding purchased leads inside the frozen call window), and
+  // the automated call sweep now ALSO advances the window's right edge every 30
+  // min — so both inputs grow continuously. Assert direction + a generous ceiling,
+  // never an exact count.
   const drifted = (got: number, base: number, band: number) => got >= base && got <= base + band
 
-  check('Moe ≥717 purchased leads in window', drifted(moe.leads, 717, 20), `got ${moe.leads}, baseline 717`)
+  check('Moe ≥717 purchased leads in window', drifted(moe.leads, 717, 300), `got ${moe.leads}, baseline 717`)
   near('Moe 93% dialed', (100 * moe.dialed) / moe.leads, 93, 1.5)
   near('Moe 87% connected', (100 * moe.connected) / moe.leads, 87, 1.5)
   near('Moe 4.2 dials/lead', moe.dials / moe.leads, 4.2, 0.15)
   check('Moe never-dialed spend ≥$2,079', drifted(moe.neverDialedSpend, 2079, 400),
     `got ${moe.neverDialedSpend.toFixed(2)}, baseline 2079`)
 
-  check('Matt ≥626 purchased leads in window', drifted(matt.leads, 626, 20), `got ${matt.leads}, baseline 626`)
+  check('Matt ≥626 purchased leads in window', drifted(matt.leads, 626, 300), `got ${matt.leads}, baseline 626`)
   near('Matt 96% dialed', (100 * matt.dialed) / matt.leads, 96, 1.5)
   near('Matt 89% connected', (100 * matt.connected) / matt.leads, 89, 1.5)
   near('Matt 4.9 dials/lead', matt.dials / matt.leads, 4.9, 0.15)

@@ -1,0 +1,154 @@
+// ── The call sweep: GHL messages/export → `calls` ────────────────────────────
+//
+// Replaces the manual "download the Call report CSV and upload it" loop.
+// Field-level ground truth and the ⚠️ CSV-vs-API duration divergence are
+// documented at the top of lib/callsApi.ts — read that before changing this.
+//
+// FORWARD-ONLY BY DESIGN. Each account resumes from its own newest stored call
+// and never revisits the CSV-imported period. Two reasons:
+//   1. The API and the CSV disagree on duration>0 for ~27% of calls, so
+//      re-importing history would silently rewrite what the connect rate means
+//      for months of past data.
+//   2. The API's second-truncated timestamp lands ±1s from the CSV's on ~16% of
+//      rows, so those would slip past the (call_ts, contact_phone,
+//      dialer_number_phone) unique index and DUPLICATE the call.
+// API rows are idempotent against each other (same message → same truncated
+// second → the index absorbs it), which is what makes re-runs and the overlap
+// safe. Do not add a backfill mode without solving both problems above.
+
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { getAccounts } from './ghl'
+import { normPhone } from './dealMatcher'
+import type { CallRow, AccountLabel } from './callsCsv'
+import { fetchCallMessages, mapApiCall, callAccountLabel } from './callsApi'
+
+/** Cold start (an account with nothing stored) pulls this far back, so a first
+ *  run can't try to page GHL's entire history. */
+const COLD_START_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000
+
+/** PostgREST payload guard — the CSV importer chunks at this size too. */
+const CHUNK = 500
+
+export type CallSyncAccountResult = {
+  account: AccountLabel
+  since: string
+  fetched: number        // raw messages returned (all channels=Call types)
+  dials: number          // after the TYPE_CALL filter — campaign voicemails dropped
+  inserted: number       // rows the unique index actually accepted
+  duplicates: number     // mapped rows already present (expected on overlap)
+  truncated: boolean     // hit the page cap — window incomplete, said out loud
+  error?: string
+}
+
+export type CallSyncResult = {
+  ok: boolean
+  accounts: CallSyncAccountResult[]
+  skipped: string[]      // configured GHL accounts with no `calls` vocabulary (Randy)
+  dryRun: boolean
+}
+
+/** Newest stored call for an account, or null when it has none. */
+async function watermark(supabase: SupabaseClient, account: AccountLabel): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('calls').select('call_ts')
+    .eq('account_label', account)
+    .order('call_ts', { ascending: false })
+    .limit(1)
+  if (error) throw new Error(`watermark ${account}: ${error.message}`)
+  return (data?.[0]?.call_ts as string | undefined) ?? null
+}
+
+/**
+ * phone → contact name, from our own `deals`. The export carries a contactId but
+ * no name, and a null name blanks the Activity tab for every new call.
+ * Paged because a bare select caps at 1000 rows. Only called when there is
+ * something to insert — an idle sweep must not scan the deal table.
+ */
+async function buildNameMap(supabase: SupabaseClient): Promise<Map<string, string>> {
+  const map = new Map<string, string>()
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from('deals').select('name, phone')
+      .not('phone', 'is', null)
+      .range(from, from + 999)
+    if (error) throw new Error(`name map: ${error.message}`)
+    for (const d of (data ?? []) as { name: string | null; phone: string | null }[]) {
+      const p = normPhone(d.phone)
+      if (p && d.name && !map.has(p)) map.set(p, d.name)
+    }
+    if (!data || data.length < 1000) break
+  }
+  return map
+}
+
+/**
+ * Sweep every configured account for calls newer than what we already hold.
+ *
+ * `dryRun` maps and counts but writes nothing — used by the manual route so a
+ * cutover can be inspected before it lands.
+ */
+export async function runCallsSync(
+  supabase: SupabaseClient,
+  opts: { dryRun?: boolean; sinceOverride?: string } = {},
+): Promise<CallSyncResult> {
+  const dryRun = opts.dryRun ?? false
+  const results: CallSyncAccountResult[] = []
+  const skipped: string[] = []
+  let nameMap: Map<string, string> | null = null
+
+  for (const acct of getAccounts()) {
+    const label = callAccountLabel(acct.label)
+    if (!label) { skipped.push(acct.label); continue }   // Randy — excluded by decision
+
+    const res: CallSyncAccountResult = {
+      account: label, since: '', fetched: 0, dials: 0, inserted: 0, duplicates: 0, truncated: false,
+    }
+    try {
+      const mark = opts.sinceOverride ?? await watermark(supabase, label)
+      // +1s: the newest stored call's own second is already covered, and
+      // re-examining it is what risks an off-by-one duplicate against a CSV row.
+      const since = opts.sinceOverride
+        ? opts.sinceOverride
+        : mark
+          ? new Date(new Date(mark).getTime() + 1000).toISOString()
+          : new Date(Date.now() - COLD_START_LOOKBACK_MS).toISOString()
+      res.since = since
+
+      const { messages, truncated } = await fetchCallMessages(acct, { since })
+      res.fetched = messages.length
+      res.truncated = truncated
+
+      const mapped: CallRow[] = []
+      for (const m of messages) {
+        const row = mapApiCall(m, label, p => nameMap?.get(p) ?? null)
+        if (row) mapped.push(row)
+      }
+      res.dials = mapped.length
+
+      // Names are only worth a table scan once we know rows exist. Re-map after
+      // building it so the first sweep of a batch isn't nameless.
+      if (mapped.length && !nameMap) {
+        nameMap = await buildNameMap(supabase)
+        for (const r of mapped) r.contact_name = nameMap.get(r.contact_phone) ?? null
+      }
+
+      if (!dryRun && mapped.length) {
+        for (let i = 0; i < mapped.length; i += CHUNK) {
+          const chunk = mapped.slice(i, i + CHUNK)
+          const { data, error } = await supabase
+            .from('calls')
+            .upsert(chunk, { onConflict: 'call_ts,contact_phone,dialer_number_phone', ignoreDuplicates: true })
+            .select('id')
+          if (error) throw new Error(`upsert: ${error.message}`)
+          res.inserted += data?.length ?? 0
+        }
+        res.duplicates = mapped.length - res.inserted
+      }
+    } catch (e) {
+      res.error = e instanceof Error ? e.message : String(e)
+    }
+    results.push(res)
+  }
+
+  return { ok: results.every(r => !r.error), accounts: results, skipped, dryRun }
+}
