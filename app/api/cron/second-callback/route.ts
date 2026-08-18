@@ -72,7 +72,12 @@ export async function runSecondCallbackCheck(): Promise<{ scanned: number; creat
       description: 'Auto-created: lead is still in New Lead / Attempted Contact ~45 min after coming in. Give them a 2nd call-back.',
       assignee: 'Brianne Han',
       assigned_by: 'Auto (45-min rule)',
-      priority: 'high',
+      // 'normal', not 'high' (Efrain, 2026-08-18) — priority has no control on
+      // the task form and no badge on the row any more, so a 'high' here was an
+      // invisible flag nobody could see or clear. Still sent explicitly rather
+      // than omitted: it matches what the forms write on create, and can't trip
+      // a NOT NULL on the column.
+      priority: 'normal',
       due_at: new Date().toISOString(),
       completed_at: null,
     })

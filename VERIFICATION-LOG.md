@@ -1,6 +1,13 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-18] 2nd-callback cron no longer writes priority `high`
+**Status:** **CHANGED** — the last writer of `priority: 'high'` is gone. Not yet observed on a live cron run (it fires on new leads aged 45 min).
+**Issue:** Efrain: *"yes get rid of the priority on that cron too"* — the final loose end after the picker and the flames came off.
+**Changes:** [app/api/cron/second-callback/route.ts](app/api/cron/second-callback/route.ts) now inserts `priority: 'normal'`. Sent explicitly rather than omitted — it matches what both task forms write on create, and can't trip a NOT NULL on a column whose definition isn't in this repo (`deal_tasks` was created in Supabase directly, there is no local DDL for it).
+**Result:** `next build` ✓, `tsc` unchanged. Grepped the whole tree: **no `priority: 'high'` writer left anywhere** — remaining writers are this cron (`'normal'`), `components/FollowUpTaskModals.tsx` (`'normal'`), both task forms (`initialTask?.priority || 'normal'`), and `lib/ghlTasks.ts` (mirrored rows are always `null`).
+**Existing data left alone:** `deal_tasks` today is **66 `high` / 13 `normal`**, but only **1** of those `high` rows is still open — the rest are completed history. Nothing renders the value now, so the stored rows are inert; they were not rewritten.
+
 ### [2026-08-18] Task priority — the High flames removed too
 **Status:** **CHANGED** — built, typechecked, confirmed on /tasks in the browser.
 **Issue:** Efrain, after the picker came off the form: *"get rid of the flames too."*
