@@ -100,12 +100,17 @@ type Props = {
   showDealLink?: boolean
   /** Map of deal id → name for showDealLink mode. */
   dealNames?: Map<string, string>
+  /** Open the new-task form on mount — used by the escrow card's "Add task" button,
+   *  which is a create action, not a "show me the list" one. */
+  startAdding?: boolean
+  /** Called after any create/edit/complete/delete so a parent can refresh its own counts. */
+  onChanged?: () => void
 }
 
-export default function DealTasks({ dealId, title, showDealLink, dealNames }: Props) {
+export default function DealTasks({ dealId, title, showDealLink, dealNames, startAdding, onChanged }: Props) {
   const [tasks, setTasks] = useState<BoardTask[]>([])
   const [loading, setLoading] = useState(true)
-  const [showForm, setShowForm] = useState(false)
+  const [showForm, setShowForm] = useState(!!startAdding)
   const [showGhlForm, setShowGhlForm] = useState(false)
 
   const fetchTasks = useCallback(async () => {
@@ -138,11 +143,13 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
         alert('Could not complete in GHL: ' + err)
         setTasks(prev => prev.some(t => t.ghl_task_id === id) ? prev : [task, ...prev])
       }
+      onChanged?.()
       return
     }
     const newCompleted = task.completed_at ? null : new Date().toISOString()
     await supabase.from('deal_tasks').update({ completed_at: newCompleted }).eq('id', task.id)
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, completed_at: newCompleted } : t))
+    onChanged?.()
     // Email both assignee + assigner only when marking DONE (not when un-completing)
     if (newCompleted) notifyTask('completed', task)
   }
@@ -151,6 +158,7 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
     if (!confirm('Delete this task?')) return
     await supabase.from('deal_tasks').delete().eq('id', id)
     setTasks(prev => prev.filter(t => t.id !== id))
+    onChanged?.()
   }
 
   /** Delete a mirrored GHL task — removes it in GHL, not just here. */
@@ -164,6 +172,7 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
       alert('Could not delete in GHL: ' + err)
       setTasks(prev => prev.some(t => t.ghl_task_id === id) ? prev : [task, ...prev])
     }
+    onChanged?.()
   }
 
   async function createTask(payload: Omit<DealTask, 'id' | 'created_at'>) {
@@ -172,6 +181,7 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
     if (data) {
       setTasks(prev => [data as DealTask, ...prev])
       notifyTask('assigned', data as DealTask)   // email the assignee
+      onChanged?.()
     }
     setShowForm(false)
   }
@@ -185,6 +195,7 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
     if (error) { alert('Update failed: ' + error.message); return }
     setTasks(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))
     setEditingId(null)
+    onChanged?.()
     // If reassigned to a new person, notify them
     if (patch.assignee && patch.assignee !== prevAssignee) {
       notifyTask('assigned', { ...patch, id })
@@ -242,7 +253,7 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames }: Pr
       {showGhlForm && dealId && (
         <GhlTaskForm
           fixedDealId={dealId}
-          onCreated={t => { setTasks(prev => [t, ...prev]); setShowGhlForm(false) }}
+          onCreated={t => { setTasks(prev => [t, ...prev]); setShowGhlForm(false); onChanged?.() }}
           onCancel={() => setShowGhlForm(false)}
         />
       )}

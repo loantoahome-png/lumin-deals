@@ -1,28 +1,26 @@
 'use client'
 
-import { useMemo, useState, useEffect, useRef } from 'react'
+import { useCallback, useMemo, useState, useEffect } from 'react'
 import Link from 'next/link'
+import { createPortal } from 'react-dom'
 import {
   DndContext, useSensors, useSensor, PointerSensor,
   useDraggable, useDroppable, type DragEndEvent,
 } from '@dnd-kit/core'
-import { Deal, STATUS_COLORS, STAGE_SLA_DAYS, Communication, PROCESSORS } from '@/lib/types'
+import { supabase } from '@/lib/supabase'
+import { Deal, DealTask, STATUS_COLORS, STAGE_SLA_DAYS, Communication, PROCESSORS } from '@/lib/types'
+import { toBoardTask, type BoardTask, type GhlTaskRow } from '@/lib/ghlTasks'
 import { formatCurrency } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { ariveUrl } from '@/lib/ariveLinks'
 import NextStepLog from '@/components/NextStepLog'
+import DealTasks from '@/components/DealTasks'
 import {
-  AlertTriangle, Clock, ChevronRight, CalendarClock,
+  AlertTriangle, Clock, ChevronRight, Calendar,
   Flame, ExternalLink, CheckCircle2, Lock, Search,
-  Phone, GripVertical, UserCog,
+  Phone, GripVertical, UserCog, ListTodo, Plus, X, User,
 } from 'lucide-react'
 
-
-const PRIORITY_OPTIONS = [
-  { value: 'high',   label: 'High',   color: 'bg-red-100 text-red-700 border-red-200' },
-  { value: 'normal', label: 'Normal', color: 'bg-slate-100 text-slate-700 border-slate-200' },
-  { value: 'low',    label: 'Low',    color: 'bg-blue-50 text-blue-600 border-blue-200' },
-] as const
 
 // ── Date helpers ────────────────────────────────────────────────────────────
 function startOfDay(d: Date) { d.setHours(0,0,0,0); return d }
@@ -35,31 +33,6 @@ function daysSince(iso: string | null | undefined): number | null {
   if (isNaN(t)) return null
   return Math.floor((Date.now() - t) / MS_PER_DAY)
 }
-function daysUntil(iso: string | null | undefined): number | null {
-  if (!iso) return null
-  const t = new Date(iso).getTime()
-  if (isNaN(t)) return null
-  return Math.floor((t - Date.now()) / MS_PER_DAY)
-}
-function formatDueLabel(iso: string | null): string {
-  if (!iso) return 'No follow-up set'
-  const due = new Date(iso)
-  const now = new Date()
-  const today = startOfDay(new Date())
-  const tomorrow = new Date(today.getTime() + MS_PER_DAY)
-  const dayAfter = new Date(today.getTime() + 2 * MS_PER_DAY)
-
-  const time = due.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  if (due < now) {
-    const overdueDays = Math.floor((now.getTime() - due.getTime()) / MS_PER_DAY)
-    if (overdueDays === 0) return `Overdue · was due ${time}`
-    return `Overdue by ${overdueDays}d`
-  }
-  if (due < tomorrow) return `Today · ${time}`
-  if (due < dayAfter) return `Tomorrow · ${time}`
-  return due.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + ` · ${time}`
-}
-
 function isOverdue(iso: string | null): boolean {
   return iso ? new Date(iso) < new Date() : false
 }
@@ -71,55 +44,100 @@ function isToday(iso: string | null): boolean {
   return d >= t && d <= e
 }
 
-/** Split an ISO timestamp into local date (YYYY-MM-DD) and time (HH:mm). */
-function splitDateTime(iso: string | null): { date: string; time: string } {
-  if (!iso) return { date: '', time: '' }
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return { date: '', time: '' }
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return {
-    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+// ── Rate lock ───────────────────────────────────────────────────────────────
+// `locked` is a 'Yes'/'No' string and `lock_expiration` a DATE-ONLY column, so
+// `new Date('2026-08-25')` is UTC midnight — a full day early in Pacific. Parse
+// the parts as local midnight, the same way lib/utils formatDate does.
+function parseLocalDate(s: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.trim())
+  return m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(s)
+}
+/** Whole days from today (local midnight) to the lock expiry (local midnight). */
+function lockDaysLeft(iso: string | null): number | null {
+  if (!iso) return null
+  const exp = parseLocalDate(iso)
+  if (isNaN(exp.getTime())) return null
+  return Math.round((startOfDay(exp).getTime() - startOfDay(new Date()).getTime()) / MS_PER_DAY)
+}
+const fmtShortDate = (iso: string) => {
+  const d = parseLocalDate(iso)
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+type LockTone = 'slate' | 'green' | 'amber' | 'red'
+type LockInfo = { locked: boolean; label: string; short: string | null; tone: LockTone; days: number | null; alert: boolean }
+
+/**
+ * Lock summary for one deal.
+ *
+ * ⚠️ The EXPIRATION DATE is the evidence of a lock here, not the `locked`
+ * Yes/No flag. `lock_expiration` is imported from Arive ('Lock Expiration' in
+ * lib/ariveCsv.ts); `locked` has NO import mapping at all — it is hand-set on
+ * the deal page and defaults to 'No', so it goes stale immediately. Checked
+ * 2026-08-18: of 18 active escrows, 12 carry an Arive lock expiry but only 2
+ * have locked = 'Yes' (Tommy Moua is at Docs Signed with a Sep 4 expiry and
+ * locked = 'No'). Gating on the flag would print "Not locked" over a live lock
+ * and silence the expiry alert the card has always shown.
+ */
+function lockInfo(deal: Deal): LockInfo {
+  const flagged = (deal.locked || '').trim().toLowerCase() === 'yes'
+  if (!deal.lock_expiration) {
+    return flagged
+      ? { locked: true, label: 'Locked · no expiry', short: 'No expiry', tone: 'amber', days: null, alert: true }
+      : { locked: false, label: 'Not locked', short: null, tone: 'slate', days: null, alert: false }
   }
+  const d = lockDaysLeft(deal.lock_expiration)
+  const exp = fmtShortDate(deal.lock_expiration)
+  if (d == null) return { locked: true, label: `Locked · ${exp}`, short: exp, tone: 'green', days: null, alert: false }
+  if (d < 0)  return { locked: true, label: `Expired ${exp} · ${-d}d ago`, short: `Expired ${-d}d`, tone: 'red', days: d, alert: true }
+  if (d === 0) return { locked: true, label: `Expires today · ${exp}`, short: 'Expires today', tone: 'amber', days: d, alert: true }
+  if (d <= 7) return { locked: true, label: `${exp} · ${d}d left`, short: `${d}d left`, tone: 'amber', days: d, alert: true }
+  return { locked: true, label: `${exp} · ${d}d left`, short: `${d}d left`, tone: 'green', days: d, alert: false }
 }
 
-/** Combine a local date + time string into an ISO timestamp. */
-function combineDateTime(date: string, time: string): string | null {
-  if (!date) return null
-  const t = time || '09:00' // default to 9 AM if user didn't pick a time
-  const d = new Date(`${date}T${t}`)
-  return isNaN(d.getTime()) ? null : d.toISOString()
+const LOCK_TONE: Record<LockTone, string> = {
+  slate: 'text-slate-500 bg-slate-100 border-slate-200',
+  green: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+  amber: 'text-amber-700 bg-amber-50 border-amber-200',
+  red:   'text-red-700 bg-red-50 border-red-200',
 }
 
-/** Today's date in local YYYY-MM-DD format. */
-function todayLocalDate(): string {
-  const d = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+// ── Tasks ───────────────────────────────────────────────────────────────────
+// A blank time is stored as 23:59 by the task form ("all day") — same marker
+// DealTasks uses. Kept compact here: the card only has room for a chip.
+function taskDue(iso: string | null): { label: string; tone: 'red' | 'violet' | 'slate' } | null {
+  if (!iso) return null
+  const due = new Date(iso)
+  if (isNaN(due.getTime())) return null
+  const allDay = due.getHours() === 23 && due.getMinutes() === 59
+  const dayDelta = Math.round((startOfDay(new Date(due)).getTime() - startOfDay(new Date()).getTime()) / MS_PER_DAY)
+  if (due < new Date()) return { label: dayDelta === 0 ? 'Overdue' : `Overdue ${-dayDelta || 1}d`, tone: 'red' }
+  if (dayDelta === 0) return { label: allDay ? 'Today' : `Today ${due.toLocaleTimeString('en-US', { hour: 'numeric' })}`, tone: 'violet' }
+  if (dayDelta === 1) return { label: 'Tomorrow', tone: 'slate' }
+  return { label: due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tone: 'slate' }
 }
+const TASK_DUE_TONE = { red: 'text-red-700 bg-red-50', violet: 'text-violet-700 bg-violet-50', slate: 'text-slate-500 bg-slate-100' }
 
-/** Tomorrow's date in local YYYY-MM-DD format. */
-function tomorrowLocalDate(): string {
-  const d = new Date(); d.setDate(d.getDate() + 1)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
+const NO_TASKS: BoardTask[] = []
 
-// Pre-computed 30-min time slots from 7:00 AM through 8:00 PM
-const TIME_OPTIONS: { value: string; label: string }[] = (() => {
-  const opts: { value: string; label: string }[] = []
-  for (let h = 7; h <= 20; h++) {
-    for (const m of [0, 30]) {
-      const hh = String(h).padStart(2, '0')
-      const mm = String(m).padStart(2, '0')
-      const value = `${hh}:${mm}`
-      const period = h < 12 ? 'AM' : 'PM'
-      const h12 = h === 12 ? 12 : h % 12 === 0 ? 12 : h % 12
-      opts.push({ value, label: `${h12}:${mm} ${period}` })
-    }
+// PostgREST caps a bare .select() at 1000 rows — page until exhausted or the
+// board silently stops showing tasks past the cap. Same shape as fetchAllDeals.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+async function pageAll<T>(table: string, refine?: (q: any) => any): Promise<T[]> {
+  const out: T[] = []
+  const PAGE = 1000
+  for (let offset = 0; ; offset += PAGE) {
+    let q: any = supabase.from(table).select('*')
+    if (refine) q = refine(q)
+    const { data, error } = await q.range(offset, offset + PAGE - 1)
+    if (error) { console.error(`[EscrowTracker] ${table} page failed:`, error.message); break }
+    const rows = (data as T[]) ?? []
+    out.push(...rows)
+    if (rows.length < PAGE) break
   }
-  return opts
-})()
+  return out
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ── Filter types ────────────────────────────────────────────────────────────
 type FollowUpFilter = 'all' | 'mine' | 'overdue' | 'today' | 'week' | 'unassigned' | 'no_action' | 'blocked' | 'above_sla'
@@ -136,6 +154,53 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
   const [search, setSearch] = useState('')
   // Processor facet — independent of the quick-filter; null = all processors.
   const [processorFilter, setProcessorFilter] = useState<string | null>(null)
+
+  // ── Open tasks, per deal ──────────────────────────────────────────────────
+  // Loaded ONCE for the whole board, not per card — 26 cards fetching their own
+  // rows is 52 round trips for two tables that fit in one pass each. Both
+  // sources the /tasks board renders: our `deal_tasks` rows and the GHL mirror
+  // (which stores OPEN rows only, so it needs no completed filter).
+  const [tasksByDeal, setTasksByDeal] = useState<Map<string, BoardTask[]>>(new Map())
+  const loadTasks = useCallback(async () => {
+    const [ours, ghl] = await Promise.all([
+      pageAll<DealTask>('deal_tasks', q => q.is('completed_at', null)),
+      pageAll<GhlTaskRow>('ghl_tasks'),
+    ])
+    const m = new Map<string, BoardTask[]>()
+    const add = (t: BoardTask) => {
+      if (!t.deal_id) return
+      const arr = m.get(t.deal_id) ?? []
+      arr.push(t)
+      m.set(t.deal_id, arr)
+    }
+    for (const t of ours) add(t as BoardTask)
+    for (const r of ghl) add(toBoardTask(r))
+    // Soonest due first; undated tasks last.
+    for (const arr of m.values()) {
+      arr.sort((a, b) => {
+        const da = a.due_at ? new Date(a.due_at).getTime() : Infinity
+        const db = b.due_at ? new Date(b.due_at).getTime() : Infinity
+        return da - db
+      })
+    }
+    setTasksByDeal(m)
+  }, [])
+  useEffect(() => { void loadTasks() }, [loadTasks])
+
+  // The soonest open-task due date on a deal — the board's date filters read it
+  // alongside next_action_due. With the card's follow-up picker replaced by
+  // tasks, a task due date IS the follow-up here; leaving the chips on
+  // next_action_due alone would count 0 Overdue while cards ring red.
+  const nextTaskDue = useCallback((dealId: string): Date | null => {
+    let soonest: number | null = null
+    for (const t of tasksByDeal.get(dealId) ?? []) {
+      if (!t.due_at) continue
+      const ms = new Date(t.due_at).getTime()
+      if (isNaN(ms)) continue
+      if (soonest == null || ms < soonest) soonest = ms
+    }
+    return soonest == null ? null : new Date(soonest)
+  }, [tasksByDeal])
 
   // Filtered + sorted list
   const filteredAndSorted = useMemo(() => {
@@ -158,7 +223,12 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
         if (p !== processorFilter) return false
       }
 
-      const due = d.next_action_due ? new Date(d.next_action_due) : null
+      // Earliest of the deal's own follow-up date and its soonest open task.
+      const actionDue = d.next_action_due ? new Date(d.next_action_due) : null
+      const taskDueAt = nextTaskDue(d.id)
+      const due = actionDue && taskDueAt
+        ? (actionDue < taskDueAt ? actionDue : taskDueAt)
+        : (actionDue ?? taskDueAt)
 
       switch (filter) {
         case 'mine':
@@ -201,7 +271,7 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
       // Both have dates: overdue/today/future order is implicit by time
       return da - db || prioRank(a.escrow_priority) - prioRank(b.escrow_priority)
     })
-  }, [deals, filter, search, currentUser, processorFilter])
+  }, [deals, filter, search, currentUser, processorFilter, nextTaskDue])
 
   // ── Stable display order ────────────────────────────────────────────────────
   // The sort above is by next_action_due, so the instant you set a follow-up date
@@ -226,22 +296,29 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
     return inOrder
   }, [filteredAndSorted, orderedIds])
 
-  // Counts for filter chips
+  // Counts for filter chips — same due-date rule as the filters above (deal
+  // follow-up OR soonest open task), or a chip would read 0 next to a board
+  // full of red cards.
   const counts = useMemo(() => {
     const now = new Date()
     const today = startOfDay(new Date())
     const weekFromNow = new Date(today.getTime() + 7 * MS_PER_DAY)
+    const dueOf = (d: Deal): Date | null => {
+      const a = d.next_action_due ? new Date(d.next_action_due) : null
+      const t = nextTaskDue(d.id)
+      return a && t ? (a < t ? a : t) : (a ?? t)
+    }
     return {
       all: deals.length,
       mine: currentUser ? deals.filter(d => d.next_action_assignee === currentUser || d.loan_officer === currentUser).length : 0,
-      overdue: deals.filter(d => d.next_action_due && new Date(d.next_action_due) < now).length,
+      overdue: deals.filter(d => { const due = dueOf(d); return due != null && due < now }).length,
       today: deals.filter(d => {
-        const due = d.next_action_due ? new Date(d.next_action_due) : null
-        return due && due >= today && due <= endOfDay(new Date())
+        const due = dueOf(d)
+        return due != null && due >= today && due <= endOfDay(new Date())
       }).length,
       week: deals.filter(d => {
-        const due = d.next_action_due ? new Date(d.next_action_due) : null
-        return due && due >= now && due <= weekFromNow
+        const due = dueOf(d)
+        return due != null && due >= now && due <= weekFromNow
       }).length,
       unassigned: deals.filter(d => !d.next_action_assignee).length,
       no_action: deals.filter(d => !d.next_action || d.next_action.trim() === '').length,
@@ -252,7 +329,7 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
         return sla != null && inStage != null && inStage > sla
       }).length,
     }
-  }, [deals, currentUser])
+  }, [deals, currentUser, nextTaskDue])
 
   // How many active escrows each processor is carrying, across the current
   // (LO-filtered) set — the same processor field the report shows
@@ -354,7 +431,7 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
           <p className="text-xs text-slate-500 mt-1">Try a different filter or search term.</p>
         </div>
       ) : (
-        <KanbanColumns deals={displayList} onUpdate={onUpdate} />
+        <KanbanColumns deals={displayList} onUpdate={onUpdate} tasksByDeal={tasksByDeal} onTasksChanged={loadTasks} />
       )}
     </div>
   )
@@ -403,9 +480,11 @@ function fmtMoneyShort(n: number): string {
   return `$${n}`
 }
 
-function KanbanColumns({ deals, onUpdate }: {
+function KanbanColumns({ deals, onUpdate, tasksByDeal, onTasksChanged }: {
   deals: Deal[]
   onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>
+  tasksByDeal: Map<string, BoardTask[]>
+  onTasksChanged: () => void
 }) {
   // 8px activation distance so clicks inside cards (textareas, dropdowns, buttons)
   // never accidentally trigger a drag.
@@ -447,6 +526,8 @@ function KanbanColumns({ deals, onUpdate }: {
                 totalVolume={totalVolume}
                 accentClass={STAGE_ACCENT[stage] || 'bg-slate-300'}
                 onUpdate={onUpdate}
+                tasksByDeal={tasksByDeal}
+                onTasksChanged={onTasksChanged}
               />
             )
           })}
@@ -459,6 +540,8 @@ function KanbanColumns({ deals, onUpdate }: {
               totalVolume={otherDeals.reduce((s, d) => s + (d.loan_amount || 0), 0)}
               accentClass="bg-slate-400"
               onUpdate={onUpdate}
+              tasksByDeal={tasksByDeal}
+              onTasksChanged={onTasksChanged}
               isOtherColumn
             />
           )}
@@ -468,12 +551,14 @@ function KanbanColumns({ deals, onUpdate }: {
   )
 }
 
-function KanbanColumn({ stage, deals, totalVolume, accentClass, onUpdate, isOtherColumn }: {
+function KanbanColumn({ stage, deals, totalVolume, accentClass, onUpdate, tasksByDeal, onTasksChanged, isOtherColumn }: {
   stage: string
   deals: Deal[]
   totalVolume: number
   accentClass: string
   onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>
+  tasksByDeal: Map<string, BoardTask[]>
+  onTasksChanged: () => void
   isOtherColumn?: boolean
 }) {
   // "Other" column isn't a valid drop target — only the 8 real stages accept drops
@@ -511,16 +596,26 @@ function KanbanColumn({ stage, deals, totalVolume, accentClass, onUpdate, isOthe
             {isOver ? `Drop to move to ${stage}` : 'No deals'}
           </div>
         ) : (
-          deals.map(d => <DraggableEscrowCard key={d.id} deal={d} onUpdate={onUpdate} />)
+          deals.map(d => (
+            <DraggableEscrowCard
+              key={d.id}
+              deal={d}
+              onUpdate={onUpdate}
+              tasks={tasksByDeal.get(d.id) ?? NO_TASKS}
+              onTasksChanged={onTasksChanged}
+            />
+          ))
         )}
       </div>
     </div>
   )
 }
 
-function DraggableEscrowCard({ deal, onUpdate }: {
+function DraggableEscrowCard({ deal, onUpdate, tasks, onTasksChanged }: {
   deal: Deal
   onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>
+  tasks: BoardTask[]
+  onTasksChanged: () => void
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: deal.id })
   const style = transform
@@ -528,7 +623,13 @@ function DraggableEscrowCard({ deal, onUpdate }: {
     : undefined
   return (
     <div ref={setNodeRef} style={style} className={isDragging ? 'opacity-40' : ''}>
-      <EscrowCard deal={deal} onUpdate={onUpdate} dragHandleProps={{ ...attributes, ...listeners }} />
+      <EscrowCard
+        deal={deal}
+        onUpdate={onUpdate}
+        tasks={tasks}
+        onTasksChanged={onTasksChanged}
+        dragHandleProps={{ ...attributes, ...listeners }}
+      />
     </div>
   )
 }
@@ -560,12 +661,18 @@ function FilterChip({ active, onClick, label, count, tone, disabled }: {
 }
 
 // ── Per-deal card ───────────────────────────────────────────────────────────
-function EscrowCard({ deal, onUpdate, dragHandleProps }: {
+function EscrowCard({ deal, onUpdate, tasks, onTasksChanged, dragHandleProps }: {
   deal: Deal
   onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>
+  /** Open tasks on this loan — `deal_tasks` plus the GHL mirror. */
+  tasks: BoardTask[]
+  onTasksChanged: () => void
   dragHandleProps?: React.HTMLAttributes<HTMLDivElement> & Record<string, unknown>
 }) {
   const [savingFlash, setSavingFlash] = useState(false)
+  // null = closed. 'new' opens straight into the create form (the "Add task"
+  // button is a create action); 'list' just shows what's on the file.
+  const [taskPanel, setTaskPanel] = useState<null | 'new' | 'list'>(null)
 
   async function saveField<K extends keyof Deal>(field: K, value: Deal[K]) {
     if (value === deal[field]) return
@@ -574,12 +681,15 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
     setTimeout(() => setSavingFlash(false), 800)
   }
 
-  const overdue = isOverdue(deal.next_action_due)
-  const today = !overdue && isToday(deal.next_action_due)
-  const lockDaysLeft = daysUntil(deal.lock_expiration)
-  const lockExpiringSoon = lockDaysLeft != null && lockDaysLeft >= 0 && lockDaysLeft <= 7
+  // Overdue/today now count TASKS too — with the follow-up picker gone, a task
+  // due date is the follow-up on this board. next_action_due is still honoured
+  // (it's set from the deal page and Pipeline) so nothing already on the board
+  // stops flagging.
+  const taskOverdue = tasks.some(t => isOverdue(t.due_at))
+  const overdue = isOverdue(deal.next_action_due) || taskOverdue
+  const today = !overdue && (isToday(deal.next_action_due) || tasks.some(t => isToday(t.due_at)))
+  const lock = lockInfo(deal)
   const statusClass = STATUS_COLORS[deal.status] || 'bg-gray-100 text-gray-600'
-  const priorityOpt = PRIORITY_OPTIONS.find(p => p.value === deal.escrow_priority)
   // Last communication summary (if any)
   const comms = (deal.communications as Communication[] | null) || []
   const lastComm = comms.length > 0 ? [...comms].sort((a, b) =>
@@ -655,7 +765,7 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
       </div>
 
       {/* Alerts row */}
-      {(overdue || today || lockExpiringSoon) && (
+      {(overdue || today || lock.alert || deal.escrow_priority === 'high') && (
         <div className="px-4 py-1.5 flex items-center gap-2 flex-wrap text-[10px] font-semibold uppercase tracking-wider bg-slate-50/50 border-b border-slate-100">
           {overdue && (
             <span className="flex items-center gap-0.5 text-red-700">
@@ -667,9 +777,17 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
               <Clock className="w-3 h-3" /> Today
             </span>
           )}
-          {lockExpiringSoon && (
-            <span className="flex items-center gap-0.5 text-orange-700">
-              <Lock className="w-3 h-3" /> Lock {lockDaysLeft === 0 ? 'today' : `${lockDaysLeft}d`}
+          {/* Priority is no longer editable here (Efrain, 2026-08-18: the boxes
+              went), but a high-priority file still has to announce itself. Set
+              it on the deal page, Pipeline or the processing desk. */}
+          {deal.escrow_priority === 'high' && (
+            <span className="flex items-center gap-0.5 text-red-700">
+              <Flame className="w-3 h-3" /> High
+            </span>
+          )}
+          {lock.alert && (
+            <span className={`flex items-center gap-0.5 ${lock.tone === 'red' ? 'text-red-700' : 'text-orange-700'}`}>
+              <Lock className="w-3 h-3" /> Lock {lock.short}
             </span>
           )}
         </div>
@@ -702,6 +820,19 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
               <p className="text-slate-400 uppercase tracking-wider font-semibold text-[9px]">Lender</p>
               <p className="text-xs font-semibold text-slate-700 truncate mt-0.5" title={deal.investor || undefined}>{deal.investor || '—'}</p>
             </div>
+          </div>
+          {/* Row 3 — rate lock. Read-only here; set it on the deal page,
+              Pipeline, or the processing desk's expanded row. */}
+          <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/70">
+            <p className="text-slate-400 uppercase tracking-wider font-semibold text-[9px] flex items-center gap-1">
+              <Lock className="w-3 h-3" /> Lock
+            </p>
+            <span
+              title={deal.lock_expiration ? `Lock expiration ${deal.lock_expiration.slice(0, 10)}` : undefined}
+              className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${LOCK_TONE[lock.tone]}`}
+            >
+              {lock.label}
+            </span>
           </div>
         </div>
 
@@ -760,16 +891,90 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
             )}
           </div>
           <NextStepLog deal={deal} onUpdate={onUpdate} />
-          {/* Follow-up now lives inside the Next Step section */}
+          {/* Tasks replaced the follow-up date picker here (Efrain, 2026-08-18).
+              These are the SAME `deal_tasks` rows the /tasks board and the
+              processing desk render — plus this contact's open GHL tasks — so a
+              task raised from a card lands in the assignee's column, and the
+              date lives on the task instead of a card-only field. */}
           <div className="mt-2 pt-2 border-t border-orange-200">
-            <FollowUpPicker
-              value={deal.next_action_due}
-              onChange={v => saveField('next_action_due', v)}
-              overdue={overdue}
-              today={today}
-            />
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                <ListTodo className="w-3 h-3" /> Tasks
+                {tasks.length > 0 && (
+                  <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-1.5 tabular-nums">
+                    {tasks.length}
+                  </span>
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={() => setTaskPanel('new')}
+                title={`Add a task on ${deal.name}`}
+                className="flex items-center gap-0.5 text-[10px] font-bold text-blue-700 bg-white border border-blue-200 rounded-md px-2 py-1 hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-colors"
+              >
+                <Plus className="w-3 h-3" /> Add task
+              </button>
+            </div>
+
+            {tasks.length === 0 ? (
+              <p className="text-[11px] italic text-slate-400">No open tasks on this loan.</p>
+            ) : (
+              <div className="space-y-1">
+                {tasks.slice(0, 3).map(t => {
+                  const due = taskDue(t.due_at)
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setTaskPanel('list')}
+                      title={t.description || 'Open tasks on this loan'}
+                      className="w-full text-left bg-white border border-slate-200 rounded-md px-2 py-1 hover:border-blue-300 hover:shadow-sm transition"
+                    >
+                      <p className="text-[11px] font-medium text-slate-800 truncate">
+                        {t.title}
+                        {t.source === 'ghl' && (
+                          <span className="ml-1 align-middle text-[8px] font-bold tracking-wide text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1">
+                            GHL
+                          </span>
+                        )}
+                      </p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        {due && (
+                          <span className={`inline-flex items-center gap-0.5 text-[9px] font-semibold rounded px-1 ${TASK_DUE_TONE[due.tone]}`}>
+                            <Calendar className="w-2.5 h-2.5" /> {due.label}
+                          </span>
+                        )}
+                        {t.assignee && (
+                          <span className="inline-flex items-center gap-0.5 text-[9px] text-slate-500 truncate">
+                            <User className="w-2.5 h-2.5 shrink-0" /> {t.assignee}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  )
+                })}
+                {tasks.length > 3 && (
+                  <button
+                    type="button"
+                    onClick={() => setTaskPanel('list')}
+                    className="text-[10px] font-semibold text-blue-700 hover:underline"
+                  >
+                    +{tasks.length - 3} more task{tasks.length - 3 === 1 ? '' : 's'}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
+
+        {taskPanel && (
+          <TaskPanel
+            deal={deal}
+            startAdding={taskPanel === 'new'}
+            onClose={() => { setTaskPanel(null); onTasksChanged() }}
+            onChanged={onTasksChanged}
+          />
+        )}
 
         {/* Last contact */}
         {lastComm && (
@@ -787,27 +992,9 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
           </div>
         )}
 
-        {/* Priority + open link */}
-        <div className="flex items-center justify-between gap-2 pt-1">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Priority:</span>
-            <div className="flex gap-1">
-              {PRIORITY_OPTIONS.map(p => (
-                <button
-                  key={p.value}
-                  type="button"
-                  onClick={() => saveField('escrow_priority', deal.escrow_priority === p.value ? null : p.value)}
-                  className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border transition ${
-                    deal.escrow_priority === p.value
-                      ? p.color
-                      : 'border-slate-200 text-slate-400 hover:border-slate-300'
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          </div>
+        {/* Open link — the priority boxes that used to sit here are gone
+            (Efrain, 2026-08-18); a high-priority file shows in the alerts row. */}
+        <div className="flex items-center justify-end pt-1">
           <Link
             href={`/deals/${deal.id}`}
             className="flex items-center gap-0.5 text-xs font-medium text-blue-600 hover:text-blue-700"
@@ -815,144 +1002,59 @@ function EscrowCard({ deal, onUpdate, dragHandleProps }: {
             Open <ChevronRight className="w-3 h-3" />
           </Link>
         </div>
+      </div>
+    </div>
+  )
+}
 
-        {/* Hint chip showing priority subtly when set */}
-        {priorityOpt && deal.escrow_priority === 'high' && (
-          <div className="text-[10px] text-red-700 bg-red-50 rounded px-2 py-1 font-medium flex items-center gap-1">
-            <Flame className="w-3 h-3" /> Marked as high priority
+
+/**
+ * Full task list for one loan, in a modal.
+ *
+ * Portaled to <body> like NextStepLog's popup: the card sits inside a dnd-kit
+ * transform with `overflow-hidden` columns, so anything rendered in place gets
+ * clipped. Body is the shared DealTasks panel — same `deal_tasks` rows as
+ * /tasks and the processing desk, plus this contact's mirrored GHL tasks — so
+ * there is no second task system to keep in sync.
+ */
+function TaskPanel({ deal, startAdding, onClose, onChanged }: {
+  deal: Deal
+  startAdding: boolean
+  onClose: () => void
+  onChanged: () => void
+}) {
+  if (typeof document === 'undefined') return null
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/40 p-4 overflow-y-auto" onClick={onClose}>
+      <div
+        className="bg-white rounded-xl shadow-xl w-full max-w-lg p-4 my-8"
+        onClick={e => e.stopPropagation()}
+        onPointerDown={e => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div className="min-w-0">
+            <h3 className="text-sm font-bold text-slate-900 truncate">Tasks — {deal.name}</h3>
+            <p className="text-[11px] text-slate-500">
+              {deal.status}
+              {deal.loan_officer ? ` · ${deal.loan_officer}` : ''}
+              {deal.processor_status ? ` · ${deal.processor_status}` : ''}
+            </p>
           </div>
-        )}
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 shrink-0" aria-label="Close">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <DealTasks dealId={deal.id} startAdding={startAdding} onChanged={onChanged} />
+        <div className="flex items-center justify-between pt-3 mt-3 border-t border-slate-100">
+          <Link href={`/deals/${deal.id}`} className="text-xs font-medium text-blue-600 hover:text-blue-700">
+            Open the full file
+          </Link>
+          <button onClick={onClose} className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded">
+            Close
+          </button>
+        </div>
       </div>
-    </div>
-  )
-}
-
-/** Friendly follow-up picker — separate date + time dropdown with quick presets. */
-function FollowUpPicker({ value, onChange, overdue, today }: {
-  value: string | null
-  onChange: (iso: string | null) => void
-  overdue: boolean
-  today: boolean
-}) {
-  // ── Local draft state ─────────────────────────────────────────────────────
-  // If we commit the date the instant the user picks it, the parent re-saves,
-  // the column re-sorts by `next_action_due`, and the card jumps away before
-  // the user can reach the time dropdown. So we hold a draft locally and only
-  // commit when:
-  //   • a preset is clicked
-  //   • the user picks a time
-  //   • focus leaves the whole picker (e.g. they tab/click out)
-  const { date: incomingDate, time: incomingTime } = splitDateTime(value)
-  const [draftDate, setDraftDate] = useState(incomingDate)
-  const [draftTime, setDraftTime] = useState(incomingTime)
-  const editingRef = useRef(false)
-
-  // Sync draft with upstream changes — but never while the user is mid-edit.
-  useEffect(() => {
-    if (!editingRef.current) {
-      setDraftDate(incomingDate)
-      setDraftTime(incomingTime)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value])
-
-  function commit(d: string, t: string) {
-    editingRef.current = false
-    if (!d) { onChange(null); return }
-    onChange(combineDateTime(d, t || '09:00'))
-  }
-  function handleDateChange(d: string) {
-    editingRef.current = true
-    setDraftDate(d)
-    // Don't commit yet — wait for the user to set a time or blur out.
-  }
-  function handleTimeChange(t: string) {
-    setDraftTime(t)
-    // Time is the second half of the choice — commit both now.
-    commit(draftDate || todayLocalDate(), t)
-  }
-  function handleBlur(e: React.FocusEvent<HTMLDivElement>) {
-    // Only fire when focus leaves the whole picker (not when moving from
-    // date → time within it). currentTarget is the wrapper div.
-    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
-    if (editingRef.current) {
-      commit(draftDate, draftTime || '09:00')
-    }
-  }
-  function applyPreset(d: string, t: string) {
-    setDraftDate(d); setDraftTime(t)
-    commit(d, t)
-  }
-  function clear() {
-    setDraftDate('')
-    setDraftTime('')
-    onChange(null)
-    editingRef.current = false
-  }
-
-  // Show "pending — pick a time" hint if user has drafted a date but no time yet
-  const hasUnsavedDate = editingRef.current && draftDate && draftDate !== incomingDate
-
-  return (
-    <div onBlur={handleBlur}>
-      <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1">
-        <CalendarClock className="w-3 h-3" /> Follow-up
-      </label>
-      {/* Quick presets */}
-      <div className="flex gap-1 mb-1.5 flex-wrap">
-        <PresetButton label="Today 9a"  onClick={() => applyPreset(todayLocalDate(),    '09:00')} />
-        <PresetButton label="Today 2p"  onClick={() => applyPreset(todayLocalDate(),    '14:00')} />
-        <PresetButton label="Tomorrow"  onClick={() => applyPreset(tomorrowLocalDate(), '09:00')} />
-        {(value || draftDate) && <PresetButton label="Clear" onClick={clear} variant="danger" />}
-      </div>
-      {/* Date + time inputs — date takes ~60% of width, time dropdown ~40% */}
-      <div className="grid grid-cols-[1fr_auto] gap-1.5">
-        <input
-          type="date"
-          value={draftDate}
-          onChange={e => handleDateChange(e.target.value)}
-          className={`w-full px-2.5 py-1.5 border rounded-md text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 tabular-nums ${
-            hasUnsavedDate ? 'border-amber-300 bg-amber-50/60' : 'border-slate-200'
-          } ${draftDate === '' ? 'date-empty' : ''}`}
-        />
-        <select
-          value={draftTime}
-          onChange={e => handleTimeChange(e.target.value)}
-          className={`w-32 px-2 py-1.5 border rounded-md text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            hasUnsavedDate ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-200'
-          }`}
-        >
-          <option value="">— Time —</option>
-          {TIME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-      </div>
-      {hasUnsavedDate ? (
-        <p className="text-[10px] mt-1 font-medium text-amber-700">
-          Pick a time to save · defaults to 9:00 AM if you click away
-        </p>
-      ) : value ? (
-        <p className={`text-[10px] mt-1 font-medium ${overdue ? 'text-red-700' : today ? 'text-violet-700' : 'text-slate-500'}`}>
-          {formatDueLabel(value)}
-        </p>
-      ) : null}
-    </div>
-  )
-}
-
-function PresetButton({ label, onClick, variant }: {
-  label: string; onClick: () => void; variant?: 'danger'
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`text-[10px] px-1.5 py-0.5 rounded border transition ${
-        variant === 'danger'
-          ? 'border-red-200 text-red-600 hover:bg-red-50'
-          : 'border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-700 hover:bg-blue-50'
-      }`}
-    >
-      {label}
-    </button>
+    </div>,
+    document.body,
   )
 }
