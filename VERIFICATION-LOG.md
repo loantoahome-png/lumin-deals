@@ -1,6 +1,17 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-18] deal_tasks.priority normalized — 66 `high` rows → `normal`
+**Status:** **VERIFIED.** Applied to production and re-read: `deal_tasks` is now **79 rows, all `normal`**.
+**Issue:** Efrain: *"yes normalize those rows too"* — closing out the priority removal so the column says what the app says.
+**Changes:** New [scripts/task-priority-normalize.ts](scripts/task-priority-normalize.ts), dry-run by default, `--apply` to write. Scope is `deal_tasks` only — the GHL mirror has no priority column (`lib/ghlTasks.ts` stamps `null` on every mirrored row).
+**Before:** 79 rows, `high=66 normal=13`. Exactly **1** of the 66 was still open — the auto-created *"2nd call-back — Emerito Posadas"*; the other 65 were completed history.
+**After:** `normal=79`, and a second dry run reports `to normalize: 0`.
+**⚠️ Reversible:** a full before-image (id + old priority for all 66) was written to `_task-priority-backup-2026-08-18T22-53-01-054Z.json` **before** the update. Restore = write each id's recorded value back.
+**⚠️ The update uses `.select()`** — an RLS-blocked PostgREST write returns 0 rows and `error: null`, indistinguishable from success. The script counts returned rows instead: 66/66.
+**Test Method:** `npx tsx scripts/task-priority-normalize.ts` (dry run) before and after.
+**Result:** `next build` ✓ (script is not in the build graph), no app code changed in this step.
+
 ### [2026-08-18] 2nd-callback cron no longer writes priority `high`
 **Status:** **CHANGED** — the last writer of `priority: 'high'` is gone. Not yet observed on a live cron run (it fires on new leads aged 45 min).
 **Issue:** Efrain: *"yes get rid of the priority on that cron too"* — the final loose end after the picker and the flames came off.
