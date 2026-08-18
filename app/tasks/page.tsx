@@ -22,7 +22,7 @@ import {
 import {
   TaskRow, AssigneeColumn, NewTaskForm, relativeDue, isDueNow, isAllDay,
   startOfDay, endOfDay, combineDateTime, splitDateTime, ALL_DAY_TIME,
-  COLUMN_VIEWS, COLUMN_STYLES, PRIORITY_STYLES, OTHER_COLUMN, type ColumnView,
+  COLUMN_VIEWS, COLUMN_STYLES, OTHER_COLUMN, type ColumnView,
 } from '@/components/TaskBoard'
 import {
   ClipboardList, Plus, X, Search, CheckCircle2, Circle,

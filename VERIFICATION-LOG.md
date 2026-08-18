@@ -1,6 +1,14 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-18] Task form — Priority control removed
+**Status:** **CHANGED** — built, typechecked, both forms confirmed in the browser.
+**Issue:** Efrain, on the new-task form: *"Get rid of priority section on tasks."*
+**Changes:** The High/Normal/Low picker is gone from **both** task forms — [components/DealTasks.tsx](components/DealTasks.tsx) (the deal page + the escrow card's modal) and [components/TaskBoard.tsx](components/TaskBoard.tsx) `NewTaskForm` (/tasks). Removing only the one in the screenshot would have left it waiting on /tasks. `PRIORITY_STYLES` is deleted from both (plus a dead `PRIORITY_STYLES` import in [app/tasks/page.tsx](app/tasks/page.tsx) that was never used).
+**⚠️ The column stays and edits preserve it.** `priority` is now `initialTask?.priority || 'normal'` — editing a legacy `high` task does NOT silently downgrade it, and the flame badge on the task row still renders for rows that already carry one. Nothing new can be created as high.
+**Test Method:** open the New Task form on /tasks, and the Add-task modal on an escrow card.
+**Result:** `next build` ✓, `tsc` unchanged, no `PRIORITY_STYLES`/`setPriority` references left in the tree. Both forms now run title → details → due date/time → assigned to/by → (linked deal on /tasks) → Create task. Verified the legacy display survives: "2nd call-back — Emerito Posadas" still shows its **High** flame on the /tasks board.
+
 ### [2026-08-18] Escrow card — tasks replace the follow-up picker, lock status added, priority boxes removed
 **Status:** **CHANGED** — built, typechecked and exercised against real rows in the browser; **not yet used by the team**.
 **Issue:** Efrain, on the escrow card: *"replace the follow up section with a button to let us add a task for this loan, also is there something we can do to display any active tasks for the loan on this section? Get rid of the priority boxes. Include the Lock status somewhere on this card."*

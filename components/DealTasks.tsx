@@ -85,12 +85,6 @@ function relativeDue(iso: string | null): { label: string; tone: DueTone } {
   return { label: `${dateStr} · ${time}`, tone: 'slate' }
 }
 
-const PRIORITY_STYLES: Record<string, string> = {
-  high:   'bg-red-100 text-red-700 border-red-200',
-  normal: 'bg-slate-100 text-slate-700 border-slate-200',
-  low:    'bg-blue-50 text-blue-600 border-blue-200',
-}
-
 type Props = {
   /** When set, the panel shows only that deal's tasks and auto-links new ones. */
   dealId?: string
@@ -437,7 +431,10 @@ function TaskForm({ initialTask, onSubmit, onCancel, forcedDealId }: {
   const me = useCurrentUser()
   const [assignedByEdit, setAssignedByEdit] = useState<string | null>(initialTask?.assigned_by ?? null)
   const assignedBy = assignedByEdit ?? (isEdit ? '' : (me.name ?? ''))
-  const [priority, setPriority] = useState<string>(initialTask?.priority || 'normal')
+  // Priority has no control on the form any more (Efrain, 2026-08-18) — an edit
+  // preserves whatever the row already carries, a new task is 'normal'. The
+  // column stays, and a legacy `high` row still shows its flame on the row.
+  const priority = initialTask?.priority || 'normal'
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -529,23 +526,6 @@ function TaskForm({ initialTask, onSubmit, onCancel, forcedDealId }: {
             <option value="">—</option>
             {TASK_ASSIGNEES.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
-        </div>
-        <div className="col-span-2">
-          <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Priority</label>
-          <div className="flex gap-1">
-            {(['high','normal','low'] as const).map(p => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setPriority(p)}
-                className={`flex-1 text-xs font-medium px-1.5 py-1.5 rounded border transition capitalize ${
-                  priority === p ? PRIORITY_STYLES[p] : 'border-slate-200 text-slate-400 hover:border-slate-300'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
       <div className="flex justify-end gap-2 pt-1">

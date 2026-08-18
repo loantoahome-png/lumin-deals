@@ -428,12 +428,6 @@ export function splitDateTime(iso: string | null | undefined): { date: string; t
   }
 }
 
-export const PRIORITY_STYLES: Record<string, string> = {
-  high:   'bg-red-100 text-red-700 border-red-200',
-  normal: 'bg-slate-100 text-slate-700 border-slate-200',
-  low:    'bg-blue-50 text-blue-600 border-blue-200',
-}
-
 export function NewTaskForm({ deals, initialTask, initialAssignee, onSubmit, onCancel }: {
   deals: Deal[]
   initialTask?: DealTask
@@ -462,7 +456,9 @@ export function NewTaskForm({ deals, initialTask, initialAssignee, onSubmit, onC
   const me = useCurrentUser()
   const [assignedByEdit, setAssignedByEdit] = useState<string | null>(initialTask?.assigned_by ?? null)
   const assignedBy = assignedByEdit ?? (isEdit ? '' : (me.name ?? ''))
-  const [priority, setPriority] = useState(initialTask?.priority || 'normal')
+  // No priority control on the form any more (Efrain, 2026-08-18) — see the
+  // note on the same line in DealTasks.tsx.
+  const priority = initialTask?.priority || 'normal'
   const [dealId, setDealId] = useState<string>(initialTask?.deal_id || '')
   const [dealSearch, setDealSearch] = useState('')
 
@@ -544,23 +540,6 @@ export function NewTaskForm({ deals, initialTask, initialAssignee, onSubmit, onC
             <option value="">—</option>
             {TASK_ASSIGNEES.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
-        </div>
-        <div className="col-span-2">
-          <label className="block text-[10px] font-medium text-slate-500 mb-0.5">Priority</label>
-          <div className="flex gap-1">
-            {(['high','normal','low'] as const).map(p => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setPriority(p)}
-                className={`flex-1 text-xs font-medium px-1.5 py-1.5 rounded border transition capitalize ${
-                  priority === p ? PRIORITY_STYLES[p] : 'border-slate-200 text-slate-400 hover:border-slate-300'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
         </div>
         <div className="col-span-2">
           <label className="block text-[10px] font-medium text-slate-500 mb-0.5">
