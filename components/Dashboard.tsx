@@ -339,7 +339,6 @@ export default function Dashboard() {
                   </div>
                   <div className="shrink-0 text-right">
                     <div className="text-xs text-slate-700 font-medium">{t.assignee || 'Unassigned'}</div>
-                    {t.priority === 'high' && <div className="text-[10px] text-red-500 font-semibold">High</div>}
                   </div>
                 </>
               )

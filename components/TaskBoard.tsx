@@ -9,7 +9,7 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Calendar, CheckCircle2, Circle, ExternalLink, Flame, Plus, Trash2, User, X } from 'lucide-react'
+import { Calendar, CheckCircle2, Circle, ExternalLink, Plus, Trash2, User, X } from 'lucide-react'
 import { TIME_OPTIONS, openDatePicker } from '@/lib/utils'
 import { TASK_ASSIGNEES, type Deal, type DealTask } from '@/lib/types'
 import { useCurrentUser } from '@/lib/useCurrentUser'
@@ -248,11 +248,6 @@ export function TaskRow({ task, dealName, ghlUrl, hideAssignee, badge, contactNa
           {task.assigned_by && (
             <span className="text-slate-400">
               by <span className="font-medium text-slate-500">{task.assigned_by}</span>
-            </span>
-          )}
-          {task.priority === 'high' && (
-            <span className="flex items-center gap-1 text-red-700 font-medium">
-              <Flame className="w-3 h-3" /> High
             </span>
           )}
           {ghlUrl && (

@@ -1,6 +1,14 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-18] Task priority — the High flames removed too
+**Status:** **CHANGED** — built, typechecked, confirmed on /tasks in the browser.
+**Issue:** Efrain, after the picker came off the form: *"get rid of the flames too."*
+**Changes:** The `priority === 'high'` badge is gone from all three places a task renders it — [components/TaskBoard.tsx](components/TaskBoard.tsx) (/tasks + the Follow-Up cockpit share this row), [components/DealTasks.tsx](components/DealTasks.tsx) (deal page + the escrow card modal), and the dashboard task widget in [components/Dashboard.tsx](components/Dashboard.tsx), which showed a red "High" label rather than a flame. Dead `Flame` imports removed from those two components and from [app/tasks/page.tsx](app/tasks/page.tsx) (that one was already unused before today).
+**Note:** `app/api/cron/second-callback/route.ts` still writes `priority: 'high'` on the auto-generated 2nd-callback task. Harmless — the value is simply never shown now — but that's the one writer left, if you'd rather it stopped.
+**Test Method:** open /tasks with a known high-priority row on the board.
+**Result:** `next build` ✓, `tsc` unchanged, no new lint warnings in the touched components. "2nd call-back — Emerito Posadas" (priority `high`, auto-created) now renders `Overdue · by Auto (45-min rule) · Deal` with no flame; no "High" text left anywhere on the board or the dashboard widget. `Flame` is still imported and used in Dashboard.tsx for its own unrelated section — left alone.
+
 ### [2026-08-18] Task form — Priority control removed
 **Status:** **CHANGED** — built, typechecked, both forms confirmed in the browser.
 **Issue:** Efrain, on the new-task form: *"Get rid of priority section on tasks."*

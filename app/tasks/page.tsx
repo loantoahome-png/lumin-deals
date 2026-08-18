@@ -26,7 +26,7 @@ import {
 } from '@/components/TaskBoard'
 import {
   ClipboardList, Plus, X, Search, CheckCircle2, Circle,
-  Calendar, User, Flame, ExternalLink, Trash2, StickyNote,
+  Calendar, User, ExternalLink, Trash2, StickyNote,
 } from 'lucide-react'
 import NotesBoard from '@/components/NotesBoard'
 import GhlTaskForm from '@/components/GhlTaskForm'

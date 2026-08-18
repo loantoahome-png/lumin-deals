@@ -18,7 +18,7 @@ import GhlReassign from '@/components/GhlReassign'
 import { DUE_TONE_TEXT, type DueTone } from '@/components/TaskBoard'
 import {
   CheckCircle2, Circle, Trash2, Plus, X, Calendar, User,
-  ExternalLink, Flame,
+  ExternalLink,
 } from 'lucide-react'
 
 // ── Date helpers (same shape as EscrowTracker's, kept local for portability) ─
@@ -375,11 +375,6 @@ function TaskRow({ task, onToggle, onDelete, onEdit, dealName, showDealLink, bad
               by <span className="font-medium text-slate-500">{task.assigned_by}</span>
             </span>
           )}
-          {task.priority === 'high' && (
-            <span className="flex items-center gap-0.5 text-red-700 font-medium">
-              <Flame className="w-3 h-3" /> High
-            </span>
-          )}
         </div>
       </button>
 
@@ -431,9 +426,9 @@ function TaskForm({ initialTask, onSubmit, onCancel, forcedDealId }: {
   const me = useCurrentUser()
   const [assignedByEdit, setAssignedByEdit] = useState<string | null>(initialTask?.assigned_by ?? null)
   const assignedBy = assignedByEdit ?? (isEdit ? '' : (me.name ?? ''))
-  // Priority has no control on the form any more (Efrain, 2026-08-18) — an edit
-  // preserves whatever the row already carries, a new task is 'normal'. The
-  // column stays, and a legacy `high` row still shows its flame on the row.
+  // Priority has no control on the form and no display on the row any more
+  // (Efrain, 2026-08-18). The column stays and an edit preserves whatever the
+  // row already carries — nothing new is ever created as 'high'.
   const priority = initialTask?.priority || 'normal'
 
   function handleSubmit(e: React.FormEvent) {
