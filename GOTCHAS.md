@@ -1,5 +1,20 @@
 # GOTCHAS — Lumin Deals
 
+### A page named like a report can still hold BULK WRITES — grep before granting it
+**Tried:** Building a `reporting` role that allows `/reports`, `/monthly-reports`, `/lead-roi`, `/lead-cohorts` — "the reporting sections", obviously read-only.
+**Failed because:** `/lead-roi` is not a report, it's a report *plus an editor*. It carries `saveCost` (rewrites the retainer `lead_source_costs` that feed every ROI figure), `changeDealSource`, and `bulkReassignSource` — `supabase.from('deals').update({source}).eq('source', old)` across **every matching deal, unscoped by LO**. A restricted account could have re-attributed the whole team's lead sources with one click, and every number on every report would move. Nothing in the route name, the nav label, or the sidebar group hints at it.
+**What works:** Before adding ANY path to a role's allow-list, grep it for writes:
+`grep -nE "fetch\(|\.(insert|update|upsert|delete)\(|\.rpc\(" <page>`. Then gate the write affordances on `me.loaded && me.role === 'admin'` — **both halves**, because `useCurrentUser` returns role `'admin'` with `loaded:false` before the session resolves, so gating on role alone flashes the controls on for everyone. Make the `canEdit` prop **required**, not optional, so a new call site can't silently re-expose it.
+**Project:** lumin-deals
+**Date:** 2026-08-25
+
+### `scripts/set-user-role.ts` hardcoded the role it wrote
+**Tried:** Adding a third role (`reporting`) — validated the CLI argument, updated the usage text, ran it.
+**Failed because:** the write path said `next.role = 'processor'` literally, not `roleArg`. Every non-admin role landed as `processor`. The console output printed the role you asked for, so it looked like it worked.
+**What works:** `next.role = roleArg` (validated against a `VALID_ROLES` list above it), and read the role back with `set-user-role.ts <email>` — no role argument — before trusting it. If a 4th role is ever added, check this file first.
+**Project:** lumin-deals
+**Date:** 2026-08-25
+
 ### A NULL column in a UNIQUE index silently disables dedupe — Postgres treats NULL as DISTINCT
 **Tried:** Relying on `calls_dedupe_uniq (call_ts, contact_phone, dialer_number_phone)` plus an upsert with `ignoreDuplicates` to make the automated call import idempotent. It was tested and genuinely worked — replaying a window inserted 0 rows.
 **Failed because:** it only works while every column in the key is non-null. GHL returned two just-finished calls with `from` and `to` **empty**, so they stored with `dialer_number_phone = NULL`; a later fetch returned the same calls complete, and **both inserted again** — `NULL != NULL` in a unique index, so the index could never see them as the same row. The damage landed exactly where it hurt most: the two calls were Brianne's, on a page whose entire purpose is tracking her call volume, so she was double-counted AND a phantom "Unknown" dialer appeared. Nothing errored. It surfaced only because Efrain sent a screenshot with an "Unknown" row in it.
