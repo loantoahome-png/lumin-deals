@@ -25,13 +25,16 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   PhoneCall, AlertTriangle, RefreshCw, DollarSign, Info, PhoneIncoming, PhoneOutgoing, Clock, TrendingUp,
+  PhoneOff,
 } from 'lucide-react'
 import {
   BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell,
 } from 'recharts'
 import { LO_COLORS } from '@/components/LoFilter'
 import type { EffortRow, DialerRow, EconomicsRow, ActivityBuckets } from '@/lib/callsReport'
-import { activityInRange, byHourOfDay, byWeekday, dialersInRange, accountsForDialer, ACCOUNT_TO_LO } from '@/lib/callsReport'
+import { activityInRange, byHourOfDay, byWeekday, dialersInRange, accountsForDialer, ACCOUNT_TO_LO,
+  UNREACHABLE_MIN_FAILURES, type UnreachableRow,
+} from '@/lib/callsReport'
 
 type ApiResponse = {
   ok: boolean
@@ -44,9 +47,14 @@ type ApiResponse = {
   dialers: DialerRow[]
   economics: EconomicsRow[]
   activity: ActivityBuckets
+  unreachable: UnreachableRow[]
 }
 
 const money = (n: number) => `$${Math.round(n).toLocaleString()}`
+const fmtPhone = (v: string): string => {
+  const d = v.replace(/\D/g, '').replace(/^1/, '')
+  return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : v
+}
 const pct = (num: number, den: number) => (den ? `${Math.round((num / den) * 100)}%` : '—')
 const rate = (r: number) => `${Math.round(r * 100)}%`
 const hours = (sec: number) => `${(sec / 3600).toFixed(1)}h`
@@ -644,6 +652,54 @@ export default function CallsPage() {
                   </div>
                 )
               })}
+            </div>
+          )}
+
+          {/* ── UNREACHABLE NUMBERS ──────────────────────────────────────── */}
+          {tab === 'effort' && data.unreachable.length > 0 && (
+            <div className="mt-6 bg-white border border-amber-200 rounded-lg overflow-hidden">
+              <div className="px-5 py-3 border-b border-amber-100 bg-amber-50/60 flex items-start gap-2">
+                <PhoneOff className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600" />
+                <div className="text-sm text-gray-700">
+                  <strong>Numbers that can&apos;t be called.</strong> The carrier refused these
+                  {' '}{UNREACHABLE_MIN_FAILURES}+ times and nothing has ever connected — dialing again
+                  will not work. Fix the number on the lead, or claim the credit back from the source.
+                  {' '}This is not &ldquo;didn&apos;t pick up&rdquo;: those leads are ordinary follow-up and are
+                  deliberately excluded.
+                </div>
+              </div>
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-gray-500">
+                  <tr>
+                    <th className="text-left font-medium px-5 py-2">Lead</th>
+                    <th className="text-left font-medium px-5 py-2">Number</th>
+                    <th className="text-right font-medium px-5 py-2">Refused</th>
+                    <th className="text-left font-medium px-5 py-2">Source</th>
+                    <th className="text-right font-medium px-5 py-2">Lead cost</th>
+                    <th className="text-left font-medium px-5 py-2">Last tried</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {data.unreachable.map(u => (
+                    <tr key={u.phone} className="hover:bg-gray-50">
+                      <td className="px-5 py-2">
+                        {u.dealId
+                          ? <Link href={`/deals/${u.dealId}`} className="text-blue-700 hover:underline">{u.name ?? '(unnamed)'}</Link>
+                          : <span className="text-gray-700">{u.name ?? '(unnamed)'}</span>}
+                        {u.lo && <span className="text-gray-400"> · {u.lo}</span>}
+                      </td>
+                      <td className="px-5 py-2 font-mono text-gray-600">{fmtPhone(u.phone)}</td>
+                      <td className="px-5 py-2 text-right">
+                        <span className="font-medium text-amber-700">{u.failed}</span>
+                        <span className="text-gray-400"> of {u.dials}</span>
+                      </td>
+                      <td className="px-5 py-2 text-gray-600">{u.source ?? '—'}</td>
+                      <td className="px-5 py-2 text-right text-gray-600">{u.leadPrice ? money(u.leadPrice) : '—'}</td>
+                      <td className="px-5 py-2 text-gray-500">{new Date(u.lastAt).toLocaleDateString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
 

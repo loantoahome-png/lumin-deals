@@ -3,7 +3,7 @@ import { createServiceClient } from '@/lib/supabase'
 import type { CallRow } from '@/lib/callsCsv'
 import {
   effortRollup, dialerBreakdown, economicsRollup, coverageWindow, coveredLos, activityBuckets,
-  type DealLite,
+  unreachableRollup, type DealLite,
 } from '@/lib/callsReport'
 
 export const dynamic = 'force-dynamic'
@@ -79,5 +79,8 @@ export async function GET() {
     dialers: dialerBreakdown(calls, deals),
     economics: economicsRollup(calls, deals),
     activity: buckets,
+    // Numbers the carrier refuses. Full window, never date-filtered: a dead
+    // number is dead regardless of which range the Activity tab is showing.
+    unreachable: unreachableRollup(calls, deals),
   })
 }

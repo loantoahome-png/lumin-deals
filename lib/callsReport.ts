@@ -448,3 +448,90 @@ export function economicsRollup(calls: CallRow[], deals: DealLite[]): EconomicsR
     }))
     .sort((a, b) => b.spend - a.spend)
 }
+
+/** A dial the CARRIER refused, not one that rang out. Both spellings occur:
+ *  the CSV export capitalises ('Failed'), the API does not ('failed'). */
+export const isCarrierFailure = (c: Pick<CallRow, 'call_status'>): boolean =>
+  (c.call_status ?? '').toLowerCase() === 'failed'
+
+/** Flag a number after this many refused dials. Nestor Morris took 10 before
+ *  anyone noticed; three is enough to be sure and early enough to matter. */
+export const UNREACHABLE_MIN_FAILURES = 3
+
+export type UnreachableRow = {
+  phone: string
+  name: string | null
+  lo: string | null
+  source: string | null
+  leadPrice: number
+  dealId: string | null
+  dials: number        // every dial to this number
+  failed: number       // of those, ones the carrier refused
+  firstAt: string
+  lastAt: string
+}
+
+/**
+ * Numbers that cannot be called: the carrier has refused them repeatedly and
+ * nothing has ever connected.
+ *
+ * ⚠️ Gated on FAILED status, not on "never connected". A lead who simply doesn't
+ * pick up also has zero connects, and there are hundreds of those — they are
+ * normal follow-up, not broken data. A 'failed' status is different in kind: GHL
+ * rejected the number before placing the call, so no amount of dialling will
+ * ever work. Mixing the two would bury the handful of dead numbers in a list of
+ * ordinary unresponsive leads and the report would go unread.
+ *
+ * Connects are checked with isConnected() (duration > 0) rather than the status,
+ * for the usual reason: 'Answered' includes voicemail.
+ */
+export function unreachableRollup(calls: CallRow[], deals: DealLite[]): UnreachableRow[] {
+  const agg = new Map<string, {
+    dials: number; failed: number; connected: number
+    name: string | null; firstMs: number; lastMs: number
+  }>()
+  for (const c of calls) {
+    if (!c.contact_phone) continue
+    const e = agg.get(c.contact_phone) ?? {
+      dials: 0, failed: 0, connected: 0, name: null, firstMs: Infinity, lastMs: -Infinity,
+    }
+    e.dials++
+    if (isCarrierFailure(c)) e.failed++
+    if (isConnected(c)) e.connected++
+    if (!e.name && c.contact_name) e.name = c.contact_name
+    const ms = Date.parse(c.call_ts)
+    if (Number.isFinite(ms)) {
+      if (ms < e.firstMs) e.firstMs = ms
+      if (ms > e.lastMs) e.lastMs = ms
+    }
+    agg.set(c.contact_phone, e)
+  }
+
+  const byPhone = new Map<string, DealLite>()
+  for (const d of deals) {
+    const p = normPhone(d.phone)
+    if (p && !byPhone.has(p)) byPhone.set(p, d)
+  }
+
+  const out: UnreachableRow[] = []
+  for (const [phone, e] of agg) {
+    if (e.failed < UNREACHABLE_MIN_FAILURES || e.connected > 0) continue
+    const d = byPhone.get(phone)
+    out.push({
+      phone,
+      // The deal is the authoritative name; the call's cached contact_name is
+      // the fallback, and the only source when no deal matches the number.
+      name: d?.name ?? e.name ?? null,
+      lo: d ? resolveLO(d.loan_officer) : null,
+      source: d?.source ?? null,
+      leadPrice: Number(d?.lead_price) || 0,
+      dealId: d?.id ?? null,
+      dials: e.dials,
+      failed: e.failed,
+      firstAt: new Date(e.firstMs).toISOString(),
+      lastAt: new Date(e.lastMs).toISOString(),
+    })
+  }
+  // Worst waste first: most refused dials, then most recent.
+  return out.sort((a, b) => b.failed - a.failed || b.lastAt.localeCompare(a.lastAt))
+}

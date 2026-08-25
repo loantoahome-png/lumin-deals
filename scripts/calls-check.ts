@@ -5,6 +5,7 @@ import {
   isConnected, coveredLos, coverageWindow, effortRollup, economicsRollup, dialerBreakdown,
   activityBuckets, activityInRange, byHourOfDay, dialersInRange, accountsForDialer, dialerNamesInRange,
   type DealLite,
+  unreachableRollup, UNREACHABLE_MIN_FAILURES,
 } from '../lib/callsReport'
 
 let pass = 0, fail = 0
@@ -235,6 +236,67 @@ eq('filter options list every dialer in range, busiest first',
 eq('empty calls → no window', coverageWindow([]), null)
 eq('empty calls → all LOs uncovered', effortRollup([], DEALS).every(r => !r.covered), true)
 eq('empty calls → zero leads (no window to scope by)', effortRollup([], DEALS).every(r => r.leads === 0), true)
+
+
+// ── Unreachable numbers ──────────────────────────────────────────────────────
+//
+// From the real 2026-08-25 incident: Nestor Morris's Lendgo number was refused
+// by the carrier 10 times before anyone noticed, because a refused dial looked
+// exactly like a lead who doesn't pick up.
+{
+  const call = (phone: string, status: string, dur: number, ts: string): CallRow => ({
+    call_ts: ts, contact_phone: phone, contact_name: 'Test Lead', direction: 'outbound',
+    call_status: status, disposition: null, duration_sec: dur, dialer_number_name: "Brianne's Number",
+    dialer_number_phone: '9497495677', first_time: null, account_label: 'moe', source_file: 'x',
+  })
+  const deal = (id: string, phone: string, name: string): DealLite => ({
+    id, name, phone, loan_officer: 'Moe Sefati', source: 'Lendgo',
+    lead_price: 25.5, funded_date: null, date_added_ghl: '2026-08-14T00:00:00Z',
+  })
+
+  const dead = [
+    call('8612106747', 'failed', 0, '2026-08-14T22:32:50Z'),
+    call('8612106747', 'failed', 0, '2026-08-17T23:03:59Z'),
+    call('8612106747', 'failed', 0, '2026-08-24T20:22:20Z'),
+  ]
+  // ⚠️ The exclusion that keeps this report readable. Zero connects is NOT the
+  // signal — hundreds of ordinary leads never pick up. Only a carrier REFUSAL is.
+  const justNotAnswering = [
+    call('5105551111', 'Answered', 0, '2026-08-14T18:00:00Z'),
+    call('5105551111', 'No answer', 0, '2026-08-15T18:00:00Z'),
+    call('5105551111', 'Voicemail', 0, '2026-08-16T18:00:00Z'),
+    call('5105551111', 'Missed', 0, '2026-08-17T18:00:00Z'),
+  ]
+  const deals = [deal('d1', '+18612106747', 'Nestor Morris'), deal('d2', '+15105551111', 'Patient Lead')]
+
+  const rows = unreachableRollup([...dead, ...justNotAnswering], deals)
+  eq('a carrier-refused number is flagged', rows.map(r => r.phone), ['8612106747'])
+  eq('a lead who simply never answers is NOT flagged',
+    rows.some(r => r.phone === '5105551111'), false)
+  eq('the flagged row joins its deal', [rows[0].name, rows[0].source, rows[0].leadPrice, rows[0].dealId],
+    ['Nestor Morris', 'Lendgo', 25.5, 'd1'])
+  eq('counts both the refusals and the total dials', [rows[0].failed, rows[0].dials], [3, 3])
+  eq('lastAt is the most recent attempt', rows[0].lastAt, '2026-08-24T20:22:20.000Z')
+
+  // The threshold is a floor, not a trigger — two refusals could be a blip.
+  eq(`${UNREACHABLE_MIN_FAILURES - 1} refusals is below the bar`,
+    unreachableRollup(dead.slice(0, UNREACHABLE_MIN_FAILURES - 1), deals).length, 0)
+  eq(`${UNREACHABLE_MIN_FAILURES} refusals hits it`,
+    unreachableRollup(dead, deals).length, 1)
+
+  // One connect ever means the number works — whatever happened since.
+  eq('a single real connect clears the number',
+    unreachableRollup([...dead, call('8612106747', 'Answered', 45, '2026-08-25T18:00:00Z')], deals).length, 0)
+  // ⚠️ 'Answered' with no talk time is voicemail, not a connect — it must NOT clear it.
+  eq('an Answered-but-0-second row does not clear it',
+    unreachableRollup([...dead, call('8612106747', 'Answered', 0, '2026-08-25T18:00:00Z')], deals).length, 1)
+  // Both spellings occur: the CSV capitalises, the API does not.
+  eq('the CSV spelling counts too',
+    unreachableRollup(dead.map(c => ({ ...c, call_status: 'Failed' })), deals).length, 1)
+  // A number with no matching deal is still worth showing — it is still burning dials.
+  eq('an unmatched number still reports, with no deal attached',
+    unreachableRollup(dead, []).map(r => [r.dealId, r.leadPrice, r.name]), [[null, 0, 'Test Lead']])
+}
 
 console.log(`\ncalls-check: ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
