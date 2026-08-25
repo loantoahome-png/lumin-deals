@@ -40,7 +40,7 @@
 
 import { normPhone } from './dealMatcher'
 import type { CallRow, AccountLabel } from './callsCsv'
-import { GHL_BASE, type GHLAccount } from './ghl'
+import { GHL_BASE, ghlHeaders, type GHLAccount } from './ghl'
 
 /** Marks a row as API-sourced. Distinguishable from CSV rows, which carry the
  *  uploaded file's name. Also the seam if the divergence above ever needs auditing. */
@@ -199,4 +199,42 @@ export async function fetchCallMessages(
     cursor = json.nextCursor
   }
   return { messages, pages, truncated: true, total }
+}
+
+/**
+ * The GHL-configured name of every dialing number in one sub-account, keyed by
+ * normalized phone.
+ *
+ * ⚠️ THIS IS WHY IT EXISTS. `dialer_number_name` used to be learned only from
+ * rows we already held (buildDialerNameMap), and the export payload carries the
+ * dialing NUMBER without its title — so once ingest went API-only there was no
+ * path for a new number's name to ever enter the system. Brianne rotated her
+ * line in both sub-accounts on 2026-08-21 and 334 of her calls silently filed
+ * themselves under 'Unknown' on the page whose entire job is her dial volume.
+ * Asking GHL is the only self-healing answer: a number is named where it is
+ * provisioned.
+ *
+ * Returns an EMPTY map on any failure rather than throwing — a naming lookup must
+ * never be able to fail a sweep. The learned map still covers everything it did
+ * before, including RETIRED numbers: verified 2026-08-25 that Brianne's two old
+ * lines are already absent from GHL's list while 5,515 of her calls still hang
+ * off them, so this is a supplement to that map and never a replacement.
+ */
+export async function fetchNumberLabels(acct: GHLAccount): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  try {
+    const u = new URL(`${GHL_BASE}/phone-system/numbers`)
+    u.searchParams.set('locationId', acct.locationId)
+    const res = await fetch(u, { headers: ghlHeaders(acct.apiKey) })
+    if (!res.ok) return out
+    const json = await res.json() as { phoneNumbers?: { value?: string; title?: string }[] }
+    for (const n of json.phoneNumbers ?? []) {
+      const phone = normPhone(n.value ?? '')
+      const title = (n.title ?? '').trim()
+      if (phone && title) out.set(phone, title)
+    }
+  } catch {
+    return new Map()
+  }
+  return out
 }

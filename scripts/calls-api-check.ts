@@ -11,6 +11,7 @@
 //
 // Run: npx tsx scripts/calls-api-check.ts
 import { mapApiCall, truncToSecond, callAccountLabel, CALL_SOURCE_FILE, type ApiCallMessage } from '../lib/callsApi'
+import { resolveDialerName, type DialerLabels } from '../lib/callsSync'
 
 let pass = 0, fail = 0
 function eq(label: string, got: unknown, want: unknown) {
@@ -128,6 +129,66 @@ eq('no-answer status preserved',
   mapApiCall({ ...OUTBOUND, status: 'no-answer', meta: { call: { duration: 0 } } }, 'moe')?.call_status, 'no-answer')
 
 // ── 7. Name resolution ────────────────────────────────────────────────────────
+
+// ── 7. Dialer naming: GHL for ownership, the stored rows for spelling ────────
+//
+// Regression cover for 2026-08-21, when Brianne rotated her line in BOTH
+// sub-accounts. The learned map can only name numbers it has already seen, and
+// the export payload carries the number without its title — so 334 of her calls
+// filed themselves under 'Unknown' on the page whose whole job is her dial
+// volume. GHL knows the name because that is where a number is provisioned.
+
+// The state the live system was in on 2026-08-25.
+const LABELS: DialerLabels = {
+  byPhone: new Map([
+    ['9497495677', "Brianne's Number"],   // retired line, still thousands of calls
+    ['9492703350', "Matthew's number"],
+  ]),
+  canonical: new Map([
+    ["brianne's number", "Brianne's Number"],
+    ["matthew's number", "Matthew's number"],
+  ]),
+}
+// GHL's own titles — note the lower-case 'n', verified live 2026-08-25.
+const TITLES = new Map([
+  ['9497732190', "Brianne's number"],
+  ['9497389920', "Brianne's number"],
+  ['9492703350', "Matthew's number"],
+])
+
+// The whole point: a number nobody has ever seen still gets named.
+eq('a NEW number is named from GHL',
+  resolveDialerName('9497732190', TITLES, LABELS), "Brianne's Number")
+
+// ⚠️ The trap that would have re-created the bug. The page groups on the exact
+// string, so shipping GHL's spelling verbatim would have split Brianne into
+// "Brianne's Number" (5,849 historical calls) and "Brianne's number" (everything
+// new) — two people on a page that exists to count one.
+eq("GHL's spelling is folded onto the spelling already in the table",
+  resolveDialerName('9497389920', TITLES, LABELS), "Brianne's Number")
+eq('folding is case-insensitive both ways',
+  resolveDialerName('9492703350', TITLES, LABELS), "Matthew's number")
+
+// A RETIRED number leaves GHL's list while its calls stay on the page forever,
+// so the learned map is a permanent fallback, never a legacy path.
+eq('a number GHL no longer knows falls back to the learned label',
+  resolveDialerName('9497495677', TITLES, LABELS), "Brianne's Number")
+
+// An unreachable GHL must degrade to exactly the behaviour that shipped before.
+eq('no GHL titles → learned map only',
+  resolveDialerName('9492703350', null, LABELS), "Matthew's number")
+eq('no GHL titles and an unknown number → null',
+  resolveDialerName('9497732190', null, LABELS), null)
+
+// A genuinely new NAME (not just a new number) has nothing to fold onto and is
+// taken as GHL writes it.
+eq('an unrecognised name is used as GHL spells it',
+  resolveDialerName('5551230000', new Map([['5551230000', 'Hanh']]), LABELS), 'Hanh')
+
+// The blank-dialer settle-window rows must not acquire a name.
+eq('a blank dialing number stays unnamed',
+  resolveDialerName('', TITLES, LABELS), null)
+
 
 const named = mapApiCall(OUTBOUND, 'moe', p => p === '7145555617' ? 'Damon Hunnicutt' : null)
 eq('contact_name resolved from deals', named?.contact_name, 'Damon Hunnicutt')

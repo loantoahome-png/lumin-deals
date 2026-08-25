@@ -20,7 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getAccounts } from './ghl'
 import { normPhone } from './dealMatcher'
 import type { CallRow, AccountLabel } from './callsCsv'
-import { fetchCallMessages, mapApiCall, callAccountLabel } from './callsApi'
+import { fetchCallMessages, mapApiCall, callAccountLabel, fetchNumberLabels } from './callsApi'
 
 /** Cold start (an account with nothing stored) pulls this far back, so a first
  *  run can't try to page GHL's entire history. */
@@ -54,6 +54,10 @@ export type CallSyncAccountResult = {
    *  per-dialer view's 'Unknown' bucket, so a non-zero count is the signal that a
    *  NEW number started dialing and needs one labelled row to teach the map. */
   unlabelledDialers: number
+  /** Numbers GHL named for this sub-account. 0 means the naming lookup failed or
+   *  the account has no numbers — the sweep still runs on the learned map, but a
+   *  new line would go unnamed, so this is the health signal for that path. */
+  ghlNamedNumbers: number
   error?: string
 }
 
@@ -98,6 +102,13 @@ async function buildNameMap(supabase: SupabaseClient): Promise<Map<string, strin
   return map
 }
 
+/** The two things the stored rows teach us: which name each number dials under,
+ *  and how the page already spells each name. */
+export type DialerLabels = {
+  byPhone: Map<string, string>
+  canonical: Map<string, string>
+}
+
 /**
  * dialing number → its human label ("Brianne's Number"), learned from the rows we
  * already hold.
@@ -113,8 +124,9 @@ async function buildNameMap(supabase: SupabaseClient): Promise<Map<string, strin
  * under two spellings ("Efrain's Number" vs "Efrain") and the majority is the one
  * the existing charts already group under.
  */
-async function buildDialerNameMap(supabase: SupabaseClient): Promise<Map<string, string>> {
+async function buildDialerNameMap(supabase: SupabaseClient): Promise<DialerLabels> {
   const counts = new Map<string, Map<string, number>>()
+  const spellings = new Map<string, Map<string, number>>()
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase
       .from('calls').select('dialer_number_phone, dialer_number_name')
@@ -126,15 +138,54 @@ async function buildDialerNameMap(supabase: SupabaseClient): Promise<Map<string,
       if (!counts.has(r.dialer_number_phone)) counts.set(r.dialer_number_phone, new Map())
       const m = counts.get(r.dialer_number_phone)!
       m.set(r.dialer_number_name, (m.get(r.dialer_number_name) ?? 0) + 1)
+
+      const k = r.dialer_number_name.trim().toLowerCase()
+      if (!spellings.has(k)) spellings.set(k, new Map())
+      const sp = spellings.get(k)!
+      sp.set(r.dialer_number_name, (sp.get(r.dialer_number_name) ?? 0) + 1)
     }
     if (!data || data.length < 1000) break
   }
-  const map = new Map<string, string>()
+  const byPhone = new Map<string, string>()
   for (const [phone, names] of counts) {
     const best = [...names.entries()].sort((a, b) => b[1] - a[1])[0]
-    if (best) map.set(phone, best[0])
+    if (best) byPhone.set(phone, best[0])
   }
-  return map
+  const canonical = new Map<string, string>()
+  for (const [k, sp] of spellings) {
+    const best = [...sp.entries()].sort((a, b) => b[1] - a[1])[0]
+    if (best) canonical.set(k, best[0])
+  }
+  return { byPhone, canonical }
+}
+
+/**
+ * Resolve a dialing number to the name the page should group it under.
+ *
+ * GHL is asked FIRST — it is the live authority on who owns a number, and the
+ * only source that knows about a line provisioned after our last import.
+ *
+ * ⚠️ But it is NOT the authority on SPELLING, and the page groups on the exact
+ * string. Verified 2026-08-25: GHL titles both of Brianne's numbers "Brianne's
+ * number" while all 5,849 of her stored calls read "Brianne's Number" — taking
+ * GHL's spelling verbatim would have split her into two dialers on the page and
+ * re-created, in a new costume, the exact bug this function exists to kill. So a
+ * GHL title is folded onto the spelling the stored rows already use whenever one
+ * exists (case-insensitive match), and used as-is only for a genuinely new name.
+ *
+ * Falls back to the learned per-number map when GHL doesn't know the number —
+ * which is the normal case for a RETIRED line: Brianne's two old numbers had
+ * already left GHL's list while thousands of their calls remain on the page.
+ */
+export function resolveDialerName(
+  phone: string,
+  ghlTitles: Map<string, string> | null,
+  labels: DialerLabels | null,
+): string | null {
+  if (!phone) return null
+  const title = ghlTitles?.get(phone)?.trim()
+  if (title) return labels?.canonical.get(title.toLowerCase()) ?? title
+  return labels?.byPhone.get(phone) ?? null
 }
 
 /**
@@ -151,15 +202,20 @@ export async function runCallsSync(
   const results: CallSyncAccountResult[] = []
   const skipped: string[] = []
   let nameMap: Map<string, string> | null = null
-  let dialerMap: Map<string, string> | null = null
+  let dialerLabels: DialerLabels | null = null
 
   for (const acct of getAccounts()) {
     const label = callAccountLabel(acct.label)
     if (!label) { skipped.push(acct.label); continue }   // Randy — excluded by decision
 
+    // Per-account: a number lives in exactly one sub-account, and each account
+    // authenticates with its own key.
+    let ghlTitles: Map<string, string> | null = null
+    const dialerNameFor = (p: string) => resolveDialerName(p, ghlTitles, dialerLabels)
+
     const res: CallSyncAccountResult = {
       account: label, since: '', fetched: 0, dials: 0, inserted: 0, duplicates: 0,
-      truncated: false, unlabelledDialers: 0,
+      truncated: false, unlabelledDialers: 0, ghlNamedNumbers: 0,
     }
     try {
       const mark = opts.sinceOverride ?? await watermark(supabase, label)
@@ -182,19 +238,26 @@ export async function runCallsSync(
       for (const m of messages) {
         const row = mapApiCall(m, label,
           p => nameMap?.get(p) ?? null,
-          p => dialerMap?.get(p) ?? null)
+          dialerNameFor)
         if (row) mapped.push(row)
       }
       res.dials = mapped.length
 
       // Both lookups are only worth a table scan once we know rows exist — an idle
       // sweep must not scan. Re-apply after building so the first batch isn't blank.
-      if (mapped.length && !nameMap) {
-        nameMap = await buildNameMap(supabase)
-        dialerMap = await buildDialerNameMap(supabase)
+      if (mapped.length) {
+        // The two table scans are shared across accounts and only worth doing once
+        // rows exist — an idle sweep must not scan.
+        if (!nameMap) nameMap = await buildNameMap(supabase)
+        if (!dialerLabels) dialerLabels = await buildDialerNameMap(supabase)
+        // One request per account per sweep, and only when there is something to
+        // name. Never throws: an unreachable GHL degrades to the learned map,
+        // which is exactly the behaviour that shipped before.
+        ghlTitles = await fetchNumberLabels(acct)
+        res.ghlNamedNumbers = ghlTitles.size
         for (const r of mapped) {
           r.contact_name = nameMap.get(r.contact_phone) ?? null
-          r.dialer_number_name = r.dialer_number_phone ? dialerMap.get(r.dialer_number_phone) ?? null : null
+          r.dialer_number_name = dialerNameFor(r.dialer_number_phone ?? '')
         }
       }
       res.unlabelledDialers = mapped.filter(r => !r.dialer_number_name).length
