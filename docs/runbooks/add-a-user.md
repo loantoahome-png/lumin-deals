@@ -116,7 +116,7 @@ npx tsx scripts/set-user-role.ts someone@luminlending.com admin "Their Name"
 ## Adding a reporting-only loan officer
 
 Written 2026-08-25 for **Daniel McGrail-Granger**. This is the `reporting` role:
-an LO who sees the four report pages and nothing else. He sees the **whole
+an LO who sees three report pages and nothing else. He sees the **whole
 team's** figures on them — Efrain's explicit decision, so there is no per-LO data
 lock. What's withheld is every other part of the app.
 
@@ -125,7 +125,8 @@ lock. What's withheld is every other part of the app.
 | `/reports` | `/reports/escrows` (operational, deliberately denied) |
 | `/monthly-reports` | `/`, `/deals`, `/contacts`, `/pipeline`, `/funded` |
 | `/lead-roi` (+ `/lead-roi/report`) | `/calls`, `/report-import`, `/import/*` |
-| `/lead-cohorts` | `/tasks`, the Bulletin, `/tools`, `/processing` |
+| | `/lead-cohorts` (see below) |
+| | `/tasks`, the Bulletin, `/tools`, `/processing` |
 
 ### 1. Wire his GHL sub-account (do this BEFORE the login exists)
 
@@ -165,7 +166,7 @@ access — Lead ROI, comp, every LO's numbers. Do not send him the password unti
 | Check | Expected |
 |---|---|
 | Lands on | `/reports` |
-| Sidebar | Reports, Monthly Reports, Lead ROI, Lead Cohorts — nothing else |
+| Sidebar | Reports, Monthly Reports, Lead ROI — nothing else |
 | Visit `/` | Bounces to `/reports` |
 | Visit `/reports/escrows` | Bounces to `/reports` |
 | Visit `/lead-roi` | Opens |
@@ -178,10 +179,14 @@ Moe+Matt working set. He is not on the hot-leads triage clock, not in the
 follow-up queue, not auto-tasked by the 2nd-callback cron, and excluded from
 `/calls`. `DEFAULT_LOS` stays `['Matt Park', 'Moe Sefati']`.
 
-Known gap, inherited from Randy: his GHL sub-account is not on the real-time
-stage webhook, so `/lead-cohorts` timing for his NEW leads only updates on the
-15-min sync, and his history needs `/api/stage-events/backfill` run per date
-range.
+### Why `/lead-cohorts` is excluded
+
+Removed 2026-08-25 at Efrain's call. His GHL sub-account is not on the real-time
+stage webhook, so that page would report his response rates as a flat **0.0%** —
+wrong data, not missing data, which is worse than not having the page. To grant
+it later: run `/api/stage-events/backfill` for his location per date range, put
+`'/lead-cohorts'` back in `REPORTING_ALLOWED`, and flip the corresponding
+assertion in `scripts/roles-check.ts`.
 
 ## Adding another processor later
 

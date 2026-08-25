@@ -170,7 +170,7 @@ eq('processor home is unchanged', homeFor('processor'), PROCESSOR_HOME)
 eq('admin home is the dashboard', homeFor('admin'), '/')
 
 // The four he CAN reach.
-for (const path of ['/reports', '/monthly-reports', '/lead-roi', '/lead-cohorts']) {
+for (const path of ['/reports', '/monthly-reports', '/lead-roi']) {
   eq(`reporting reaches ${path}`, canAccess('reporting', path), true)
   eq(`reporting sees ${path} in nav`, canSeeNavItem('reporting', path), true)
 }
@@ -186,6 +186,9 @@ eq('/reports/escrows hidden from nav', canSeeNavItem('reporting', '/reports/escr
 for (const path of [
   '/', '/deals', '/deals/abc', '/deals/new', '/contacts', '/contacts/abc',
   '/pipeline', '/funded', '/hot-leads', '/follow-up', '/radar', '/worklist',
+  // Removed from the allow-list 2026-08-25 — without the stage-events backfill it
+  // would show his response rates as a flat 0.0%, which is wrong, not empty.
+  '/lead-cohorts',
   '/processing', '/tasks', '/notes', '/tools', '/lenders', '/compliance',
   '/calls', '/report-import', '/import/arive', '/import/calls', '/health',
   '/duplicates', '/old-deals', '/underwriting',

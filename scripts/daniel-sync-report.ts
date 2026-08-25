@@ -7,6 +7,7 @@
 
 import { readFileSync } from 'fs'
 import { createClient } from '@supabase/supabase-js'
+import { totalComp } from '../lib/comp'
 
 const env = readFileSync(new URL('../.env.local', import.meta.url), 'utf8')
 const get = (n: string) => env.match(new RegExp(`^${n}=(.+)$`, 'm'))?.[1].trim() ?? ''
@@ -33,17 +34,35 @@ async function main() {
   if (lock) console.log(`  ${'ghl_sync_lock'.padEnd(30)} ${String(lock.updated_at).slice(0, 19)}  ${JSON.stringify(lock.value)}`)
 
   // Paginate: a bare select caps at 1000 rows.
-  const all: { loan_officer: string | null; ghl_location_id: string | null; pipeline_group: string | null; loan_amount: number | null; source: string | null; lead_price: number | null }[] = []
+  const all: Record<string, any>[] = []
   for (let from = 0; ; from += 1000) {
     const { data, error } = await sb
       .from('deals')
-      .select('loan_officer,ghl_location_id,pipeline_group,loan_amount,source,lead_price')
+      .select('loan_officer,ghl_location_id,pipeline_group,loan_amount,source,lead_price,compensation_amount,broker_corr,net_discount_points,funded_date,arive_file_no')
       .range(from, from + 999)
-    if (error) throw error
+    if (error) { console.error("QUERY ERROR:", error.message); process.exit(1) }
     all.push(...(data ?? []))
     if (!data || data.length < 1000) break
   }
   console.log(`\ntotal deals in DB: ${all.length}`)
+
+  // Whole-board snapshot. The Arive CSV carried 471 rows for the OTHER three LOs,
+  // so this is the check that the import didn't move their money while adding his.
+  // ⚠️ Revenue MUST come from lib/comp.ts totalComp(), never compensation_amount
+  // and never a hand-rolled sum: net_discount_points is a PERCENT of loan_amount,
+  // gated on broker_corr === 'Non-Del'. Adding it as dollars understates every
+  // Non-Del loan by thousands. (I got this wrong on the first pass.)
+  const LOS = ['Matt Park', 'Moe Sefati', 'Randy Mathis', 'Daniel McGrail-Granger']
+  console.log('\nper-LO board state:')
+  console.log('  ' + 'LO'.padEnd(26) + 'deals'.padStart(7) + 'funded'.padStart(8) + 'volume'.padStart(15) + 'comp'.padStart(12) + 'arive'.padStart(8))
+  for (const lo of LOS) {
+    const rows = all.filter(d => d.loan_officer === lo)
+    const fd = rows.filter(d => d.pipeline_group === 'Funded')
+    console.log('  ' + lo.padEnd(26) + String(rows.length).padStart(7) + String(fd.length).padStart(8) +
+      money(fd.reduce((s2, d) => s2 + (d.loan_amount ?? 0), 0)).padStart(15) +
+      money(fd.reduce((s2, d) => s2 + totalComp(d), 0)).padStart(12) +
+      String(rows.filter(d => d.arive_file_no).length).padStart(8))
+  }
 
   const byLocation = all.filter(d => d.ghl_location_id === DANIEL_LOCATION)
   const byName = all.filter(d => /daniel|mcgrail|granger|danny/i.test(d.loan_officer ?? ''))

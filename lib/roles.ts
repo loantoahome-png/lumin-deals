@@ -72,9 +72,15 @@ const PROCESSOR_ALLOWED = [
 
 // ── What a reporting-only LO may reach ──────────────────────────────────────
 // Daniel McGrail-Granger (2026-08-25): an LO who gets the numbers and nothing
-// else. Efrain's decision was "the reporting sections, nothing else", scoped to
-// these four — he sees the WHOLE team's figures on them, same as an admin does,
-// so there is no per-LO data lock here. What's excluded is everything that
+// else. Efrain's decision was "the reporting sections, nothing else" — he sees
+// the WHOLE team's figures on them, same as an admin does, so there is no per-LO
+// data lock here.
+//
+// ⚠️ `/lead-cohorts` was in this list and was REMOVED 2026-08-25 (Efrain: "I
+// dont need the lead cohort section for Dan"). Keep it out unless someone also
+// runs the stage-events backfill for his GHL location: his sub-account is not on
+// the real-time stage webhook, so that page would report his response rates as
+// a flat 0.0%. That is WRONG data, not missing data — worse than no page. What's excluded is everything that
 // isn't reporting: the pipeline, contacts, deals, tools, and every import.
 //
 // ⚠️ `/reports/escrows` is DENIED below and that is load-bearing. Matching is
@@ -84,7 +90,6 @@ const REPORTING_ALLOWED = [
   '/reports',
   '/monthly-reports',
   '/lead-roi',
-  '/lead-cohorts',
 ]
 
 const REPORTING_DENIED = [
