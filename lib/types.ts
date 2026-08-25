@@ -188,8 +188,8 @@ export type DealTask = {
 // app/tasks/page.tsx — a name in one but not the other still shows up, it just
 // lands in the "Unassigned & other" catch-all column instead of its own.
 export const TASK_ASSIGNEES = [
-  'Matt Park', 'Moe Sefati', 'Randy Mathis', 'Efrain Ramirez', 'Brianne Han',
-  'Hanh Nguyen',
+  'Matt Park', 'Moe Sefati', 'Randy Mathis', 'Daniel McGrail-Granger',
+  'Efrain Ramirez', 'Brianne Han', 'Hanh Nguyen',
 ] as const
 
 // ── Document checklist ──────────────────────────────────────────────────────
@@ -321,7 +321,7 @@ export const PIPELINE_GROUPS = [
 // Park" (711 deals); a short "Matt" option matches nothing, so every LO <select> across
 // the app (deal detail, pipeline, deals, hot-leads, FundedTracker, DealForm) renders
 // blank on Matt's deals. Keep these in lockstep with the resolveLO map.
-export const LOAN_OFFICERS = ['Matt Park', 'Moe Sefati', 'Randy Mathis'] as const
+export const LOAN_OFFICERS = ['Matt Park', 'Moe Sefati', 'Randy Mathis', 'Daniel McGrail-Granger'] as const
 
 // Processor options (stored on `processor_status`). Surfaced in the Active Escrows
 // card, the deal detail panel, the new-deal form, and the pipeline table.

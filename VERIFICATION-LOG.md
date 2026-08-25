@@ -1,6 +1,50 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-25] Daniel McGrail-Granger — 4th LO + a `reporting`-only role
+**Status:** **CHANGED.** Code verified offline (fixtures + build); the data path is **UNVERIFIABLE until Efrain supplies the GHL credentials** — the fourth sync slot is inert without them, by design.
+**Issue:** Efrain is adding a 4th loan officer who needs the reporting sections of the dashboard and nothing else.
+**Decisions (Efrain, 2026-08-25):** whole-team figures (no per-LO data lock) · four pages only (`/reports`, `/monthly-reports`, `/lead-roi`, `/lead-cohorts`) · routing gate is sufficient, RLS explicitly out of scope · unchanged 85% `LO_SPLIT`, he buys leads.
+
+**Changes — GHL:** [app/api/sync/ghl/route.ts](app/api/sync/ghl/route.ts) `getAccounts()` gains a `daniel` slot behind `GHL_API_KEY_3` + `GHL_LOCATION_ID_3`, plus its `loFromAccount` mapping.
+
+**Changes — LO identity:** `lib/loanOfficer.ts` (`LO_MAP` + `daniel`/`mcgrail`/`granger` keys), `lib/types.ts`, `components/LoFilter.tsx`, `app/reports`, `app/lead-roi`, `app/monthly-reports`, `app/pipeline`, `app/underwriting`, `app/contacts/[id]`, `app/api/ghl/unread`.
+
+**⚠️ Structural fix to the trap that bit the Randy add:** both copies of `matchesLO` ([lib/leadReport.ts](lib/leadReport.ts), [lib/cohortReport.ts](lib/cohortReport.ts)) ended in a ternary whose **else-branch defaulted to one specific LO** — add a tab without updating the function and that tab silently rendered *another LO's* leads, with no type error and no test failure. Both are now `Record<Exclude<LO,'All'>, RegExp>`, so **adding a 5th LO to the union is a compile error until its pattern exists.** Matt's and Moe's patterns were deliberately left NARROW (`/matt/`, `/moe/`, not `|park|`/`|sefati|`) — widening them would have silently moved numbers Efrain already reads.
+
+**Changes — kept out of the Moe+Matt workflows (Randy precedent):** `second-callback` cron generalized `isRandysLead` → `isOutOfScopeLead` (name OR GHL location, now covering both LOs) so Brianne is never auto-tasked on his leads; `lock-alerts` routes his alerts to `LO_EMAIL_DANIEL`; `callAccountLabel` keeps him out of `/calls` by default. `DEFAULT_LOS` unchanged.
+
+**Changes — the `reporting` role:** [lib/roles.ts](lib/roles.ts) gains the role, a per-role allow/deny table and `homeFor()`; `middleware.ts` redirects to the role's own home. **`roleFromUser`'s "no role key = ADMIN" default is untouched** — and an *unrecognised* role string now also falls through to admin, so a typo in `app_metadata` can't lock someone out of their own dashboard. `/reports/escrows` is explicitly DENIED because matching is prefix-based and `/reports` would otherwise cover it.
+
+**⚠️ Real bug caught in passing:** `scripts/set-user-role.ts` hardcoded `next.role = 'processor'` on every non-admin write. Passing `reporting` would have silently created a **processor** account — right-looking console output, wrong role. Fixed to write `roleArg`.
+
+**⚠️ Scope gap found and closed — `/lead-roi` is NOT a read-only page.** Granting
+"the reporting sections" would have handed a restricted LO three write paths on
+it: editing the retainer `lead_source_costs` that feed every ROI figure, changing
+one deal's `source`, and — the bad one — **`bulkReassignSource`, which runs
+`update({source}).eq('source', <old>)` across every matching deal with no LO
+scoping at all.** One click could re-attribute the whole team's lead sources and
+silently move every number on the page. Efrain accepted a routing gate for
+*reading* other LOs' rows; he did not ask to grant *writes*. All three are now
+`canEdit`-gated (`me.loaded && me.role === 'admin'` — both halves needed, since
+`useCurrentUser` reports 'admin' with `loaded:false` before the session
+resolves), the handlers early-return, and `SourceDealsList.canEdit` is a
+**required** prop so a future call site can't forget it. The other three allowed
+pages were audited and are genuinely read-only (GET fetches only).
+**This is affordance-level, not enforcement** — same anon-key caveat as above.
+
+**Test Method / Result:**
+- `npx tsx scripts/roles-check.ts` → **128 passed, 0 failed** (up from 79). New fixtures assert the four allowed pages, the `/reports/escrows` denial, 26 blocked paths, `/reports-secret` ≠ `/reports`, no task board, no bulletin, the `user_metadata` escalation attempt, and that **every processor assertion still holds**.
+- `npx tsx scripts/lead-report-check.ts` → **138 passed**; `cohort-report-check.ts` → **88 passed**. Both directions asserted: Daniel matches Daniel, and Moe/Matt/Randy each do NOT match Daniel.
+- `resolveLO` spot-checked on 12 name variants — hyphenated, unhyphenated, surname-only, `Dan McGrail`, all-caps all resolve to `Daniel McGrail-Granger`; **no existing LO's resolution changed**.
+- Full fixture suite: 31 scripts, all green except `calls-live-check` (**3 failures — confirmed IDENTICAL on `main`**; live dials-per-lead and cost-per-connect thresholds drifting with real data, unrelated).
+- `npx tsc --noEmit` → **7 errors, byte-identical to the `main` baseline** in the same 4 files (`app/reports`, `app/underwriting`, `components/DealForm.tsx`, `next.config.ts`) — all pre-existing, none introduced.
+- `npm run build` → ✓.
+
+**Not verified, and cannot be until Efrain acts:** that his GHL sync pulls, that his name arrives spelled as assumed, that his Arive CSV imports, and that the login actually lands on `/reports`. Steps in [docs/runbooks/add-a-user.md](docs/runbooks/add-a-user.md) → *Adding a reporting-only loan officer*.
+
+**⚠️ Still a routing gate, not RLS.** A signed-in `reporting` account holds a Supabase anon key and `deals` RLS is unchanged, so it could query other rows from the browser console. Efrain accepted this trust boundary explicitly. Do not describe the gate as protecting comp data from a determined insider.
+
 ### [2026-08-18] deal_tasks.priority normalized — 66 `high` rows → `normal`
 **Status:** **VERIFIED.** Applied to production and re-read: `deal_tasks` is now **79 rows, all `normal`**.
 **Issue:** Efrain: *"yes normalize those rows too"* — closing out the priority removal so the column says what the app says.

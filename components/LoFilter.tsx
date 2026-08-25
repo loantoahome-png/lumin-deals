@@ -16,6 +16,7 @@ export const LO_COLORS: Record<string, string> = {
   'Matt Park': '#10b981',
   'Moe Sefati': '#f59e0b',
   'Randy Mathis': '#8b5cf6',
+  'Daniel McGrail-Granger': '#0ea5e9',
 }
 
 /** Multi-select LO filter state, seeded to the Moe + Matt default view. */

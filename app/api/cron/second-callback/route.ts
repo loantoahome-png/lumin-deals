@@ -16,16 +16,21 @@ const TRIGGER_STAGES = ['New Lead', 'Attempted Contact']
 const MIN_AGE_MIN = 45
 const MAX_AGE_MIN = 360   // safety cap — never backfill leads older than 6h
 
-// Brianne only handles 2nd call-backs for Matt & Moe — NOT Randy (his GHL
-// sub-account runs its own follow-up). A lead is Randy's if its loan_officer
-// resolves to him OR it lives in Randy's GHL location (GHL_LOCATION_ID_2).
-// The 15-min sync that creates every deal reliably stamps both, so checking
-// both is belt-and-suspenders: a rename can't leak his leads back in.
-const RANDY_LOCATION_ID = process.env.GHL_LOCATION_ID_2 || ''
-function isRandysLead(d: Row): boolean {
-  const lo = (d.loan_officer ?? '').toLowerCase()
-  if (lo.includes('randy') || lo.includes('mathis')) return true
-  if (RANDY_LOCATION_ID && d.ghl_location_id === RANDY_LOCATION_ID) return true
+// Brianne only handles 2nd call-backs for Matt & Moe — NOT Randy and NOT Daniel
+// (each of them runs their own GHL sub-account with its own follow-up). A lead
+// belongs to one of them if its loan_officer resolves to them OR it lives in
+// their GHL location. The 15-min sync that creates every deal reliably stamps
+// both, so checking both is belt-and-suspenders: a rename can't leak their
+// leads back in, and neither can an unstamped loan_officer.
+const OUT_OF_SCOPE_NAME = /randy|mathis|daniel|mcgrail|granger/
+const OUT_OF_SCOPE_LOCATION_IDS = [
+  process.env.GHL_LOCATION_ID_2 || '',   // Randy
+  process.env.GHL_LOCATION_ID_3 || '',   // Daniel
+].filter(Boolean)
+
+function isOutOfScopeLead(d: Row): boolean {
+  if (OUT_OF_SCOPE_NAME.test((d.loan_officer ?? '').toLowerCase())) return true
+  if (d.ghl_location_id && OUT_OF_SCOPE_LOCATION_IDS.includes(d.ghl_location_id)) return true
   return false
 }
 
@@ -56,8 +61,9 @@ export async function runSecondCallbackCheck(): Promise<{ scanned: number; creat
   let created = 0, errors = 0
 
   for (const d of rows) {
-    // Randy's leads are handled outside this rule — skip them (Matt & Moe only).
-    if (isRandysLead(d)) continue
+    // Randy's and Daniel's leads are handled outside this rule — skip them
+    // (Matt & Moe only).
+    if (isOutOfScopeLead(d)) continue
 
     // Use the GHL creation time when available, else the DB row time.
     const eff = d.date_added_ghl ? Date.parse(d.date_added_ghl) : Date.parse(d.created_at)

@@ -62,6 +62,7 @@ const LO_COLORS: Record<string, string> = {
   'Matt': '#10b981',
   'Moe Sefati': '#f59e0b',
   'Randy Mathis': '#8b5cf6',
+  'Daniel McGrail-Granger': '#0ea5e9',
 }
 
 // Funnel stages in order — leads pipeline → escrow → funded
@@ -207,8 +208,16 @@ export default function ReportsPage() {
     : 0
 
   // ── LO scorecard ──────────────────────────────────────────────────────────
-  const loScorecard = ['Matt', 'Moe Sefati', 'Randy Mathis'].map(lo => {
-    const all = filtered.filter(d => d.loan_officer?.includes(lo))
+  // (display name, substring to match). Split apart when Daniel was added: his
+  // row label is the full hyphenated name but matching on it would miss any row
+  // stamped with a variant spelling, so the match key is just "Daniel".
+  const loScorecard = [
+    { name: 'Matt',                   match: 'Matt' },
+    { name: 'Moe Sefati',             match: 'Moe' },
+    { name: 'Randy Mathis',           match: 'Randy' },
+    { name: 'Daniel McGrail-Granger', match: 'Daniel' },
+  ].map(({ name: lo, match }) => {
+    const all = filtered.filter(d => d.loan_officer?.includes(match))
     const funded = all.filter(d => d.pipeline_group === 'Funded')
     const escrow = all.filter(d => d.pipeline_group === 'Loans in Process')
     const fundedVol = funded.reduce((s, d) => s + (d.loan_amount || 0), 0)

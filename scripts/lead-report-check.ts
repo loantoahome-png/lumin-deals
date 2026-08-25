@@ -79,6 +79,21 @@ eq('Randy Mathis matches Randy', matchesLO(row({ loan_officer: 'Randy Mathis' })
 eq('Randy Mathis not Moe', matchesLO(row({ loan_officer: 'Randy Mathis' }), 'Moe'), false)
 eq('Moe Sefati not Randy', matchesLO(row({ loan_officer: 'Moe Sefati' }), 'Randy'), false)
 
+// Daniel McGrail-Granger — added 2026-08-25. The hyphenated surname gets typed
+// several ways, so each half matches on its own. The reverse assertions are the
+// point: before LO_PATTERNS became a Record, a tab with no branch fell through
+// to Moe's, so a new LO's page silently rendered Moe's leads.
+eq('Daniel full name matches Daniel', matchesLO(row({ loan_officer: 'Daniel McGrail-Granger' }), 'Daniel'), true)
+eq('Daniel unhyphenated matches', matchesLO(row({ loan_officer: 'Daniel McGrail Granger' }), 'Daniel'), true)
+eq('surname alone matches', matchesLO(row({ loan_officer: 'McGrail-Granger' }), 'Daniel'), true)
+eq('Daniel is not Moe', matchesLO(row({ loan_officer: 'Daniel McGrail-Granger' }), 'Moe'), false)
+eq('Daniel is not Matt', matchesLO(row({ loan_officer: 'Daniel McGrail-Granger' }), 'Matt'), false)
+eq('Daniel is not Randy', matchesLO(row({ loan_officer: 'Daniel McGrail-Granger' }), 'Randy'), false)
+eq('Moe is not Daniel', matchesLO(row({ loan_officer: 'Moe Sefati' }), 'Daniel'), false)
+eq('Matt is not Daniel', matchesLO(row({ loan_officer: 'Matt Park' }), 'Daniel'), false)
+eq('Randy is not Daniel', matchesLO(row({ loan_officer: 'Randy Mathis' }), 'Daniel'), false)
+eq('unassigned is not Daniel', matchesLO(row({ loan_officer: null }), 'Daniel'), false)
+
 // ── Purpose matching ───────────────────────────────────────────────
 eq('purpose All matches anything', matchesPurpose(row({ loan_purpose: null }), 'All'), true)
 eq('Purchase matches', matchesPurpose(row({ loan_purpose: 'Purchase' }), 'Purchase'), true)

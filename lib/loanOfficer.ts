@@ -13,6 +13,13 @@ const LO_MAP: Record<string, string> = {
   'matt': 'Matt Park', 'park': 'Matt Park',
   // Randy variants
   'randy mathis': 'Randy Mathis', 'randy': 'Randy Mathis', 'mathis': 'Randy Mathis',
+  // Daniel variants. The surname is hyphenated and gets typed a dozen ways, so
+  // match on either half independently as well as the first name. Checked
+  // against every key above: none of them is a substring of
+  // "daniel mcgrail-granger", so adding these can't steal another LO's leads.
+  'daniel mcgrail-granger': 'Daniel McGrail-Granger',
+  'mcgrail': 'Daniel McGrail-Granger', 'granger': 'Daniel McGrail-Granger',
+  'daniel': 'Daniel McGrail-Granger',
 }
 
 export function resolveLO(name: string | null | undefined): string | null {
@@ -28,16 +35,16 @@ export function resolveLO(name: string | null | undefined): string | null {
 }
 
 // The default working set for the daily views AND the Hot Leads / triage /
-// follow-up workflow: Moe + Matt only. Randy runs his own GHL sub-account with
-// its own follow-up, so his leads are opt-in for VIEWING (his LoFilter pill) but
-// are NEVER put on the triage clock or auto-tasked. (Efrain 2026-07-14: "default
+// follow-up workflow: Moe + Matt only. Randy AND Daniel each run their own GHL
+// sub-account with its own follow-up, so their leads are opt-in for VIEWING
+// (their LoFilter pills) but are NEVER put on the triage clock or auto-tasked. (Efrain 2026-07-14: "default
 // views = only Moe and Matt"; reaffirmed 2026-07-20: "hot leads / triage /
 // follow-ups is only for Moe and Matt.") Server-safe so the triage cron can gate
 // on the exact same rule the UI filters by. LoFilter re-exports this.
 export const DEFAULT_LOS: string[] = ['Matt Park', 'Moe Sefati']
 
-// Is this lead owned by an in-scope LO (Moe or Matt)? Randy, unknown names, and
-// unassigned (null) leads are all out of scope — matching the Hot Leads default
+// Is this lead owned by an in-scope LO (Moe or Matt)? Randy, Daniel, unknown
+// names, and unassigned (null) leads are all out of scope — matching the Hot Leads default
 // filter (loSelected against DEFAULT_LOS), so a task is only ever created for a
 // lead that also shows up in the default triage queue.
 export function inDefaultLoScope(loanOfficer: string | null | undefined): boolean {

@@ -16,7 +16,11 @@
 // and Matt already have accounts with empty metadata, and this file must not
 // change what they can reach. Restriction is opt-in, per account.
 
-export type Role = 'admin' | 'processor'
+export type Role = 'admin' | 'processor' | 'reporting'
+
+/** Every non-admin role, i.e. every value that actually restricts something.
+ *  `roleFromUser` only returns one of these when app_metadata says so. */
+const RESTRICTED_ROLES = ['processor', 'reporting'] as const
 
 /** Minimal shape of a Supabase auth user — avoids importing @supabase/supabase-js
  *  into middleware's module graph just for a type. */
@@ -26,10 +30,13 @@ type UserLike = {
   user_metadata?: Record<string, unknown> | null
 } | null | undefined
 
-/** The role for a signed-in user. Absent/unknown → 'admin' (see note above). */
+/** The role for a signed-in user. Absent/unknown → 'admin' (see note above).
+ *  An UNRECOGNISED role string also falls through to admin, deliberately: a typo
+ *  in app_metadata must not silently lock someone out of a dashboard they own.
+ *  Restriction is only ever granted by an exact, known role name. */
 export function roleFromUser(user: UserLike): Role {
   const raw = user?.app_metadata?.['role']
-  return raw === 'processor' ? 'processor' : 'admin'
+  return (RESTRICTED_ROLES as readonly string[]).includes(raw as string) ? (raw as Role) : 'admin'
 }
 
 /**
@@ -63,6 +70,27 @@ const PROCESSOR_ALLOWED = [
   '/tasks',
 ]
 
+// ── What a reporting-only LO may reach ──────────────────────────────────────
+// Daniel McGrail-Granger (2026-08-25): an LO who gets the numbers and nothing
+// else. Efrain's decision was "the reporting sections, nothing else", scoped to
+// these four — he sees the WHOLE team's figures on them, same as an admin does,
+// so there is no per-LO data lock here. What's excluded is everything that
+// isn't reporting: the pipeline, contacts, deals, tools, and every import.
+//
+// ⚠️ `/reports/escrows` is DENIED below and that is load-bearing. Matching is
+//    prefix-based, so allowing `/reports` would otherwise hand him the escrow
+//    report — which is operational, not analytical, and wasn't in scope.
+const REPORTING_ALLOWED = [
+  '/reports',
+  '/monthly-reports',
+  '/lead-roi',
+  '/lead-cohorts',
+]
+
+const REPORTING_DENIED = [
+  '/reports/escrows',
+]
+
 // Carve-outs that the prefixes above would otherwise let through. `/deals/new`
 // matches `/deals/` but is deal CREATION — a file appears on a processor's desk
 // because someone assigned it, never because she made one.
@@ -72,11 +100,35 @@ const PROCESSOR_DENIED = [
 
 /** Where a restricted user lands when they hit anything else, including `/`. */
 export const PROCESSOR_HOME = '/processing'
+export const REPORTING_HOME = '/reports'
+
+/** The landing page for a role. Admins keep the real dashboard at `/`. */
+export function homeFor(role: Role): string {
+  return role === 'processor' ? PROCESSOR_HOME : role === 'reporting' ? REPORTING_HOME : '/'
+}
+
+const ACCESS: Record<Exclude<Role, 'admin'>, { allowed: string[]; denied: string[] }> = {
+  processor: { allowed: PROCESSOR_ALLOWED, denied: PROCESSOR_DENIED },
+  reporting: { allowed: REPORTING_ALLOWED, denied: REPORTING_DENIED },
+}
+
+/** Prefix match on a path SEGMENT boundary — `/reports` covers `/reports/foo`
+ *  but never `/reports-secret`. The processor list's `/deals/` entry keeps its
+ *  trailing slash and still works: `/deals/` + `/` never appears, and the
+ *  startsWith arm below matches `/deals/<id>` directly. */
+function matches(list: string[], pathname: string): boolean {
+  return list.some(p =>
+    p.endsWith('/')
+      ? pathname.startsWith(p)
+      : pathname === p || pathname.startsWith(p + '/'),
+  )
+}
 
 export function canAccess(role: Role, pathname: string): boolean {
   if (role === 'admin') return true
-  if (PROCESSOR_DENIED.some(p => pathname === p || pathname.startsWith(p + '/'))) return false
-  return PROCESSOR_ALLOWED.some(p => pathname === p || pathname.startsWith(p))
+  const { allowed, denied } = ACCESS[role]
+  if (matches(denied, pathname)) return false
+  return matches(allowed, pathname)
 }
 
 /**
@@ -86,6 +138,7 @@ export function canAccess(role: Role, pathname: string): boolean {
  */
 export function canSeeNavItem(role: Role, href: string): boolean {
   if (role === 'admin') return true
+  if (role === 'reporting') return REPORTING_ALLOWED.includes(href)
   return href === PROCESSOR_HOME || href === '/worklist' || href === '/tasks'
 }
 
@@ -105,6 +158,11 @@ const PROCESSOR_TASK_PEERS = ['Efrain Ramirez', 'Brianne Han']
  */
 export function taskColumnsFor(role: Role, myName: string | null, adminColumns: readonly string[]): string[] {
   if (role === 'admin') return [...adminColumns]
+  // A reporting-only LO has no task board at all — /tasks isn't in his
+  // allow-list. Returning [] rather than falling through to the processor's
+  // columns means that even if a task surface is ever embedded in a page he CAN
+  // reach, it renders empty instead of leaking the team's work items.
+  if (role === 'reporting') return []
   return myName ? [myName, ...PROCESSOR_TASK_PEERS] : [...PROCESSOR_TASK_PEERS]
 }
 
@@ -120,7 +178,8 @@ export function canSeeTask(role: Role, myName: string | null, assignee: string |
   return !!assignee && visible.includes(assignee)
 }
 
-/** The Bulletin board is team-wide chatter — not part of a processor's desk. */
+/** The Bulletin board is team-wide chatter — not part of a processor's desk, and
+ *  not part of a reporting-only LO's world either. Admins only. */
 export function canSeeBulletin(role: Role): boolean {
   return role === 'admin'
 }

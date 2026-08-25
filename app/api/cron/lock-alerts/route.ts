@@ -37,6 +37,7 @@ function getLoEmail(loanOfficer: string | null | undefined): string | null {
   if (lo.includes('matt')) return process.env.LO_EMAIL_MATT || null
   if (lo.includes('moe'))  return process.env.LO_EMAIL_MOE  || null
   if (lo.includes('randy') || lo.includes('mathis')) return process.env.LO_EMAIL_RANDY || null
+  if (lo.includes('daniel') || lo.includes('mcgrail') || lo.includes('granger')) return process.env.LO_EMAIL_DANIEL || null
   return null
 }
 

@@ -17,6 +17,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { useCurrentUser } from '@/lib/useCurrentUser'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal, LOAN_OFFICERS, PIPELINE_GROUPS, PIPELINE_STATUSES } from '@/lib/types'
 import { formatCurrency, formatDate as fmtDate } from '@/lib/utils'
@@ -48,6 +49,7 @@ const LO_ACCENT: Record<string, string> = {
   'Moe Sefati':   'bg-indigo-600 border-indigo-600',
   'Matt Park':    'bg-emerald-600 border-emerald-600',
   'Randy Mathis': 'bg-violet-600 border-violet-600',
+  'Daniel McGrail-Granger': 'bg-sky-600 border-sky-600',
 }
 
 const pct = (x: number) => x.toFixed(1) + '%'
@@ -95,6 +97,17 @@ export default function LeadRoiPage() {
   const [includedSources, setIncludedSources] = useState<Set<string> | null>(null)
   const [showSourceFilter, setShowSourceFilter] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  // ⚠️ /lead-roi is NOT a read-only page. It can rewrite `deals.source` — one
+  // deal at a time AND in bulk across every deal from a source — and edit the
+  // retainer costs that feed every ROI figure on it. A `reporting` LO is here to
+  // read the numbers, not to re-attribute the team's lead sources, so the write
+  // affordances are admin-only.
+  //
+  // `useCurrentUser` reports role 'admin' with loaded:false before the session
+  // resolves, so gate on BOTH — otherwise the controls flash on for everyone.
+  const me = useCurrentUser()
+  const canEdit = me.loaded && me.role === 'admin'
+
   const [editingCost, setEditingCost] = useState<string | null>(null)
   const [editCostValue, setEditCostValue] = useState('')
   const [editCostNotes, setEditCostNotes] = useState('')
@@ -207,6 +220,7 @@ export default function LeadRoiPage() {
     setEditCostNotes(c?.notes ?? '')
   }
   async function saveCost(src: string) {
+    if (!canEdit) return
     const cpm = Number(editCostValue) || 0
     const notes = editCostNotes.trim() || null
     const res = await fetch('/api/lead-source-costs', {
@@ -227,6 +241,7 @@ export default function LeadRoiPage() {
 
   // ── Recategorize (single + bulk) — carried over from Lead Spend ─────────────
   async function changeDealSource(dealId: string, newSource: string) {
+    if (!canEdit) return
     const trimmed = newSource.trim()
     if (!trimmed) return
     setDeals(prev => prev.map(d => d.id === dealId ? ({ ...d, source: trimmed } as Deal) : d))
@@ -234,6 +249,7 @@ export default function LeadRoiPage() {
     if (error) console.error('Reassign source failed:', error.message)
   }
   async function bulkReassignSource(fromSource: string, toSource: string) {
+    if (!canEdit) return
     const trimmed = toSource.trim()
     if (!trimmed || trimmed === fromSource) return
     const realSource = fromSource === '(no source set)' ? null : fromSource
@@ -729,12 +745,16 @@ export default function LeadRoiPage() {
                                           <button onClick={() => saveCost(s.source)} className="text-emerald-600 hover:text-emerald-800"><Check className="w-3.5 h-3.5" /></button>
                                           <button onClick={cancelEditCost} className="text-slate-400 hover:text-slate-700"><X className="w-3.5 h-3.5" /></button>
                                         </div>
-                                      ) : (
+                                      ) : canEdit ? (
                                         <button onClick={() => startEditCost(s.source)}
                                           className="group inline-flex items-center gap-1 font-semibold text-slate-700 hover:text-blue-700">
                                           {s.costPerMonth > 0 ? `${formatCurrency(s.costPerMonth)}/mo` : <span className="font-normal text-slate-400">Not set — click to add</span>}
                                           <Pencil className="w-3 h-3 opacity-50 group-hover:opacity-100" />
                                         </button>
+                                      ) : (
+                                        <span className="font-semibold text-slate-700">
+                                          {s.costPerMonth > 0 ? `${formatCurrency(s.costPerMonth)}/mo` : <span className="font-normal text-slate-400">Not set</span>}
+                                        </span>
                                       )}
                                       <span className="text-[10px] text-slate-400 ml-1">For retainer-billed sources — now included in Spend and ROI.</span>
                                     </div>
@@ -744,6 +764,7 @@ export default function LeadRoiPage() {
                                       allSources={allKnownSources}
                                       onChangeDealSource={changeDealSource}
                                       onBulkReassign={bulkReassignSource}
+                                      canEdit={canEdit}
                                     />
                                   </td>
                                 </tr>
@@ -1049,13 +1070,17 @@ function Kpi({ icon, label, value, sub, highlight, valueClass, subWrap }: {
 
 // ── Drill-down: deals from one source + recategorize controls (from Lead Spend) ─
 function SourceDealsList({
-  sourceLabel: srcLabel, deals, allSources, onChangeDealSource, onBulkReassign,
+  sourceLabel: srcLabel, deals, allSources, onChangeDealSource, onBulkReassign, canEdit,
 }: {
   sourceLabel: string
   deals: Deal[]
   allSources: string[]
   onChangeDealSource: (dealId: string, newSource: string) => Promise<void>
   onBulkReassign: (fromSource: string, toSource: string) => Promise<void>
+  /** Admin-only. false hides every recategorize control — see the note on the
+   *  page component. Required (not optional) so a new call site can't forget it
+   *  and silently re-expose bulk source rewriting. */
+  canEdit: boolean
 }) {
   const [showAll, setShowAll] = useState(false)
   const [bulkTarget, setBulkTarget] = useState('')
@@ -1069,6 +1094,7 @@ function SourceDealsList({
 
   return (
     <div>
+      {canEdit && (
       <div className="flex items-center gap-2 mb-3 text-xs bg-white border border-slate-200 rounded px-3 py-2">
         <span className="text-slate-500 font-medium whitespace-nowrap">Reassign all {sorted.length}:</span>
         <span className="text-slate-800 font-semibold">{srcLabel}</span>
@@ -1091,6 +1117,7 @@ function SourceDealsList({
           <Save className="w-3 h-3" /> Apply
         </button>
       </div>
+      )}
 
       <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-2">
         {sorted.length} {sorted.length === 1 ? 'deal' : 'deals'} from this source
@@ -1113,11 +1140,15 @@ function SourceDealsList({
               {d.loan_amount ? formatCurrency(d.loan_amount) : '—'}
             </span>
             <span className="text-slate-400 text-[10px] shrink-0 hidden md:inline w-28 truncate">{d.status}</span>
-            <DealSourceSelect
-              currentSource={d.source ?? ''}
-              allSources={allSources}
-              onChange={next => onChangeDealSource(d.id, next)}
-            />
+            {canEdit ? (
+              <DealSourceSelect
+                currentSource={d.source ?? ''}
+                allSources={allSources}
+                onChange={next => onChangeDealSource(d.id, next)}
+              />
+            ) : (
+              <span className="shrink-0 text-slate-500 text-[10px] truncate max-w-[140px]">{d.source || '—'}</span>
+            )}
           </div>
         ))}
       </div>

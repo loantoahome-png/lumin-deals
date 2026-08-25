@@ -113,6 +113,76 @@ stamped on tasks they create instead of being derived from their email:
 npx tsx scripts/set-user-role.ts someone@luminlending.com admin "Their Name"
 ```
 
+## Adding a reporting-only loan officer
+
+Written 2026-08-25 for **Daniel McGrail-Granger**. This is the `reporting` role:
+an LO who sees the four report pages and nothing else. He sees the **whole
+team's** figures on them — Efrain's explicit decision, so there is no per-LO data
+lock. What's withheld is every other part of the app.
+
+| Reaches | Blocked |
+|---|---|
+| `/reports` | `/reports/escrows` (operational, deliberately denied) |
+| `/monthly-reports` | `/`, `/deals`, `/contacts`, `/pipeline`, `/funded` |
+| `/lead-roi` (+ `/lead-roi/report`) | `/calls`, `/report-import`, `/import/*` |
+| `/lead-cohorts` | `/tasks`, the Bulletin, `/tools`, `/processing` |
+
+### 1. Wire his GHL sub-account (do this BEFORE the login exists)
+
+Vercel → lumin-deals → Settings → Environment Variables → **Production**:
+
+| Variable | Value |
+|---|---|
+| `GHL_API_KEY_3` | his sub-account's private integration token (`pit-…`) |
+| `GHL_LOCATION_ID_3` | his GHL location id |
+| `NEXT_PUBLIC_GHL_LOCATION_ID_3` | same location id (used for the contact-page GHL label) |
+| `LO_EMAIL_DANIEL` | his work email (lock-expiry alerts) |
+
+Then **redeploy** — env vars are baked in at build time. `getAccounts()` is
+guarded on both `GHL_API_KEY_3` and `GHL_LOCATION_ID_3`, so until both exist the
+fourth slot simply doesn't exist and nothing else changes. That inertness is why
+the code can ship ahead of the credentials; it is also what made the first Randy
+attempt look like a bug when it wasn't.
+
+Confirm with one manual `POST /api/sync/ghl` and check the response's per-account
+counts before trusting the 15-min cron.
+
+### 2. Create the login and restrict it — in the same sitting
+
+Create the user exactly as in step 1 at the top of this file, then immediately:
+
+```bash
+npx tsx scripts/set-user-role.ts daniel@... reporting "Daniel McGrail-Granger"
+```
+
+**⚠️ A brand-new account is an ADMIN until this runs.** No `role` key means full
+access — Lead ROI, comp, every LO's numbers. Do not send him the password until
+`set-user-role.ts <email>` (no role argument) reads back
+`reporting (restricted — report pages only)`.
+
+### 3. Verify
+
+| Check | Expected |
+|---|---|
+| Lands on | `/reports` |
+| Sidebar | Reports, Monthly Reports, Lead ROI, Lead Cohorts — nothing else |
+| Visit `/` | Bounces to `/reports` |
+| Visit `/reports/escrows` | Bounces to `/reports` |
+| Visit `/lead-roi` | Opens |
+| His LO pill | Appears on the report filters in sky blue |
+
+### What he is deliberately NOT part of
+
+Same posture as Randy: his leads are **opt-in for viewing** but never enter the
+Moe+Matt working set. He is not on the hot-leads triage clock, not in the
+follow-up queue, not auto-tasked by the 2nd-callback cron, and excluded from
+`/calls`. `DEFAULT_LOS` stays `['Matt Park', 'Moe Sefati']`.
+
+Known gap, inherited from Randy: his GHL sub-account is not on the real-time
+stage webhook, so `/lead-cohorts` timing for his NEW leads only updates on the
+15-min sync, and his history needs `/api/stage-events/backfill` run per date
+range.
+
 ## Adding another processor later
 
 Same as above with their own `display_name`, which must match a value in
@@ -122,9 +192,10 @@ code change; a name outside that list gets an empty desk.
 
 ## What this does NOT do
 
-The restriction is a **routing** gate (`middleware.ts` + `lib/roles.ts`). Row
-level security on `deals` is unchanged, so a restricted account still holds a
-Supabase anon key that could query other rows directly if someone went looking
+The restriction is a **routing** gate (`middleware.ts` + `lib/roles.ts`) — for
+BOTH the `processor` and the `reporting` role. Row level security on `deals` is
+unchanged, so a restricted account still holds a Supabase anon key that could
+query other rows directly if someone went looking
 with the browser console. That's the same trust boundary every teammate account
 already operates under — it is not a defense against a determined insider. If
 that matters, the fix is per-role RLS policies on `deals`, which is a separate

@@ -161,6 +161,15 @@ eq('matchesLO Randy', matchesLO(lead({ loan_officer: 'Randy Mathis' }), 'Randy')
 eq('matchesLO Randy excludes Moe', matchesLO(lead({ loan_officer: 'Moe Sefati' }), 'Randy'), false)
 eq('matchesLO Moe excludes Randy', matchesLO(lead({ loan_officer: 'Randy Mathis' }), 'Moe'), false)
 
+// Daniel — the cohort copy of matchesLO is separate from leadReport's on
+// purpose, so it gets its own assertions. Both copies must know every LO or
+// this page shows the wrong person's leads.
+eq('matchesLO Daniel', matchesLO(lead({ loan_officer: 'Daniel McGrail-Granger' }), 'Daniel'), true)
+eq('matchesLO Daniel unhyphenated', matchesLO(lead({ loan_officer: 'Daniel McGrail Granger' }), 'Daniel'), true)
+eq('matchesLO Daniel excludes Moe', matchesLO(lead({ loan_officer: 'Moe Sefati' }), 'Daniel'), false)
+eq('matchesLO Daniel excludes Randy', matchesLO(lead({ loan_officer: 'Randy Mathis' }), 'Daniel'), false)
+eq('matchesLO Moe excludes Daniel', matchesLO(lead({ loan_officer: 'Daniel McGrail-Granger' }), 'Moe'), false)
+
 // ── analyzeCohort end-to-end ────────────────────────────────────────────────
 const res = analyzeCohort(rows, firstResp, NOW, { label: 'A', start: '2026-07-01', end: '2026-07-10' }, 'All')
 eq('analyzeCohort seg total', res.seg.total, 6)

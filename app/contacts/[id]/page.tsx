@@ -32,6 +32,7 @@ function subAccountLinks(deals: Deal[]): SubLink[] {
   const MATT = process.env.NEXT_PUBLIC_GHL_LOCATION_ID_MATT
   const MOE = process.env.NEXT_PUBLIC_GHL_LOCATION_ID
   const RANDY = process.env.NEXT_PUBLIC_GHL_LOCATION_ID_2
+  const DANIEL = process.env.NEXT_PUBLIC_GHL_LOCATION_ID_3
   const seen = new Map<string, SubLink>()
   for (const d of deals) {
     if (!d.ghl_contact_id) continue
@@ -45,7 +46,7 @@ function subAccountLinks(deals: Deal[]): SubLink[] {
     const locId = url.match(/\/location\/([^/]+)\//)?.[1] ?? ''
     const key = `${locId}:${d.ghl_contact_id}`
     if (seen.has(key)) continue
-    const label = locId && locId === MATT ? 'GHL · Matt' : locId && locId === MOE ? 'GHL · Moe' : locId && locId === RANDY ? 'GHL · Randy' : 'GHL'
+    const label = locId && locId === MATT ? 'GHL · Matt' : locId && locId === MOE ? 'GHL · Moe' : locId && locId === RANDY ? 'GHL · Randy' : locId && locId === DANIEL ? 'GHL · Daniel' : 'GHL'
     seen.set(key, { url, label })
   }
   return [...seen.values()]

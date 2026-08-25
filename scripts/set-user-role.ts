@@ -1,8 +1,12 @@
 // Set (or clear) a user's role + display name in Supabase auth `app_metadata`.
 //
 //   npx tsx scripts/set-user-role.ts <email> processor "Hanh Nguyen"
+//   npx tsx scripts/set-user-role.ts <email> reporting "Daniel McGrail-Granger"
 //   npx tsx scripts/set-user-role.ts <email> admin              # clears the restriction
 //   npx tsx scripts/set-user-role.ts <email>                    # read-only: show current
+//
+// Roles: processor = the Processing Desk only. reporting = the four report pages
+// only (/reports, /monthly-reports, /lead-roi, /lead-cohorts). admin = everything.
 //
 // ⚠️ Why this script exists instead of a dashboard step: newer Supabase dashboards
 //    removed the editable "Raw App Meta Data" box. The Raw JSON tab displays
@@ -33,8 +37,9 @@ if (!email) {
   console.error('usage: npx tsx scripts/set-user-role.ts <email> [processor|admin] ["Display Name"]')
   process.exit(1)
 }
-if (roleArg && roleArg !== 'processor' && roleArg !== 'admin') {
-  console.error(`unknown role "${roleArg}" — expected "processor" or "admin"`)
+const VALID_ROLES = ['processor', 'reporting', 'admin']
+if (roleArg && !VALID_ROLES.includes(roleArg)) {
+  console.error(`unknown role "${roleArg}" — expected one of ${VALID_ROLES.join(', ')}`)
   process.exit(1)
 }
 
@@ -63,7 +68,10 @@ async function main() {
   console.log(`  uid          ${user.id}`)
   console.log(`  confirmed    ${user.email_confirmed_at ? 'yes' : 'NO — they cannot sign in until confirmed'}`)
   console.log(`  app_metadata ${JSON.stringify(before)}`)
-  console.log(`  → effective role: ${before.role === 'processor' ? 'processor (restricted)' : 'admin (full access)'}`)
+  const effective = before.role === 'processor' ? 'processor (restricted — Processing Desk only)'
+    : before.role === 'reporting' ? 'reporting (restricted — report pages only)'
+    : 'admin (full access)'
+  console.log(`  → effective role: ${effective}`)
 
   if (!roleArg) {
     console.log('\n(read-only — pass a role to change it)\n')
@@ -76,7 +84,7 @@ async function main() {
   if (roleArg === 'admin') {
     delete next.role          // absence of the key IS admin — see lib/roles.ts
   } else {
-    next.role = 'processor'
+    next.role = roleArg       // 'processor' | 'reporting' — validated above
   }
   if (displayArg) next.display_name = displayArg
 
@@ -86,7 +94,10 @@ async function main() {
   const after = (data.user.app_metadata ?? {}) as Record<string, unknown>
   console.log(`\n✓ updated`)
   console.log(`  app_metadata ${JSON.stringify(after)}`)
-  console.log(`  → effective role: ${after.role === 'processor' ? 'processor (restricted)' : 'admin (full access)'}`)
+  const effectiveAfter = after.role === 'processor' ? 'processor (restricted — Processing Desk only)'
+    : after.role === 'reporting' ? 'reporting (restricted — report pages only)'
+    : 'admin (full access)'
+  console.log(`  → effective role: ${effectiveAfter}`)
   if (after.display_name) console.log(`  → desk pinned to: ${after.display_name}`)
   console.log(`\n⚠️  If they're already signed in, they must sign out and back in — the`)
   console.log(`    old session still carries the previous role until it refreshes.\n`)
