@@ -14,7 +14,7 @@
 
 import {
   roleFromUser, displayName, canAccess, canSeeNavItem, PROCESSOR_HOME,
-  REPORTING_HOME, homeFor, taskColumnsFor, canSeeTask, canSeeBulletin,
+  REPORTING_HOME, homeFor, taskColumnsFor, canSeeTask, canSeeBulletin, canSeeNotifications,
 } from '../lib/roles'
 
 let pass = 0, fail = 0
@@ -170,16 +170,30 @@ eq('processor home is unchanged', homeFor('processor'), PROCESSOR_HOME)
 eq('admin home is the dashboard', homeFor('admin'), '/')
 
 // The four he CAN reach.
-for (const path of ['/reports', '/monthly-reports', '/lead-roi']) {
+for (const path of ['/monthly-reports', '/lead-roi']) {
   eq(`reporting reaches ${path}`, canAccess('reporting', path), true)
   eq(`reporting sees ${path} in nav`, canSeeNavItem('reporting', path), true)
 }
 
-// ⚠️ The one that would silently leak: /reports/escrows sits UNDER an allowed
-// prefix. If the deny-list entry is ever removed this assertion is what catches
-// it — the escrow report is operational, not analytical, and wasn't in scope.
+// /reports removed from the allow-list 2026-08-25 (Efrain: "get rid of this view
+// from his account"). /reports/escrows stays asserted too: it sits UNDER the
+// /reports prefix, so if anyone re-adds /reports without restoring the deny
+// entry, this is what catches the escrow report leaking through.
+eq('reporting BLOCKED from /reports', canAccess('reporting', '/reports'), false)
+eq('/reports hidden from nav', canSeeNavItem('reporting', '/reports'), false)
 eq('reporting BLOCKED from /reports/escrows', canAccess('reporting', '/reports/escrows'), false)
 eq('/reports/escrows hidden from nav', canSeeNavItem('reporting', '/reports/escrows'), false)
+
+// ⚠️ The home MUST be a path the role can actually reach, or the middleware
+// redirect loops forever. This pairs REPORTING_HOME to the allow-list.
+eq('reporting home is reachable', canAccess('reporting', homeFor('reporting')), true)
+eq('processor home is reachable', canAccess('processor', homeFor('processor')), true)
+
+// The notification bell renders deal names and task titles inline and links to
+// pages this role can't open — hiding it is a disclosure fix, not cosmetics.
+eq('reporting does NOT see notifications', canSeeNotifications('reporting'), false)
+eq('processor still sees notifications', canSeeNotifications('processor'), true)
+eq('admin still sees notifications', canSeeNotifications('admin'), true)
 
 // Everything else. /import/* and /report-import MUTATE data; /deals, /contacts,
 // /pipeline are the book of business; / is the dashboard.
@@ -188,7 +202,7 @@ for (const path of [
   '/pipeline', '/funded', '/hot-leads', '/follow-up', '/radar', '/worklist',
   // Removed from the allow-list 2026-08-25 — without the stage-events backfill it
   // would show his response rates as a flat 0.0%, which is wrong, not empty.
-  '/lead-cohorts',
+  '/lead-cohorts', '/reports',
   '/processing', '/tasks', '/notes', '/tools', '/lenders', '/compliance',
   '/calls', '/report-import', '/import/arive', '/import/calls', '/health',
   '/duplicates', '/old-deals', '/underwriting',

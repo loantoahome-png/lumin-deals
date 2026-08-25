@@ -83,11 +83,12 @@ const PROCESSOR_ALLOWED = [
 // a flat 0.0%. That is WRONG data, not missing data — worse than no page. What's excluded is everything that
 // isn't reporting: the pipeline, contacts, deals, tools, and every import.
 //
-// ⚠️ `/reports/escrows` is DENIED below and that is load-bearing. Matching is
-//    prefix-based, so allowing `/reports` would otherwise hand him the escrow
-//    report — which is operational, not analytical, and wasn't in scope.
+// ⚠️ `/reports` itself was REMOVED 2026-08-25 (Efrain, pointing at the nav item:
+//    "get rid of this view from his account"). The `/reports/escrows` deny entry
+//    below is kept anyway: it is dead while `/reports` is absent from the allow
+//    list, and becomes load-bearing again the moment anyone re-adds `/reports`,
+//    because matching is prefix-based.
 const REPORTING_ALLOWED = [
-  '/reports',
   '/monthly-reports',
   '/lead-roi',
 ]
@@ -105,7 +106,10 @@ const PROCESSOR_DENIED = [
 
 /** Where a restricted user lands when they hit anything else, including `/`. */
 export const PROCESSOR_HOME = '/processing'
-export const REPORTING_HOME = '/reports'
+// Landing page for a reporting account. Moved off `/reports` when that page was
+// removed from the allow-list — a home the role cannot reach is an infinite
+// redirect, so these two must always be changed together.
+export const REPORTING_HOME = '/monthly-reports'
 
 /** The landing page for a role. Admins keep the real dashboard at `/`. */
 export function homeFor(role: Role): string {
@@ -181,6 +185,20 @@ export function canSeeTask(role: Role, myName: string | null, assignee: string |
   if (role === 'admin') return true
   const visible = taskColumnsFor(role, myName, [])
   return !!assignee && visible.includes(assignee)
+}
+
+/**
+ * Can this role see the notification bell? Admins and processors yes,
+ * `reporting` NO.
+ *
+ * ⚠️ Not cosmetic. NotificationBell links to `/deals/<id>` and `/tasks`, which a
+ * reporting account is blocked from — but it renders the deal names and task
+ * titles inline, so leaving it up would surface exactly the team content the
+ * role exists to withhold, via a bell whose links then bounce. Processors keep
+ * theirs: Hanh works those deals and tasks.
+ */
+export function canSeeNotifications(role: Role): boolean {
+  return role !== 'reporting'
 }
 
 /** The Bulletin board is team-wide chatter — not part of a processor's desk, and

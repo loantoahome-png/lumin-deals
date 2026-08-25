@@ -35,7 +35,7 @@ import NotificationBell from './NotificationBell'
 import LastSyncBadge from './LastSyncBadge'
 import { supabase } from '@/lib/supabase'
 import { useCurrentUser } from '@/lib/useCurrentUser'
-import { canSeeNavItem } from '@/lib/roles'
+import { canSeeNavItem, canSeeNotifications } from '@/lib/roles'
 
 const navGroups = [
   {
@@ -211,10 +211,13 @@ export default function Sidebar() {
         </div>
       )}
 
-      {/* Notifications */}
-      <div className="pt-2">
-        <NotificationBell />
-      </div>
+      {/* Notifications — hidden for a reporting-only LO: the bell renders deal
+          names and task titles, and links to pages that role can't open. */}
+      {me.loaded && canSeeNotifications(me.role) && (
+        <div className="pt-2">
+          <NotificationBell />
+        </div>
+      )}
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-2 space-y-2 overflow-y-auto">

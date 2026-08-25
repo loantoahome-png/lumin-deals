@@ -24,6 +24,8 @@ import { formatCurrency, formatDate } from '@/lib/utils'
 import { LO_SPLIT, type CostRow } from '@/lib/leadRoi'
 import { isFunded } from '@/lib/leadReport'
 import { totalComp } from '@/lib/comp'
+import { useCurrentUser } from '@/lib/useCurrentUser'
+import { resolveLO } from '@/lib/loanOfficer'
 import {
   monthsInData, monthPeriod, customPeriod, monthSpan, cohortOf, daysToFund,
   totals, bySource, monthlyRows, scopeLeads, undated, maturity, medianDaysToFundAll, ageOf,
@@ -61,6 +63,17 @@ export default function MonthlyReportsPage() {
   const [costs, setCosts] = useState<Map<string, CostRow>>(new Map())
   const [loading, setLoading] = useState(true)
   const [lo, setLo] = useState<string>('Moe Sefati')
+  // Same own-tab default as /lead-roi — this is a reporting LO's LANDING page, so
+  // without it he opens straight onto Moe's numbers. See the note there for why
+  // `loPinned` exists and why admins are excluded.
+  const [loPinned, setLoPinned] = useState(false)
+  const me = useCurrentUser()
+
+  useEffect(() => {
+    if (!me.loaded || loPinned || me.role === 'admin') return
+    const mine = resolveLO(me.name)
+    if (mine && (LOAN_OFFICERS as readonly string[]).includes(mine)) setLo(mine)
+  }, [me.loaded, me.name, me.role, loPinned])
   const [monthKey, setMonthKey] = useState<string>('')     // '' until data lands
   const [useCustom, setUseCustom] = useState(false)
   const [from, setFrom] = useState('')
@@ -140,7 +153,7 @@ export default function MonthlyReportsPage() {
         {LOAN_OFFICERS.map(name => {
           const active = lo === name
           return (
-            <button key={name} onClick={() => setLo(name)}
+            <button key={name} onClick={() => { setLo(name); setLoPinned(true) }}
               className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-base font-bold border-2 transition-all ${
                 active ? `${LO_ACCENT[name] ?? 'bg-slate-700 border-slate-700'} text-white shadow-md`
                        : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'

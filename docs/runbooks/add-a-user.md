@@ -116,17 +116,24 @@ npx tsx scripts/set-user-role.ts someone@luminlending.com admin "Their Name"
 ## Adding a reporting-only loan officer
 
 Written 2026-08-25 for **Daniel McGrail-Granger**. This is the `reporting` role:
-an LO who sees three report pages and nothing else. He sees the **whole
+an LO who sees two report pages and nothing else. He sees the **whole
 team's** figures on them — Efrain's explicit decision, so there is no per-LO data
 lock. What's withheld is every other part of the app.
 
 | Reaches | Blocked |
 |---|---|
-| `/reports` | `/reports/escrows` (operational, deliberately denied) |
-| `/monthly-reports` | `/`, `/deals`, `/contacts`, `/pipeline`, `/funded` |
-| `/lead-roi` (+ `/lead-roi/report`) | `/calls`, `/report-import`, `/import/*` |
+| `/monthly-reports` (his landing page) | `/reports` **and** `/reports/escrows` |
+| `/lead-roi` (+ `/lead-roi/report`) | `/`, `/deals`, `/contacts`, `/pipeline`, `/funded` |
+| | `/calls`, `/report-import`, `/import/*` |
 | | `/lead-cohorts` (see below) |
 | | `/tasks`, the Bulletin, `/tools`, `/processing` |
+| | the notification bell (renders deal + task text) |
+
+⚠️ `REPORTING_HOME` must always be a path in `REPORTING_ALLOWED`. A home the role
+can't reach makes the middleware redirect loop. `roles-check.ts` asserts this.
+
+**Both report pages default to the signed-in LO's own tab** rather than Moe's —
+scoped to restricted roles, so admin accounts keep today's behaviour.
 
 ### 1. Wire his GHL sub-account (do this BEFORE the login exists)
 
@@ -165,11 +172,11 @@ access — Lead ROI, comp, every LO's numbers. Do not send him the password unti
 
 | Check | Expected |
 |---|---|
-| Lands on | `/reports` |
-| Sidebar | Reports, Monthly Reports, Lead ROI — nothing else |
-| Visit `/` | Bounces to `/reports` |
-| Visit `/reports/escrows` | Bounces to `/reports` |
-| Visit `/lead-roi` | Opens |
+| Lands on | `/monthly-reports`, already on HIS tab |
+| Sidebar | Monthly Reports, Lead ROI — nothing else, no notification bell |
+| Visit `/` | Bounces to `/monthly-reports` |
+| Visit `/reports` | Bounces to `/monthly-reports` |
+| Visit `/lead-roi` | Opens, already on HIS tab |
 | His LO pill | Appears on the report filters in sky blue |
 
 ### What he is deliberately NOT part of

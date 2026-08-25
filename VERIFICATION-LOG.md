@@ -2,7 +2,7 @@
 # Verification Log — Lumin Deals
 
 ### [2026-08-25] Daniel McGrail-Granger — 4th LO + a `reporting`-only role
-**Status:** **CHANGED.** Code verified offline (fixtures + build); the data path is **UNVERIFIABLE until Efrain supplies the GHL credentials** — the fourth sync slot is inert without them, by design.
+**Status:** **VERIFIED — live end-to-end 2026-08-25.** Env set + deployed, sync pulled 636 deals, Arive CSV imported and reconciled, role applied and read back.
 **Issue:** Efrain is adding a 4th loan officer who needs the reporting sections of the dashboard and nothing else.
 **Decisions (Efrain, 2026-08-25):** whole-team figures (no per-LO data lock) · four pages only (`/reports`, `/monthly-reports`, `/lead-roi`, `/lead-cohorts`) · routing gate is sufficient, RLS explicitly out of scope · unchanged 85% `LO_SPLIT`, he buys leads.
 
@@ -41,7 +41,17 @@ pages were audited and are genuinely read-only (GET fetches only).
 - `npx tsc --noEmit` → **7 errors, byte-identical to the `main` baseline** in the same 4 files (`app/reports`, `app/underwriting`, `components/DealForm.tsx`, `next.config.ts`) — all pre-existing, none introduced.
 - `npm run build` → ✓.
 
-**Not verified, and cannot be until Efrain acts:** that his GHL sync pulls, that his name arrives spelled as assumed, that his Arive CSV imports, and that the login actually lands on `/reports`. Steps in [docs/runbooks/add-a-user.md](docs/runbooks/add-a-user.md) → *Adding a reporting-only loan officer*.
+**VERIFIED LIVE (2026-08-25), in this order:**
+1. **Env + deploy.** All four vars on Production (`GHL_API_KEY_3` added by Efrain — I don't enter tokens). Deploy `lumin-deals-k3jcd8brd` ● Ready.
+2. **Sync.** ⚠️ First read looked like a token failure and was NOT — the sync had run at 12:45:07, **7 minutes BEFORE the 12:52:50 deploy** carrying the new env. After Efrain hit Sync: a 4th cursor `ghl_sync_last:Nt66emmbEuBZVmti60nJ` appeared and pulled **636 deals**. *Check deploy time against cursor time before blaming a credential.*
+3. **Name fold.** All 636 rows stored as `"Daniel McGrail-Granger"` — **zero raw "Danny Granger"**. The GHL spelling is normalized on the way in, which is the thing that had to be true before importing Arive on top.
+4. **No collateral damage.** Total deals 4137 → 4773 = **+636 exactly**. Moe/Matt/Randy gained and lost nothing.
+5. **Arive import reconciled.** Daniel: 61 Arive rows (= the CSV's 61), 8 funded, $1,274,432 volume. `compensation_amount` sums to **$30,318 — the CSV to the dollar**. `totalComp()` reads **$34,068**; the $3,750 delta is one Non-Del Final Price credit (Ronald Smith), which is correct per `lib/comp.ts`.
+6. **Role applied.** Read back `reporting (restricted — report pages only)`, `display_name: Daniel McGrail-Granger`. ⚠️ Before stamping, the fresh account read **`admin (full access)`** — the warned-about window is real. Full user audit via `roleFromUser` (the same function middleware uses): 5 admins unchanged, Hanh still processor, Daniel reporting.
+
+**Still not verified:** that Daniel himself signs in and lands on `/reports` — needs him.
+
+**Scope change, same day:** `/lead-cohorts` REMOVED from the reporting allow-list (Efrain: *"I dont need the lead cohort section for Dan"*). Without the stage-events backfill it reports his response rates as a flat 0.0% — wrong data, not missing data. Re-granting = one line + the matching assertion + run the backfill first. `roles-check` 128 → 127.
 
 **⚠️ Still a routing gate, not RLS.** A signed-in `reporting` account holds a Supabase anon key and `deals` RLS is unchanged, so it could query other rows from the browser console. Efrain accepted this trust boundary explicitly. Do not describe the gate as protecting comp data from a determined insider.
 

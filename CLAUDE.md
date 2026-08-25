@@ -20,6 +20,34 @@ GHL "LD stage" workflow's `monetaryValue → {{opportunity.lead_value}}` custom 
 `loan-amount-provenance` memory + `~/.claude/handoffs/lumin-deals.md`. NOTE: visible on the next "Sync GHL";
 the opp value may not always equal the loan amount (GHL data quality — watch the in-process volume).
 
+## Recent Changes (2026-08-25) — 4th LO + a reporting-only role
+
+**Daniel McGrail-Granger is live** as the 4th LO (636 deals synced, 61 Arive rows
+imported and reconciled to the dollar against the CSV). Behind a new **`reporting`
+role** — `lib/roles.ts` now has `admin | processor | reporting` with a per-role
+allow/deny table and `homeFor()`.
+
+A `reporting` account reaches **`/reports`, `/monthly-reports`, `/lead-roi`** and
+nothing else. `/reports/escrows` is **explicitly denied** because matching is
+prefix-based and `/reports` would otherwise cover it. `/lead-cohorts` was in the
+list and was removed 2026-08-25 — his sub-account isn't on the stage webhook, so
+it would report his response rates as a flat 0.0%: wrong data, not missing data.
+
+**The "no `role` key = ADMIN" default is unchanged.** New: an *unrecognised* role
+string also falls through to admin, so a typo can't lock someone out.
+
+⚠️ **`/lead-roi` is NOT a read-only page** — it rewrites `deals.source` one at a
+time AND in bulk across every deal from a source, unscoped by LO, plus edits the
+retainer costs feeding every ROI figure. All three are now admin-only (`canEdit`).
+**Grep any page for writes before granting it to a restricted role.**
+
+`matchesLO` in `lib/leadReport.ts` and `lib/cohortReport.ts` is now
+`Record<Exclude<LO,'All'>, RegExp>` — adding a 5th LO is a **compile error** until
+its pattern exists, replacing the ternary whose else-branch silently rendered
+another LO's leads. Matt's and Moe's patterns deliberately left narrow.
+
+`roles-check` 79 → 127 fixtures. Runbook: `docs/runbooks/add-a-user.md`.
+
 ## Recent Changes (2026-08-04 → 08-05) — GHL tasks are on the board, two-way
 - **`ghl_tasks` mirror (SHIPPED).** GHL's own per-contact tasks now render alongside `deal_tasks` on
   **`/tasks`, both Follow-Up cockpits, a new Dashboard-home widget, and the deal page** — 65 open GHL tasks
@@ -114,9 +142,24 @@ the opp value may not always equal the loan amount (GHL data quality — watch t
 - **Deploy command**: `vercel --prod` from this directory
 
 ## GHL Accounts
-Two GHL sub-accounts synced in parallel:
+**Four** GHL sub-accounts synced in parallel by `getAccounts()` in
+`app/api/sync/ghl/route.ts`. Every slot is guarded on BOTH its env vars, so an LO
+whose credentials aren't configured is simply absent from the sync — inert, not
+broken. (That inertness is why the first Randy attempt looked like a bug.)
 - **Primary** (Moe Sefati): `GHL_API_KEY` + `GHL_LOCATION_ID`
-- **Matt**: `GHL_API_KEY_MATT` + `GHL_LOCATION_ID_MATT`
+- **Matt Park**: `GHL_API_KEY_MATT` + `GHL_LOCATION_ID_MATT`
+- **Extra** (Randy Mathis): `GHL_API_KEY_2` + `GHL_LOCATION_ID_2` — `arZ4QDCzS0Vkj0ZvLZdv`
+- **Daniel** (Daniel McGrail-Granger): `GHL_API_KEY_3` + `GHL_LOCATION_ID_3` — `Nt66emmbEuBZVmti60nJ`
+
+⚠️ **Daniel is spelled differently in the two systems**: GHL says **"Danny
+Granger"**, Arive says **"Daniel McGrail-Granger"** (the canonical board name).
+`resolveLO` folds both via the `'granger'` key. If anything of his ever comes up
+empty, check that first.
+
+⚠️ The sync stamps its cursor **per account** as `ghl_sync_last:<locationId>` in
+`sync_state`, not one global key. No cursor for a location = the sync never saw
+the account (env/deploy problem). A cursor with zero deals = it authenticated and
+found nothing (token scope problem). `scripts/daniel-sync-report.ts` prints both.
 
 ## Sync Architecture
 Driven by an **external cron on cron-job.org** — schedule is `*/15 8-18 * * 1-5` (every 15 min, 8 AM–6 PM, Mon–Fri). **CONFIRMED set to 15 min as of 2026-06-17** (Efrain verified the cron-job.org setting). This is the authoritative ping cadence — ignore any older code comments suggesting "1–2 min." Do not assume a tighter cadence when reasoning about Fluid CPU.

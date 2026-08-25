@@ -18,6 +18,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCurrentUser } from '@/lib/useCurrentUser'
+import { resolveLO } from '@/lib/loanOfficer'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal, LOAN_OFFICERS, PIPELINE_GROUPS, PIPELINE_STATUSES } from '@/lib/types'
 import { formatCurrency, formatDate as fmtDate } from '@/lib/utils'
@@ -88,6 +89,15 @@ export default function LeadRoiPage() {
   const [loading, setLoading] = useState(true)
   // Single-LO tabs — the stats are never combined across LOs.
   const [lo, setLo]           = useState<string>('Moe Sefati')
+  // A restricted LO lands on his OWN tab, not Moe's (Efrain 2026-08-25: "make his
+  // name and page the default view for him"). `loPinned` stops this from yanking
+  // the tab back if he clicks another one before the session finishes loading —
+  // useCurrentUser resolves async, so the effect can fire after a manual click.
+  //
+  // Deliberately scoped to restricted roles. Matt's and Randy's admin accounts
+  // would also resolve to their own names, but changing THEIR default landing tab
+  // is a behaviour change nobody asked for. Widen the condition if that changes.
+  const [loPinned, setLoPinned] = useState(false)
   const [range, setRange]     = useState<RangeKey>('all')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo]     = useState('')
@@ -107,6 +117,12 @@ export default function LeadRoiPage() {
   // resolves, so gate on BOTH — otherwise the controls flash on for everyone.
   const me = useCurrentUser()
   const canEdit = me.loaded && me.role === 'admin'
+
+  useEffect(() => {
+    if (!me.loaded || loPinned || me.role === 'admin') return
+    const mine = resolveLO(me.name)
+    if (mine && (LOAN_OFFICERS as readonly string[]).includes(mine)) setLo(mine)
+  }, [me.loaded, me.name, me.role, loPinned])
 
   const [editingCost, setEditingCost] = useState<string | null>(null)
   const [editCostValue, setEditCostValue] = useState('')
@@ -362,7 +378,7 @@ export default function LeadRoiPage() {
             const active = lo === name
             const accent = LO_ACCENT[name] ?? 'bg-slate-700 border-slate-700'
             return (
-              <button key={name} onClick={() => setLo(name)}
+              <button key={name} onClick={() => { setLo(name); setLoPinned(true) }}
                 className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-base font-bold border-2 transition-all ${
                   active ? `${accent} text-white shadow-md` : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'
                 }`}>
