@@ -169,6 +169,7 @@ eq('matchesLO Daniel unhyphenated', matchesLO(lead({ loan_officer: 'Daniel McGra
 eq('matchesLO Daniel excludes Moe', matchesLO(lead({ loan_officer: 'Moe Sefati' }), 'Daniel'), false)
 eq('matchesLO Daniel excludes Randy', matchesLO(lead({ loan_officer: 'Randy Mathis' }), 'Daniel'), false)
 eq('matchesLO Moe excludes Daniel', matchesLO(lead({ loan_officer: 'Daniel McGrail-Granger' }), 'Moe'), false)
+eq('matchesLO GHL spelling "Danny Granger"', matchesLO(lead({ loan_officer: 'Danny Granger' }), 'Daniel'), true)
 
 // ── analyzeCohort end-to-end ────────────────────────────────────────────────
 const res = analyzeCohort(rows, firstResp, NOW, { label: 'A', start: '2026-07-01', end: '2026-07-10' }, 'All')

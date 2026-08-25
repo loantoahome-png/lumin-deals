@@ -93,6 +93,10 @@ eq('Moe is not Daniel', matchesLO(row({ loan_officer: 'Moe Sefati' }), 'Daniel')
 eq('Matt is not Daniel', matchesLO(row({ loan_officer: 'Matt Park' }), 'Daniel'), false)
 eq('Randy is not Daniel', matchesLO(row({ loan_officer: 'Randy Mathis' }), 'Daniel'), false)
 eq('unassigned is not Daniel', matchesLO(row({ loan_officer: null }), 'Daniel'), false)
+// ⚠️ He is spelled differently in the two systems: Arive "Daniel McGrail-Granger",
+// GHL "Danny Granger" (confirmed by Efrain 2026-08-25). Both must land on his tab.
+eq('GHL spelling "Danny Granger" matches Daniel', matchesLO(row({ loan_officer: 'Danny Granger' }), 'Daniel'), true)
+eq('"Danny Granger" is not Randy', matchesLO(row({ loan_officer: 'Danny Granger' }), 'Randy'), false)
 
 // ── Purpose matching ───────────────────────────────────────────────
 eq('purpose All matches anything', matchesPurpose(row({ loan_purpose: null }), 'All'), true)

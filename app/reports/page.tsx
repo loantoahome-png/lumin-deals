@@ -208,16 +208,19 @@ export default function ReportsPage() {
     : 0
 
   // ── LO scorecard ──────────────────────────────────────────────────────────
-  // (display name, substring to match). Split apart when Daniel was added: his
-  // row label is the full hyphenated name but matching on it would miss any row
-  // stamped with a variant spelling, so the match key is just "Daniel".
+  // (display name, pattern to match). Matt/Moe/Randy keep their exact original
+  // case-sensitive substring semantics so no existing number moves.
+  // ⚠️ Daniel is spelled "Daniel McGrail-Granger" in Arive but "Danny Granger"
+  // in GHL. resolveLO normalizes both on the way in, so `loan_officer` should
+  // already be canonical — this pattern is the belt to that suspenders, and
+  // catches any historical row that predates the resolver.
   const loScorecard = [
-    { name: 'Matt',                   match: 'Matt' },
-    { name: 'Moe Sefati',             match: 'Moe' },
-    { name: 'Randy Mathis',           match: 'Randy' },
-    { name: 'Daniel McGrail-Granger', match: 'Daniel' },
+    { name: 'Matt',                   match: /Matt/ },
+    { name: 'Moe Sefati',             match: /Moe/ },
+    { name: 'Randy Mathis',           match: /Randy/ },
+    { name: 'Daniel McGrail-Granger', match: /daniel|mcgrail|granger/i },
   ].map(({ name: lo, match }) => {
-    const all = filtered.filter(d => d.loan_officer?.includes(match))
+    const all = filtered.filter(d => match.test(d.loan_officer ?? ''))
     const funded = all.filter(d => d.pipeline_group === 'Funded')
     const escrow = all.filter(d => d.pipeline_group === 'Loans in Process')
     const fundedVol = funded.reduce((s, d) => s + (d.loan_amount || 0), 0)

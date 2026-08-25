@@ -17,9 +17,20 @@ const LO_MAP: Record<string, string> = {
   // match on either half independently as well as the first name. Checked
   // against every key above: none of them is a substring of
   // "daniel mcgrail-granger", so adding these can't steal another LO's leads.
+  // ⚠️ He is spelled DIFFERENTLY in the two systems: Arive says
+  // "Daniel McGrail-Granger" (the canonical board name), GHL says "Danny
+  // Granger". Both resolve here via 'granger'. 'danny' is listed separately so a
+  // bare first name still lands. Bare 'dan' is deliberately NOT a key — it is a
+  // substring of Jordan/Brandan/Daniela and would hijack a real name.
+  //
+  // ⚠️ KNOWN false positive: 'daniel' also matches "Daniela" / "Danielle",
+  // because matching is plain `includes`, not a word boundary. Accepted: this
+  // field only ever holds LOAN OFFICER names and there is no Daniela/Danielle
+  // on the team. If one is ever hired, drop the bare 'daniel' key — 'granger',
+  // 'mcgrail' and 'danny' already cover every spelling seen in GHL and Arive.
   'daniel mcgrail-granger': 'Daniel McGrail-Granger',
   'mcgrail': 'Daniel McGrail-Granger', 'granger': 'Daniel McGrail-Granger',
-  'daniel': 'Daniel McGrail-Granger',
+  'daniel': 'Daniel McGrail-Granger', 'danny': 'Daniel McGrail-Granger',
 }
 
 export function resolveLO(name: string | null | undefined): string | null {
