@@ -96,7 +96,7 @@ export function mapApiCall(
   m: ApiCallMessage,
   accountLabel: AccountLabel,
   nameFor?: (phone: string) => string | null,
-  dialerNameFor?: (phone: string) => string | null,
+  dialerNameFor?: (phone: string, nameHint?: string | null) => string | null,
 ): CallRow | null {
   if (m.messageType !== DIALED_CALL_TYPE) return null
   if (!m.dateAdded) return null
@@ -119,7 +119,21 @@ export function mapApiCall(
   // inventing an "Unknown" dialer on the page whose whole purpose is her volume.
   // '' collides properly. (No CSV row has a null dialer, so nothing pre-existing
   // changes key.) The settle window in callsSync stops the incomplete read itself.
-  const dialer_number_phone = normPhone(isInbound ? m.to : m.from) ?? ''
+  const dialerRaw = String((isInbound ? m.to : m.from) ?? '').trim()
+  const dialer_number_phone = normPhone(dialerRaw) ?? ''
+
+  // ⚠️ When GHL rejects the destination outright it never assigns an outbound
+  // LINE, and drops the dialing USER'S DISPLAY NAME into the number field
+  // instead — verified 2026-08-25 on 10 rows, every one
+  // `status: 'failed'`, `error: 'VOICE_CALL_INVALID_PHONE_NUMBER'`,
+  // `from: 'Moe Sefati'`. normPhone can't parse a person, so the row stored with
+  // an empty dialer and fell into the per-dialer 'Unknown' bucket.
+  //
+  // The name is still the truth about who dialed, so it is passed through as a
+  // label hint. `dialer_number_phone` deliberately stays '' — it is one third of
+  // `calls_dedupe_uniq`, and inventing a number here would change the key of
+  // rows already stored and re-insert every one of them.
+  const dialerNameHint = dialer_number_phone ? null : (dialerRaw || null)
 
   // Duration lives under meta.call. Absent (e.g. campaign rows) → 0, which reads
   // as "not connected" via isConnected() — the same meaning a CSV '-' carries.
@@ -146,7 +160,7 @@ export function mapApiCall(
     // many calls has Brianne made in each account". The name is therefore
     // resolved from the number, using the mapping the CSV rows already establish
     // (resolves 131/131 of the first live batch).
-    dialer_number_name: dialerNameFor?.(dialer_number_phone ?? '') ?? null,
+    dialer_number_name: dialerNameFor?.(dialer_number_phone, dialerNameHint) ?? null,
     dialer_number_phone,
     first_time: null,           // CSV-only column; not derivable from a message row
     account_label: accountLabel,

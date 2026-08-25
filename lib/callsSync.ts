@@ -181,11 +181,22 @@ export function resolveDialerName(
   phone: string,
   ghlTitles: Map<string, string> | null,
   labels: DialerLabels | null,
+  nameHint?: string | null,
 ): string | null {
-  if (!phone) return null
-  const title = ghlTitles?.get(phone)?.trim()
-  if (title) return labels?.canonical.get(title.toLowerCase()) ?? title
-  return labels?.byPhone.get(phone) ?? null
+  if (phone) {
+    const title = ghlTitles?.get(phone)?.trim()
+    if (title) return labels?.canonical.get(title.toLowerCase()) ?? title
+    return labels?.byPhone.get(phone) ?? null
+  }
+  // No number at all: GHL failed the call before assigning a line and gave us the
+  // dialing user's name instead. Naming the row from it is what keeps it out of
+  // 'Unknown'. ⚠️ This bucket is a PERSON, not a line — "Moe Sefati" sits beside
+  // "Mohammad's number" rather than merging into it, because a display name is
+  // not evidence of which line they'd have dialed from. Folded onto an existing
+  // spelling when one matches, exactly like a GHL title.
+  const hint = nameHint?.trim()
+  if (hint) return labels?.canonical.get(hint.toLowerCase()) ?? hint
+  return null
 }
 
 /**
@@ -211,7 +222,8 @@ export async function runCallsSync(
     // Per-account: a number lives in exactly one sub-account, and each account
     // authenticates with its own key.
     let ghlTitles: Map<string, string> | null = null
-    const dialerNameFor = (p: string) => resolveDialerName(p, ghlTitles, dialerLabels)
+    const dialerNameFor = (p: string, hint?: string | null) =>
+      resolveDialerName(p, ghlTitles, dialerLabels, hint)
 
     const res: CallSyncAccountResult = {
       account: label, since: '', fetched: 0, dials: 0, inserted: 0, duplicates: 0,
@@ -257,7 +269,9 @@ export async function runCallsSync(
         res.ghlNamedNumbers = ghlTitles.size
         for (const r of mapped) {
           r.contact_name = nameMap.get(r.contact_phone) ?? null
-          r.dialer_number_name = dialerNameFor(r.dialer_number_phone ?? '')
+          // A row that already carries a name here got it from the payload hint
+          // (no number to look up), so keep it rather than resolving it away.
+          r.dialer_number_name = dialerNameFor(r.dialer_number_phone ?? '', r.dialer_number_name)
         }
       }
       res.unlabelledDialers = mapped.filter(r => !r.dialer_number_name).length

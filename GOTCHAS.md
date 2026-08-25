@@ -610,3 +610,17 @@ Supabase uses for sign-in. A script that assigns a fresh object clobbers them an
 account can no longer log in. The script spreads the existing object.
 **Project:** lumin-deals (`lib/roles.ts`, `docs/runbooks/add-a-user.md`)
 **Date:** 2026-08-10
+
+### GHL puts a PERSON'S NAME where the dialing number belongs
+**Tried:** Treating an unparseable `from` on a TYPE_CALL row as a bad/missing number, so `normPhone` returned null and the row stored with `dialer_number_phone = ''` and no dialer name — landing in the 'Unknown' bucket on /calls.
+**Failed because:** it isn't corrupt data. When GHL rejects the destination before assigning an outbound line (`status: 'failed'`, `error: 'VOICE_CALL_INVALID_PHONE_NUMBER'`) there IS no line yet, so it substitutes the dialing user's display name — `from: "Moe Sefati"`. The name is the truth about who dialed; only the number is missing.
+**What works:** pass the unparseable string through as a label hint and use it as `dialer_number_name`. ⚠️ Leave `dialer_number_phone` as `''` — it is one third of `calls_dedupe_uniq`, so deriving a number from the name would re-key rows already stored and re-insert every one of them. The bucket is a PERSON, not a line, and is deliberately not merged into the line that person usually dials from: a display name is no evidence of which line GHL would have picked.
+**Project:** lumin-deals
+**Date:** 2026-08-25
+
+### Matching stored rows against GHL by timestamp string matches NOTHING
+**Tried:** Keying a backfill on `` `${account}|${row.call_ts}|${contact}` `` to line stored `calls` rows up with freshly fetched GHL messages. Reported 0/13 matched while plainly scanning the right days.
+**Failed because:** Postgres renders `call_ts` as `2026-08-24T20:22:20+00:00`; `truncToSecond` in the mapper produces `2026-08-24T20:22:20.000Z`. Same instant, different text, no match — and it fails silently as "nothing found" rather than as an error.
+**What works:** key on `new Date(ts).getTime()`. Any join between a stored timestamp and an API-derived one needs an epoch, never the ISO string.
+**Project:** lumin-deals
+**Date:** 2026-08-25

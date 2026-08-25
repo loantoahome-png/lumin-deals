@@ -190,6 +190,54 @@ eq('a blank dialing number stays unnamed',
   resolveDialerName('', TITLES, LABELS), null)
 
 
+// ── 8. GHL sends a PERSON where the number belongs ──────────────────────────
+//
+// Verified live 2026-08-25: 10 rows in one sub-account, every one
+// status 'failed' / error 'VOICE_CALL_INVALID_PHONE_NUMBER', all to the same
+// bad contact number. GHL rejects the destination before assigning an outbound
+// line, so it puts the dialing USER'S NAME in `from`. These are real attempts
+// by a real person and belong to them, not to 'Unknown'.
+const NAME_IN_NUMBER: ApiCallMessage = {
+  id: 'hUE8X1g8GqOUm94UFfpK', direction: 'outbound', status: 'failed',
+  messageType: 'TYPE_CALL', dateAdded: '2026-08-24T20:22:20.784Z',
+  userId: 'SVXQeoFxrP8ZoFd11nyF', contactId: 'X14rfxfxpOzyAcEnORDm',
+  from: 'Moe Sefati', to: '+18612106747',
+}
+const nameRow = mapApiCall(NAME_IN_NUMBER, 'moe', undefined,
+  (p, hint) => resolveDialerName(p, TITLES, LABELS, hint))
+
+eq('a person in the number field still names the dialer',
+  nameRow?.dialer_number_name, 'Moe Sefati')
+// ⚠️⚠️ THE NON-NEGOTIABLE. dialer_number_phone is one third of
+// calls_dedupe_uniq. Deriving a number from the name would change the key of
+// every one of these rows already stored and insert them all a second time —
+// the 2026-08-12 double-count, on purpose this time.
+eq('the dialing number stays EMPTY so the dedupe key is unchanged',
+  nameRow?.dialer_number_phone, '')
+eq('the contact is still read from `to`', nameRow?.contact_phone, '8612106747')
+eq('a failed call is still a dial with 0 duration', nameRow?.duration_sec, 0)
+eq('the raw failure status is retained for audit', nameRow?.call_status, 'failed')
+
+// If the person's name already exists as a label, it folds — same rule as a title.
+eq('a name hint folds onto the spelling already in the table',
+  resolveDialerName('', null, {
+    byPhone: new Map(),
+    canonical: new Map([['moe sefati', 'Moe Sefati']]),
+  }, 'MOE SEFATI'), 'Moe Sefati')
+
+// A person is NOT merged into the line they usually dial from: a display name is
+// no evidence of which line GHL would have picked, and guessing one would move
+// calls between dialers on the page.
+eq('a person is not folded into a line label',
+  resolveDialerName('', null, LABELS, 'Moe Sefati'), 'Moe Sefati')
+
+// Genuinely empty (the 2026-08-12 settle-window shape: from AND to blank) must
+// still resolve to nothing — there is no one to credit.
+eq('a truly empty dialer field stays unnamed',
+  resolveDialerName('', TITLES, LABELS, null), null)
+eq('whitespace is not a name', resolveDialerName('', TITLES, LABELS, '   '), null)
+
+
 const named = mapApiCall(OUTBOUND, 'moe', p => p === '7145555617' ? 'Damon Hunnicutt' : null)
 eq('contact_name resolved from deals', named?.contact_name, 'Damon Hunnicutt')
 eq('unresolved name → null', mapApiCall(OUTBOUND, 'moe', () => null)?.contact_name, null)
