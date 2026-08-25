@@ -19,9 +19,18 @@ const DANIEL_LOCATION = 'Nt66emmbEuBZVmti60nJ'
 const money = (n: number) => '$' + Math.round(n).toLocaleString()
 
 async function main() {
-  // Last sync timestamp, so a stale read isn't mistaken for a failed sync.
-  const { data: st } = await sb.from('sync_state').select('key,value').in('key', ['ghl_sync_last', 'ghl_sync_lock'])
-  for (const r of st ?? []) console.log(`sync_state ${r.key} = ${JSON.stringify(r.value)}`)
+  // ⚠️ The sync stamps its cursor PER ACCOUNT under `ghl_sync_last:<label>`, not
+  // as one global key. That distinction is the whole diagnostic: if a `daniel`
+  // row is absent the sync never saw the account (env/deploy problem), whereas a
+  // `daniel` row WITH zero deals means it authenticated and found nothing (token
+  // scope problem). Without this you cannot tell those two apart.
+  const { data: st } = await sb.from('sync_state').select('key,value,updated_at').order('updated_at', { ascending: false })
+  console.log('sync cursors:')
+  const cursors = (st ?? []).filter(r => String(r.key).startsWith('ghl_sync_last'))
+  if (cursors.length === 0) console.log('  (none — the GHL sync has never recorded a cursor)')
+  for (const r of cursors) console.log(`  ${String(r.key).padEnd(30)} ${String(r.updated_at).slice(0, 19)}  ${JSON.stringify(r.value).slice(0, 70)}`)
+  const lock = (st ?? []).find(r => r.key === 'ghl_sync_lock')
+  if (lock) console.log(`  ${'ghl_sync_lock'.padEnd(30)} ${String(lock.updated_at).slice(0, 19)}  ${JSON.stringify(lock.value)}`)
 
   // Paginate: a bare select caps at 1000 rows.
   const all: { loan_officer: string | null; ghl_location_id: string | null; pipeline_group: string | null; loan_amount: number | null; source: string | null; lead_price: number | null }[] = []
