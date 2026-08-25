@@ -14,7 +14,12 @@ const GHL_BASE = 'https://services.leadconnectorhq.com'
 // Reads up to 3 GHL accounts from env vars:
 //   - Default: GHL_API_KEY + GHL_LOCATION_ID            (primary, backwards compatible)
 //   - Matt:    GHL_API_KEY_MATT + GHL_LOCATION_ID_MATT
-//   - Extra:   GHL_API_KEY_2 + GHL_LOCATION_ID_2        (open slot for future LO)
+//   - Extra:   GHL_API_KEY_2 + GHL_LOCATION_ID_2        (Randy)
+//   - Daniel:  GHL_API_KEY_3 + GHL_LOCATION_ID_3
+//
+// Every slot is guarded on BOTH its env vars, so an LO whose credentials aren't
+// configured yet is simply absent from the sync — the code is inert, not broken.
+// (That inertness is why the first Randy attempt looked like a bug and wasn't.)
 type GHLAccount = { label: string; apiKey: string; locationId: string }
 
 function getAccounts(): GHLAccount[] {
@@ -27,6 +32,9 @@ function getAccounts(): GHLAccount[] {
   }
   if (process.env.GHL_API_KEY_2 && process.env.GHL_LOCATION_ID_2) {
     accounts.push({ label: 'extra', apiKey: process.env.GHL_API_KEY_2, locationId: process.env.GHL_LOCATION_ID_2 })
+  }
+  if (process.env.GHL_API_KEY_3 && process.env.GHL_LOCATION_ID_3) {
+    accounts.push({ label: 'daniel', apiKey: process.env.GHL_API_KEY_3, locationId: process.env.GHL_LOCATION_ID_3 })
   }
   return accounts
 }
@@ -897,7 +905,7 @@ async function syncAccount(
         // Resolve the LO from the assigned GHL user. If nobody is assigned in
         // GHL, fall back to the sub-account owner (each LO has their own
         // location): Matt's account → Matt Park, Moe's (primary) → Moe Sefati.
-        const loFromAccount = label === 'matt' ? 'Matt Park' : label === 'primary' ? 'Moe Sefati' : label === 'extra' ? 'Randy Mathis' : null
+        const loFromAccount = label === 'matt' ? 'Matt Park' : label === 'primary' ? 'Moe Sefati' : label === 'extra' ? 'Randy Mathis' : label === 'daniel' ? 'Daniel McGrail-Granger' : null
         const loanOfficer = resolveLO(assignedName) || loFromAccount
         if (!loanOfficer && assignedToId) {
           console.log(`[GHL Sync:${label}] No LO resolved for assignedTo="${assignedToId}" name="${assignedName}" contact="${contactId}"`)

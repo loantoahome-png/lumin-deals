@@ -763,7 +763,7 @@ function ListView({ deals, onStatusChange, onUpdate, selectedIds, onToggleSelect
                   )}
                   {col('loan_officer') && (
                     <td className="px-4 py-3 whitespace-nowrap min-w-[110px]">
-                      {ic('loan_officer', deal.loan_officer, 'select', ['Matt', 'Moe Sefati', 'Randy Mathis'])}
+                      {ic('loan_officer', deal.loan_officer, 'select', ['Matt', 'Moe Sefati', 'Randy Mathis', 'Daniel McGrail-Granger'])}
                     </td>
                   )}
                   {col('loan_type') && (

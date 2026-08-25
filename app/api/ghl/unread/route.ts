@@ -14,6 +14,7 @@ const ACCOUNT_LO: Record<string, string> = {
   primary: 'Moe Sefati',
   matt: 'Matt Park',
   extra: 'Randy Mathis',
+  daniel: 'Daniel McGrail-Granger',
 }
 
 function channelLabel(type: string | null | undefined): string {

@@ -14,7 +14,7 @@
 
 import {
   roleFromUser, displayName, canAccess, canSeeNavItem, PROCESSOR_HOME,
-  taskColumnsFor, canSeeTask, canSeeBulletin,
+  REPORTING_HOME, homeFor, taskColumnsFor, canSeeTask, canSeeBulletin,
 } from '../lib/roles'
 
 let pass = 0, fail = 0
@@ -28,6 +28,12 @@ const brianne = { email: 'brianne.han@luminlending.com', app_metadata: {}, user_
 const hanh = {
   email: 'hanh@luminlending.com',
   app_metadata: { role: 'processor', display_name: 'Hanh Nguyen' },
+  user_metadata: {},
+}
+
+const daniel = {
+  email: 'daniel@example.com',
+  app_metadata: { role: 'reporting', display_name: 'Daniel McGrail-Granger' },
   user_metadata: {},
 }
 
@@ -148,6 +154,63 @@ eq('admin sees Randy’s task', canSeeTask('admin', 'Efrain Ramirez', 'Randy Mat
 // ── 9. Bulletin ────────────────────────────────────────────────────────────
 eq('admin sees the Bulletin', canSeeBulletin('admin'), true)
 eq('processor does NOT see the Bulletin', canSeeBulletin('processor'), false)
+
+
+// ── 10. The `reporting` role — Daniel McGrail-Granger, 2026-08-25 ──────────
+// An LO who gets the numbers and nothing else. He sees the WHOLE team's figures
+// on the four pages he can reach (Efrain's explicit decision) — what's asserted
+// here is only WHICH pages, never whose data.
+
+eq('reporting role resolves', roleFromUser(daniel), 'reporting')
+eq('reporting cannot self-promote via user_metadata',
+  roleFromUser({ ...daniel, user_metadata: { role: 'admin' } }), 'reporting')
+eq('reporting display name', displayName(daniel), 'Daniel McGrail-Granger')
+eq('reporting home', homeFor('reporting'), REPORTING_HOME)
+eq('processor home is unchanged', homeFor('processor'), PROCESSOR_HOME)
+eq('admin home is the dashboard', homeFor('admin'), '/')
+
+// The four he CAN reach.
+for (const path of ['/reports', '/monthly-reports', '/lead-roi', '/lead-cohorts']) {
+  eq(`reporting reaches ${path}`, canAccess('reporting', path), true)
+  eq(`reporting sees ${path} in nav`, canSeeNavItem('reporting', path), true)
+}
+
+// ⚠️ The one that would silently leak: /reports/escrows sits UNDER an allowed
+// prefix. If the deny-list entry is ever removed this assertion is what catches
+// it — the escrow report is operational, not analytical, and wasn't in scope.
+eq('reporting BLOCKED from /reports/escrows', canAccess('reporting', '/reports/escrows'), false)
+eq('/reports/escrows hidden from nav', canSeeNavItem('reporting', '/reports/escrows'), false)
+
+// Everything else. /import/* and /report-import MUTATE data; /deals, /contacts,
+// /pipeline are the book of business; / is the dashboard.
+for (const path of [
+  '/', '/deals', '/deals/abc', '/deals/new', '/contacts', '/contacts/abc',
+  '/pipeline', '/funded', '/hot-leads', '/follow-up', '/radar', '/worklist',
+  '/processing', '/tasks', '/notes', '/tools', '/lenders', '/compliance',
+  '/calls', '/report-import', '/import/arive', '/import/calls', '/health',
+  '/duplicates', '/old-deals', '/underwriting',
+]) {
+  eq(`reporting BLOCKED from ${path}`, canAccess('reporting', path), false)
+}
+
+// A path that merely starts with the same LETTERS is not a child path.
+eq('reporting BLOCKED from /reports-secret', canAccess('reporting', '/reports-secret'), false)
+
+// No task board, no bulletin — even if a task surface is ever embedded in a
+// page he can reach, it must render empty rather than leak the team's work.
+eq('reporting has no task columns', taskColumnsFor('reporting', 'Daniel McGrail-Granger', ADMIN_COLUMNS), [])
+eq('reporting sees no task of his own', canSeeTask('reporting', 'Daniel McGrail-Granger', 'Daniel McGrail-Granger'), false)
+eq('reporting sees no task of Moe\u2019s', canSeeTask('reporting', 'Daniel McGrail-Granger', 'Moe Sefati'), false)
+eq('reporting does NOT see the Bulletin', canSeeBulletin('reporting'), false)
+
+// The processor gate must be completely unaffected by the new role.
+eq('processor still reaches her desk', canAccess('processor', '/processing'), true)
+eq('processor still reaches a deal file', canAccess('processor', '/deals/abc'), true)
+eq('processor still blocked from /deals', canAccess('processor', '/deals'), false)
+eq('processor still blocked from /deals/new', canAccess('processor', '/deals/new'), false)
+eq('processor still blocked from /reports', canAccess('processor', '/reports'), false)
+eq('processor still blocked from /lead-roi', canAccess('processor', '/lead-roi'), false)
+eq('admin reaches everything', canAccess('admin', '/report-import'), true)
 
 console.log(`\n${fail === 0 ? '✓' : '✗'} roles-check: ${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)

@@ -103,10 +103,26 @@ function hasChannelDnd(settings: Record<string, unknown> | null | undefined): bo
 }
 
 /** LO filter (cohort-local — CohortLead lacks the money fields leadReport.matchesLO needs). */
+// Each LO's match pattern, keyed by tab. Deliberately a Record over the LO union
+// rather than a chain of ternaries: the old form ended in an else-branch that
+// defaulted to one specific LO, so adding a tab without updating this function
+// made the new tab silently render THAT LO's leads — no type error, no test
+// failure, just wrong numbers. As a Record, adding a member to `LO` is a compile
+// error until its pattern exists here. Keep in step with the twin copy in
+// lib/leadReport.ts.
+const LO_PATTERNS: Record<Exclude<LO, 'All'>, RegExp> = {
+  // Matt and Moe keep the exact narrow patterns they had before Daniel was
+  // added — deliberately NOT widened to |park| / |sefati|. Broadening them
+  // would be a silent change to numbers Efrain already reads.
+  Matt:   /matt/,
+  Moe:    /moe/,
+  Randy:  /randy|mathis/,
+  Daniel: /daniel|mcgrail|granger/,
+}
+
 export function matchesLO(d: CohortLead, lo: LO): boolean {
   if (lo === 'All') return true
-  const l = (d.loan_officer ?? '').toLowerCase()
-  return lo === 'Matt' ? l.includes('matt') : lo === 'Moe' ? l.includes('moe') : l.includes('randy') || l.includes('mathis')
+  return LO_PATTERNS[lo].test((d.loan_officer ?? '').toLowerCase())
 }
 
 /** Keep leads whose created date (date_added_ghl) falls in [start, end], inclusive.

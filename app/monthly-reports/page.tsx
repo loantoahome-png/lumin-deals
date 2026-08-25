@@ -40,6 +40,7 @@ const LO_ACCENT: Record<string, string> = {
   'Matt Park': 'bg-blue-600 border-blue-600',
   'Moe Sefati': 'bg-violet-600 border-violet-600',
   'Randy Mathis': 'bg-teal-600 border-teal-600',
+  'Daniel McGrail-Granger': 'bg-sky-600 border-sky-600',
 }
 const pct = (x: number) => `${x.toFixed(1)}%`
 const mult = (x: number | null) => (x == null ? '—' : `${x.toFixed(2)}×`)

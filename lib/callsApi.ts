@@ -68,9 +68,11 @@ export type ApiCallMessage = {
 }
 
 /** GHL account label → the `calls.account_label` vocabulary.
- *  ⚠️ 'extra' (Randy) maps to null ON PURPOSE — Efrain excluded Randy from the
- *  call report by explicit decision, and `AccountLabel` has no slot for him.
- *  Silently importing his calls would change every rollup on /calls. */
+ *  ⚠️ Anything that isn't 'primary' or 'matt' maps to null ON PURPOSE — that is
+ *  'extra' (Randy) and 'daniel', both excluded from the call report by explicit
+ *  decision, and `AccountLabel` has no slot for either. Silently importing their
+ *  calls would change every rollup on /calls. A new GHL account therefore stays
+ *  out of /calls until someone adds it here deliberately. */
 export function callAccountLabel(ghlLabel: string): AccountLabel | null {
   if (ghlLabel === 'primary') return 'moe'
   if (ghlLabel === 'matt') return 'matt'

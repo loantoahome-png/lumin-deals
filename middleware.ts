@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { roleFromUser, canAccess, PROCESSOR_HOME } from '@/lib/roles'
+import { roleFromUser, canAccess, homeFor } from '@/lib/roles'
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -69,9 +69,10 @@ export async function middleware(request: NextRequest) {
 
   // ── Role gate ──────────────────────────────────────────────────────────────
   // A `processor` account (Hanh) is confined to her desk, the files on it, and
-  // the task board. Everything else — Lead ROI, Funded, Reports, Import, the
-  // dashboard — redirects to /processing. An account with no `role` in
-  // app_metadata is an admin, so every existing login is unaffected.
+  // the task board. A `reporting` account (Daniel) is confined to the four
+  // report pages. Anything outside a restricted role's allow-list redirects to
+  // that role's own home. An account with no `role` in app_metadata is an admin,
+  // so every existing login is unaffected.
   //
   // This is a ROUTING gate, not row-level security: `deals` RLS is unchanged,
   // so a restricted account still holds an anon key that could query other rows
@@ -84,7 +85,7 @@ export async function middleware(request: NextRequest) {
   const role = roleFromUser(user)
   if (role !== 'admin' && !pathname.startsWith('/api/') && !canAccess(role, pathname)) {
     const homeUrl = request.nextUrl.clone()
-    homeUrl.pathname = PROCESSOR_HOME
+    homeUrl.pathname = homeFor(role)
     homeUrl.search = ''
     return NextResponse.redirect(homeUrl)
   }
