@@ -1,6 +1,17 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-28] Contact page — same adverse/lost split on the Loans list
+**Status:** CHANGED — logic VERIFIED against live data; UI render not browser-verified (deals RLS blocks the auth-bypass dev server).
+**Issue:** Efrain reported the closed loans "all still show under Loans". Correct — the earlier work only touched `components/LoanHistory.tsx` (the DEAL page). The screenshot was the **contact** page's own `Loans (N)` list at [app/contacts/[id]/page.tsx](app/contacts/[id]/page.tsx), a completely separate render with checkboxes and GHL/Arive links. Two surfaces list a person's loans; only one had been fixed.
+
+**Changes:** [app/contacts/[id]/page.tsx](app/contacts/[id]/page.tsx) — extracted the inline row into a `ContactLoanRow` component (checkbox selection, merge/delete, and the GHL/Arive links all still work in both sections), then split the list into "Active & Funded" + a collapsed "Adverse & Lost", reusing `splitByOutcome`/`closedReason`/`isAdverse` from lib/loanOutcome.ts. Heading now reads `Loans (N live) + M closed`. Adverse rows gain a red `· Adverse <date>` detail.
+
+**Not changed:** the "Co-borrower on (N)" list below it — different relationship, Efrain hasn't asked.
+
+**Test Method:** `npx tsc --noEmit` · `npx eslint` · `npm run build` · split re-run against Petrilak's real contact row.
+**Result:** tsc error set unchanged from main; the one eslint error in this file (`set-state-in-effect` on the `fetchData` effect) is pre-existing, confirmed by stashing. Build compiles. Petrilak's contact page now reads **Loans (1) + 3 closed** — the $577,500 Non-QM stays live, and Arive #17490312 (Adverse Action), #17490336 and #17485683 (Lost) collapse. **Still needs Efrain's eyes on the rendered page.**
+
 ### [2026-08-28] Loan History — narrow the closed bucket to adverse + lost only
 **Status:** CHANGED — logic VERIFIED against the full live table + fixtures; UI render still not browser-verified (deals RLS blocks the auth-bypass dev server).
 **Issue:** Follow-up to the split below. The first cut counted the whole `Not Ready` group as closed, which swallowed ~2,300 leads that are parked, not dead — including `Not Ready - Timeframe` leads that lib/triage.ts deliberately resurfaces on their check-in date.

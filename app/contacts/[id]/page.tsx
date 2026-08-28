@@ -5,17 +5,93 @@ import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Contact, Deal, STATUS_COLORS } from '@/lib/types'
 import { classifyReturning } from '@/lib/repeatReferral'
+import { splitByOutcome, closedReason, isAdverse } from '@/lib/loanOutcome'
 import { formatCurrency, formatDate, titleCase, dndLabel, dndSummary, cleanSource } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { ariveUrl } from '@/lib/ariveLinks'
 import Link from 'next/link'
-import { ArrowLeft, ExternalLink, Ban, Clock, Trash2, Loader2, AlertTriangle, Layers } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Ban, Clock, Trash2, Loader2, AlertTriangle, Layers, ChevronRight, ChevronDown } from 'lucide-react'
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <div className="text-[10px] uppercase tracking-wide text-slate-400">{label}</div>
       <div className="font-semibold text-slate-800 tabular-nums">{value}</div>
+    </div>
+  )
+}
+
+/** One selectable loan row. `muted` dims the closed section so live loans read first. */
+function ContactLoanRow({ d, isSel, onToggle, muted }: { d: Deal; isSel: boolean; onToggle: () => void; muted?: boolean }) {
+  const ghl = ghlContactUrl(d)
+  const arive = ariveUrl(d.arive_file_no)
+  const source = cleanSource(d.source)
+  const reason = muted ? closedReason(d) : null
+  return (
+    <div className={`flex items-start gap-3 px-4 py-3 border-b border-slate-100 last:border-b-0 ${isSel ? 'bg-blue-50/60' : 'hover:bg-slate-50'} ${muted && !isSel ? 'opacity-70 hover:opacity-100' : ''}`}>
+      <input
+        type="checkbox"
+        checked={isSel}
+        onChange={onToggle}
+        className="mt-1 w-4 h-4 accent-blue-600 shrink-0"
+        title="Select loan"
+      />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link href={`/deals/${d.id}`} className="font-medium text-blue-600 hover:text-blue-700">
+            {titleCase(d.name) || d.name}
+          </Link>
+          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${STATUS_COLORS[d.status] || 'bg-gray-100 text-gray-600'}`}>
+            {d.status}
+          </span>
+          {reason && (
+            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+              reason === 'Adverse Action' ? 'bg-red-100 text-red-700' : 'bg-slate-200 text-slate-600'
+            }`}>
+              {reason}
+            </span>
+          )}
+          {d.loan_type && (
+            <span className="text-[11px] text-slate-500">
+              {d.loan_type}{d.loan_purpose ? ` · ${d.loan_purpose}` : ''}
+            </span>
+          )}
+        </div>
+        <div className="mt-1 flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+          {d.property_address && (
+            <span className="truncate max-w-[340px]">{d.property_address}{d.state ? `, ${d.state}` : ''}</span>
+          )}
+          {d.rate ? <span>· {d.rate}%</span> : null}
+          {d.funded_date ? <span>· Funded {formatDate(d.funded_date)}</span> : null}
+          {isAdverse(d) ? <span className="text-red-600">· Adverse {formatDate(d.adverse as string)}</span> : null}
+          {d.loan_officer ? <span>· {d.loan_officer}</span> : null}
+          {source ? <span>· {source}</span> : null}
+        </div>
+        {(d.arive_file_no || d.investor_file_no) && (
+          <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-400 flex-wrap">
+            {d.arive_file_no && <span>Arive #{d.arive_file_no}</span>}
+            {d.arive_file_no && d.investor_file_no && <span>·</span>}
+            {d.investor_file_no && <span>Lender #{d.investor_file_no}</span>}
+          </div>
+        )}
+      </div>
+      <div className="shrink-0 text-right">
+        <div className="text-sm font-semibold text-slate-800 tabular-nums">
+          {d.loan_amount ? formatCurrency(d.loan_amount) : '—'}
+        </div>
+        <div className="mt-1 flex items-center gap-2 justify-end">
+          {ghl && (
+            <a href={ghl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-blue-600 hover:text-blue-700 inline-flex items-center gap-0.5">
+              GHL <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+          {arive && (
+            <a href={arive} target="_blank" rel="noopener noreferrer" className="text-[11px] text-emerald-700 hover:text-emerald-800 inline-flex items-center gap-0.5">
+              Arive <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -168,6 +244,7 @@ export default function ContactDetailPage() {
   const [coLoans, setCoLoans] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [showClosed, setShowClosed] = useState(false)
   const [confirmMode, setConfirmMode] = useState<'delete' | 'merge' | null>(null)
   const [primaryId, setPrimaryId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -270,6 +347,9 @@ export default function ContactDetailPage() {
   const details = useMemo(() => buildDetails(deals), [deals])
   const timeline = useMemo(() => buildTimeline(deals), [deals])
   const returning = useMemo(() => classifyReturning(deals), [deals])
+  // Loans still alive vs. closed out (adverse action / lost in GHL) — lib/loanOutcome.ts.
+  const { open: openLoans, closed: closedLoans } = useMemo(() => splitByOutcome(deals), [deals])
+  const adverseCount = useMemo(() => closedLoans.filter(isAdverse).length, [closedLoans])
 
   if (loading) return <div className="p-6 text-sm text-slate-400">Loading…</div>
   if (!contact) {
@@ -413,7 +493,12 @@ export default function ContactDetailPage() {
           {/* Loans */}
           <section>
             <div className="flex items-center justify-between gap-2 mb-2 min-h-[28px]">
-              <h2 className="text-sm font-semibold text-slate-700">Loans ({deals.length})</h2>
+              <div className="flex items-baseline gap-2">
+                <h2 className="text-sm font-semibold text-slate-700">Loans ({openLoans.length})</h2>
+                {closedLoans.length > 0 && (
+                  <span className="text-xs text-slate-400">+ {closedLoans.length} closed</span>
+                )}
+              </div>
               {selected.size > 0 && (
                 <div className="flex items-center gap-2 text-xs">
                   <span className="text-slate-500">{selected.size} selected</span>
@@ -433,71 +518,41 @@ export default function ContactDetailPage() {
               <p className="text-sm text-slate-400">No loans on this person.</p>
             ) : (
               <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
-                {deals.map(d => {
-                  const ghl = ghlContactUrl(d)
-                  const arive = ariveUrl(d.arive_file_no)
-                  const source = cleanSource(d.source)
-                  const isSel = selected.has(d.id)
-                  return (
-                    <div key={d.id} className={`flex items-start gap-3 px-4 py-3 border-b border-slate-100 last:border-b-0 ${isSel ? 'bg-blue-50/60' : 'hover:bg-slate-50'}`}>
-                      <input
-                        type="checkbox"
-                        checked={isSel}
-                        onChange={() => toggleSelect(d.id)}
-                        className="mt-1 w-4 h-4 accent-blue-600 shrink-0"
-                        title="Select loan"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Link href={`/deals/${d.id}`} className="font-medium text-blue-600 hover:text-blue-700">
-                            {titleCase(d.name) || d.name}
-                          </Link>
-                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${STATUS_COLORS[d.status] || 'bg-gray-100 text-gray-600'}`}>
-                            {d.status}
-                          </span>
-                          {d.loan_type && (
-                            <span className="text-[11px] text-slate-500">
-                              {d.loan_type}{d.loan_purpose ? ` · ${d.loan_purpose}` : ''}
-                            </span>
-                          )}
-                        </div>
-                        <div className="mt-1 flex items-center gap-2 text-xs text-slate-500 flex-wrap">
-                          {d.property_address && (
-                            <span className="truncate max-w-[340px]">{d.property_address}{d.state ? `, ${d.state}` : ''}</span>
-                          )}
-                          {d.rate ? <span>· {d.rate}%</span> : null}
-                          {d.funded_date ? <span>· Funded {formatDate(d.funded_date)}</span> : null}
-                          {d.loan_officer ? <span>· {d.loan_officer}</span> : null}
-                          {source ? <span>· {source}</span> : null}
-                        </div>
-                        {(d.arive_file_no || d.investor_file_no) && (
-                          <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-400 flex-wrap">
-                            {d.arive_file_no && <span>Arive #{d.arive_file_no}</span>}
-                            {d.arive_file_no && d.investor_file_no && <span>·</span>}
-                            {d.investor_file_no && <span>Lender #{d.investor_file_no}</span>}
-                          </div>
-                        )}
+                {/* ── Active & Funded ── */}
+                {openLoans.map(d => (
+                  <ContactLoanRow key={d.id} d={d} isSel={selected.has(d.id)} onToggle={() => toggleSelect(d.id)} />
+                ))}
+                {openLoans.length === 0 && (
+                  <div className="px-4 py-3 text-xs text-slate-400 italic">No active or funded loans for this person.</div>
+                )}
+
+                {/* ── Adverse & Lost (collapsed by default) ── */}
+                {closedLoans.length > 0 && (
+                  <div className="border-t border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setShowClosed(v => !v)}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 bg-slate-50 hover:bg-slate-100 transition text-left"
+                    >
+                      {showClosed
+                        ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        : <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+                      <Ban className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="text-xs font-semibold text-slate-600">Adverse &amp; Lost</span>
+                      <span className="text-xs text-slate-400">
+                        {closedLoans.length} loan{closedLoans.length !== 1 ? 's' : ''}
+                        {adverseCount > 0 && ` · ${adverseCount} adverse action`}
+                      </span>
+                    </button>
+                    {showClosed && (
+                      <div className="bg-slate-50/40">
+                        {closedLoans.map(d => (
+                          <ContactLoanRow key={d.id} d={d} isSel={selected.has(d.id)} onToggle={() => toggleSelect(d.id)} muted />
+                        ))}
                       </div>
-                      <div className="shrink-0 text-right">
-                        <div className="text-sm font-semibold text-slate-800 tabular-nums">
-                          {d.loan_amount ? formatCurrency(d.loan_amount) : '—'}
-                        </div>
-                        <div className="mt-1 flex items-center gap-2 justify-end">
-                          {ghl && (
-                            <a href={ghl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-blue-600 hover:text-blue-700 inline-flex items-center gap-0.5">
-                              GHL <ExternalLink className="w-3 h-3" />
-                            </a>
-                          )}
-                          {arive && (
-                            <a href={arive} target="_blank" rel="noopener noreferrer" className="text-[11px] text-emerald-700 hover:text-emerald-800 inline-flex items-center gap-0.5">
-                              Arive <ExternalLink className="w-3 h-3" />
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </section>
