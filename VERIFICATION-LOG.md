@@ -1,6 +1,18 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-28] Loan History — split adverse/closed loans out of active & funded
+**Status:** CHANGED — logic VERIFIED against live data + fixtures; UI render not browser-verified (deals RLS blocks the auth-bypass dev server, see the deals-rls note).
+**Issue:** The deal-page Loan History card listed every related loan in one flat list, so declined and dead files sat next to active and funded ones. Efrain asked for a separate section for adverse loans.
+**Decisions (Efrain, 2026-08-28):** bucket = dead OR adverse (not adverse-only) · scope = the Loan History card only, no new page or pipeline tab.
+
+**Why status alone can't decide it:** a declined loan keeps whatever stage it died at. Of the 113 deals carrying an Arive `adverse` date, 19 still read `Disclosed`, 11 `Submitted to UW`, 7 `Approved w/ Conditions`. And the motivating case — Robert Petrilak's closed loans — are `ghl_status = 'lost'` with **no** adverse date at all. The rule is the union of three signals, with Funded always winning so a stale `lost` can never hide real volume.
+
+**Changes:** new [lib/loanOutcome.ts](lib/loanOutcome.ts) (`isAdverse` / `isClosedLoan` / `closedReason` / `splitByOutcome`, pure) · [components/LoanHistory.tsx](components/LoanHistory.tsx) renders "Active & Funded" then a collapsed "Adverse & Closed" section, extracts a shared `LoanRow`, shows the Adverse Action date in place of "Added" on adverse rows, and counts the funded/active/volume stats over LIVE loans only · new [scripts/loan-outcome-check.ts](scripts/loan-outcome-check.ts) (22 fixtures, offline).
+
+**Test Method:** `npx tsx scripts/loan-outcome-check.ts` · `npx tsc --noEmit` · `npm run build` · live split re-run against the real `deals` table.
+**Result:** 22/22 fixtures pass. tsc error set unchanged from main (4 pre-existing: app/reports, app/underwriting, components/DealForm, next.config). Build passes. Live: Petrilak's card splits 1 active / 2 closed (both `Lost`); across a 1000-row sample 0 funded rows were mis-bucketed as closed and all 17 adverse rows landed in closed. **Still needs Efrain's eyes on the rendered card.**
+
 ### [2026-08-25] Daniel McGrail-Granger — 4th LO + a `reporting`-only role
 **Status:** **VERIFIED — live end-to-end 2026-08-25.** Env set + deployed, sync pulled 636 deals, Arive CSV imported and reconciled, role applied and read back.
 **Issue:** Efrain is adding a 4th loan officer who needs the reporting sections of the dashboard and nothing else.
