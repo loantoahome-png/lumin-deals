@@ -1,6 +1,16 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-08-28] Loan History — narrow the closed bucket to adverse + lost only
+**Status:** CHANGED — logic VERIFIED against the full live table + fixtures; UI render still not browser-verified (deals RLS blocks the auth-bypass dev server).
+**Issue:** Follow-up to the split below. The first cut counted the whole `Not Ready` group as closed, which swallowed ~2,300 leads that are parked, not dead — including `Not Ready - Timeframe` leads that lib/triage.ts deliberately resurfaces on their check-in date.
+**Decision (Efrain, 2026-08-28):** "drop the Not Ready clause, adverse and lost only."
+
+**Changes:** [lib/loanOutcome.ts](lib/loanOutcome.ts) `isClosedLoan` is now `adverse date OR ghl_status lost/abandoned`, Funded still short-circuits first; `OLD_DEALS_GROUP`/`NOT_READY_GROUP` no longer referenced and `closedReason` drops the now-unreachable `Parked`/`Not Proceeding` labels · [components/LoanHistory.tsx](components/LoanHistory.tsx) section relabelled "Adverse & Lost" · [scripts/loan-outcome-check.ts](scripts/loan-outcome-check.ts) gains 4 fixtures asserting Not Ready / Old Deals rows stay in the LIVE section, and that a Not Ready row closes only when GHL also says lost.
+
+**Test Method:** `npx tsx scripts/loan-outcome-check.ts` · `npx tsc --noEmit` · `npm run build` · split re-run against all 4,963 deals (paginated — supabase-js caps a select at 1000 rows).
+**Result:** 24/24 fixtures pass, tsc error set unchanged from main, build compiles. Live full-table split: **4,761 open / 202 closed** (113 Adverse Action + 73 Lost + 16 Abandoned), down from ~2,500 closed under the old rule. All 113 adverse rows bucket closed, 0 leak into open, 0 funded rows mis-bucketed, and **1,929 Not Ready rows are now correctly kept in the live section**. Petrilak's card reads 0 active / 3 closed (1 Adverse Action, 2 Lost) — the empty-active state renders its "No active or funded loans" line.
+
 ### [2026-08-28] Loan History — split adverse/closed loans out of active & funded
 **Status:** CHANGED — logic VERIFIED against live data + fixtures; UI render not browser-verified (deals RLS blocks the auth-bypass dev server, see the deals-rls note).
 **Issue:** The deal-page Loan History card listed every related loan in one flat list, so declined and dead files sat next to active and funded ones. Efrain asked for a separate section for adverse loans.

@@ -78,8 +78,9 @@ function LoanRow({ d, muted }: { d: Deal; muted?: boolean }) {
 
 /**
  * Shows other loans for the same person, split into two sections: loans still
- * alive (active or funded) and loans that closed out — adverse action, lost in
- * GHL, or parked. The split rule lives in lib/loanOutcome.ts.
+ * alive (active or funded) and loans that closed out — an Arive adverse action,
+ * or lost/abandoned in GHL. Not Ready leads stay in the live section: they're
+ * parked, not dead. The split rule lives in lib/loanOutcome.ts.
  *
  * Primary link is borrower_id (the firm grouping from the multi-loan model);
  * falls back to email/phone/name for any deal that doesn't have a borrower_id yet.
@@ -197,7 +198,7 @@ export default function LoanHistory({ currentDealId, borrowerId, email, phone, f
         </div>
       )}
 
-      {/* ── Adverse & Closed (collapsed by default) ── */}
+      {/* ── Adverse & Lost (collapsed by default) ── */}
       {closed.length > 0 && (
         <div className="border-t border-slate-200">
           <button
@@ -209,7 +210,7 @@ export default function LoanHistory({ currentDealId, borrowerId, email, phone, f
               ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               : <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
             <Ban className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-            <span className="text-xs font-semibold text-slate-600">Adverse &amp; Closed</span>
+            <span className="text-xs font-semibold text-slate-600">Adverse &amp; Lost</span>
             <span className="text-xs text-slate-400">
               {closed.length} loan{closed.length !== 1 ? 's' : ''}
               {adverseCount > 0 && ` · ${adverseCount} adverse action`}

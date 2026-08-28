@@ -8,6 +8,7 @@
 //   • Robert Petrilak's three closed loans are ghl_status='lost' with NO adverse
 //     date — the case that motivated the feature. They must land in `closed`.
 //   • Funded always wins: a stale `lost` on a funded row must not hide volume.
+//   • Not Ready is NOT death: those leads are parked and get resurfaced.
 import { isAdverse, isClosedLoan, closedReason, splitByOutcome, type OutcomeDealLike } from '../lib/loanOutcome'
 
 let pass = 0, fail = 0
@@ -57,8 +58,18 @@ eq('null ghl_status stays open', isClosedLoan(d({ ghl_status: null })), false)
 
 // ── other closed reasons ──────────────────────────────────────────────────
 eq('abandoned', closedReason(d({ ghl_status: 'abandoned' })), 'Abandoned')
-eq('Old Deals parked', closedReason(d({ pipeline_group: 'Old Deals', ghl_status: 'open' })), 'Parked')
-eq('Not Ready, still open in GHL', closedReason(d({ pipeline_group: 'Not Ready', ghl_status: 'open' })), 'Not Proceeding')
+
+// ── Not Ready is NOT a death signal (Efrain, 2026-08-28) ───────────────────
+// These leads are parked, not dead — lib/triage.ts resurfaces Not Ready - Timeframe
+// on its check-in date. Bucketing them as closed would hide live follow-up work.
+eq('Not Ready - Timeframe, still open in GHL → OPEN',
+  isClosedLoan(d({ status: 'Not Ready - Timeframe', pipeline_group: 'Not Ready', ghl_status: 'open' })), false)
+eq('Non-Responsive, still open in GHL → OPEN',
+  isClosedLoan(d({ status: 'Non-Responsive', pipeline_group: 'Not Ready', ghl_status: 'open' })), false)
+eq('Old Deals parked, still open in GHL → OPEN',
+  isClosedLoan(d({ status: 'Non-Responsive', pipeline_group: 'Old Deals', ghl_status: 'open' })), false)
+eq('Not Ready + lost → closed (the lost is what kills it, not the group)',
+  closedReason(d({ status: 'Not Ready - Timeframe', pipeline_group: 'Not Ready', ghl_status: 'lost' })), 'Lost')
 
 // ── split preserves order ─────────────────────────────────────────────────
 const mixed = [
