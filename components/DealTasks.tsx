@@ -14,7 +14,7 @@ import {
   type BoardTask, type GhlTaskRow,
 } from '@/lib/ghlTasks'
 import GhlTaskForm from '@/components/GhlTaskForm'
-import GhlReassign from '@/components/GhlReassign'
+import GhlTaskEdit from '@/components/GhlTaskEdit'
 import { DUE_TONE_TEXT, type DueTone } from '@/components/TaskBoard'
 import {
   CheckCircle2, Circle, Trash2, Plus, X, Calendar, User,
@@ -180,8 +180,8 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames, star
     setShowForm(false)
   }
 
-  // Which mirrored GHL row has its reassign picker open (by ghl_task_id).
-  const [reassigning, setReassigning] = useState<string | null>(null)
+  // Which mirrored GHL row has its inline editor open (by ghl_task_id).
+  const [editingGhl, setEditingGhl] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   async function updateTask(id: string, patch: Omit<DealTask, 'id' | 'created_at'>) {
     const prevAssignee = tasks.find(t => t.id === id)?.assignee ?? null
@@ -265,18 +265,19 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames, star
       ) : (
         <div className="space-y-1.5">
           {sorted.map(task => isGhlTask(task) ? (
-            // Mirrored from GHL: complete and delete write back, and the row can
-            // be REASSIGNED. Title and description still live in GHL — only
-            // ownership is editable from here.
-            reassigning === task.ghl_task_id ? (
-              <GhlReassign
+            // Mirrored from GHL: complete and delete write back, and the row's
+            // DUE DATE and OWNER are editable. Title and description still live
+            // in GHL.
+            editingGhl === task.ghl_task_id ? (
+              <GhlTaskEdit
                 key={task.id}
                 task={task}
-                onDone={assignee => {
-                  setTasks(prev => prev.map(x => x.ghl_task_id === task.ghl_task_id ? { ...x, assignee } : x))
-                  setReassigning(null)
+                onDone={patch => {
+                  setTasks(prev => prev.map(x => x.ghl_task_id === task.ghl_task_id ? { ...x, ...patch } : x))
+                  setEditingGhl(null)
+                  onChanged?.()
                 }}
-                onCancel={() => setReassigning(null)}
+                onCancel={() => setEditingGhl(null)}
               />
             ) : (
             <TaskRow
@@ -284,7 +285,7 @@ export default function DealTasks({ dealId, title, showDealLink, dealNames, star
               task={task}
               badge="GHL"
               onToggle={() => toggleComplete(task)}
-              onEdit={() => setReassigning(task.ghl_task_id ?? null)}
+              onEdit={() => setEditingGhl(task.ghl_task_id ?? null)}
               onDelete={() => deleteMirroredTask(task)}
             />
             )

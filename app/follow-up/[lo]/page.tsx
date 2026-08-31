@@ -52,7 +52,7 @@ import {
   type LiveUnreadLike, type FubUnansweredLike,
 } from '@/lib/followUpQueue'
 import { AssigneeColumn, TaskRow, type ColumnView } from '@/components/TaskBoard'
-import GhlReassign from '@/components/GhlReassign'
+import GhlTaskEdit from '@/components/GhlTaskEdit'
 import {
   toBoardTask, isGhlTask, completeGhlTask, deleteGhlTask, byDueAsc,
   type BoardTask, type GhlTaskRow,
@@ -223,8 +223,8 @@ export default function FollowUpCockpit() {
   // that are actually due under everything scheduled for next month. /tasks
   // keeps its own per-column default; only this page changes.
   const [dashView, setDashView] = useState<ColumnView>('now')
-  // Which mirrored GHL row has its reassign picker open (by ghl_task_id).
-  const [reassigning, setReassigning] = useState<string | null>(null)
+  // Which mirrored GHL row has its inline editor open (by ghl_task_id).
+  const [editingGhl, setEditingGhl] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!lo) return
@@ -598,22 +598,24 @@ export default function FollowUpCockpit() {
               onAdd={() => setNewDashTask({ assignee: lo })}
               maxHeightClass="max-h-[40rem]"
               renderTask={(t: BoardTask) => isGhlTask(t) ? (
-                // Mirrored from GHL: complete and delete write back, and the row
-                // can be REASSIGNED. Title and description still live in GHL —
-                // only ownership is editable from here.
-                reassigning === t.ghl_task_id ? (
-                  <GhlReassign
+                // Mirrored from GHL: complete and delete write back, and the
+                // row's DUE DATE and OWNER are editable. Title and description
+                // still live in GHL.
+                editingGhl === t.ghl_task_id ? (
+                  <GhlTaskEdit
                     key={t.id}
                     task={t}
-                    onDone={assignee => {
+                    onDone={patch => {
                       // This cockpit only lists THIS LO's tasks, so handing one
-                      // to someone else takes it off this board entirely.
-                      setGhlTasks(prev => assignee === lo
-                        ? prev.map(x => x.ghl_task_id === t.ghl_task_id ? { ...x, assignee } : x)
+                      // to someone else takes it off this board entirely — but a
+                      // pure reschedule must NOT, so the filter tests the owner
+                      // and never the fact that something changed.
+                      setGhlTasks(prev => patch.assignee === lo
+                        ? prev.map(x => x.ghl_task_id === t.ghl_task_id ? { ...x, ...patch } : x)
                         : prev.filter(x => x.ghl_task_id !== t.ghl_task_id))
-                      setReassigning(null)
+                      setEditingGhl(null)
                     }}
-                    onCancel={() => setReassigning(null)}
+                    onCancel={() => setEditingGhl(null)}
                   />
                 ) : (
                 <TaskRow
@@ -627,7 +629,7 @@ export default function FollowUpCockpit() {
                     ghl_contact_id: t.ghl_contact_id, ghl_location_id: t.ghl_location_id, loan_officer: lo,
                   }) ?? undefined}
                   onToggle={() => completeMirroredTask(t)}
-                  onEdit={() => setReassigning(t.ghl_task_id ?? null)}
+                  onEdit={() => setEditingGhl(t.ghl_task_id ?? null)}
                   onDelete={() => deleteMirroredTask(t)}
                 />
                 )

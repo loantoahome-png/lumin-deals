@@ -64,12 +64,18 @@ another LO's leads. Matt's and Moe's patterns deliberately left narrow.
   (`POST /api/ghl/tasks/reopen` → `PUT …/completed {completed:false}`, then re-mirrored so the board updates
   without waiting for the sweep). `completed_at` is GHL's **`dateUpdated` = last modified**, not a true
   completion stamp; the UI says so. A completed row shows WHEN it was done instead of its due date.
-- **REASSIGN is the one edit a mirrored row supports (SHIPPED 2026-08-05).** Click any GHL row on `/tasks`,
-  a Follow-Up cockpit, or the deal card → inline picker → `POST /api/ghl/tasks/reassign`. GHL's task update
-  takes a **PARTIAL** body, so sending only `assignedTo` leaves title/due/description untouched (verified).
-  Options come from the task's OWN sub-account via `lib/ghlUsers.ts` (shared with create). Still **no
-  title/description edit** — that text lives in GHL. ⚠️ `components/DealTasks.tsx` has its own local
-  `TaskRow`, so it does NOT inherit board changes; wire it separately.
+- **DUE DATE + OWNER are the edits a mirrored row supports** (reassign SHIPPED 2026-08-05, reschedule
+  2026-08-31). Click any GHL row on `/tasks`, a Follow-Up cockpit, or the deal card → `components/
+  GhlTaskEdit.tsx` inline panel → `POST /api/ghl/tasks/reassign` and/or `POST /api/ghl/tasks/reschedule`.
+  GHL's task update takes a **PARTIAL** body, so each changed field is sent alone and leaves the rest
+  untouched (verified live both ways). Assignee options come from the task's OWN sub-account via
+  `lib/ghlUsers.ts` (shared with create). Still **no title/description edit** — that text lives in GHL.
+  ⚠️ **A GHL task cannot be undated** — the date field is required and `normalizeDueDate` refuses empty
+  input before calling, because an empty `dueDate` is the `{title:''}` trap (200, field blanked).
+  ⚠️ Rescheduling is the right action for "not done yet" — **completing** a task DELETES the mirror row and
+  buries it in GHL history, so it must never be used as a snooze.
+  ⚠️ `components/DealTasks.tsx` has its own local `TaskRow`, so it does NOT inherit board changes; wire it
+  separately.
 - **⚠️ GHL task writes take ~2s — every UI write must be OPTIMISTIC.** Measured: `/complete` 2644ms end to
   end (~2000ms is GHL's own PUT), `/reopen` 3779ms. Handlers used to await the round-trip before touching
   state, so the row sat on screen the whole time. Complete/reopen/delete now drop the row immediately and

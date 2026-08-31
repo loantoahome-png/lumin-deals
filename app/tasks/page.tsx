@@ -30,7 +30,7 @@ import {
 } from 'lucide-react'
 import NotesBoard from '@/components/NotesBoard'
 import GhlTaskForm from '@/components/GhlTaskForm'
-import GhlReassign from '@/components/GhlReassign'
+import GhlTaskEdit from '@/components/GhlTaskEdit'
 
 type FilterMode = 'open' | 'today' | 'overdue' | 'week' | 'completed' | 'all'
 
@@ -350,8 +350,8 @@ function TasksSection() {
     setDealTasks(prev => prev.filter(t => !t.completed_at))
   }
 
-  // Which mirrored GHL row has its reassign picker open (by ghl_task_id).
-  const [reassigning, setReassigning] = useState<string | null>(null)
+  // Which mirrored GHL row has its inline editor open (by ghl_task_id).
+  const [editingGhl, setEditingGhl] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   async function updateTask(id: string, patch: Omit<DealTask, 'id' | 'created_at'>) {
     const prevAssignee = tasks.find(t => t.id === id)?.assignee ?? null
@@ -378,27 +378,28 @@ function TasksSection() {
 
   // A row renders the same in every column; the column header already names the
   // person, so the per-row assignee chip is dropped as redundant.
-  // GHL rows are mirrors: complete and delete both write back to GHL. No EDIT —
-  // the text lives in GHL. (Delete added 2026-08-04: "I can not delete this.")
+  // GHL rows are mirrors: complete and delete both write back to GHL.
+  // (Delete added 2026-08-04: "I can not delete this.")
   const renderTask = (t: BoardTask) => isGhlTask(t) ? (
-    // Reassign is the one edit a mirrored row supports — title and description
-    // live in GHL, but WHO OWNS a task is a dashboard-shaped decision. Not
-    // offered on completed rows: they aren't in ghl_tasks, so the route 404s.
-    reassigning === t.ghl_task_id ? (
-      <GhlReassign
+    // DUE DATE and OWNER are the edits a mirrored row supports — when a task is
+    // due and who owns it are dashboard-shaped decisions; its title and
+    // description live in GHL. Not offered on completed rows: they aren't in
+    // ghl_tasks, so both routes 404 on the lookup.
+    editingGhl === t.ghl_task_id ? (
+      <GhlTaskEdit
         key={t.id}
         task={t}
-        onDone={assignee => {
-          setGhlTasks(prev => prev.map(x => x.ghl_task_id === t.ghl_task_id ? { ...x, assignee } : x))
-          setReassigning(null)
+        onDone={patch => {
+          setGhlTasks(prev => prev.map(x => x.ghl_task_id === t.ghl_task_id ? { ...x, ...patch } : x))
+          setEditingGhl(null)
         }}
-        onCancel={() => setReassigning(null)}
+        onCancel={() => setEditingGhl(null)}
       />
     ) : (
     <TaskRow
       key={t.id}
       task={t}
-      onEdit={t.completed_at ? undefined : () => setReassigning(t.ghl_task_id ?? null)}
+      onEdit={t.completed_at ? undefined : () => setEditingGhl(t.ghl_task_id ?? null)}
       hideAssignee
       badge="GHL"
       contactName={t.contact_name}

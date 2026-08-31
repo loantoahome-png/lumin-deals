@@ -7,6 +7,7 @@
 import {
   mapGhlTask, toBoardTask, isGhlTask, taskAssignee, taskContactName,
   mapCompletedGhlTask, toCompletedBoardTask, isTaskGoneResponse,
+  normalizeDueDate, sameDueDate,
   GHL_TASK_PREFIX, type GhlTaskSearchRow,
 } from '../lib/ghlTasks'
 
@@ -203,6 +204,36 @@ eq('gone: 403 is not gone', isTaskGoneResponse(403, 'forbidden'), false)
 eq('gone: 500 is not gone — a flaky upstream must not look like a delete',
   isTaskGoneResponse(500, 'internal error'), false)
 eq('gone: empty 400 body is not gone', isTaskGoneResponse(400, ''), false)
+
+// ── normalizeDueDate — the reschedule route's gate ──────────────────────────
+// ⚠️ A GHL task CANNOT be undated. Creating one without a date is a 422, and an
+// UPDATE with an empty value is the `{title:''}` family of trap: GHL returns
+// 200 and blanks the field, with no validation of its own. Everything falsy or
+// unparseable must therefore stop HERE, before a request is made.
+eq('due: an ISO date passes through normalised', normalizeDueDate('2027-06-16T15:00:00Z'), '2027-06-16T15:00:00.000Z')
+eq('due: a local datetime becomes ISO', normalizeDueDate('2026-09-04T23:59:00.000Z'), '2026-09-04T23:59:00.000Z')
+eq('due: surrounding whitespace is tolerated', normalizeDueDate('  2027-06-16T15:00:00Z  '), '2027-06-16T15:00:00.000Z')
+eq('⚠️ due: empty string is REFUSED, never sent (it would blank the date in GHL)', normalizeDueDate(''), null)
+eq('⚠️ due: whitespace-only is refused', normalizeDueDate('   '), null)
+eq('due: null is refused', normalizeDueDate(null), null)
+eq('due: undefined is refused', normalizeDueDate(undefined), null)
+eq('due: junk is refused rather than becoming Invalid Date', normalizeDueDate('next tuesday'), null)
+
+// ── sameDueDate — "did the write land?" ─────────────────────────────────────
+// ⚠️ Compared as epoch ms, NEVER as strings: GHL echoes a date back in its own
+// formatting, so a string compare would report a write that landed perfectly as
+// a failure — the same misread that made a working reopen look like a no-op.
+eq('⚠️ same: identical instants written differently are the SAME date',
+  sameDueDate('2027-06-16T15:00:00.000Z', '2027-06-16T15:00:00Z'), true)
+eq('same: an offset form equals its UTC equivalent',
+  sameDueDate('2027-06-16T15:00:00.000Z', '2027-06-16T08:00:00.000-07:00'), true)
+eq('same: a different instant is not the same', sameDueDate('2027-06-16T15:00:00Z', '2027-06-19T15:00:00Z'), false)
+eq('same: one minute apart is not the same', sameDueDate('2027-06-16T15:00:00Z', '2027-06-16T15:01:00Z'), false)
+eq('same: null vs a real date is a change (an undated row being given a date)',
+  sameDueDate(null, '2027-06-16T15:00:00Z'), false)
+eq('same: null vs null is unchanged', sameDueDate(null, null), true)
+eq('same: undefined and null both read as undated', sameDueDate(undefined, null), true)
+eq('same: unparseable both sides is unchanged, not a phantom edit', sameDueDate('junk', 'other junk'), true)
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} ghl-tasks-check: ${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)

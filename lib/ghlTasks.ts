@@ -375,6 +375,67 @@ export async function reassignGhlTask(taskId: string, assignee: string): Promise
   }
 }
 
+/**
+ * A due date GHL will accept, as an ISO string — or null when the input is
+ * empty or unparseable.
+ *
+ * ⚠️ A GHL task CANNOT be undated. Creating one without a date is a 422
+ * ("dueDate should not be empty"), and an update is the same family of trap as
+ * `{title:''}`, which returns **200 and blanks the field**. So nothing here may
+ * turn an empty or junk input into a call: it answers null and the caller
+ * refuses, rather than letting GHL decide what an empty date means.
+ */
+export function normalizeDueDate(input: string | null | undefined): string | null {
+  if (input == null) return null
+  const raw = String(input).trim()
+  if (!raw) return null
+  const d = new Date(raw)
+  return isNaN(d.getTime()) ? null : d.toISOString()
+}
+
+/**
+ * Do two due dates mean the same instant?
+ *
+ * ⚠️ Compared as epoch ms, NEVER as strings. GHL echoes a date back in its own
+ * formatting, so `2027-06-16T15:00:00.000Z` and `2027-06-16T15:00:00Z` are the
+ * same moment written two ways — a string compare would report a write that
+ * landed perfectly as a failure, which is exactly how the first reopen probe
+ * misread `tasks/search` (see GOTCHAS).
+ */
+export function sameDueDate(a: string | null | undefined, b: string | null | undefined): boolean {
+  const ta = a ? new Date(a).getTime() : NaN
+  const tb = b ? new Date(b).getTime() : NaN
+  if (isNaN(ta) && isNaN(tb)) return true      // both undated/unparseable
+  return ta === tb
+}
+
+/**
+ * Move a mirrored task's due date in GHL — the "push it out a few days" action,
+ * which is what you want instead of completing a task that isn't done.
+ *
+ * Writes to GHL and updates the mirror, so the card re-buckets (Overdue & today
+ * → Due this week) without waiting out the 15-min sweep. Returns the stored
+ * date on success, an error message otherwise.
+ */
+export async function rescheduleGhlTask(
+  taskId: string,
+  dueDate: string,
+): Promise<{ due_at: string | null; error: string | null }> {
+  try {
+    const res = await fetch('/api/ghl/tasks/reschedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId, dueDate }),
+    })
+    const json = await res.json().catch(() => null) as
+      { ok?: boolean; due_at?: string | null; error?: string } | null
+    if (!res.ok || !json?.ok) return { due_at: null, error: json?.error ?? `HTTP ${res.status}` }
+    return { due_at: json.due_at ?? null, error: null }
+  } catch (e) {
+    return { due_at: null, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
 /** Board order: soonest first, undated last. The column floats undated to the
  *  top of its own Overdue & today bucket — see AssigneeColumn. */
 export function byDueAsc(a: BoardTask, b: BoardTask): number {
