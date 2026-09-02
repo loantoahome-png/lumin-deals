@@ -639,3 +639,10 @@ account can no longer log in. The script spreads the existing object.
 **What works:** key on `new Date(ts).getTime()`. Any join between a stored timestamp and an API-derived one needs an epoch, never the ISO string.
 **Project:** lumin-deals
 **Date:** 2026-08-25
+
+### An overwrite import of GHL-owned fields is undone by the next sync — and an incremental sync pass hides it
+**Tried:** Testing "does the GHL sync revert what the Arive import wrote?" by re-running the import preview right after a 15-min sync pass that touched 244 Arive-linked deals. 0 drift → concluded "no ping-pong". Wrong.
+**Failed because:** the 15-min pass is INCREMENTAL (cursor on the opportunity's updatedAt) — it only rewrites deals whose GHL opp changed, which were mostly not the ones the import touched. The ~3-hourly MAINTENANCE pass (`ghl_maintenance_last`) rescans every opportunity and rewrote 143 Arive-linked deals 40 minutes later: `status` on every deal, `loan_amount` (= GHL opp value) on every non-funded deal. The next preview showed the same 334 overwrites (198 status, 119 loan_amount); Arive had changed 4 loans.
+**What works:** don't test provenance fights against an incremental pass — wait for (or force) the full/maintenance pass, or reason from the write rule in `app/api/sync/ghl/route.ts`. And don't let an import write a field another writer owns: `status`/`loan_amount` are now `ghl_owned` in the import plan until the loan is funded. Per-field history came from the import log (`import_runs`/`import_changes`) — without it the 444 from the earlier import was unattributable.
+**Project:** lumin-deals
+**Date:** 2026-09-02
