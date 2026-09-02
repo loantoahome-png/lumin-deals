@@ -18,6 +18,7 @@ type Summary = {
   fields_to_fill: number
   fields_to_overwrite: number
   fields_unchanged: number
+  fields_ghl_owned?: number
 }
 type ApiResp = {
   ok: boolean
@@ -92,7 +93,7 @@ export default function AriveImportPage() {
   const [loading, setLoading]       = useState(false)
   const [createUnmatched, setCreateUnmatched] = useState(false)
   const [protectedFields, setProtectedFields] = useState<Set<string>>(new Set())
-  const [rowFilter, setRowFilter] = useState<'all' | 'overwrites' | 'money' | 'new' | 'funded' | 'unmatched' | 'warnings'>('all')
+  const [rowFilter, setRowFilter] = useState<'all' | 'overwrites' | 'money' | 'new' | 'funded' | 'unmatched' | 'warnings' | 'ghl_owned'>('all')
   const [rowSearch, setRowSearch] = useState('')
   const [hideNoChange, setHideNoChange] = useState(true)
   const [fieldFilter, setFieldFilter] = useState<string | null>(null)
@@ -183,15 +184,16 @@ export default function AriveImportPage() {
   // Recompute the write counts under the current mode + field shields so the
   // summary reflects the user's selections without re-fetching.
   const recountedSummary = preview?.plans ? (() => {
-    let fill = 0, overwrite = 0
+    let fill = 0, overwrite = 0, ghlOwned = 0
     for (const p of preview.plans) {
       if (!p.matched) continue
       for (const c of p.changes) {
         if (c.action === 'fill') fill++
         else if (c.action === 'overwrite' && mode === 'overwrite' && !protectedFields.has(c.field)) overwrite++
+        else if (c.action === 'ghl_owned') ghlOwned++
       }
     }
-    return { fill, overwrite }
+    return { fill, overwrite, ghlOwned }
   })() : null
 
   // Potential overwrites per field (before shields) — the "by field" table.
@@ -241,6 +243,7 @@ export default function AriveImportPage() {
     if (rowFilter === 'funded')     return !!p.funded
     if (rowFilter === 'unmatched')  return !p.matched
     if (rowFilter === 'warnings')   return !!p.dedupWarning || !!p.fundedRegressionBlocked
+    if (rowFilter === 'ghl_owned')  return p.changes.some(c => c.action === 'ghl_owned')
     // 'all': optionally hide matched no-op rows (nothing written, no warning) —
     // but never hide when drilling a field (those rows are the whole point).
     if (!fieldFilter && hideNoChange && p.matched && p.action !== 'create_new' && p.action !== 'create_loan' && !p.dedupWarning && writes === 0) return false
@@ -270,6 +273,7 @@ export default function AriveImportPage() {
           <p className="font-semibold">Safe by default.</p>
           <p className="text-emerald-800 mt-0.5">
             &ldquo;Fill blanks only&rdquo; never overwrites hand-entered data — it only writes to fields currently empty.
+            <strong> Status and loan amount on non-funded deals are never written</strong> — GHL owns them until the loan funds (the sync would revert them within the hour); once funded, Arive takes over.
             You&apos;ll see a complete preview before anything is saved.
           </p>
         </div>
@@ -327,13 +331,14 @@ export default function AriveImportPage() {
                 <button onClick={resetAll} className="text-slate-400 hover:text-slate-700 ml-2"><X className="w-3.5 h-3.5" /></button>
               </div>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-7 gap-2">
               <Metric label="Rows in CSV"     value={preview.summary?.total_rows ?? 0} />
               <Metric label="Matched"          value={preview.summary?.matched ?? 0} tone="emerald" />
               <Metric label="Unmatched"        value={preview.summary?.unmatched ?? 0} tone={preview.summary?.unmatched ? 'amber' : undefined} />
               <Metric label="Will create new"  value={preview.summary?.will_create ?? 0} tone={preview.summary?.will_create ? 'indigo' : undefined} />
               <Metric label="Will fill blanks" value={recountedSummary?.fill ?? 0} tone="blue" />
               <Metric label="Will overwrite"   value={recountedSummary?.overwrite ?? 0} tone={mode === 'overwrite' && recountedSummary?.overwrite ? 'amber' : undefined} />
+              <Metric label="GHL-owned · skipped" value={recountedSummary?.ghlOwned ?? 0} />
             </div>
           </div>
 
@@ -472,7 +477,7 @@ export default function AriveImportPage() {
                     className="pl-7 pr-2 py-1 text-xs border border-slate-200 rounded-lg w-52 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div className="flex bg-slate-100 rounded-lg p-0.5 gap-0.5">
-                  {([['all', 'All'], ['overwrites', 'Overwrites'], ['money', 'Money'], ['new', 'New loans'], ['funded', 'Funded'], ['unmatched', 'Unmatched'], ['warnings', 'Warnings']] as const).map(([key, label]) => (
+                  {([['all', 'All'], ['overwrites', 'Overwrites'], ['money', 'Money'], ['new', 'New loans'], ['funded', 'Funded'], ['unmatched', 'Unmatched'], ['warnings', 'Warnings'], ['ghl_owned', 'GHL-owned']] as const).map(([key, label]) => (
                     <button key={key} onClick={() => setRowFilter(key)}
                       className={`text-[11px] font-semibold px-2 py-0.5 rounded ${rowFilter === key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                       {label}
@@ -569,12 +574,14 @@ export default function AriveImportPage() {
                             const ariveWins = fieldWrites(c, mode, protectedFields)
                             const isOverwrite = c.action === 'overwrite'
                             const isBlocked = c.action === 'blocked'
+                            const isGhlOwned = c.action === 'ghl_owned'
                             const isProtected = isOverwrite && mode === 'overwrite' && protectedFields.has(c.field)
                             const dashBlank = c.current == null || c.current === ''
                             const consequential = CONSEQUENTIAL.has(c.field) && ariveWins && isOverwrite
                             const focused = fieldFilter === c.field
                             return (
-                              <div key={i} className={`flex items-center gap-2 px-2.5 py-1 border-b border-slate-100 last:border-0 ${isBlocked ? 'bg-rose-50 ring-1 ring-inset ring-rose-200' : focused ? 'bg-blue-50 ring-1 ring-inset ring-blue-300' : consequential ? 'bg-amber-50/70' : ''}`}>
+                              <div key={i} className={`flex items-center gap-2 px-2.5 py-1 border-b border-slate-100 last:border-0 ${isBlocked ? 'bg-rose-50 ring-1 ring-inset ring-rose-200' : focused ? 'bg-blue-50 ring-1 ring-inset ring-blue-300' : consequential ? 'bg-amber-50/70' : isGhlOwned ? 'bg-slate-50' : ''}`}
+                                   title={isGhlOwned ? 'GHL owns this field until the loan funds — the sync would put its value straight back, so the import leaves it alone. Arive takes over once the loan is funded.' : undefined}>
                                 {/* Field — bold/amber when consequential, bold/rose when a regression is blocked */}
                                 <span className={`font-mono text-[10px] uppercase w-28 shrink-0 truncate ${isBlocked ? 'text-rose-700 font-bold' : consequential ? 'text-amber-700 font-bold' : 'text-slate-400'}`} title={c.field}>{c.field}</span>
                                 {/* Dashboard value — bold when kept (incl. blocked), muted when Arive overrides it */}
@@ -585,6 +592,7 @@ export default function AriveImportPage() {
                                 {/* Result — exactly what happens to this field */}
                                 <span className="w-16 shrink-0 text-right text-[9px] font-bold uppercase">
                                   {isBlocked ? <span className="text-rose-700">blocked</span>
+                                    : isGhlOwned ? <span className="text-slate-500">GHL-owned</span>
                                     : ariveWins
                                     ? (isOverwrite ? <span className="text-amber-700">overwrite</span> : <span className="text-emerald-700">fill</span>)
                                     : isProtected ? <span className="text-blue-600">protected</span>

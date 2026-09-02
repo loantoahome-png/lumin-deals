@@ -6,7 +6,7 @@
 // created blank SHELL cards for loans that already had cards, because (older)
 // name matching missed real-world name variants and the LOS name "Arive" leaked
 // into `source`. Both are fixed now — these cases lock that in so it can't regress.
-import { buildMatchIndex, matchRow, isRealLeadSource, parseRowsFromCsv, rowToPatch, buildPlan } from '../lib/ariveCsv'
+import { buildMatchIndex, matchRow, isRealLeadSource, parseRowsFromCsv, rowToPatch, buildPlan, summarizePlan } from '../lib/ariveCsv'
 
 let pass = 0, fail = 0
 function eq(label: string, got: unknown, want: unknown) {
@@ -78,6 +78,44 @@ const plans = buildPlan({ rows: parsed as never, deals: new Map(), ix: emptyIx, 
 eq('totals row dropped from the plan', plans.length, 2)
 eq('no plan is named Unknown', plans.some(p => /unknown/i.test(p.borrower)), false)
 eq('real rows still planned', plans.map(p => p.borrower), ['Edward James Fadel', 'Thomas Joe Lathouwers'])
+
+// ── GHL-owned fields (2026-09-02): status + loan_amount are skipped until funded ──
+// The 20:48 overwrite import pushed Arive's status/amount onto ~300 lead/in-process
+// deals; the 21:30 maintenance sync wrote GHL's values back; the next preview showed
+// the same 334 "overwrites". These lock the rule: not funded → skip both (fill AND
+// overwrite); funded, or funded BY this row → Arive writes as before.
+{
+  const ixG = buildMatchIndex([
+    { id: 'lead',    name: 'Lead Person',    email: null, phone: null, arive_file_no: 'L1' },
+    { id: 'blank',   name: 'Blank Amount',   email: null, phone: null, arive_file_no: 'L2' },
+    { id: 'funding', name: 'Funding Now',    email: null, phone: null, arive_file_no: 'L3' },
+    { id: 'funded',  name: 'Already Funded', email: null, phone: null, arive_file_no: 'L4' },
+  ])
+  const dealsG = new Map<string, Record<string, unknown>>([
+    ['lead',    { status: 'Not Ready - Timeframe', pipeline_group: 'Not Ready', loan_amount: 0, rate: 6.5 }],
+    ['blank',   { status: 'App Intake', pipeline_group: 'Leads', loan_amount: null }],
+    ['funding', { status: 'Clear to Close', pipeline_group: 'Loans in Process', loan_amount: 400000 }],
+    ['funded',  { status: 'Loan Funded', pipeline_group: 'Funded', loan_amount: 301090 }],
+  ])
+  const rowsG = [
+    { __borrower_name: 'Lead Person',    arive_file_no: 'L1', status: 'App Intake',  loan_amount: 25000,  rate: 6.875 },
+    { __borrower_name: 'Blank Amount',   arive_file_no: 'L2', status: 'App Intake',  loan_amount: 90000 },
+    { __borrower_name: 'Funding Now',    arive_file_no: 'L3', status: 'Loan Funded', loan_amount: 398500 },
+    { __borrower_name: 'Already Funded', arive_file_no: 'L4', status: 'Loan Funded', loan_amount: 210000 },
+  ]
+  const plansG = buildPlan({ rows: rowsG as never, deals: dealsG, ix: ixG, mode: 'overwrite' })
+  const act = (i: number, f: string) => plansG[i].changes.find(c => c.field === f)?.action
+  eq('lead: status differs but GHL-owned',          act(0, 'status'),      'ghl_owned')
+  eq('lead: loan_amount differs but GHL-owned',     act(0, 'loan_amount'), 'ghl_owned')
+  eq('lead: other fields still overwrite',          act(0, 'rate'),        'overwrite')
+  eq('lead: a blank loan_amount is not even filled', act(1, 'loan_amount'), 'ghl_owned')
+  eq('row that FUNDS the loan writes status',       act(2, 'status'),      'overwrite')
+  eq('row that FUNDS the loan writes loan_amount',  act(2, 'loan_amount'), 'overwrite')
+  eq('already-funded deal: Arive owns loan_amount', act(3, 'loan_amount'), 'overwrite')
+  eq('already-funded deal: same status is unchanged', act(3, 'status'),    'unchanged')
+  const sumG = summarizePlan(plansG)
+  eq('summary counts GHL-owned separately', [sumG.fields_ghl_owned, sumG.fields_to_overwrite], [3, 4])
+}
 
 console.log(`arive-match-check: ${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

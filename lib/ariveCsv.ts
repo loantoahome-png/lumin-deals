@@ -500,8 +500,21 @@ export type FieldChange = {
   next: unknown
   //   'blocked' → an overwrite the importer refuses to apply (funded-regression
   //               guard: never un-fund a closed loan). Shown in preview, never written.
-  action: 'fill' | 'overwrite' | 'unchanged' | 'blocked'
+  //   'ghl_owned' → a field GHL owns while the loan is NOT funded (status, loan
+  //               amount): Arive's value differs but is deliberately not written —
+  //               the GHL sync would revert it within the hour (see GHL_OWNED_FIELDS).
+  action: 'fill' | 'overwrite' | 'unchanged' | 'blocked' | 'ghl_owned'
 }
+
+// Fields the GHL sync owns on every NON-funded deal. It writes `status` (from the
+// GHL stage) on every deal it touches and `loan_amount` (the GHL opportunity value)
+// on every deal that is not funded — Efrain's provenance rule: GHL owns them in
+// process, Arive owns them once the loan funds. An overwrite import that pushed
+// Arive's values onto ~300 lead/in-process deals (2026-09-02) was reverted by the
+// next maintenance sync pass, and the same ~300 "overwrites" came back on every
+// preview after. So the importer skips these two fields unless the deal is
+// funded, or this very row funds it (then Arive is authoritative and they write).
+export const GHL_OWNED_FIELDS = new Set(['status', 'loan_amount'])
 
 // The current dashboard values a REVENUE delta needs, snapshotted onto every
 // matched update row. Revenue is `totalComp` on funded deals only, so the money
@@ -734,6 +747,10 @@ export function buildPlan(args: {
     // in the preview and the regression guard below.
     const dealIsFunded = FUNDED.has(String(deal.status ?? '')) || deal.pipeline_group === 'Funded'
     if (dealIsFunded) plan.funded = true
+    // GHL owns status + loan_amount until the loan is funded — by the deal's
+    // current status OR by the status this row brings (a row that funds the loan
+    // hands both fields to Arive in the same write).
+    const ghlOwnsInProcess = !dealIsFunded && !lockIsCleared
 
     // Snapshot the money inputs BEFORE any change is applied — the "before" side
     // of the revenue delta (see lib/importRevenue.ts).
@@ -760,6 +777,10 @@ export function buildPlan(args: {
       const isSame  = sameFieldValue(field, current, value)
       if (isSame) {
         plan.changes.push({ field, current, next: value, action: 'unchanged' })
+      } else if (ghlOwnsInProcess && GHL_OWNED_FIELDS.has(field)) {
+        // Differs, but never written (fill OR overwrite): the sync would put GHL's
+        // value straight back. Surfaced so the preview can say why it is skipped.
+        plan.changes.push({ field, current, next: value, action: 'ghl_owned' })
       } else if (isBlank) {
         plan.changes.push({ field, current, next: value, action: 'fill' })
       } else {
@@ -794,13 +815,14 @@ export function buildPlan(args: {
 
 // Summarize a plan for the response payload
 export function summarizePlan(plans: RowPlan[]) {
-  let matched = 0, unmatched = 0, fill = 0, overwrite = 0, unchanged = 0, willCreate = 0
+  let matched = 0, unmatched = 0, fill = 0, overwrite = 0, unchanged = 0, ghlOwned = 0, willCreate = 0
   for (const p of plans) {
     if (p.matched) matched++; else unmatched++
     if (p.action === 'create_new') willCreate++
     for (const c of p.changes) {
       if (c.action === 'fill') fill++
       else if (c.action === 'overwrite') overwrite++
+      else if (c.action === 'ghl_owned') ghlOwned++
       else unchanged++
     }
   }
@@ -812,6 +834,7 @@ export function summarizePlan(plans: RowPlan[]) {
     fields_to_fill: fill,
     fields_to_overwrite: overwrite,
     fields_unchanged: unchanged,
+    fields_ghl_owned: ghlOwned,   // differs from Arive but GHL owns it while not funded — skipped
   }
 }
 
