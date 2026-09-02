@@ -28,8 +28,7 @@ import {
   PhoneCall,
   UserCog,
   ListChecks,
-  CalendarRange,
-} from 'lucide-react'
+  CalendarRange, History } from 'lucide-react'
 import GlobalSearch from './GlobalSearch'
 import NotificationBell from './NotificationBell'
 import LastSyncBadge from './LastSyncBadge'
@@ -88,6 +87,7 @@ const navGroups = [
     label: 'Data',
     items: [
       { href: '/import/arive', label: 'Import Arive', icon: FileUp },
+      { href: '/import/arive/history', label: 'Import History', icon: History },
       { href: '/import/calls', label: 'Import Calls', icon: FileUp },
       { href: '/health', label: 'Data Health', icon: Activity },
       { href: '/duplicates', label: 'Duplicates', icon: GitMerge },

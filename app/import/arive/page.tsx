@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { Upload, FileText, X, Check, AlertTriangle, Loader2, Shield, ChevronDown, ChevronRight, Download, Search, TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { Upload, FileText, X, Check, AlertTriangle, Loader2, Shield, ChevronDown, ChevronRight, Download, Search, TrendingUp, TrendingDown, Minus, History } from 'lucide-react'
+import Link from 'next/link'
 import { formatCurrency } from '@/lib/utils'
 import { importRevenueImpact, type ImportRevenueImpact, type LoanImpact } from '@/lib/importRevenue'
 // The plan shape is owned by lib/ariveCsv (the module that builds it). These were
@@ -23,6 +24,7 @@ type ApiResp = {
   mode?: string
   summary?: Summary
   plans?: RowPlan[]
+  run_id?: string | null
   updated?: number
   created?: number
   fields_written?: number
@@ -138,7 +140,7 @@ export default function AriveImportPage() {
       const res = await fetch('/api/import/arive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ csv: csvText, mode, createUnmatched, protectedFields: [...protectedFields] }),
+        body: JSON.stringify({ csv: csvText, mode, createUnmatched, protectedFields: [...protectedFields], filename: fileName }),
       })
       const data: ApiResp = await res.json()
       if (!data.ok) { setError(data.error || 'commit failed'); setCommitting(false); return }
@@ -247,12 +249,18 @@ export default function AriveImportPage() {
 
   return (
     <div className="p-6 max-w-6xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Import from Arive</h1>
-        <p className="text-slate-500 text-sm mt-1">
-          Upload an Arive CSV export — the dashboard will match each row to a deal and fill missing fields.
-          Matches by Arive Loan #, then email, then phone, then borrower name.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Import from Arive</h1>
+          <p className="text-slate-500 text-sm mt-1">
+            Upload an Arive CSV export — the dashboard will match each row to a deal and fill missing fields.
+            Matches by Arive Loan #, then email, then phone, then borrower name.
+          </p>
+        </div>
+        <Link href="/import/arive/history" className="text-sm font-medium text-blue-600 hover:underline shrink-0 inline-flex items-center gap-1"
+              title="Every field past imports actually wrote — deal, field, old → new">
+          <History className="w-4 h-4" /> Import history
+        </Link>
       </div>
 
       {/* Security note */}
@@ -643,6 +651,11 @@ export default function AriveImportPage() {
                 wrote <strong>{committed.fields_written ?? 0}</strong> field{committed.fields_written === 1 ? '' : 's'} ·
                 mode: <strong>{committed.mode}</strong>
                 {committed.summary?.unmatched ? <> · <span className="text-amber-700">{committed.summary.unmatched} unmatched (skipped)</span></> : null}
+              </p>
+              <p className="text-sm mt-1">
+                {committed.run_id
+                  ? <Link href={`/import/arive/history?run=${committed.run_id}`} className="text-blue-600 hover:underline inline-flex items-center gap-1"><History className="w-3.5 h-3.5" /> View every field this import wrote</Link>
+                  : <span className="text-amber-700">Import log not saved — has <code>supabase-import-log.sql</code> been run? Download the change log below instead.</span>}
               </p>
               {committedRevenue && committedRevenue.byLo.length > 0 && (
                 <p className="text-sm text-slate-700 mt-2">

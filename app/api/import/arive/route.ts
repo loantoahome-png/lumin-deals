@@ -7,6 +7,7 @@ import {
 } from '@/lib/ariveCsv'
 import { linkCoborrowerFromImport } from '@/lib/dealContacts'
 import { OLD_DEALS_GROUP } from '@/lib/fetchAllDeals'
+import { recordImportRun, type ImportChangeInput } from '@/lib/importLog'
 
 // CSV imports can touch hundreds of rows + run sequential Supabase writes —
 // give the function room (Pro plans honor up to 300s).
@@ -17,6 +18,7 @@ type ImportRequest = {
   mode: 'preview' | 'fill_blanks' | 'overwrite'
   createUnmatched?: boolean   // create brand-new deals for true no-match rows
   protectedFields?: string[]  // fields the user shielded from overwrite (surgical override)
+  filename?: string           // the uploaded CSV's name, kept on the import log
 }
 
 /**
@@ -137,6 +139,16 @@ export async function POST(req: NextRequest) {
   // blank-fill is still allowed; there's nothing to protect on an empty field).
   const protectedSet = new Set(body.protectedFields ?? [])
 
+  // Import log: every field this commit actually writes (see lib/importLog.ts).
+  // Collected per successful write, persisted once at the end, never fatal.
+  const logged: ImportChangeInput[] = []
+  const logInsert = (dealId: string | null, plan: RowPlan, data: Record<string, unknown>) => {
+    for (const [field, value] of Object.entries(data)) {
+      if (value == null || value === '') continue
+      logged.push({ deal_id: dealId, borrower: plan.borrower, arive_file_no: plan.arive_file_no ?? null, field, old_value: null, new_value: value, action: 'create' })
+    }
+  }
+
   for (const plan of plans) {
     // ── Brand-new deal (no existing match) → INSERT ─────────────────────────
     if (plan.action === 'create_new' && plan.newLoanData) {
@@ -147,6 +159,7 @@ export async function POST(req: NextRequest) {
       } else {
         created++
         fieldsWritten += Object.keys(insertData).length
+        logInsert((ins?.id as string | undefined) ?? null, plan, insertData)
         if (ins?.id) await applyCoborrower(ins.id as string, plan)
       }
       continue
@@ -170,6 +183,7 @@ export async function POST(req: NextRequest) {
       } else {
         created++
         fieldsWritten += Object.keys(insertData).length
+        logInsert((ins?.id as string | undefined) ?? null, plan, insertData)
         if (ins?.id) await applyCoborrower(ins.id as string, plan)
       }
       continue
@@ -209,14 +223,39 @@ export async function POST(req: NextRequest) {
     } else {
       updated++
       fieldsWritten += Object.keys(patch).length
+      const before = dealsMap.get(plan.dealId) ?? {}
+      for (const [field, value] of Object.entries(patch)) {
+        const change = plan.changes.find(c => c.field === field && (c.action === 'fill' || c.action === 'overwrite'))
+        // pipeline_group is derived from status, not in the plan — log it against the prior stored value.
+        const action: ImportChangeInput['action'] = change?.action === 'fill' || change?.action === 'overwrite'
+          ? change.action
+          : (before[field] == null || before[field] === '' ? 'fill' : 'overwrite')
+        logged.push({ deal_id: plan.dealId, borrower: plan.borrower, arive_file_no: plan.arive_file_no ?? null, field, old_value: change ? change.current : before[field], new_value: value, action })
+      }
       await applyCoborrower(plan.dealId, plan)
     }
   }
+
+  const runId = await recordImportRun(supabase, {
+    source: 'arive',
+    filename: body.filename?.trim() || null,
+    mode,
+    protected_fields: [...protectedSet],
+    rows_total: summary.total_rows,
+    matched: summary.matched,
+    unmatched: summary.unmatched,
+    updated,
+    created,
+    fields_written: fieldsWritten,
+    error_count: errors.length,
+    summary,
+  }, logged)
 
   return NextResponse.json({
     ok: true,
     mode,
     summary,
+    run_id: runId,
     updated,
     created,
     fields_written: fieldsWritten,
