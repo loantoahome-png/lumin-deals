@@ -43,20 +43,23 @@ function ImportHistory() {
   const [run, setRun] = useState<ImportRunRow | null>(null)
   const [changes, setChanges] = useState<ImportChangeRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  // Which run (or the list, `null`) the current data belongs to. Loading is
+  // derived from it rather than set inside the effect (react-hooks lint rule).
+  const [loadedFor, setLoadedFor] = useState<string | null | undefined>(undefined)
+  const loading = loadedFor !== (runId ?? null)
   const [fieldFilter, setFieldFilter] = useState<string | null>(null)
   const [actionFilter, setActionFilter] = useState<'all' | 'fill' | 'overwrite' | 'create'>('all')
   const [query, setQuery] = useState('')
 
   useEffect(() => {
     let alive = true
-    setLoading(true); setError(null)
     const url = runId ? `/api/import/arive/history?run=${encodeURIComponent(runId)}` : '/api/import/arive/history'
     fetch(url).then(r => r.json()).then(d => {
       if (!alive) return
       if (!d.ok) { setError(d.error || 'load failed'); return }
+      setError(null)
       if (runId) { setRun(d.run); setChanges(d.changes) } else { setRuns(d.runs); setRun(null); setChanges(null) }
-    }).catch(e => alive && setError(String(e))).finally(() => alive && setLoading(false))
+    }).catch(e => alive && setError(String(e))).finally(() => alive && setLoadedFor(runId ?? null))
     return () => { alive = false }
   }, [runId])
 
