@@ -138,6 +138,7 @@ another LO's leads. Matt's and Moe's patterns deliberately left narrow.
 - **Active Escrows card** (`EscrowTracker.tsx`) — grey box = Lender·Amount·LO; added "Subbed on teams" (`subbed`) + "Processor Handoff" (`processor_handoff`, new col) checkboxes; follow-up moved into Next Step; removed In-Stage + Waiting-On.
 - **Labels renamed** Investor→Lender, Investor File #→Lender Loan # (display only; columns unchanged).
 - See `~/.claude/handoffs/lumin-deals.md` — next session: which Arive export fields to add for a daily import.
+- **Shipped 2026-09-02 (Arive import):** per-field **import log** (`import_runs`/`import_changes`, `lib/importLog.ts`, `/import/arive/history` — every field an applied import wrote, old → new) and **`status`/`loan_amount` are GHL-owned until funded** (`GHL_OWNED_FIELDS` in `lib/ariveCsv.ts`, action `ghl_owned`, own tile) — an overwrite import was fighting the GHL sync on ~300 lead/in-process deals and losing every maintenance pass. Diagnosis: `docs/diagnoses/2026-09-02-import-counts-diagnosis.md`.
 
 ## Tech Stack
 - **Framework**: Next.js 16 (App Router, TypeScript)
