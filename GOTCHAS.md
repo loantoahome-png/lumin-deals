@@ -1,5 +1,12 @@
 # GOTCHAS — Lumin Deals
 
+### zsh does NOT word-split `$VAR` — a "no-op" `git stash push -- $FILES` followed by `git stash pop` applied Efrain's HELD stash
+**Tried:** Baselining eslint by stashing my edits: `FILES="a b c"; git stash push -- $FILES && (lint…); git stash pop`.
+**Failed because:** The Bash tool runs zsh, which passes `"a b c"` as ONE pathspec. `stash push` matched nothing and exited non-zero, so the `&&` chain skipped — but the `; git stash pop` still ran and applied the pre-existing `stash@{0}` ("arive source-drift fix — HELD per Efrain 2026-07-02, do not apply"). Two files landed in conflict (`VERIFICATION-LOG.md`, `app/api/sync/ghl/route.ts`) and two stash-only files were staged. Nothing was lost (a conflicted pop keeps the entry) but the tree was silently wrong until `git status` was read.
+**What works:** Never chain `git stash pop` after a `push` with `;`. In zsh iterate arrays (`FILES=(a b c); for f in $FILES`) or expand with `${=VAR}`. For a lint/tsc baseline don't stash at all: `git show HEAD:path | npx eslint --stdin --stdin-filename path`. Related trap: ESLint 9 removed the `unix`/`compact` formatters, so `-f unix` errors out and with `2>/dev/null` reads as "0 findings" — count the default formatter's `  line:col  error` lines instead. The held stash is still `stash@{0}`; leave it alone.
+**Project:** lumin-deals
+**Date:** 2026-09-09
+
 ### A page named like a report can still hold BULK WRITES — grep before granting it
 **Tried:** Building a `reporting` role that allows `/reports`, `/monthly-reports`, `/lead-roi`, `/lead-cohorts` — "the reporting sections", obviously read-only.
 **Failed because:** `/lead-roi` is not a report, it's a report *plus an editor*. It carries `saveCost` (rewrites the retainer `lead_source_costs` that feed every ROI figure), `changeDealSource`, and `bulkReassignSource` — `supabase.from('deals').update({source}).eq('source', old)` across **every matching deal, unscoped by LO**. A restricted account could have re-attributed the whole team's lead sources with one click, and every number on every report would move. Nothing in the route name, the nav label, or the sidebar group hints at it.

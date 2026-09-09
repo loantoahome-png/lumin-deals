@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useState, type ReactNode } from 'react'
-import { Check, Filter } from 'lucide-react'
 import { LOAN_OFFICERS } from '@/lib/types'
 import { resolveLO, DEFAULT_LOS } from '@/lib/loanOfficer'
 
@@ -17,6 +16,15 @@ export const LO_COLORS: Record<string, string> = {
   'Moe Sefati': '#f59e0b',
   'Randy Mathis': '#8b5cf6',
   'Daniel McGrail-Granger': '#0ea5e9',
+}
+
+// Tint classes for a SELECTED chip — the light step of each LO's color above, so a
+// checked officer reads as "their" color without a checkbox.
+export const LO_TINT: Record<string, string> = {
+  'Matt Park':              'border-emerald-200 bg-emerald-50 text-emerald-700',
+  'Moe Sefati':             'border-amber-200 bg-amber-50 text-amber-700',
+  'Randy Mathis':           'border-violet-200 bg-violet-50 text-violet-700',
+  'Daniel McGrail-Granger': 'border-sky-200 bg-sky-50 text-sky-700',
 }
 
 /** Multi-select LO filter state, seeded to the Moe + Matt default view. */
@@ -38,7 +46,8 @@ export function loSelected(loanOfficer: string | null | undefined, selectedLOs: 
   return lo != null && selectedLOs.includes(lo)
 }
 
-/** The shared LO filter control — multi-select checkboxes with colored checks.
+/** The shared LO filter control — multi-select dot chips; a selected chip fills with
+ *  that officer's tint.
  *  Pass `label` to show a heading (e.g. the dashboard's "Loan Officers"); omit it when
  *  the page supplies its own row label. */
 export function LoFilter({
@@ -55,8 +64,8 @@ export function LoFilter({
   return (
     <div className={`flex flex-wrap items-center gap-1.5 ${className}`}>
       {label != null && (
-        <span className="mr-0.5 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
-          <Filter className="h-3.5 w-3.5" /> {label}
+        <span className="mr-1 text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">
+          {label}
         </span>
       )}
       {LOAN_OFFICERS.map(lo => {
@@ -69,18 +78,16 @@ export function LoFilter({
             onClick={() => onToggle(lo)}
             aria-pressed={active}
             title={active ? `Hide ${lo}` : `Show ${lo}`}
-            className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
+            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition ${
               active
-                ? 'border-slate-300 bg-white text-slate-700 shadow-sm'
-                : 'border-slate-200 bg-slate-50 text-slate-400 hover:bg-white hover:text-slate-600'
+                ? (LO_TINT[lo] || 'border-slate-300 bg-white text-slate-700')
+                : 'border-transparent bg-transparent text-slate-400 hover:bg-slate-100 hover:text-slate-600'
             }`}
           >
             <span
-              className={`flex h-4 w-4 items-center justify-center rounded border transition ${active ? 'border-transparent' : 'border-slate-300 bg-white'}`}
-              style={active ? { backgroundColor: color } : undefined}
-            >
-              {active && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
-            </span>
+              className={`h-2 w-2 shrink-0 rounded-full transition ${active ? '' : 'opacity-35'}`}
+              style={{ backgroundColor: color }}
+            />
             {lo}
           </button>
         )

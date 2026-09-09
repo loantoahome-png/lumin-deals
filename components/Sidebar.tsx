@@ -7,7 +7,6 @@ import {
   LayoutDashboard,
   Kanban,
   Table2,
-  Building2,
   Wrench,
   ClipboardList,
   Activity,
@@ -189,16 +188,14 @@ export default function Sidebar() {
   }
 
   return (
-    <div className="w-60 bg-slate-900 flex flex-col shrink-0">
-      {/* Logo */}
-      <div className="px-6 py-5 border-b border-slate-700">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-            <Building2 className="w-5 h-5 text-white" />
-          </div>
+    <div className="w-60 bg-[#0f1a38] border-r border-white/10 flex flex-col shrink-0">
+      {/* Brand — an "L" monogram tile instead of a stock building icon */}
+      <div className="px-4 py-4 border-b border-white/10">
+        <div className="flex items-center gap-2.5">
+          <div className="w-[30px] h-[30px] rounded-lg bg-blue-500 text-white font-bold text-[15px] flex items-center justify-center ring-1 ring-white/10" aria-hidden>L</div>
           <div>
-            <p className="text-white font-bold text-sm leading-tight">Lumin Lending</p>
-            <p className="text-slate-400 text-xs">Deal Pipeline</p>
+            <p className="text-white font-semibold text-[13px] leading-tight">Lumin Lending</p>
+            <p className="text-[#a3b1cc]/80 text-[11px]">Deal Pipeline</p>
           </div>
         </div>
       </div>
@@ -231,7 +228,7 @@ export default function Sidebar() {
               {!noHeader && (
                 <button
                   onClick={() => toggleGroup(group.key)}
-                  className="flex items-center justify-between w-full px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300 transition-colors"
+                  className="flex items-center justify-between w-full px-3 py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[#a3b1cc]/70 hover:text-white transition-colors"
                 >
                   <span>{group.label}</span>
                   <ChevronDown className={`w-3 h-3 transition-transform ${open ? '' : '-rotate-90'}`} />
@@ -245,10 +242,10 @@ export default function Sidebar() {
                       <Link
                         key={href}
                         href={href}
-                        className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        className={`flex items-center gap-2.5 px-3 h-8 rounded-lg text-[12.5px] font-medium transition-colors ${
                           active
                             ? 'bg-blue-600 text-white'
-                            : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                            : 'text-[#a3b1cc] hover:bg-white/5 hover:text-white'
                         }`}
                       >
                         <Icon className="w-4 h-4 shrink-0" />
@@ -264,7 +261,7 @@ export default function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="px-3 py-3 border-t border-slate-700 space-y-2">
+      <div className="px-3 py-3 border-t border-white/10 space-y-2">
         {isAdmin && (
           <>
             {/* GHL sync health indicator — color tells you if cron is firing */}
@@ -274,7 +271,7 @@ export default function Sidebar() {
             <button
               onClick={handleSync}
               disabled={syncing}
-              className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center justify-center gap-2 w-full h-8 px-3 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
             >
               <RefreshCw className={`w-4 h-4 shrink-0 ${syncing ? 'animate-spin' : ''}`} />
               {syncing ? 'Syncing…' : 'Sync GHL'}
@@ -283,26 +280,28 @@ export default function Sidebar() {
               onClick={handleFullSync}
               disabled={fullSyncing || syncing}
               title="Re-pull EVERYTHING from GHL (~20–40s) — use after renaming a contact in GHL"
-              className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center justify-center gap-1.5 w-full px-3 py-1 rounded-lg text-[11px] font-medium text-[#a3b1cc] hover:bg-white/5 hover:text-white disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
             >
               <RefreshCw className={`w-3 h-3 shrink-0 ${fullSyncing ? 'animate-spin' : ''}`} />
               {fullSyncing ? 'Full syncing…' : 'Full sync'}
             </button>
           </>
         )}
-        {me.loaded && me.name && (
-          <p className="px-3 text-[11px] text-slate-500 truncate" title={me.email ?? undefined}>
-            Signed in as <span className="text-slate-400 font-medium">{me.name}</span>
-          </p>
-        )}
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
-        >
-          <LogOut className="w-4 h-4 shrink-0" />
-          Sign Out
-        </button>
-        <p className="text-slate-600 text-xs px-3">Lumin Lending © 2026</p>
+        {/* Identity + sign-out on one quiet row (the © line is gone — it's an internal tool) */}
+        <div className="flex items-center justify-between gap-2 px-1 text-[11px] text-[#a3b1cc]">
+          {me.loaded && me.name ? (
+            <span className="truncate" title={me.email ?? undefined}>
+              Signed in as <span className="text-white font-medium">{me.name}</span>
+            </span>
+          ) : <span />}
+          <button
+            onClick={handleLogout}
+            className="flex shrink-0 items-center gap-1.5 rounded px-1.5 py-1 hover:text-white transition-colors"
+          >
+            <LogOut className="w-3.5 h-3.5 shrink-0" />
+            Sign out
+          </button>
+        </div>
       </div>
     </div>
   )

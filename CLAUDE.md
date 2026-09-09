@@ -20,6 +20,9 @@ GHL "LD stage" workflow's `monetaryValue → {{opportunity.lead_value}}` custom 
 `loan-amount-provenance` memory + `~/.claude/handoffs/lumin-deals.md`. NOTE: visible on the next "Sync GHL";
 the opp value may not always equal the loan amount (GHL data quality — watch the in-process volume).
 
+## Recent Changes (2026-09-09)
+- **Dashboard + shared-chrome restyle SHIPPED** (spec `docs/specs/2026-09-09-dashboard-restyle-spec.md`, plan in `docs/plans/`): flat cards, one stat strip (solid blue hero + stage-mix strip), color by meaning — stage colors from `STATUS_COLORS` (+ new solid-tone `STATUS_STRONG`) on pills / chart bars / mix strip, new `LOAN_TYPE_COLORS` on the loan-type bars (the donut is gone), LO colors only on LO identity (`LO_TINT` chips in `components/LoFilter.tsx`, app-wide), red = overdue only, orange only on Next Step. App font = Public Sans + Geist Mono via `next/font` (wired in `globals.css` with `@theme inline`). Sidebar navy `#0f1a38` + "L" monogram, condensed footer. Task "today" tone renders blue (was violet = Randy's LO color). Metrics, section order and data paths unchanged. ⚠️ v1 (blue-only) was rejected as too monochrome — don't strip the color back out. Vault: `dashboard-redesign-2026-09`.
+
 ## Recent Changes (2026-08-25) — 4th LO + a reporting-only role
 
 **Daniel McGrail-Granger is live** as the 4th LO (636 deals synced, 61 Arive rows

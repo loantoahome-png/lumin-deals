@@ -393,6 +393,33 @@ export const STATUS_COLORS: Record<string, string> = {
   'STOP':                         'bg-red-200 text-red-800',
 }
 
+// Strong tone per Loans-in-Process stage — the SAME hues as the STATUS_COLORS pills
+// above (their Tailwind 500 step), for marks that need a solid fill: the dashboard's
+// stage chart and the escrow-mix strip. Keep the two maps in step.
+export const STATUS_STRONG: Record<string, string> = {
+  'Loan Setup':              '#eab308',
+  'Disclosed':               '#f59e0b',
+  'Submitted to UW':         '#6366f1',
+  'Approved w/ Conditions':  '#84cc16',
+  'Re-Submittal':            '#ef4444',
+  'Clear to Close':          '#22c55e',
+  'Docs Out':                '#14b8a6',
+  'Docs Signed':             '#10b981',
+}
+
+// Fixed identity color per loan type — a type keeps its color no matter how the
+// counts shift (never assigned by rank). Dashboard loan-type bars + list dots.
+export const LOAN_TYPE_COLORS: Record<string, string> = {
+  'HELOC':      '#0d9488',
+  'HELOAN':     '#0891b2',
+  'FHA':        '#4f46e5',
+  'VA':         '#7c3aed',
+  'Conv':       '#2563eb',
+  'Non-QM':     '#ea580c',
+  'DSCR':       '#e11d48',
+  'Hard Money': '#64748b',
+}
+
 // Statuses valid for each pipeline — used to filter stage dropdowns
 export const PIPELINE_STATUSES: Record<string, string[]> = {
   'Leads': [

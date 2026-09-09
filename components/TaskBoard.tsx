@@ -78,14 +78,14 @@ export type DueTone = 'red' | 'violet' | 'slate'
 /** tone → text classes. Single source: three surfaces render this. */
 export const DUE_TONE_TEXT: Record<DueTone, string> = {
   red:    'text-red-700 font-semibold',
-  violet: 'text-violet-700 font-semibold',
+  violet: 'text-blue-700 font-semibold',     // due today — blue, never violet (Randy's LO color)
   slate:  'text-slate-500',
 }
 
 /** tone → the small colour bar on the dashboard widget. */
 export const DUE_TONE_BAR: Record<DueTone, string> = {
   red:    'bg-red-500',
-  violet: 'bg-violet-500',
+  violet: 'bg-blue-500',
   slate:  'bg-slate-300',
 }
 

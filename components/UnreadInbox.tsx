@@ -1,5 +1,6 @@
 'use client'
 
+import { STATUS_COLORS } from '@/lib/types'
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { RefreshCw, Inbox, ExternalLink, Phone, MessageSquare, Mail, Send, Check, Sparkles, ChevronDown, ChevronRight } from 'lucide-react'
@@ -142,8 +143,8 @@ export default function UnreadInbox() {
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-      <div className={`px-5 py-3 flex items-center justify-between gap-3 flex-wrap ${collapsed ? '' : 'border-b border-slate-100'}`}>
+    <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden">
+      <div className={`px-[18px] py-2.5 flex items-center justify-between gap-3 flex-wrap ${collapsed ? '' : 'border-b border-slate-100'}`}>
         <button
           type="button"
           onClick={toggleCollapsed}
@@ -154,12 +155,11 @@ export default function UnreadInbox() {
           {collapsed
             ? <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600" />
             : <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-slate-600" />}
-          <Inbox className="w-4 h-4 text-blue-500" />
-          <span className="font-semibold text-slate-800 text-sm">Unread Messages</span>
-          <span className="text-xs text-slate-500">
+          <span className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[7px] bg-blue-100 text-blue-700"><Inbox className="w-3.5 h-3.5" /></span>
+          <span className="font-semibold text-slate-900 text-[13.5px]">Unread messages</span>
+          <span className="flex items-center gap-1.5 text-xs text-slate-500">
             <span className="font-semibold text-slate-700 tabular-nums">{filtered.length}</span> conversation{filtered.length !== 1 ? 's' : ''}
-            {' · '}
-            <span className="font-semibold text-red-600 tabular-nums">{totalUnread}</span> unread
+            <span className="inline-flex h-5 items-center rounded-full bg-blue-100 px-2 text-[11px] font-semibold text-blue-700 tabular-nums">{totalUnread} unread</span>
           </span>
         </button>
         <div className="flex items-center gap-1.5">
@@ -171,24 +171,24 @@ export default function UnreadInbox() {
       </div>
 
       {!collapsed && (
-      <div className="p-4 max-h-[520px] overflow-y-auto">
+      <div className="max-h-[520px] overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
           </div>
         ) : error ? (
-          <div className="bg-white border border-red-200 rounded-xl p-8 text-center">
+          <div className="p-8 text-center">
             <p className="text-sm font-semibold text-red-700">Couldn&apos;t load unread messages</p>
             <p className="text-xs text-slate-500 mt-1">{error}</p>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="bg-white border border-slate-200 rounded-xl p-10 text-center">
+          <div className="p-10 text-center">
             <Inbox className="w-10 h-10 text-emerald-400 mx-auto mb-2" />
             <p className="text-sm font-semibold text-slate-800">Inbox zero 🎉</p>
             <p className="text-xs text-slate-500 mt-1">No unread client messages right now.</p>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="divide-y divide-slate-100">
             {filtered.map((it, idx) => (
               <UnreadRow key={it.conversationId || it.contactId || idx} item={it} onSent={() => markSent(it)} />
             ))}
@@ -312,7 +312,7 @@ function UnreadRow({ item, onSent }: { item: UnreadItem; onSent: () => void }) {
   }
 
   return (
-    <div className={`bg-white border rounded-xl px-4 py-3 transition-colors ${sent ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200 hover:border-blue-200'}`}>
+    <div className={`px-[18px] py-3 transition-colors ${sent ? 'bg-emerald-50/60' : 'hover:bg-slate-50'}`}>
       <div className="flex items-start gap-3">
         <div className="mt-0.5 shrink-0"><ChannelIcon channel={item.channel} /></div>
         <div className="min-w-0 flex-1">
@@ -322,18 +322,18 @@ function UnreadRow({ item, onSent }: { item: UnreadItem; onSent: () => void }) {
             ) : (
               <span className="font-semibold text-slate-900 truncate">{item.name}</span>
             )}
-            <span className="text-[10px] font-bold text-red-700 bg-red-100 border border-red-200 rounded-full px-1.5 py-0.5 tabular-nums">
+            <span className="text-[10px] font-bold text-blue-700 bg-blue-100 rounded-full px-1.5 py-0.5 tabular-nums">
               {item.unreadCount} unread
             </span>
             {item.dealStatus && (
-              <span className="text-[10px] font-medium text-slate-500 bg-slate-100 rounded-full px-1.5 py-0.5">{item.dealStatus}</span>
+              <span className={`text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${STATUS_COLORS[item.dealStatus] || 'bg-slate-100 text-slate-500'}`}>{item.dealStatus}</span>
             )}
             {item.dndNote && (
               <span className="text-[10px] font-bold text-rose-700 bg-rose-100 border border-rose-300 rounded-full px-1.5 py-0.5" title="Do Not Contact — opted out in GHL">
                 🚫 {item.dndNote}
               </span>
             )}
-            <span className="text-[11px] text-slate-400">· {item.channel} · {ago(item.lastMessageAt)}</span>
+            <span className="font-mono text-[10.5px] text-slate-400">{item.channel} · {ago(item.lastMessageAt)}</span>
           </div>
           {item.preview && <p className="text-sm text-slate-600 mt-1 line-clamp-2">{item.preview}</p>}
           <p className="text-[11px] text-slate-400 mt-1">{item.lo}</p>
@@ -345,7 +345,7 @@ function UnreadRow({ item, onSent }: { item: UnreadItem; onSent: () => void }) {
             <>
               <button onClick={markRead} disabled={marking}
                 title="Mark this conversation as read (clears it from your inbox until a new message arrives)"
-                className="flex items-center gap-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg px-2.5 py-1.5 disabled:opacity-50">
+                className="flex items-center gap-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 disabled:opacity-50">
                 <Check className="w-3.5 h-3.5" /> {marking ? '…' : 'Mark read'}
               </button>
               {item.replyBlocked ? (

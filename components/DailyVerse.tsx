@@ -90,19 +90,17 @@ export default function DailyVerse() {
   const verse = VERSES[idx]
 
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-orange-200 bg-gradient-to-r from-orange-50 to-white px-4 py-3">
-      <div className="mt-0.5 shrink-0 rounded-lg bg-[#F37021]/10 p-1.5">
-        <BookOpen className="h-4 w-4 text-[#F37021]" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-[#F37021]">Verse of the Day</p>
-        <p className="mt-0.5 text-sm italic leading-snug text-slate-700">
-          &ldquo;{verse.text}&rdquo;
-          <span className="ml-1.5 whitespace-nowrap text-xs font-semibold not-italic text-slate-500">
-            — {verse.ref} <span className="text-slate-400">(ESV)</span>
-          </span>
-        </p>
-      </div>
+    // One-line strip above the page (not a card competing with the KPIs). The
+    // orange is the app's Next-Step orange — the one warm accent the dashboard keeps.
+    <div className="flex items-center gap-2.5 border-b border-orange-200 bg-orange-50 px-7 py-2.5 text-[12.5px] text-slate-600">
+      <BookOpen className="h-4 w-4 shrink-0 text-[#F37021]" />
+      <span className="shrink-0 text-[10.5px] font-semibold uppercase tracking-wider text-[#F37021]">Verse of the day</span>
+      <p className="min-w-0 italic leading-snug">
+        &ldquo;{verse.text}&rdquo;
+        <span className="ml-1.5 whitespace-nowrap text-xs font-semibold not-italic text-slate-500">
+          — {verse.ref} <span className="font-normal text-slate-400">(ESV)</span>
+        </span>
+      </p>
     </div>
   )
 }

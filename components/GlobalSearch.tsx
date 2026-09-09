@@ -64,14 +64,14 @@ export default function GlobalSearch() {
   return (
     <div className="relative px-3 mb-2">
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#a3b1cc]" />
         <input
           value={query}
           onChange={e => { setQuery(e.target.value); setOpen(true) }}
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 200)}
           placeholder="Search contacts & loans…"
-          className="w-full pl-8 pr-7 py-2 bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+          className="w-full pl-8 pr-7 h-8 bg-white/5 border border-white/10 text-slate-100 text-xs rounded-lg placeholder-[#a3b1cc]/80 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
         />
         {query && (
           <button

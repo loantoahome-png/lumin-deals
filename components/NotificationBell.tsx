@@ -240,8 +240,8 @@ export default function NotificationBell() {
       {/* Trigger — styled like a nav item */}
       <button
         onClick={() => open ? setOpen(false) : openPanel()}
-        className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-          open ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+        className={`flex items-center gap-2.5 w-full px-3 h-8 rounded-lg text-[12.5px] font-medium transition-colors ${
+          open ? 'bg-white/10 text-white' : 'text-[#a3b1cc] hover:bg-white/5 hover:text-white'
         }`}
       >
         <span className="relative shrink-0">
@@ -254,7 +254,7 @@ export default function NotificationBell() {
         </span>
         Notifications
         {hydrated && visible.length > 0 && (
-          <span className="ml-auto text-[10px] text-slate-500">{visible.length}</span>
+          <span className="ml-auto font-mono text-[10.5px] text-[#a3b1cc]/70">{visible.length}</span>
         )}
       </button>
 

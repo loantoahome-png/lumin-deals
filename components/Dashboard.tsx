@@ -3,24 +3,104 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
-import { Deal, DealTask, LOAN_OFFICERS } from '@/lib/types'
+import { Deal, DealTask, LOAN_OFFICERS, STATUS_COLORS, STATUS_STRONG, LOAN_TYPE_COLORS } from '@/lib/types'
 import { resolveLO } from '@/lib/loanOfficer'
 import { endOfDay, isDueNow, relativeDue, DUE_TONE_TEXT, DUE_TONE_BAR } from '@/components/TaskBoard'
 import { toBoardTask, isGhlTask, byDueAsc, type BoardTask, type GhlTaskRow } from '@/lib/ghlTasks'
 import { formatCurrency } from '@/lib/utils'
 import UnreadInbox from '@/components/UnreadInbox'
 import {
-  DollarSign, TrendingUp, Users, CheckCircle, Clock, AlertCircle,
-  AlertTriangle, ChevronRight, Flame, ListChecks, Wallet, Layers,
+  DollarSign, TrendingUp, Users, CheckCircle, Clock, AlertCircle, ChevronRight,
+  Flame, ListChecks, Wallet, Layers, BarChart3, Tag, CalendarClock,
 } from 'lucide-react'
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList,
-  PieChart, Pie, Legend, LineChart, Line, ReferenceLine,
-} from 'recharts'
+import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts'
 import Link from 'next/link'
 import { LoFilter, LO_COLORS, DEFAULT_LOS } from '@/components/LoFilter'
 
 // (Date filter removed — the dashboard is a snapshot of what's currently in escrow.)
+
+// ── The card system ──────────────────────────────────────────────────────────
+// Every section uses the same card, header row, pill and link so the page reads
+// as one system. Color is reserved for meaning: blue = action / today, red =
+// overdue, stage colors = STATUS_COLORS, LO colors = LO identity, orange = Next Step.
+const CARD = 'overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs'
+
+const PILL = {
+  slate: 'bg-slate-100 text-slate-600',
+  crit:  'bg-red-50 text-red-600',
+  warn:  'bg-amber-50 text-amber-700',
+  acc:   'bg-blue-100 text-blue-700',
+  good:  'bg-green-50 text-green-700',
+} as const
+
+function Pill({ tone = 'slate', children }: { tone?: keyof typeof PILL; children: React.ReactNode }) {
+  return (
+    <span className={`inline-flex h-5 items-center whitespace-nowrap rounded-full px-2 text-[11px] font-semibold ${PILL[tone]}`}>
+      {children}
+    </span>
+  )
+}
+
+function CardHeader({ badge, icon, title, meta, action }: {
+  badge: string; icon: React.ReactNode; title: string; meta?: React.ReactNode; action?: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2.5 border-b border-slate-100 px-[18px] py-2.5">
+      <span className={`flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[7px] ${badge}`}>{icon}</span>
+      <h2 className="text-[13.5px] font-semibold text-slate-900">{title}</h2>
+      {meta && <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500">{meta}</div>}
+      {action && <div className="ml-auto flex items-center gap-3">{action}</div>}
+    </div>
+  )
+}
+
+function CardLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link href={href} className="inline-flex items-center gap-0.5 text-xs font-medium text-blue-700 hover:underline">
+      {children} <ChevronRight className="h-3 w-3" />
+    </Link>
+  )
+}
+
+/** Identity dot for a loan officer; renders nothing for names that aren't LOs. */
+function LoDot({ name, size = 8 }: { name?: string | null; size?: number }) {
+  const lo = resolveLO(name)
+  const color = lo ? LO_COLORS[lo] : undefined
+  if (!color) return null
+  return <span className="inline-block shrink-0 rounded-full" style={{ width: size, height: size, backgroundColor: color }} aria-hidden />
+}
+
+/** A KPI cell of the stat strip — tinted icon badge, figure, one-line sub. */
+function StatTile({ label, value, sub, subClass = 'text-slate-500', icon, badge }: {
+  label: string; value: string; sub: string; subClass?: string; icon: React.ReactNode; badge: string
+}) {
+  return (
+    <div className="flex flex-col gap-1 border-t border-slate-100 px-[22px] py-[18px] md:border-l md:border-t-0">
+      <div className="flex items-center gap-2.5">
+        <span className={`flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px] ${badge}`}>{icon}</span>
+        <span className="text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">{label}</span>
+      </div>
+      <p className="mt-1 text-[22px] font-semibold leading-none tracking-tight text-slate-900">{value}</p>
+      <p className={`text-xs ${subClass}`}>{sub}</p>
+    </div>
+  )
+}
+
+type StageDatum = { stage: string; short: string; count: number; loanVolume: number }
+
+function StageTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: StageDatum }> }) {
+  if (!active || !payload?.length) return null
+  const d = payload[0].payload
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
+      <p className="font-semibold text-slate-800">{d.stage}</p>
+      <p className="text-slate-500">{d.count} escrow{d.count !== 1 ? 's' : ''} · {formatCurrency(d.loanVolume)}</p>
+    </div>
+  )
+}
+
+// Row anatomy shared by the Today and Tasks widgets: stripe · when · what · who.
+const ROW = 'group grid grid-cols-[3px_92px_1fr_auto] items-center gap-3.5 py-2 pr-[18px] transition'
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 // Compact "time since" for the latest next-step log entry.
@@ -36,6 +116,7 @@ function relAgo(iso: string): string {
 export default function Dashboard() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadedAt, setLoadedAt] = useState<Date | null>(null)
   // Which loan officers' escrows count toward the metrics below. All checked =
   // everyone (the default, unfiltered view). Toggled by the header checkboxes.
   const [selectedLOs, setSelectedLOs] = useState<string[]>([...DEFAULT_LOS])
@@ -65,6 +146,7 @@ export default function Dashboard() {
         DASHBOARD_COLS,
       )
       setDeals(data)
+      setLoadedAt(new Date())
       setLoading(false)
     }
     fetchDeals()
@@ -128,10 +210,12 @@ export default function Dashboard() {
     'Approved w/ Conditions': 'Cond.', 'Re-Submittal': 'Re-Sub',
     'Clear to Close': 'CTC', 'Docs Out': 'Docs Out', 'Docs Signed': 'Signed',
   }
-  const stageData = ESCROW_STAGES.map(stage => {
+  const stageData: StageDatum[] = ESCROW_STAGES.map(stage => {
     const d = escrowDeals.filter(x => x.status === stage)
-    return { stage: STAGE_SHORT[stage] || stage, count: d.length, loanVolume: d.reduce((s, x) => s + (x.loan_amount || 0), 0) }
+    return { stage, short: STAGE_SHORT[stage] || stage, count: d.length, loanVolume: d.reduce((s, x) => s + (x.loan_amount || 0), 0) }
   })
+  // The stage-mix strip under the hero figure: only stages that hold an escrow.
+  const stageMix = stageData.filter(s => s.count > 0)
 
   // LO Performance: scoped to escrow deals, and to the LOs currently checked in
   // the header filter (canonical order). resolveLO normalizes any loan_officer
@@ -140,11 +224,14 @@ export default function Dashboard() {
     const loDeals = escrowDeals.filter(d => resolveLO(d.loan_officer) === lo)
     return { name: lo, loanVolume: loDeals.reduce((s, d) => s + (d.loan_amount || 0), 0), deals: loDeals.length }
   })
+  const loRows = [...loData].sort((a, b) => b.loanVolume - a.loanVolume)
+  const loMax = loRows.reduce((m, l) => Math.max(m, l.loanVolume), 0)
 
   // Loan Types: from escrows only
   const loanTypeMap: Record<string, number> = {}
   escrowDeals.forEach(d => { if (d.loan_type) loanTypeMap[d.loan_type] = (loanTypeMap[d.loan_type] || 0) + 1 })
   const loanTypeData = Object.entries(loanTypeMap).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([name, value]) => ({ name, value }))
+  const typedCount = escrowDeals.filter(d => d.loan_type).length
 
   // Needs attention + Recent deals: from escrows only
   const atRisk = escrowDeals.filter(d => !d.loan_officer || !d.loan_type || !d.loan_amount).slice(0, 5)
@@ -184,363 +271,412 @@ export default function Dashboard() {
     if (ad !== bd) return ad - bd
     return (a.name || '').localeCompare(b.name || '')
   })
+  const noStepCount = escrowsInProcess.filter(d => !d.next_action).length
+  const scheduledCount = escrowsInProcess.filter(d => d.next_action_due).length
 
-  const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#f97316', '#8b5cf6', '#ec4899']
+  const selectedLoList = LOAN_OFFICERS.filter(lo => selectedLOs.includes(lo))
 
 
   return (
-    <div className="p-6 space-y-5">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="mx-auto max-w-[1280px] space-y-[18px] p-7">
+      {/* Header band — title, scope line and the LO filter on one line */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-          <p className="text-slate-500 text-sm mt-0.5">
-            Lumin Lending — Active Escrow Overview
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900">Dashboard</h1>
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-500">
+            Active escrows · Loans in Process
             {!allLOsSelected && (
-              <span className="text-slate-400"> · filtered to {selectedLOs.length} of {LOAN_OFFICERS.length} LOs</span>
+              <span className="text-slate-400">· {selectedLOs.length} of {LOAN_OFFICERS.length} LOs</span>
+            )}
+            {loadedAt && (
+              <span className="font-mono text-[11px] text-slate-400">
+                updated {loadedAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+              </span>
             )}
           </p>
         </div>
 
         {/* Loan-officer filter — check the LOs whose escrows should count toward
             every metric on this page. All checked = everyone (the default). */}
-        <LoFilter selected={selectedLOs} onToggle={toggleLO} label="Loan Officers" />
+        <LoFilter selected={selectedLOs} onToggle={toggleLO} label="Loan officers" />
       </div>
 
-      {/* KPIs — a hero metric anchors the page, supported by three accent cards */}
-      <div className="space-y-4">
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-700 via-blue-600 to-blue-500 p-6 text-white shadow-lg shadow-blue-600/30">
-          <div className="relative z-10">
-            <div className="flex items-center gap-2 text-blue-100 text-sm font-medium">
-              <TrendingUp className="w-4 h-4" /> Active Escrow Volume
-            </div>
-            <div className="text-4xl font-extrabold tracking-tight mt-1.5">{formatCurrency(totalPipelineLoanVol)}</div>
-            <div className="text-blue-100/90 text-sm mt-1.5 font-medium">
-              {escrowDeals.length} active escrow{escrowDeals.length !== 1 ? 's' : ''} in process
-            </div>
+      {/* Stat strip — one card, four cells; the volume leads by size and color */}
+      <section className={`${CARD} grid grid-cols-1 md:grid-cols-[1.55fr_1fr_1fr_1fr]`} aria-label="Key figures">
+        <div className="bg-blue-700 px-6 py-5 text-white">
+          <div className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-blue-200">
+            <TrendingUp className="h-3.5 w-3.5" /> Active escrow volume
           </div>
-          <TrendingUp className="absolute -right-5 -bottom-6 w-40 h-40 text-white/10" strokeWidth={1.5} aria-hidden />
+          <div className="mt-2 text-[34px] font-bold leading-none tracking-tight">{formatCurrency(totalPipelineLoanVol)}</div>
+          <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-xs text-blue-100">
+            {allLOsSelected ? (
+              <span>All loan officers</span>
+            ) : (
+              <>
+                {selectedLoList.map(lo => (
+                  <span key={lo} className="inline-flex h-[22px] items-center gap-1.5 rounded-full bg-white/15 px-2 text-[11.5px] font-medium text-white">
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: LO_COLORS[lo] }} />{lo}
+                  </span>
+                ))}
+                <span>{selectedLOs.length} of {LOAN_OFFICERS.length} loan officers</span>
+              </>
+            )}
+          </div>
+          {stageMix.length > 0 && (
+            <>
+              {/* Stage mix — same colors as the stage pills everywhere else in the app */}
+              <div
+                className="mt-3 flex h-[7px] gap-0.5 rounded bg-white/10 p-px"
+                title={stageMix.map(s => `${s.short} ${s.count}`).join(' · ')}
+                aria-label="Escrows by stage"
+              >
+                {stageMix.map(s => (
+                  <span key={s.stage} className="block rounded-sm" style={{ flex: s.count, backgroundColor: STATUS_STRONG[s.stage] }} />
+                ))}
+              </div>
+              <div className="mt-1 flex justify-between text-[10.5px] text-blue-200">
+                <span>{stageMix[0].short}</span>
+                <span>{stageMix[stageMix.length - 1].short}</span>
+              </div>
+            </>
+          )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <KPICard label="Funding Soon"  value={formatCurrency(fundingSoonVolume)} sub={`${fundingSoon.length} CTC / Docs Out / Signed`} icon={<DollarSign className="w-5 h-5" />} accent="emerald" />
-          <KPICard label="Total Escrows" value={escrowDeals.length.toString()}     sub="loans in process"                              icon={<Layers className="w-5 h-5" />}     accent="violet" />
-          <KPICard label="Avg Loan Size" value={formatCurrency(avgDealSize)}       sub="active escrows"                                icon={<Wallet className="w-5 h-5" />}     accent="amber" />
-        </div>
-      </div>
+        <StatTile
+          label="Funding soon"
+          value={formatCurrency(fundingSoonVolume)}
+          sub={`${fundingSoon.length} escrow${fundingSoon.length !== 1 ? 's' : ''} at CTC, Docs Out or Signed`}
+          subClass="text-emerald-700"
+          icon={<DollarSign className="h-4 w-4" />}
+          badge="bg-emerald-100 text-emerald-700"
+        />
+        <StatTile
+          label="Escrows in process"
+          value={escrowDeals.length.toString()}
+          sub={loData.filter(l => l.deals > 0).map(l => `${l.deals} ${l.name.split(' ')[0]}`).join(' · ') || 'loans in process'}
+          icon={<Layers className="h-4 w-4" />}
+          badge="bg-amber-100 text-amber-700"
+        />
+        <StatTile
+          label="Avg loan size"
+          value={formatCurrency(avgDealSize)}
+          sub={`across ${sizedDeals.length} sized escrow${sizedDeals.length !== 1 ? 's' : ''}`}
+          icon={<Wallet className="h-4 w-4" />}
+          badge="bg-indigo-100 text-indigo-700"
+        />
+      </section>
 
       {/* Today widget — escrow follow-ups due today + overdue */}
       {(todayItems.length > 0) && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Flame className="w-4 h-4 text-orange-500" />
-              <h3 className="font-semibold text-slate-800 text-sm">Today&apos;s Escrow Follow-ups</h3>
-              <span className="text-xs text-slate-500">
-                {overdueItems.length > 0 && (
-                  <span className="font-semibold text-red-600">{overdueItems.length} overdue</span>
-                )}
-                {overdueItems.length > 0 && dueTodayItems.length > 0 && ' · '}
-                {dueTodayItems.length > 0 && (
-                  <span className="font-semibold text-violet-600">{dueTodayItems.length} due today</span>
-                )}
-              </span>
-            </div>
-            <Link href="/deals" className="text-xs font-medium text-blue-600 hover:text-blue-700 flex items-center gap-0.5">
-              Open Tracker <ChevronRight className="w-3 h-3" />
-            </Link>
-          </div>
-          <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
+        <section className={CARD}>
+          <CardHeader
+            badge="bg-orange-100 text-[#F37021]"
+            icon={<CalendarClock className="h-3.5 w-3.5" />}
+            title="Today's escrow follow-ups"
+            meta={<>
+              {overdueItems.length > 0 && <Pill tone="crit">{overdueItems.length} overdue</Pill>}
+              {dueTodayItems.length > 0 && <Pill tone="acc">{dueTodayItems.length} due today</Pill>}
+            </>}
+            action={<CardLink href="/deals">Open Tracker</CardLink>}
+          />
+          <div className="max-h-96 divide-y divide-slate-100 overflow-y-auto">
             {todayItems.slice(0, 12).map(d => {
               const due = new Date(d.next_action_due as string)
               const isOverdueRow = due < now
               const time = due.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
               return (
-                <Link
-                  key={d.id}
-                  href={`/deals/${d.id}`}
-                  className="flex items-center gap-3 px-5 py-2.5 hover:bg-slate-50 transition group"
-                >
-                  <div className={`shrink-0 w-1 h-10 rounded-full ${isOverdueRow ? 'bg-red-500' : 'bg-violet-500'}`} />
-                  <div className="shrink-0 w-20 text-right">
-                    <div className={`text-xs font-semibold ${isOverdueRow ? 'text-red-700' : 'text-violet-700'}`}>
+                <Link key={d.id} href={`/deals/${d.id}`} className={`${ROW} hover:bg-slate-50`}>
+                  <span className={`h-9 rounded-r-sm ${isOverdueRow ? 'bg-red-500' : 'bg-blue-500'}`} />
+                  <div className="text-right">
+                    <div className={`text-[11.5px] font-semibold ${isOverdueRow ? 'text-red-600' : 'text-blue-700'}`}>
                       {isOverdueRow ? 'Overdue' : time}
                     </div>
-                    <div className="text-[10px] text-slate-400">
-                      {isOverdueRow ? `was ${time}` : 'today'}
+                    <div className="font-mono text-[10px] text-slate-400">{isOverdueRow ? `was ${time}` : 'today'}</div>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-[13px] font-medium text-slate-900 group-hover:text-blue-700">{d.name}</div>
+                    <div className="truncate text-[11.5px] text-slate-500">
+                      {d.next_action || <span className="italic text-amber-700">No next step set</span>}
                     </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-slate-900 group-hover:text-blue-700 truncate">
-                      {d.name}
-                    </div>
-                    <div className="text-xs text-slate-500 truncate">
-                      {d.next_action || <span className="italic text-slate-400">No next step set</span>}
-                    </div>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <div className="text-xs text-slate-700 font-medium">{d.next_action_assignee || d.loan_officer || '—'}</div>
+                  <div className="text-right">
+                    <div className="text-xs font-medium text-slate-700">{d.next_action_assignee || d.loan_officer || '—'}</div>
                     <div className="text-[10px] text-slate-400">{d.status}</div>
                   </div>
                 </Link>
               )
             })}
             {todayItems.length > 12 && (
-              <Link href="/deals" className="block text-center py-2 text-xs text-blue-600 hover:bg-slate-50 font-medium">
+              <Link href="/deals" className="block py-2 text-center text-xs font-medium text-blue-700 hover:bg-slate-50">
                 + {todayItems.length - 12} more in tracker →
               </Link>
             )}
           </div>
-        </div>
+        </section>
       )}
 
       {/* Tasks widget — deal_tasks + mirrored GHL tasks, due through today */}
       {taskDueNow.length > 0 && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <ListChecks className="w-4 h-4 text-emerald-600" />
-              <h3 className="font-semibold text-slate-800 text-sm">Tasks — overdue &amp; today</h3>
-              <span className="text-xs text-slate-500 flex items-center gap-1">
-                {tasksOverdue > 0 && <span className="font-semibold text-red-600">{tasksOverdue} overdue</span>}
-                {tasksOverdue > 0 && tasksToday > 0 && '·'}
-                {tasksToday > 0 && <span className="font-semibold text-violet-600">{tasksToday} due today</span>}
-                {tasksUndated > 0 && (tasksOverdue > 0 || tasksToday > 0) && '·'}
-                {tasksUndated > 0 && <span className="font-semibold text-slate-500">{tasksUndated} no date</span>}
-              </span>
-            </div>
-            <Link href="/tasks" className="text-xs font-medium text-blue-600 hover:text-blue-700 flex items-center gap-0.5">
-              Open Tasks <ChevronRight className="w-3 h-3" />
-            </Link>
-          </div>
-          <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
+        <section className={CARD}>
+          <CardHeader
+            badge="bg-emerald-100 text-emerald-700"
+            icon={<ListChecks className="h-3.5 w-3.5" />}
+            title="Tasks · overdue & today"
+            meta={<>
+              {tasksOverdue > 0 && <Pill tone="crit">{tasksOverdue} overdue</Pill>}
+              {tasksToday > 0 && <Pill tone="acc">{tasksToday} due today</Pill>}
+              {tasksUndated > 0 && <Pill>{tasksUndated} no date</Pill>}
+            </>}
+            action={<CardLink href="/tasks">Open Tasks</CardLink>}
+          />
+          <div className="max-h-96 divide-y divide-slate-100 overflow-y-auto">
             {taskDueNow.slice(0, 12).map(t => {
               const due = relativeDue(t.due_at)
-              const bar = DUE_TONE_BAR[due.tone]
               const label = t.due_at ? due.label : 'No date'
               // GHL rows link to the matched deal when there is one; without a
               // deal there is nothing to open here, so the row stays a plain div.
               const inner = (
                 <>
-                  <div className={`shrink-0 w-1 h-10 rounded-full ${bar}`} />
-                  <div className="shrink-0 w-24 text-right">
-                    <div className={`text-xs ${DUE_TONE_TEXT[due.tone]}`}>
-                      {label}
-                    </div>
-                    <div className="text-[10px] text-slate-400">{isGhlTask(t) ? 'GHL' : 'task'}</div>
+                  <span className={`h-9 rounded-r-sm ${DUE_TONE_BAR[due.tone]}`} />
+                  <div className="text-right">
+                    <div className={`text-[11.5px] ${DUE_TONE_TEXT[due.tone]}`}>{label}</div>
+                    <div className="font-mono text-[10px] uppercase tracking-wide text-slate-400">{isGhlTask(t) ? 'GHL' : 'task'}</div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-slate-900 group-hover:text-blue-700 truncate">
-                      {t.title}
-                    </div>
-                    <div className="text-xs text-slate-500 truncate">
+                  <div className="min-w-0">
+                    <div className="truncate text-[13px] font-medium text-slate-900 group-hover:text-blue-700">{t.title}</div>
+                    <div className="truncate text-[11.5px] text-slate-500">
                       {t.contact_name || t.description || <span className="italic text-slate-400">No detail</span>}
                     </div>
                   </div>
-                  <div className="shrink-0 text-right">
-                    <div className="text-xs text-slate-700 font-medium">{t.assignee || 'Unassigned'}</div>
+                  <div className="text-right text-xs font-medium text-slate-700">
+                    {t.assignee || <span className="text-slate-400">Unassigned</span>}
                   </div>
                 </>
               )
               return t.deal_id ? (
-                <Link key={t.id} href={`/deals/${t.deal_id}`}
-                  className="flex items-center gap-3 px-5 py-2.5 hover:bg-slate-50 transition group">
-                  {inner}
-                </Link>
+                <Link key={t.id} href={`/deals/${t.deal_id}`} className={`${ROW} hover:bg-slate-50`}>{inner}</Link>
               ) : (
-                <div key={t.id} className="flex items-center gap-3 px-5 py-2.5 group">{inner}</div>
+                <div key={t.id} className={ROW}>{inner}</div>
               )
             })}
             {taskDueNow.length > 12 && (
-              <Link href="/tasks" className="block text-center py-2 text-xs text-blue-600 hover:bg-slate-50 font-medium">
+              <Link href="/tasks" className="block py-2 text-center text-xs font-medium text-blue-700 hover:bg-slate-50">
                 + {taskDueNow.length - 12} more on the board →
               </Link>
             )}
           </div>
-        </div>
+        </section>
       )}
 
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-md shadow-slate-200/60 border border-slate-200/80 p-5">
-          <h2 className="font-semibold text-slate-800 mb-4">Escrows by Stage</h2>
-          <ResponsiveContainer width="100%" height={230}>
-            <BarChart data={stageData} margin={{ top: 22, right: 0, bottom: 0, left: 0 }}>
-              <defs>
-                <linearGradient id="barBlue" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#93c5fd" /><stop offset="100%" stopColor="#2563eb" />
-                </linearGradient>
-                <linearGradient id="barGreen" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#6ee7b7" /><stop offset="100%" stopColor="#10b981" />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="stage" tick={{ fontSize: 11, fill: '#475569', fontWeight: 600 }} axisLine={false} tickLine={false} interval={0} />
-              <Tooltip cursor={{ fill: 'rgba(148,163,184,0.12)' }} contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }} />
-              <Bar dataKey="count" name="deals" radius={[6, 6, 0, 0]} maxBarSize={42}>
-                <LabelList dataKey="count" position="top" style={{ fontSize: 12, fontWeight: 700, fill: '#0f172a' }} />
-                {stageData.map(entry => (
-                  <Cell key={entry.stage} fill={
-                    entry.stage === 'Signed' ? 'url(#barGreen)' : 'url(#barBlue)'
-                  } />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+      {/* Charts row — stage bars (stage colors) + loan-type bars (type colors) */}
+      <div className="grid grid-cols-1 gap-[18px] lg:grid-cols-3">
+        <section className={`${CARD} lg:col-span-2`}>
+          <CardHeader
+            badge="bg-blue-100 text-blue-700"
+            icon={<BarChart3 className="h-3.5 w-3.5" />}
+            title="Escrows by stage"
+            meta={<span>{escrowDeals.length} escrow{escrowDeals.length !== 1 ? 's' : ''} · hover a bar for volume</span>}
+          />
+          <div className="px-[18px] pb-3 pt-3">
+            <ResponsiveContainer width="100%" height={210}>
+              <BarChart data={stageData} margin={{ top: 22, right: 0, bottom: 0, left: 0 }}>
+                <XAxis dataKey="short" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} interval={0} />
+                <Tooltip cursor={{ fill: 'rgba(148,163,184,0.10)' }} content={<StageTooltip />} />
+                <Bar dataKey="count" name="escrows" radius={[4, 4, 0, 0]} maxBarSize={28} minPointSize={2}>
+                  <LabelList dataKey="count" position="top" style={{ fontSize: 12, fontWeight: 600, fill: '#334155' }} />
+                  {stageData.map(s => (
+                    <Cell key={s.stage} fill={s.count === 0 ? '#e2e8f0' : (STATUS_STRONG[s.stage] || '#94a3b8')} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            {/* "Funding soon" bracket under the last three bands — the chart has no
+                y-axis and zero side margins, so its 8 bands are 8 equal columns. */}
+            <div className="mt-1 grid grid-cols-8">
+              <div className="relative col-span-3 col-start-6 border-t border-emerald-700 pt-1 text-center text-[11px] font-medium text-emerald-700 before:absolute before:-top-px before:left-0 before:h-[5px] before:w-px before:bg-emerald-700 after:absolute after:-top-px after:right-0 after:h-[5px] after:w-px after:bg-emerald-700">
+                Funding soon · {fundingSoon.length} · {formatCurrency(fundingSoonVolume)}
+              </div>
+            </div>
+          </div>
+        </section>
 
-        <div className="bg-white rounded-xl shadow-md shadow-slate-200/60 border border-slate-200/80 p-5">
-          <h2 className="font-semibold text-slate-800 mb-4">Loan Types</h2>
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={loanTypeData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={2} dataKey="value">
-                {loanTypeData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-              </Pie>
-              <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
+        <section className={CARD}>
+          <CardHeader
+            badge="bg-indigo-100 text-indigo-700"
+            icon={<Tag className="h-3.5 w-3.5" />}
+            title="Loan types"
+            meta={<span>of {typedCount}</span>}
+          />
+          <div className="flex flex-col gap-[11px] px-[18px] py-4">
+            {loanTypeData.length === 0 ? (
+              <p className="text-sm text-slate-400">No loan types set on active escrows.</p>
+            ) : loanTypeData.map(t => {
+              const color = LOAN_TYPE_COLORS[t.name] || '#94a3b8'
+              const pct = typedCount ? Math.round((t.value / typedCount) * 100) : 0
+              return (
+                <div key={t.name} className="grid grid-cols-[78px_1fr_52px] items-center gap-2.5 text-[12.5px] text-slate-700">
+                  <span className="flex items-center gap-1.5 truncate font-medium">
+                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />{t.name}
+                  </span>
+                  <div className="h-2 overflow-hidden rounded bg-slate-100">
+                    <div className="h-full rounded" style={{ width: `${pct}%`, backgroundColor: color }} />
+                  </div>
+                  <span className="text-right font-semibold tabular-nums text-slate-900">
+                    {t.value}<span className="ml-1 text-[11px] font-normal text-slate-400">{pct}%</span>
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </section>
       </div>
 
       {/* LO Performance + At Risk + Recent */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl shadow-md shadow-slate-200/60 border border-slate-200/80 p-5">
-          <h2 className="font-semibold text-slate-800 mb-4">LO Performance</h2>
-          <div className="space-y-4">
-            {loData.map(lo => (
-              <div key={lo.name}>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="font-medium text-slate-700">{lo.name}</span>
-                  <span className="text-slate-500">{formatCurrency(lo.loanVolume)}</span>
-                </div>
-                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full transition-all" style={{
-                    width: `${loData.reduce((m, l) => Math.max(m, l.loanVolume), 0) > 0 ? (lo.loanVolume / loData.reduce((m, l) => Math.max(m, l.loanVolume), 0)) * 100 : 0}%`,
-                    backgroundColor: LO_COLORS[lo.name] || '#3b82f6',
-                  }} />
-                </div>
-                <p className="text-xs text-slate-400 mt-1">{lo.deals} deals</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-md shadow-slate-200/60 border border-slate-200/80 p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <AlertCircle className="w-4 h-4 text-amber-500" />
-            <h2 className="font-semibold text-slate-800">Needs Attention</h2>
-          </div>
-          {atRisk.length === 0 ? (
-            <p className="text-slate-400 text-sm">All active deals look good! ✓</p>
-          ) : (
-            <div className="space-y-2">
-              {atRisk.map(deal => (
-                <Link key={deal.id} href={`/deals/${deal.id}`} className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 transition-colors">
-                  <div>
-                    <p className="text-sm font-medium text-slate-800">{deal.name}</p>
-                    <p className="text-xs text-amber-600">Missing: {[!deal.loan_officer && 'LO', !deal.loan_type && 'Loan Type', !deal.loan_amount && 'Amount'].filter(Boolean).join(', ')}</p>
+      <div className="grid grid-cols-1 gap-[18px] lg:grid-cols-3">
+        <section className={CARD}>
+          <CardHeader
+            badge="bg-violet-100 text-violet-700"
+            icon={<Users className="h-3.5 w-3.5" />}
+            title="LO performance"
+            meta={<span>escrow volume</span>}
+          />
+          <div className="divide-y divide-slate-100">
+            {loRows.map(lo => {
+              const share = totalPipelineLoanVol > 0 ? Math.round((lo.loanVolume / totalPipelineLoanVol) * 100) : 0
+              return (
+                <div key={lo.name} className="px-[18px] py-2.5">
+                  <div className="flex items-center justify-between text-[12.5px]">
+                    <span className="flex items-center gap-1.5 font-medium text-slate-800"><LoDot name={lo.name} />{lo.name}</span>
+                    <span className="font-semibold tabular-nums text-slate-900">{formatCurrency(lo.loanVolume)}</span>
                   </div>
-                  <span className="text-xs text-slate-400">{deal.status}</span>
+                  <div className="my-1.5 h-[7px] overflow-hidden rounded bg-slate-100">
+                    <div className="h-full rounded transition-all" style={{
+                      width: `${loMax > 0 ? (lo.loanVolume / loMax) * 100 : 0}%`,
+                      backgroundColor: LO_COLORS[lo.name] || '#3b82f6',
+                    }} />
+                  </div>
+                  <p className="text-[11px] text-slate-400">{lo.deals} escrow{lo.deals !== 1 ? 's' : ''} · {share}% of volume</p>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+
+        <section className={CARD}>
+          <CardHeader
+            badge="bg-amber-100 text-amber-700"
+            icon={<AlertCircle className="h-3.5 w-3.5" />}
+            title="Needs attention"
+            meta={<span>missing LO, type or amount</span>}
+          />
+          {atRisk.length === 0 ? (
+            <div className="flex items-start gap-2.5 px-[18px] py-4 text-[12.5px] leading-relaxed text-slate-500">
+              <CheckCircle className="mt-px h-[18px] w-[18px] shrink-0 text-green-700" />
+              <div>
+                <p className="font-semibold text-slate-700">Nothing missing</p>
+                Every active escrow has a loan officer, loan type and amount.
+              </div>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {atRisk.map(deal => (
+                <Link key={deal.id} href={`/deals/${deal.id}`} className="flex items-center justify-between gap-3 px-[18px] py-2 transition-colors hover:bg-slate-50">
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-medium text-slate-900">{deal.name}</p>
+                    <p className="text-[11.5px] text-amber-700">
+                      Missing: {[!deal.loan_officer && 'LO', !deal.loan_type && 'Loan Type', !deal.loan_amount && 'Amount'].filter(Boolean).join(', ')}
+                    </p>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_COLORS[deal.status || ''] || 'bg-slate-100 text-slate-600'}`}>{deal.status}</span>
                 </Link>
               ))}
             </div>
           )}
-        </div>
+        </section>
 
-        <div className="bg-white rounded-xl shadow-md shadow-slate-200/60 border border-slate-200/80 p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Clock className="w-4 h-4 text-blue-500" />
-            <h2 className="font-semibold text-slate-800">Recent Deals</h2>
-          </div>
-          <div className="space-y-2">
+        <section className={CARD}>
+          <CardHeader
+            badge="bg-sky-100 text-sky-700"
+            icon={<Clock className="h-3.5 w-3.5" />}
+            title="Recent escrows"
+            action={<CardLink href="/deals">View all</CardLink>}
+          />
+          <div className="divide-y divide-slate-100">
             {recentDeals.map(deal => (
-              <Link key={deal.id} href={`/deals/${deal.id}`} className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 transition-colors">
-                <div>
-                  <p className="text-sm font-medium text-slate-800">{deal.name}</p>
-                  <p className="text-xs text-slate-400">{deal.loan_type || 'No loan type'}</p>
+              <Link key={deal.id} href={`/deals/${deal.id}`} className="grid grid-cols-[1fr_auto] items-center gap-3 px-[18px] py-2 transition-colors hover:bg-slate-50">
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-medium text-slate-900">{deal.name}</p>
+                  <p className="flex items-center gap-1.5 text-[11.5px] text-slate-500">
+                    {deal.loan_type && LOAN_TYPE_COLORS[deal.loan_type] && (
+                      <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ backgroundColor: LOAN_TYPE_COLORS[deal.loan_type] }} />
+                    )}
+                    {deal.loan_type || 'No loan type'}
+                  </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs font-medium text-slate-700">{formatCurrency(deal.loan_amount)}</p>
-                  <p className="text-xs text-slate-400">{deal.loan_officer || '—'}</p>
+                  <p className="text-[12.5px] font-semibold tabular-nums text-slate-900">{formatCurrency(deal.loan_amount)}</p>
+                  <p className="flex items-center justify-end gap-1.5 text-[11px] text-slate-400">
+                    <LoDot name={deal.loan_officer} size={7} />{deal.loan_officer || '—'}
+                  </p>
                 </div>
               </Link>
             ))}
           </div>
-          <Link href="/deals" className="block text-center text-blue-600 text-xs font-medium mt-3 hover:underline">View all deals →</Link>
-        </div>
+        </section>
       </div>
 
       {/* Next Steps — every active escrow + its next action (mirrors Active Escrows) */}
       {escrowsInProcess.length > 0 && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <ListChecks className="w-4 h-4 text-blue-500" />
-              <h3 className="font-semibold text-slate-800 text-sm">Next Steps</h3>
-              <span className="text-xs text-slate-500">{escrowsInProcess.length} active escrow{escrowsInProcess.length !== 1 ? 's' : ''}</span>
-            </div>
-            <Link href="/deals" className="text-xs font-medium text-blue-600 hover:text-blue-700 flex items-center gap-0.5">
-              Open Active Escrows <ChevronRight className="w-3 h-3" />
-            </Link>
+        <section className={CARD}>
+          <CardHeader
+            badge="bg-orange-100 text-[#F37021]"
+            icon={<Flame className="h-3.5 w-3.5" />}
+            title="Next steps"
+            meta={<>
+              <Pill>{escrowsInProcess.length} escrow{escrowsInProcess.length !== 1 ? 's' : ''}</Pill>
+              {noStepCount > 0 && <Pill tone="warn">{noStepCount} without a next step</Pill>}
+              <Pill>{scheduledCount > 0 ? `${scheduledCount} scheduled` : 'none scheduled'}</Pill>
+            </>}
+            action={<CardLink href="/deals">Open Active Escrows</CardLink>}
+          />
+          <div className="grid grid-cols-[168px_150px_1fr_116px_88px] gap-3.5 border-b border-slate-100 px-[18px] py-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">
+            <span>Borrower</span><span>Stage</span><span>Next step</span><span>Owner</span><span className="text-right">Due</span>
           </div>
-          <div className="divide-y divide-slate-100 max-h-[480px] overflow-y-auto">
+          <div className="max-h-[480px] divide-y divide-slate-100 overflow-y-auto">
             {nextStepRows.map(d => {
               const due = d.next_action_due ? new Date(d.next_action_due) : null
               const overdue = due ? due < now : false
               const dueStr = due ? due.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
               const loggedAgo = d.next_action_log?.[0]?.at ? relAgo(d.next_action_log[0].at) : ''
+              const owner = d.next_action_assignee || d.loan_officer || ''
               return (
-                <Link key={d.id} href={`/deals/${d.id}`} className="flex items-start gap-3 px-5 py-2.5 hover:bg-slate-50 transition group">
-                  <div className="w-48 shrink-0 min-w-0">
-                    <div className="text-sm font-semibold text-slate-900 group-hover:text-blue-700 truncate">{d.name}</div>
-                    <div className="text-[11px] text-slate-400 truncate">
-                      {d.status}{(d.next_action_assignee || d.loan_officer) ? ` · ${d.next_action_assignee || d.loan_officer}` : ''}
-                    </div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm text-slate-700">
-                      {d.next_action || <span className="italic text-slate-400">No next step set</span>}
-                      {loggedAgo && <span className="ml-1.5 text-[11px] font-normal text-slate-400">· {loggedAgo}</span>}
-                    </div>
-                    {due && (
-                      <div className={`text-[11px] ${overdue ? 'text-red-600 font-medium' : 'text-slate-400'}`}>
-                        {overdue ? 'Overdue · ' : 'Due '}{dueStr}
-                      </div>
-                    )}
-                  </div>
+                <Link key={d.id} href={`/deals/${d.id}`} className="group grid grid-cols-[168px_150px_1fr_116px_88px] items-center gap-3.5 px-[18px] py-2 text-[12.5px] transition hover:bg-slate-50">
+                  <span className="truncate font-semibold text-slate-900 group-hover:text-blue-700">{d.name}</span>
+                  <span className="min-w-0">
+                    <span className={`inline-block max-w-full truncate rounded-full px-2 py-0.5 align-middle text-[11px] font-semibold leading-4 ${STATUS_COLORS[d.status || ''] || 'bg-slate-100 text-slate-600'}`}>
+                      {d.status || '—'}
+                    </span>
+                  </span>
+                  <span className="min-w-0 truncate text-slate-700">
+                    {d.next_action
+                      ? <>{d.next_action}{loggedAgo && <span className="ml-1.5 font-mono text-[10.5px] text-slate-400">{loggedAgo}</span>}</>
+                      : <span className="italic text-amber-700">No next step set</span>}
+                  </span>
+                  <span className="flex min-w-0 items-center gap-1.5 text-slate-600"><LoDot name={owner} /><span className="truncate">{owner || '—'}</span></span>
+                  <span className={`text-right font-mono text-[11px] ${overdue ? 'font-medium text-red-600' : 'text-slate-400'}`}>
+                    {due ? `${overdue ? 'Overdue · ' : ''}${dueStr}` : '—'}
+                  </span>
                 </Link>
               )
             })}
           </div>
-        </div>
+        </section>
       )}
 
       {/* Unread Messages — moved below the metrics so the dashboard leads with
           the numbers, not the inbox. Live client inbox across both GHL accounts. */}
       <UnreadInbox />
 
-    </div>
-  )
-}
-
-function KPICard({ label, value, sub, icon, accent }: {
-  label: string; value: string; sub: string; icon: React.ReactNode; accent: 'emerald' | 'violet' | 'amber'
-}) {
-  const map = {
-    emerald: { bar: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-600' },
-    violet:  { bar: 'bg-violet-500',  badge: 'bg-violet-100 text-violet-700' },
-    amber:   { bar: 'bg-amber-500',   badge: 'bg-amber-100 text-amber-600' },
-  }
-  const c = map[accent]
-  return (
-    <div className="relative overflow-hidden bg-white rounded-xl border border-slate-200/80 p-5 shadow-md shadow-slate-200/60">
-      <span className={`absolute left-0 top-0 bottom-0 w-1.5 ${c.bar}`} aria-hidden />
-      <div className="flex items-center justify-between mb-4">
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${c.badge}`}>{icon}</div>
-      </div>
-      <p className="text-2xl font-bold text-slate-900 tracking-tight">{value}</p>
-      <p className="text-sm font-medium text-slate-600 mt-0.5">{label}</p>
-      <p className="text-xs text-slate-400 mt-1">{sub}</p>
     </div>
   )
 }
