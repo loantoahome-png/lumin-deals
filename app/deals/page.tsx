@@ -7,7 +7,7 @@ import { Deal, CoborrowerLite, LOAN_OFFICERS, LOAN_TYPES, PIPELINE_GROUPS, PIPEL
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { pushStageToGHL } from '@/lib/pushStage'
 import Link from 'next/link'
-import { Search, RefreshCw, ExternalLink, Download, X, CheckSquare, Pencil, LayoutGrid, Table2, FileText, Bookmark } from 'lucide-react'
+import { Search, RefreshCw, ExternalLink, Download, X, CheckSquare, Pencil, LayoutGrid, Table2, FileText, Bookmark, Building2 } from 'lucide-react'
 import EscrowTracker from '@/components/EscrowTracker'
 import { ariveUrl } from '@/lib/ariveLinks'
 import { resolveLO } from '@/lib/loanOfficer'
@@ -268,8 +268,10 @@ function DealsPageInner() {
 
   // Inline cell editing
   const [editCell, setEditCell] = useState<{ id: string; field: string } | null>(null)
-  // View mode: 'tracker' is the new operational kanban-style view; 'table' is the classic table
-  const [viewMode, setViewMode] = useState<'tracker' | 'table'>('tracker')
+  // View mode: 'tracker' is the operational kanban-style view (columns per stage),
+  // 'lender' is the same cards stacked under one section per lender, 'table' is
+  // the classic table.
+  const [viewMode, setViewMode] = useState<'tracker' | 'lender' | 'table'>('tracker')
 
   async function handleCellUpdate(id: string, field: string, value: unknown) {
     setDeals(prev => prev.map(d =>
@@ -416,6 +418,13 @@ function DealsPageInner() {
                 <LayoutGrid className="w-3.5 h-3.5" /> Tracker
               </button>
               <button
+                onClick={() => setViewMode('lender')}
+                title="By Lender — the same escrow cards grouped by lender, biggest loan volume first"
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-md transition ${viewMode === 'lender' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+              >
+                <Building2 className="w-3.5 h-3.5" /> By Lender
+              </button>
+              <button
                 onClick={() => setViewMode('table')}
                 title="Table view"
                 className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-md transition ${viewMode === 'table' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
@@ -527,11 +536,13 @@ function DealsPageInner() {
         )}
       </div>
 
-      {/* ── Tracker view (default) ────────────────────────────────────────── */}
-      {!loading && viewMode === 'tracker' && (
+      {/* ── Tracker / By Lender views ─────────────────────────────────────── */}
+      {/* Same board, same filters and cards — only the grouping differs. */}
+      {!loading && (viewMode === 'tracker' || viewMode === 'lender') && (
         <div className="flex-1 overflow-y-auto">
           <EscrowTracker
             deals={filtered}
+            groupBy={viewMode === 'lender' ? 'lender' : 'stage'}
             onUpdate={async (id, patch) => {
               const { error } = await supabase.from('deals').update(patch).eq('id', id)
               if (!error) {

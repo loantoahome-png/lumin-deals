@@ -1,6 +1,19 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-09-16] /deals — third view: "By Lender"
+**Status:** CHANGED — verified locally: `npx tsc --noEmit` = the 7-error `main` baseline (0 in the touched files), eslint = the same 7-problem baseline the two files already had on HEAD (checked by stashing), `npm run build` ✓, 44/44 new offline fixtures, and the section layout screenshotted on the bypass dev server through a temporary fixture route (`app/zz-preview-lender`, deleted before commit).
+**Issue:** Efrain: "Can you make a 3rd view. I want the title to be 'By Lender' and separate deals by Lenders." Shape decided with him up front: stacked vertical sections (not a 15-column kanban), spelling variants merged, read-only, ordered by loan volume.
+**Changes:**
+- [lib/lenderGroup.ts](lib/lenderGroup.ts) (new) — canonical lender identity for `deals.investor`. `lenderKey()` lowercases, strips a leading "the", then drops trailing corporate/channel noise words (llc, inc, mortgage, lending, tpo, core…), with an alias table for what that can't reach (`KINDLENDING`, `TLS`, `EPM`, `NFTYDOOR`). ⚠️ **Display-only — it never writes `investor`.** ⚠️ `Finance of America Mortgage` and `Finance of America Reverse` are deliberately NOT merged (forward vs reverse are different divisions).
+- [components/EscrowTracker.tsx](components/EscrowTracker.tsx) — new `groupBy?: 'stage' | 'lender'` prop (default `'stage'`, so the kanban is untouched) + `LenderSections`. Same cards, same filter chips, same processor facet. ⚠️ **No drag in the lender view on purpose** — a drop there would rewrite `investor` on a live escrow; lender is still changed on the deal page.
+- [app/deals/page.tsx](app/deals/page.tsx) — `viewMode` widened to `'tracker' | 'lender' | 'table'`; the By Lender button sits between Tracker and Table and renders the same `EscrowTracker` with `groupBy="lender"`.
+- [scripts/lender-group-check.ts](scripts/lender-group-check.ts) (new, 44 fixtures) — built from all 60 real distinct `investor` values, pulled live 2026-09-16.
+- [scripts/lender-view-report.ts](scripts/lender-view-report.ts) (new) — prints the live sections, since `/deals` renders empty under auth-bypass (deals RLS).
+**Why the normalizing:** live audit of every deal found 60 distinct `investor` values with the biggest lenders each split 3–5 ways (Rocket 4 spellings / 188 deals, Figure 5 / 169, PennyMac 3, EPM 2). Grouping on the raw string would have shown Rocket as four separate sections.
+**Test Method:** open `/deals` → click **By Lender**. Sections are volume-ordered (today: SPMC $1.22M, Change Mortgage $1.20M, Rocket $1.02M, Splitero 8 loans…) with "No lender on file" (2 loans) last, and a merged section shows "also filed as …". Cross-check with `npx tsx scripts/lender-view-report.ts`.
+**Result:** (pending Efrain's look at prod)
+
 ### [2026-09-16] Dashboard — "unprotected volume" removed from the rate-lock card
 **Status:** CHANGED — tsc = the 7-error `main` baseline, eslint clean, 31/31 offline fixtures, `npm run build` ✓, bypass screenshot confirms the figure band now reads `N loans with no live lock · N of M escrows locked`.
 **Issue:** Efrain: "get rid of the unprotected volume section, I dont care about that." The dollar figure was mine, not his — added the same day when the card was promoted.

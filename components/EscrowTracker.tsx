@@ -13,12 +13,13 @@ import { toBoardTask, type BoardTask, type GhlTaskRow } from '@/lib/ghlTasks'
 import { formatCurrency } from '@/lib/utils'
 import { ghlContactUrl } from '@/lib/ghlLinks'
 import { ariveUrl } from '@/lib/ariveLinks'
+import { groupDealsByLender, NO_LENDER_KEY } from '@/lib/lenderGroup'
 import NextStepLog from '@/components/NextStepLog'
 import DealTasks from '@/components/DealTasks'
 import {
   AlertTriangle, Clock, ChevronRight, Calendar,
   Flame, ExternalLink, CheckCircle2, Lock, Search,
-  Phone, GripVertical, UserCog, ListTodo, Plus, X, User,
+  Phone, GripVertical, UserCog, ListTodo, Plus, X, User, Building2,
 } from 'lucide-react'
 
 
@@ -147,9 +148,15 @@ type Props = {
   onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>
   /** Currently signed-in LO name, used for "My Follow-ups" filter */
   currentUser?: string | null
+  /**
+   * How the board is carved up. 'stage' is the drag-and-drop kanban (the
+   * default); 'lender' stacks the same cards under one section per lender and
+   * is deliberately READ-ONLY for grouping — see LenderSections.
+   */
+  groupBy?: 'stage' | 'lender'
 }
 
-export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
+export default function EscrowTracker({ deals, onUpdate, currentUser, groupBy = 'stage' }: Props) {
   const [filter, setFilter] = useState<FollowUpFilter>('all')
   const [search, setSearch] = useState('')
   // Processor facet — independent of the quick-filter; null = all processors.
@@ -423,13 +430,15 @@ export default function EscrowTracker({ deals, onUpdate, currentUser }: Props) {
         </div>
       </div>
 
-      {/* Kanban: columns per escrow stage, cards stacked within each */}
+      {/* Board body — kanban by stage, or stacked sections by lender */}
       {displayList.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-xl p-12 text-center">
           <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
           <p className="text-sm font-semibold text-slate-800">Nothing matches this filter</p>
           <p className="text-xs text-slate-500 mt-1">Try a different filter or search term.</p>
         </div>
+      ) : groupBy === 'lender' ? (
+        <LenderSections deals={displayList} onUpdate={onUpdate} tasksByDeal={tasksByDeal} onTasksChanged={loadTasks} />
       ) : (
         <KanbanColumns deals={displayList} onUpdate={onUpdate} tasksByDeal={tasksByDeal} onTasksChanged={loadTasks} />
       )}
@@ -548,6 +557,77 @@ function KanbanColumns({ deals, onUpdate, tasksByDeal, onTasksChanged }: {
         </div>
       </div>
     </DndContext>
+  )
+}
+
+// ── Lender layout: one stacked section per lender ───────────────────────────
+/**
+ * "By Lender" view — the same escrow cards, grouped by who the loan is with
+ * instead of what stage it's in. Biggest loan volume first, "No lender on file"
+ * pinned last (see lib/lenderGroup.ts for the grouping rules).
+ *
+ * ⚠️ NO DRAG HERE, on purpose. On the stage board a drop rewrites `status`,
+ * which is a move you make a dozen times a day. A drop between lender sections
+ * would rewrite `investor` on a live escrow — a stray drag silently re-brokering
+ * a file is not a mistake worth enabling, so the cards render without a drag
+ * handle and the lender is changed on the deal page like it always was.
+ */
+function LenderSections({ deals, onUpdate, tasksByDeal, onTasksChanged }: {
+  deals: Deal[]
+  onUpdate: (id: string, patch: Record<string, unknown>) => Promise<void>
+  tasksByDeal: Map<string, BoardTask[]>
+  onTasksChanged: () => void
+}) {
+  const groups = useMemo(() => groupDealsByLender(deals), [deals])
+
+  return (
+    <div className="space-y-5">
+      {groups.map(group => {
+        const isNone = group.key === NO_LENDER_KEY
+        // Spelling drift is real in `investor` (ROCKET / Rocket / Rocket Pro TPO
+        // are one lender). The group is merged, but show what folded in so the
+        // raw data can be cleaned at the source.
+        const alsoKnownAs = group.variants.filter(v => v !== group.label)
+        return (
+          <section key={group.key}>
+            {/* Section header */}
+            <div className={`flex items-center gap-2 flex-wrap rounded-xl border px-4 py-2.5 ${
+              isNone ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'
+            }`}>
+              <Building2 className={`w-4 h-4 shrink-0 ${isNone ? 'text-amber-600' : 'text-slate-400'}`} />
+              <h3 className={`text-sm font-bold ${isNone ? 'text-amber-900' : 'text-slate-900'}`}>{group.label}</h3>
+              <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 rounded-full px-2 py-0.5 tabular-nums">
+                {group.deals.length} loan{group.deals.length === 1 ? '' : 's'}
+              </span>
+              {group.volume > 0 && (
+                <span className="text-[11px] font-semibold text-slate-500 tabular-nums">{fmtMoneyShort(group.volume)} volume</span>
+              )}
+              {alsoKnownAs.length > 0 && (
+                <span
+                  title={`Merged spellings of this lender in the data: ${group.variants.join(' · ')}`}
+                  className="text-[11px] text-slate-400 italic truncate"
+                >
+                  also filed as {alsoKnownAs.join(', ')}
+                </span>
+              )}
+            </div>
+
+            {/* Cards */}
+            <div className="mt-2 grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(340px,1fr))]">
+              {group.deals.map(d => (
+                <EscrowCard
+                  key={d.id}
+                  deal={d}
+                  onUpdate={onUpdate}
+                  tasks={tasksByDeal.get(d.id) ?? NO_TASKS}
+                  onTasksChanged={onTasksChanged}
+                />
+              ))}
+            </div>
+          </section>
+        )
+      })}
+    </div>
   )
 }
 
