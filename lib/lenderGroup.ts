@@ -67,16 +67,21 @@ const ALIAS_KEYS: Record<string, string> = {
 /**
  * Display name per key. Anything missing here falls back to the most common raw
  * spelling in the data being grouped, so a brand-new lender still reads right.
+ *
+ * ⚠️ INVARIANT: where a lender also appears in CANONICAL_NAMES below, the label
+ * here must MATCH the stored canonical name — otherwise every card in that
+ * section reads "also filed as <the name it is actually stored under>".
+ * scripts/lender-group-check.ts enforces this.
  */
 const LENDER_LABELS: Record<string, string> = {
   rocket: 'Rocket',
   figure: 'Figure Lending',
-  'equity prime': 'Equity Prime Mortgage (EPM)',
+  'equity prime': 'Equity Prime Mortgage',
   kind: 'Kind Lending',
   forward: 'Forward Lending',
   'val chris': 'Val Chris Investments',
   'loan store': 'The Loan Store',
-  nfty: 'NFTY Door (LeadBank)',
+  nfty: 'NFTY (LeadBank)',
   'fly homes': 'Fly Homes',
   homexpress: 'HomeXpress Mortgage',
   pennymac: 'PennyMac',
@@ -84,12 +89,12 @@ const LENDER_LABELS: Record<string, string> = {
   change: 'Change Mortgage',
   mega: 'Mega Capital Funding',
   carrington: 'Carrington Mortgage Services',
-  aven: 'Aven',
+  aven: 'Aven Financial',
   longbridge: 'Longbridge Financial',
   amwest: 'Amwest Funding',
   deephaven: 'Deephaven Mortgage',
   flagstar: 'Flagstar Bank',
-  swmc: 'SWMC (Sun West)',
+  swmc: 'SWMC',
   spmc: 'SPMC',
   'spring eq': 'Spring EQ',
   splitero: 'Splitero',
@@ -188,4 +193,74 @@ export function groupDealsByLender(deals: Deal[]): LenderGroup[] {
     return z.deals.length - a.deals.length || a.label.localeCompare(z.label)
   })
   return groups
+}
+
+// ── Canonical STORED name ───────────────────────────────────────────────────
+/**
+ * The one spelling a known lender is written as — used both by the one-time
+ * cleanup (scripts/lender-name-cleanup.ts) and by every import path, so the
+ * table doesn't re-drift the next time Arive or GHL hands us a "ROCKET".
+ *
+ * ⚠️ This is EXACT-MATCH on the trimmed value, case-insensitive — NOT the fuzzy
+ * `lenderKey()` normalizer above. A write path must never rename something it
+ * merely guessed at, so anything not listed here is stored exactly as it
+ * arrived. `lenderKey()` can afford to be clever because it only affects how
+ * cards are stacked on a screen; this map changes the data.
+ *
+ * ⚠️ DELIBERATELY ABSENT — Randy's ' - CORE' and ' Pro TPO' values ('Rocket -
+ * CORE', 'Figure - CORE', 'Kind - CORE', 'NewRez - CORE', 'SWMC - CORE',
+ * 'The Loan Store - CORE', 'NFTYDOOR - CORE', 'Rocket Pro TPO', 'PennyMac TPO').
+ * Checked live 2026-09-16: all 71 of them are in Randy's GHL sub-account
+ * (arZ4QDCzS0Vkj0ZvLZdv), all created 2026-07, none carries an Arive file, and
+ * `broker_corr` is null on every one — so the suffix is his own labelling, not
+ * the Broker/Non-Del channel. Efrain's call (2026-09-16): leave them alone until
+ * someone says what CORE means. They still merge into one section on screen via
+ * lenderKey(); only the stored value is left untouched.
+ *
+ * Also deliberately absent: 'REMN', 'SPMC', 'FUND', 'TLS'-style acronyms with no
+ * confirmed expansion (beyond the explicit pairs below), and 'Lumen Lending'
+ * (2 deals) — possibly a typo of the house name, but that's Efrain's to say.
+ */
+export const CANONICAL_NAMES: Record<string, string> = {
+  // Shouting / casing only
+  'rocket': 'Rocket',
+  'freedom': 'Freedom',
+  'oaktree': 'Oaktree',
+  'pennymac': 'PennyMac',
+  'newrez': 'NewRez',
+  'newrez llc': 'NewRez',
+  // Legal suffix dropped
+  'figure lending llc': 'Figure Lending',
+  'aven financial, inc': 'Aven Financial',
+  'carrington mortgage services, llc': 'Carrington Mortgage Services',
+  'deephaven mortgage, llc': 'Deephaven Mortgage',
+  'longbridge financial, llc': 'Longbridge Financial',
+  'amwest funding corporation': 'Amwest Funding',
+  'flagstar bank, national association': 'Flagstar Bank',
+  'mega capital funding, inc': 'Mega Capital Funding',
+  'the loan store, inc.': 'The Loan Store',
+  'equity prime mortgage llc': 'Equity Prime Mortgage',
+  'kind lending, llc': 'Kind Lending',
+  // Bare / partial names folded into the full one
+  'figure': 'Figure Lending',
+  'change': 'Change Mortgage',
+  'homexpress': 'HomeXpress Mortgage',
+  // Smash-ups and abbreviations
+  'kindlending': 'Kind Lending',
+  'forwardlending': 'Forward Lending',
+  'epm': 'Equity Prime Mortgage',
+  'tls': 'The Loan Store',
+  'mega': 'Mega Capital Funding',
+  'valchris': 'Val Chris Investments',
+  'val chris investments': 'Val Chris Investments',
+}
+
+/**
+ * The spelling to STORE for a raw lender value. Known lender → its canonical
+ * name; anything else → the raw value, trimmed, unchanged. Null/blank stays null.
+ */
+export function canonicalLenderName(raw: string | null | undefined): string | null {
+  const trimmed = String(raw ?? '').trim().replace(/\s+/g, ' ')
+  if (!trimmed) return null
+  return CANONICAL_NAMES[trimmed.toLowerCase()] ?? trimmed
 }

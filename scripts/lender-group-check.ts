@@ -5,7 +5,7 @@
 // 2026-09-16 (all 60 distinct values across every deal). The By-Lender view on
 // /deals groups on lenderKey(), so a regression here silently splits one lender
 // into four columns — or worse, merges two lenders that aren't the same shop.
-import { lenderKey, groupDealsByLender, NO_LENDER_KEY } from '../lib/lenderGroup'
+import { lenderKey, groupDealsByLender, canonicalLenderName, lenderLabel, CANONICAL_NAMES, NO_LENDER_KEY } from '../lib/lenderGroup'
 import type { Deal } from '../lib/types'
 
 let pass = 0, fail = 0
@@ -95,6 +95,65 @@ eq('blank group label', groups[3].label, 'No lender on file')
 // Uncurated key falls back to the most common raw spelling, preferring mixed case.
 const fallback = groupDealsByLender([deal('ACME CAPITAL', 1), deal('Acme Capital', 1)])
 eq('fallback label prefers mixed case on a tie', fallback[0].label, 'Acme Capital')
+
+// ── canonicalLenderName() — what gets WRITTEN back to deals.investor ───────
+// Exact-match only. A write path must never rename something it merely guessed.
+const RENAMES: [string, string][] = [
+  ['ROCKET', 'Rocket'],
+  ['FREEDOM', 'Freedom'],
+  ['OAKTREE', 'Oaktree'],
+  ['PENNYMAC', 'PennyMac'],
+  ['NEWREZ', 'NewRez'],
+  ['NEWREZ LLC', 'NewRez'],
+  ['Figure', 'Figure Lending'],
+  ['FIGURE', 'Figure Lending'],
+  ['Figure Lending LLC', 'Figure Lending'],
+  ['Change', 'Change Mortgage'],
+  ['HomeXpress', 'HomeXpress Mortgage'],
+  ['HOMEXPRESS', 'HomeXpress Mortgage'],
+  ['EPM', 'Equity Prime Mortgage'],
+  ['Equity Prime Mortgage LLC', 'Equity Prime Mortgage'],
+  ['KINDLENDING', 'Kind Lending'],
+  ['KIND LENDING, LLC', 'Kind Lending'],
+  ['FORWARDLENDING', 'Forward Lending'],
+  ['TLS', 'The Loan Store'],
+  ['The Loan Store, Inc.', 'The Loan Store'],
+  ['MEGA', 'Mega Capital Funding'],
+  ['Mega Capital Funding, Inc', 'Mega Capital Funding'],
+  ['ValChris', 'Val Chris Investments'],
+  ['VAL CHRIS INVESTMENTS', 'Val Chris Investments'],
+  ['Aven Financial, Inc', 'Aven Financial'],
+  ['Carrington Mortgage Services, LLC', 'Carrington Mortgage Services'],
+  ['Deephaven Mortgage, LLC', 'Deephaven Mortgage'],
+  ['Longbridge Financial, LLC', 'Longbridge Financial'],
+  ['Amwest Funding Corporation', 'Amwest Funding'],
+  ['Flagstar Bank, National Association', 'Flagstar Bank'],
+]
+for (const [raw, want] of RENAMES) eq(`canonical ${JSON.stringify(raw)}`, canonicalLenderName(raw), want)
+
+// ⚠️ Randy's CORE / TPO values must survive the cleanup EXACTLY as they are —
+// Efrain's call 2026-09-16, pending someone saying what CORE means.
+const UNTOUCHED = [
+  'Rocket - CORE', 'Figure - CORE', 'Kind - CORE', 'NewRez - CORE', 'SWMC - CORE',
+  'The Loan Store - CORE', 'NFTYDOOR - CORE', 'Rocket Pro TPO', 'PennyMac TPO',
+]
+for (const raw of UNTOUCHED) eq(`untouched ${JSON.stringify(raw)}`, canonicalLenderName(raw), raw)
+
+// Unknown lenders pass through unchanged (only whitespace is tidied).
+eq('unknown lender passes through', canonicalLenderName('Some New Lender, LLC'), 'Some New Lender, LLC')
+eq('whitespace tidied', canonicalLenderName('  Spring   EQ  '), 'Spring EQ')
+eq('blank → null', [canonicalLenderName(null), canonicalLenderName('   ')], [null, null])
+eq('canonical names are idempotent', RENAMES.map(([, want]) => canonicalLenderName(want)), RENAMES.map(([, want]) => want))
+
+// ── The two maps must agree ────────────────────────────────────────────────
+// A section's heading is the display label; the cards under it are stored under
+// the canonical name. If those differ, every merged section reads "also filed as
+// <its own name>" — which is how this was caught after the 2026-09-16 cleanup.
+const disagreements = Object.values(CANONICAL_NAMES)
+  .filter((stored, i, arr) => arr.indexOf(stored) === i)
+  .map(stored => ({ stored, label: lenderLabel(lenderKey(stored), new Map([[stored, 1]])) }))
+  .filter(({ stored, label }) => stored !== label)
+eq('every canonical name equals its display label', disagreements, [])
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)

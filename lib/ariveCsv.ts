@@ -3,6 +3,7 @@
 // Designed to be tolerant: missing columns are skipped silently, unknown values
 // pass through, and matching falls back from arive_file_no → email → phone → name.
 
+import { canonicalLenderName } from './lenderGroup'
 import { normEmail, normPhone } from './dealMatcher'
 import { resolveLO } from './loanOfficer'
 
@@ -263,7 +264,9 @@ const MAPPINGS: Mapping[] = [
   { ariveCols: ['Total Loan Amount'],        field: 'loan_amount',       normalize: r => num(r) },
   { ariveCols: ['Loan Purpose'],             field: 'loan_purpose',      normalize: r => normLoanPurpose(r) },
   { ariveCols: ['Primary Loan Officer Name'], field: 'loan_officer',     normalize: r => resolveLO(r) },
-  { ariveCols: ['Lender'],                   field: 'investor',          normalize: r => trimStr(r) },
+  // Canonicalized on the way in so a fresh export's 'ROCKET' doesn't re-split a
+  // lender the cleanup already merged. Unknown lenders are stored verbatim.
+  { ariveCols: ['Lender'],                   field: 'investor',          normalize: r => canonicalLenderName(trimStr(r)) },
   { ariveCols: ['Lien Position'],            field: 'lien_position',     normalize: r => normLienPosition(r) },
   { ariveCols: ['Lead Source'],              field: 'lead_source_agg',   normalize: r => trimStr(r) },
   { ariveCols: ['Loan FICO'],                field: 'credit_score',      normalize: r => num(r) },

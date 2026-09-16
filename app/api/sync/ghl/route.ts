@@ -5,6 +5,7 @@ import { titleCase, resolveLeadSource, normalizeLoanPurpose } from '@/lib/utils'
 import { SOURCE_PINS_KEY, parseSourcePins, applySourcePin } from '@/lib/sourcePins'
 import { shouldProcessOpportunity } from '@/lib/syncCursor'
 import { resolveLO } from '@/lib/loanOfficer'
+import { canonicalLenderName } from '@/lib/lenderGroup'
 import { mapOpportunityFields, ariveLoanIdFromOpp as ariveLoanIdShared } from '@/lib/ghlOpportunityFields'
 import { syncGhlTasks, type GhlTaskSyncResult } from '@/lib/ghlTaskSync'
 
@@ -1017,7 +1018,9 @@ async function syncAccount(
           down_payment:     parseAmount(getCustomField(customFields, 'down_payment', 'Down Payment')),
           lead_price:       parseAmount(getCustomField(customFields, 'lead_price', 'Lead Price')),
           rate:             parseAmount(getCustomField(customFields, 'rate', 'interest_rate', 'note_rate')),
-          investor:         str(getCustomField(customFields, 'investor', 'lender', 'wholesale_lender')),
+          // Canonical lender spelling on the way in — see lib/lenderGroup.ts. An
+          // unknown lender is stored exactly as GHL sent it.
+          investor:         canonicalLenderName(str(getCustomField(customFields, 'investor', 'lender', 'wholesale_lender'))),
           credit_rating:    str(getCustomField(customFields, 'credit_rating', 'credit rating', 'Credit Rating')),
           is_military:      str(getCustomField(customFields, 'is_military', 'veteran', 'Veteran')),
           current_va_loan:  str(getCustomField(customFields, 'current_va_loan', 'va_loan', 'VA Loan')),

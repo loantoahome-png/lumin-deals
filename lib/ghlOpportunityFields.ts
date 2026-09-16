@@ -14,6 +14,7 @@
 // linked to Arive). We read all known variants below.
 
 import { normalizeLoanPurpose } from './utils'
+import { canonicalLenderName } from './lenderGroup'
 
 export type OppCustomFieldEntry = {
   id?: string; key?: string; fieldKey?: string; name?: string
@@ -122,6 +123,8 @@ export function mapOpportunityFields(
   num('housing_payment',     'Total PITI')
   num('pi_payment',          'Principal And Interest', 'First Mortgage Principal And Interest Monthly Amount')
   str('investor',            'Lender Name')
+  // Same canonical spelling the cleanup wrote; unknown lenders pass through.
+  if (typeof out.investor === 'string') out.investor = canonicalLenderName(out.investor) ?? out.investor
   // Loan purpose also lives on the OPPORTUNITY, and reading it only from the
   // contact left real purposes unread: the contacts LIST endpoint omits custom
   // fields, so a lead the sync had only ever seen through that path stayed

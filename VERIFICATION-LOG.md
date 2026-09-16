@@ -1,6 +1,18 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-09-16] deals.investor — lender names collapsed 60 → 45, and normalized on write
+**Status:** CHANGED (data write APPLIED + verified by re-read) — `npx tsx scripts/tsc` = the 7-error `main` baseline, `npm run build` ✓, 87/87 lender fixtures, and 11 neighbouring offline suites re-run green (arive-lock 10, arive-match 29, webhook-fields 45, import-revenue 52, lock-status 17, loan-outcome 24, comp 16, resolver, triage 53, lead-roi 85, roles 133).
+**Issue:** Efrain: "yes, clean up the lender values in the database." `deals.investor` is free text written by three paths, so one lender was stored under up to 5 spellings (Rocket 4 ways / 188 deals, Figure 5 ways / 169).
+**Changes:**
+- [lib/lenderGroup.ts](lib/lenderGroup.ts) — added `CANONICAL_NAMES` + `canonicalLenderName()`. ⚠️ **EXACT-match, case-insensitive — NOT the fuzzy `lenderKey()`.** A write path must never rename something it only guessed at, so an unknown lender is stored verbatim. ⚠️ **Invariant, fixture-enforced:** a lender's display label must equal its canonical stored name, or every card in the section reads "also filed as <its own name>" (exactly what happened right after the cleanup ran — `Aven` vs `Aven Financial`, now fixed).
+- **Write paths normalized** so the table can't re-drift: [lib/ariveCsv.ts](lib/ariveCsv.ts) (the `Lender` column), [lib/ghlOpportunityFields.ts](lib/ghlOpportunityFields.ts) (`Lender Name` opp CF), [app/api/sync/ghl/route.ts](app/api/sync/ghl/route.ts), [app/api/webhooks/ghl/route.ts](app/api/webhooks/ghl/route.ts).
+- [scripts/lender-name-cleanup.ts](scripts/lender-name-cleanup.ts) (new) — dry-run by default; `--apply` writes `_lender-cleanup-backup-<iso>.json` (every touched row's pre-change value) BEFORE writing; `--revert=<file>` undoes it.
+**Applied 2026-09-16:** 5,828 deals scanned, **29 renames across 266 rows**, distinct values **60 → 45**. Backup: `_lender-cleanup-backup-2026-09-16T22-08-27-983Z.json` (266 rows, gitignored, on disk). Verified by re-reading all 5,828 rows after the write: every stored value is now canonical.
+**⚠️ Deliberately untouched:** Randy's 9 ` - CORE` / ` Pro TPO` values (71 rows). Evidence: 100% in his GHL sub-account `arZ4QDCzS0Vkj0ZvLZdv`, 100% created 2026-07, 0 with an Arive file, `broker_corr` null on every one — so the suffix is his own labelling, NOT the Broker/Non-Del channel. Efrain's call: leave them until someone says what CORE means. They still merge into one section on screen.
+**Test Method:** `npx tsx scripts/lender-name-cleanup.ts` (dry run) should now report 0 renames. `npx tsx scripts/lender-view-report.ts` for the live sections. To undo: `npx tsx scripts/lender-name-cleanup.ts --revert=_lender-cleanup-backup-2026-09-16T22-08-27-983Z.json`.
+**Result:** VERIFIED (data) — post-write re-read of all 5,828 deals shows 45 distinct values, every one canonical. UI pending Efrain's look at prod.
+
 ### [2026-09-16] /deals — third view: "By Lender"
 **Status:** CHANGED — verified locally: `npx tsc --noEmit` = the 7-error `main` baseline (0 in the touched files), eslint = the same 7-problem baseline the two files already had on HEAD (checked by stashing), `npm run build` ✓, 44/44 new offline fixtures, and the section layout screenshotted on the bypass dev server through a temporary fixture route (`app/zz-preview-lender`, deleted before commit).
 **Issue:** Efrain: "Can you make a 3rd view. I want the title to be 'By Lender' and separate deals by Lenders." Shape decided with him up front: stacked vertical sections (not a 15-column kanban), spelling variants merged, read-only, ordered by loan volume.

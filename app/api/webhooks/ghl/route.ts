@@ -4,6 +4,7 @@ import { createHmac } from 'crypto'
 import { findExistingDeal } from '@/lib/dealMatcher'
 import { titleCase, resolveLeadSource } from '@/lib/utils'
 import { resolveLO } from '@/lib/loanOfficer'
+import { canonicalLenderName } from '@/lib/lenderGroup'
 import { logStageEvent } from '@/lib/stageEvents'
 import {
   pick, isOpportunityPayload, getCustomData, cleanGhlId,
@@ -209,7 +210,8 @@ function extractFields(body: Record<string, unknown>) {
   const creditScore   = parseAmount(pick(body, 'Credit Score', 'credit_score', 'creditScore') || getCustomField(rawCustomFields, 'credit_score', 'credit score', 'fico'))
   const creditRating  = pick(body, 'Credit Rating', 'credit_rating') || getCustomField(rawCustomFields, 'credit_rating', 'credit rating', 'Credit Rating') || null
   const rate          = parseAmount(pick(body, 'rate', 'interest_rate') || getCustomField(rawCustomFields, 'rate', 'interest_rate', 'note_rate'))
-  const investor      = pick(body, 'investor', 'lender') || getCustomField(rawCustomFields, 'investor', 'lender', 'wholesale_lender') || null
+  // Canonical lender spelling on the way in — see lib/lenderGroup.ts.
+  const investor      = canonicalLenderName(pick(body, 'investor', 'lender') || getCustomField(rawCustomFields, 'investor', 'lender', 'wholesale_lender') || null)
   const occupancy     = pick(body, 'Property Use', 'occupancy') || getCustomField(rawCustomFields, 'occupancy', 'property use', 'Property Use') || null
   const propertyType  = pick(body, 'Property Type', 'property_type_detail') || getCustomField(rawCustomFields, 'property_type', 'Property Type') || null
   const propertyAddress = pick(body, 'address1', 'full_address', 'property_address') || getCustomField(rawCustomFields, 'property_address', 'physical_address', 'PhysicalAddress') || pick(contact, 'address1') || null
