@@ -29,6 +29,9 @@ importer and reads `'Yes'` on **0 of 32** active escrows while 25 carry a real A
 in ONE place, **`lib/lockStatus.ts`** (fixtures: `scripts/lock-status-check.ts`, 17). Any new lock display,
 alert or report goes through it.
 
+Each row shows borrower · **LO · lender** · amount · stage. **The lender field is `investor`** (the
+same column the escrow card labels "Lender"); 31 of 33 active escrows have one set.
+
 ⚠️ **Funded is out of scope by design:** the `clear_lock_expiration_on_funded` trigger nulls the column on
 funding, so all 136 funded rows read "no lock". ⚠️ The card respects the LO filter but shows
 `+ N more under loan officers not selected above`, because the Matt+Moe default hides 7 of the 10.

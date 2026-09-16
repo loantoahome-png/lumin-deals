@@ -36,7 +36,7 @@ async function main() {
   for (let from = 0; ; from += 1000) {
     const { data, error } = await sb
       .from('deals')
-      .select('id,name,status,pipeline_group,loan_officer,loan_amount,locked,lock_expiration')
+      .select('id,name,status,pipeline_group,loan_officer,loan_amount,locked,lock_expiration,investor')
       .order('id')
       .range(from, from + 999)
     if (error) { console.error('deals query failed:', error); process.exit(1) }
@@ -56,10 +56,13 @@ async function main() {
   const funded = rows.filter(d => d.pipeline_group === 'Funded')
   console.log(`  sanity — funded rows: ${funded.length}, with a lock_expiration: ${funded.filter(d => d.lock_expiration).length} (trigger nulls them; excluded by scope)`)
 
+  const esc = rows.filter(d => d.pipeline_group === ESCROW_PIPELINE)
+  console.log(`  sanity — escrows with a lender (\`investor\`) set: ${esc.filter(d => d.investor).length} of ${esc.length}`)
+
   console.log('\nThe card, in render order:')
   for (const d of unlockedEscrows(rows, stageDepth)) {
     const amt = d.loan_amount ? `$${d.loan_amount.toLocaleString()}` : '—'
-    console.log(`  ${d.lock.state === 'expired' ? '🔴' : '🟠'} ${(d.name || '?').padEnd(24)} ${(d.status || '').padEnd(23)} ${(d.loan_officer || 'No LO').padEnd(22)} ${amt.padStart(10)}   ${d.lock.label}`)
+    console.log(`  ${d.lock.state === 'expired' ? '🔴' : '🟠'} ${(d.name || '?').padEnd(24)} ${(d.status || '').padEnd(23)} ${(d.loan_officer || 'No LO').padEnd(22)} ${(d.investor || '— no lender —').padEnd(20)} ${amt.padStart(10)}   ${d.lock.label}`)
   }
 
   const expiringSoon = rows

@@ -1,6 +1,13 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-09-16] Dashboard — lender on the "Loans without a rate lock" rows
+**Status:** CHANGED — verified locally: `npx tsc --noEmit` = the 7-error `main` baseline, eslint clean on both touched files, 31/31 offline fixtures, `npm run build` ✓, bypass dev-server screenshots of both the default (Matt+Moe) and all-LO views via a temporary local seed (removed before commit, file restored by checksum).
+**Issue:** Efrain asked for the lender on each row — the middle column had empty space next to the borrower name.
+**Changes:** [components/Dashboard.tsx](components/Dashboard.tsx) — `investor` added to `DASHBOARD_COLS`; the row's sub-line now reads `● {LO} · {lender}`, with an italic "No lender" when blank. **The lender field is `investor`** — the same column `components/EscrowTracker.tsx` labels "Lender" on the escrow card. Live coverage checked before building: **31 of 33** active escrows have one set, so the blank case is real (Toni Williams and Donna Schnupp today). [scripts/unlocked-loans-report.ts](scripts/unlocked-loans-report.ts) — prints the lender and a coverage sanity line.
+**Test Method:** open `/` logged in → each row under "Loans without a rate lock" shows `LO · Lender`; cross-check with `npx tsx scripts/unlocked-loans-report.ts`.
+**Result:** (pending Efrain's look at prod)
+
 ### [2026-09-16] Dashboard — "Loans without a rate lock" card
 **Status:** CHANGED — verified locally: `npx tsc --noEmit` = the 7-error `main` baseline (none in touched files), `npx eslint` clean on all four touched/new files, **31/31** offline fixtures (30 + the new `lock-status-check`, 17/17), `npm run build` ✓, and the data path proven past RLS with `scripts/unlocked-loans-report.ts` — its 10 rows match the rendered card 1:1, in order. Bypass dev-server screenshots taken of both the empty state and (via a temporary local seed, removed before commit) the populated card; no console errors.
 **Issue:** Nothing on `/` showed a loan sitting in escrow with no rate protection. Measured live 2026-09-16: of **32** active escrows, **7 have no `lock_expiration` at all** and **3 more have one that already expired** (Richard St Jean 18d, Artemio Castellanos 5d, Kyle Alexander 4d — and Kyle is at **Docs Signed**). The only existing lock displays are the escrow card and `/reports/escrows`, and neither answers "which files still need a lock?".

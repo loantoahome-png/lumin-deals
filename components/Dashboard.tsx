@@ -141,7 +141,7 @@ export default function Dashboard() {
       const DASHBOARD_COLS =
         'id,name,status,pipeline_group,loan_amount,loan_officer,loan_type,' +
         'created_at,funded_date,next_action,next_action_assignee,next_action_due,' +
-        'next_action_log,locked,lock_expiration'
+        'next_action_log,locked,lock_expiration,investor'
       const data = await fetchAllDeals(
         q => q.order('created_at', { ascending: false }),
         DASHBOARD_COLS,
@@ -538,6 +538,12 @@ export default function Dashboard() {
                     <div className="truncate text-[13px] font-medium text-slate-900 group-hover:text-blue-700">{d.name}</div>
                     <div className="flex items-center gap-1.5 truncate text-[11.5px] text-slate-500">
                       <LoDot name={d.loan_officer} size={7} />{d.loan_officer || 'No LO'}
+                      <span className="text-slate-300">·</span>
+                      {/* Lender = `investor` (what the escrow card labels "Lender").
+                          Set on 31 of the 33 active escrows, so the blank case is real. */}
+                      {d.investor
+                        ? <span className="truncate text-slate-600">{d.investor}</span>
+                        : <span className="italic text-slate-400">No lender</span>}
                     </div>
                   </div>
                   <div className="text-right">
