@@ -7,11 +7,12 @@ import { Deal, DealTask, LOAN_OFFICERS, STATUS_COLORS, STATUS_STRONG, LOAN_TYPE_
 import { resolveLO } from '@/lib/loanOfficer'
 import { endOfDay, isDueNow, relativeDue, DUE_TONE_TEXT, DUE_TONE_BAR } from '@/components/TaskBoard'
 import { toBoardTask, isGhlTask, byDueAsc, type BoardTask, type GhlTaskRow } from '@/lib/ghlTasks'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatDate } from '@/lib/utils'
+import { unlockedEscrows, lockCounts } from '@/lib/lockStatus'
 import UnreadInbox from '@/components/UnreadInbox'
 import {
   DollarSign, TrendingUp, Users, CheckCircle, Clock, AlertCircle, ChevronRight,
-  Flame, ListChecks, Wallet, Layers, BarChart3, Tag, CalendarClock,
+  Flame, ListChecks, Wallet, Layers, BarChart3, Tag, CalendarClock, Lock,
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts'
 import Link from 'next/link'
@@ -140,7 +141,7 @@ export default function Dashboard() {
       const DASHBOARD_COLS =
         'id,name,status,pipeline_group,loan_amount,loan_officer,loan_type,' +
         'created_at,funded_date,next_action,next_action_assignee,next_action_due,' +
-        'next_action_log'
+        'next_action_log,locked,lock_expiration'
       const data = await fetchAllDeals(
         q => q.order('created_at', { ascending: false }),
         DASHBOARD_COLS,
@@ -232,6 +233,27 @@ export default function Dashboard() {
   escrowDeals.forEach(d => { if (d.loan_type) loanTypeMap[d.loan_type] = (loanTypeMap[d.loan_type] || 0) + 1 })
   const loanTypeData = Object.entries(loanTypeMap).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([name, value]) => ({ name, value }))
   const typedCount = escrowDeals.filter(d => d.loan_type).length
+
+  // ── Rate locks ──────────────────────────────────────────────────────────────
+  // Which active escrows have NO live rate protection. The rule lives in
+  // lib/lockStatus.ts (fixture-locked) because `lock_expiration` decides and the
+  // hand-set `locked` flag does not — measured 2026-09-16, 25 of the 32 active
+  // escrows carried a real Arive expiry and ZERO carried locked = 'Yes'.
+  // escrowDeals is already both pipeline- and LO-filtered; unlockedEscrows
+  // re-checks the pipeline so funded rows can never leak in (the
+  // clear_lock_expiration_on_funded trigger makes every funded loan look unlocked).
+  const stageDepth = (status: string | null) => {
+    const i = ESCROW_STAGES.indexOf((status || '') as typeof ESCROW_STAGES[number])
+    return i < 0 ? 0 : i + 1
+  }
+  const unlockedRows = unlockedEscrows(escrowDeals, stageDepth)
+  const lockStats = lockCounts(escrowDeals)
+  // The LO checkboxes default to Matt + Moe, so Randy's and Daniel's escrows are
+  // hidden unless opted in. On every other metric that's fine; on a RISK list it
+  // would be a blind spot, so count what the filter is hiding and say so.
+  const hiddenUnlocked = allLOsSelected
+    ? 0
+    : unlockedEscrows(deals.filter(d => d.pipeline_group === 'Loans in Process'), stageDepth).length - unlockedRows.length
 
   // Needs attention + Recent deals: from escrows only
   const atRisk = escrowDeals.filter(d => !d.loan_officer || !d.loan_type || !d.loan_amount).slice(0, 5)
@@ -467,6 +489,72 @@ export default function Dashboard() {
           </div>
         </section>
       )}
+
+      {/* Rate locks — active escrows with no live lock. Red = the lock already
+          expired, amber = never locked. Green confirmation when everything is
+          covered, so an empty card never reads as a broken one. */}
+      <section className={CARD}>
+        <CardHeader
+          badge={lockStats.needsLock > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}
+          icon={<Lock className="h-3.5 w-3.5" />}
+          title="Loans without a rate lock"
+          meta={<>
+            {lockStats.expired > 0 && <Pill tone="crit">{lockStats.expired} expired</Pill>}
+            {lockStats.unlocked > 0 && <Pill tone="warn">{lockStats.unlocked} never locked</Pill>}
+            <span>{lockStats.locked} of {lockStats.total} escrow{lockStats.total !== 1 ? 's' : ''} locked</span>
+            {lockStats.expiring > 0 && <Pill tone="acc">{lockStats.expiring} expiring ≤7d</Pill>}
+          </>}
+          action={<CardLink href="/deals">Open Tracker</CardLink>}
+        />
+        {lockStats.total === 0 ? (
+          <p className="px-[18px] py-4 text-[12.5px] text-slate-400">No active escrows in the current view.</p>
+        ) : unlockedRows.length === 0 ? (
+          <div className="flex items-start gap-2.5 px-[18px] py-4 text-[12.5px] leading-relaxed text-slate-500">
+            <CheckCircle className="mt-px h-[18px] w-[18px] shrink-0 text-green-700" />
+            <div>
+              <p className="font-semibold text-slate-700">
+                Every active escrow is locked{!allLOsSelected && ' for the selected LOs'}
+              </p>
+              All {lockStats.total} loan{lockStats.total !== 1 ? 's' : ''} in process carry a live rate lock.
+              {hiddenUnlocked > 0 && ` ${hiddenUnlocked} more under loan officers not selected above still need one.`}
+            </div>
+          </div>
+        ) : (
+          <div className="max-h-96 divide-y divide-slate-100 overflow-y-auto">
+            {unlockedRows.map(d => {
+              const isExpired = d.lock.state === 'expired'
+              return (
+                <Link key={d.id} href={`/deals/${d.id}`} className={`${ROW} hover:bg-slate-50`}>
+                  <span className={`h-9 rounded-r-sm ${isExpired ? 'bg-red-500' : 'bg-amber-500'}`} />
+                  <div className="text-right">
+                    <div className={`text-[11.5px] font-semibold ${isExpired ? 'text-red-600' : 'text-amber-700'}`}>
+                      {isExpired ? `Expired ${-(d.lock.days as number)}d` : 'No lock'}
+                    </div>
+                    {d.lock.expiration && (
+                      <div className="font-mono text-[10px] text-slate-400">{formatDate(d.lock.expiration)}</div>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-[13px] font-medium text-slate-900 group-hover:text-blue-700">{d.name}</div>
+                    <div className="flex items-center gap-1.5 truncate text-[11.5px] text-slate-500">
+                      <LoDot name={d.loan_officer} size={7} />{d.loan_officer || 'No LO'}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[12.5px] font-semibold tabular-nums text-slate-900">{formatCurrency(d.loan_amount)}</div>
+                    <span className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_COLORS[d.status || ''] || 'bg-slate-100 text-slate-600'}`}>{d.status}</span>
+                  </div>
+                </Link>
+              )
+            })}
+            {hiddenUnlocked > 0 && (
+              <p className="px-[18px] py-2 text-[11.5px] text-slate-400">
+                + {hiddenUnlocked} more under loan officers not selected above
+              </p>
+            )}
+          </div>
+        )}
+      </section>
 
       {/* Charts row — stage bars (stage colors) + loan-type bars (type colors) */}
       <div className="grid grid-cols-1 gap-[18px] lg:grid-cols-3">

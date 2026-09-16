@@ -20,6 +20,22 @@ GHL "LD stage" workflow's `monetaryValue → {{opportunity.lead_value}}` custom 
 `loan-amount-provenance` memory + `~/.claude/handoffs/lumin-deals.md`. NOTE: visible on the next "Sync GHL";
 the opp value may not always equal the loan amount (GHL data quality — watch the in-process volume).
 
+## Recent Changes (2026-09-16) — "Loans without a rate lock" on the Dashboard
+`/` now lists every active escrow with no live rate protection (spec `docs/specs/2026-09-16-unlocked-loans-spec.md`,
+plan in `docs/plans/`). Live on 2026-09-16: **32 active escrows, 22 locked, 3 expired, 7 never locked.**
+
+⚠️ **`lock_expiration` decides whether a loan is locked. The `locked` Yes/No column does NOT** — it has no
+importer and reads `'Yes'` on **0 of 32** active escrows while 25 carry a real Arive expiry. The rule now lives
+in ONE place, **`lib/lockStatus.ts`** (fixtures: `scripts/lock-status-check.ts`, 17). Any new lock display,
+alert or report goes through it.
+
+⚠️ **Funded is out of scope by design:** the `clear_lock_expiration_on_funded` trigger nulls the column on
+funding, so all 136 funded rows read "no lock". ⚠️ The card respects the LO filter but shows
+`+ N more under loan officers not selected above`, because the Matt+Moe default hides 7 of the 10.
+
+**Known gap, deliberately not touched:** `/reports/escrows` (`lockInfo`) and `app/api/cron/lock-alerts` still
+gate on the dead flag, so that page's "Locked N/M" KPI reads 0/32 and the lock-expiry email fires for nobody.
+
 ## Recent Changes (2026-09-09)
 - **Dashboard + shared-chrome restyle SHIPPED** (spec `docs/specs/2026-09-09-dashboard-restyle-spec.md`, plan in `docs/plans/`): flat cards, one stat strip (solid blue hero + stage-mix strip), color by meaning — stage colors from `STATUS_COLORS` (+ new solid-tone `STATUS_STRONG`) on pills / chart bars / mix strip, new `LOAN_TYPE_COLORS` on the loan-type bars (the donut is gone), LO colors only on LO identity (`LO_TINT` chips in `components/LoFilter.tsx`, app-wide), red = overdue only, orange only on Next Step. App font = Public Sans + Geist Mono via `next/font` (wired in `globals.css` with `@theme inline`). Sidebar navy `#0f1a38` + "L" monogram, condensed footer. Task "today" tone renders blue (was violet = Randy's LO color). Metrics, section order and data paths unchanged. ⚠️ v1 (blue-only) was rejected as too monochrome — don't strip the color back out. Vault: `dashboard-redesign-2026-09`.
 

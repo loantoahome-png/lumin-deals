@@ -1,5 +1,12 @@
 # GOTCHAS — Lumin Deals
 
+### "Not locked" is two traps: a DB trigger that fakes it, and a UI filter that hides it
+**Tried:** Listing loans with no rate lock the obvious way — every deal where `lock_expiration` is null (or, worse, where `locked <> 'Yes'`), scoped by the dashboard's normal LO filter.
+**Failed because:** Three separate ways. (1) The `clear_lock_expiration_on_funded` DB trigger **nulls `lock_expiration` before any write lands on a funded status**, so all **136** funded rows read "no lock" and would bury the 10 real ones. (2) The hand-set `locked` Yes/No column has no importer and is now completely dead — `locked = 'Yes'` on **0 of 32** active escrows (2026-09-16) while 25 carry a real Arive expiry, so gating on the flag reports **every** escrow as unlocked. (3) The dashboard's LO filter defaults to Matt + Moe, and **7 of the 10** unlocked loans belong to Randy and Daniel — a risk list scoped that way silently hides most of the risk.
+**What works:** Scope to `pipeline_group = 'Loans in Process'` only, decide on `lock_expiration` (treating a past date as unlocked too, which the naive null-check misses — 3 loans), read `locked` only as a weak secondary signal for the "flagged but no date" case, and when an LO filter is active, count and display what it is hiding. All of it lives in `lib/lockStatus.ts` with fixtures in `scripts/lock-status-check.ts`. ⚠️ `/reports/escrows` and `app/api/cron/lock-alerts` still gate on the dead flag — the Escrow Report's "Locked N/M" KPI therefore reads 0/32 and the lock-expiry email fires for nobody. Not a model to copy.
+**Project:** lumin-deals
+**Date:** 2026-09-16
+
 ### zsh does NOT word-split `$VAR` — a "no-op" `git stash push -- $FILES` followed by `git stash pop` applied Efrain's HELD stash
 **Tried:** Baselining eslint by stashing my edits: `FILES="a b c"; git stash push -- $FILES && (lint…); git stash pop`.
 **Failed because:** The Bash tool runs zsh, which passes `"a b c"` as ONE pathspec. `stash push` matched nothing and exited non-zero, so the `&&` chain skipped — but the `; git stash pop` still ran and applied the pre-existing `stash@{0}` ("arive source-drift fix — HELD per Efrain 2026-07-02, do not apply"). Two files landed in conflict (`VERIFICATION-LOG.md`, `app/api/sync/ghl/route.ts`) and two stash-only files were staged. Nothing was lost (a conflicted pop keeps the entry) but the tree was silently wrong until `git status` was read.
