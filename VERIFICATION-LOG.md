@@ -1,6 +1,14 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-09-16] /deals By Lender — section headers made loud
+**Status:** CHANGED — tsc = the 7-error `main` baseline, `npm run build` ✓, 89/89 lender fixtures, screenshotted on the bypass dev server via a temporary fixture route (deleted before commit); only dev HMR websocket noise in the console.
+**Issue:** Efrain: "make the lender titles bigger and a different color so it sticks out more." The header was a white card with 14px slate text sitting on a page of white cards — it read as another card, not as a divider.
+**Changes:** [components/EscrowTracker.tsx](components/EscrowTracker.tsx) `LenderSections` — the header is now a solid band: **navy `#0f1a38`** (the Sidebar color) with an **18px bold white** lender name (was 14px slate-900), a white/15 count pill, volume in white/75 and the "also filed as" note in white/50. Section spacing 5 → 6.
+**Why navy:** it's already in the design system and it stays clear of the two palettes doing work on the cards below — the LO colors (emerald/amber/violet/sky, `LO_COLORS`) and the stage colors (`STAGE_HEADER_TINT`). A new hue there would have read as a third code. ⚠️ The **"No lender on file" band is amber-700, not the amber-500 chip tone** — white text on amber-500 fails contrast; 700 keeps it legible while still reading as the odd one out.
+**Test Method:** open `/deals` → **By Lender**. Each lender sits on a dark navy bar; the no-lender group at the bottom is amber.
+**Result:** (pending Efrain's look at prod)
+
 ### [2026-09-16] deals.investor — "Lumen Lending" typo fixed, and the deal form canonicalized
 **Status:** CHANGED (data write APPLIED + verified by re-read) — 89/89 lender fixtures, tsc = the 7-error `main` baseline, `npm run build` ✓.
 **Issue:** Efrain: "Lumen Lending is a typo, fix it to Lumin Lending." Flagged in the previous cleanup and deliberately left for him to confirm, since it's one letter off the house name.
