@@ -1,6 +1,13 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-09-16] Dashboard — the rate-lock card promoted to the page's alert card
+**Status:** CHANGED — verified locally: `npx tsc --noEmit` = the 7-error `main` baseline, eslint clean, 31/31 offline fixtures, `npm run build` ✓, and all three states screenshotted on the bypass server via a temporary local seed (removed before commit, file restored by checksum): loud (default Matt+Moe), loud with expired rows (all 4 LOs), and the calm/empty state.
+**Issue:** Efrain: "Make this pop more, this is a really important section." The card was styled like every other flat white card on the page and sat below the tasks widget, so the most consequential list on the dashboard read as the least important.
+**Changes:** [components/Dashboard.tsx](components/Dashboard.tsx) — the card **moved above the Today and Tasks widgets**, directly under the stat strip. When anything needs a lock it now renders a 2px amber-400 border + `shadow-md`, an amber-50 header band with a solid amber-500 icon badge and a 15.5px bold title, and a new figure band: the count at 32px next to **total unprotected loan volume** (`unlockedVolume`) and the `N of M escrows locked` ratio. Rows got a thicker 4px accent stripe (`LOCK_ROW`), more air, a solid state chip (red `Expired Nd` / amber `No lock`), bolder name and amount, and a tinted hover. List height 420 → 520px so more of the list is visible without scrolling. **The loud treatment is conditional** — with every escrow locked the card reverts to the plain `CARD` chrome, the small emerald badge and one green line, so it only shouts when something is actually wrong. Color still follows the page rule: red = expired (the overdue case), amber = never locked.
+**Test Method:** open `/` logged in → the amber card is the first thing under the KPI strip; the figure band reads `N · $X unprotected volume · N of M escrows locked`. Cross-check the numbers with `npx tsx scripts/unlocked-loans-report.ts`.
+**Result:** (pending Efrain's look at prod)
+
 ### [2026-09-16] Dashboard — lender on the "Loans without a rate lock" rows
 **Status:** CHANGED — verified locally: `npx tsc --noEmit` = the 7-error `main` baseline, eslint clean on both touched files, 31/31 offline fixtures, `npm run build` ✓, bypass dev-server screenshots of both the default (Matt+Moe) and all-LO views via a temporary local seed (removed before commit, file restored by checksum).
 **Issue:** Efrain asked for the lender on each row — the middle column had empty space next to the borrower name.

@@ -29,6 +29,12 @@ importer and reads `'Yes'` on **0 of 32** active escrows while 25 carry a real A
 in ONE place, **`lib/lockStatus.ts`** (fixtures: `scripts/lock-status-check.ts`, 17). Any new lock display,
 alert or report goes through it.
 
+**It is deliberately the loudest card on the page** and the first one under the stat strip (Efrain,
+2026-09-16: "this is a really important section") — amber border + figure band with the count, the
+**unprotected loan volume**, and the locked ratio. ⚠️ The loud treatment is **conditional**: with every
+escrow locked it reverts to the plain flat card + a green line, so it only shouts when something is
+wrong. Don't make the alert state unconditional.
+
 Each row shows borrower · **LO · lender** · amount · stage. **The lender field is `investor`** (the
 same column the escrow card labels "Lender"); 31 of 33 active escrows have one set.
 

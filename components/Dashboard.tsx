@@ -102,6 +102,9 @@ function StageTooltip({ active, payload }: { active?: boolean; payload?: Array<{
 
 // Row anatomy shared by the Today and Tasks widgets: stripe · when · what · who.
 const ROW = 'group grid grid-cols-[3px_92px_1fr_auto] items-center gap-3.5 py-2 pr-[18px] transition'
+// The rate-lock card gets its own row: a thicker accent stripe and more air, so
+// it reads as the page's alert list rather than one more table.
+const LOCK_ROW = 'group grid grid-cols-[4px_96px_1fr_auto] items-center gap-3.5 py-2.5 pr-[18px] transition-colors'
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 // Compact "time since" for the latest next-step log entry.
@@ -248,6 +251,7 @@ export default function Dashboard() {
   }
   const unlockedRows = unlockedEscrows(escrowDeals, stageDepth)
   const lockStats = lockCounts(escrowDeals)
+  const unlockedVolume = unlockedRows.reduce((sum, d) => sum + (d.loan_amount || 0), 0)
   // The LO checkboxes default to Matt + Moe, so Randy's and Daniel's escrows are
   // hidden unless opted in. On every other metric that's fine; on a RISK list it
   // would be a blind spot, so count what the filter is hiding and say so.
@@ -388,6 +392,111 @@ export default function Dashboard() {
         />
       </section>
 
+      {/* ── Rate locks ───────────────────────────────────────────────────────
+          Deliberately the loudest card on the page and the first one under the
+          KPIs — Efrain: "this is a really important section". It only shouts when
+          something is actually wrong: with every escrow locked it drops back to
+          the plain white card and one green line. Color still follows the page
+          rule — red = expired (the overdue case), amber = never locked. */}
+      <section className={lockStats.needsLock > 0
+        ? 'overflow-hidden rounded-xl border-2 border-amber-400 bg-white shadow-md'
+        : CARD}>
+        <div className={`flex flex-wrap items-center gap-2.5 px-[18px] py-3 ${
+          lockStats.needsLock > 0 ? 'border-b border-amber-200 bg-amber-50' : 'border-b border-slate-100'
+        }`}>
+          <span className={`flex shrink-0 items-center justify-center rounded-[9px] ${
+            lockStats.needsLock > 0 ? 'h-8 w-8 bg-amber-500 text-white' : 'h-[26px] w-[26px] bg-emerald-100 text-emerald-700'
+          }`}>
+            <Lock className={lockStats.needsLock > 0 ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
+          </span>
+          <h2 className={`font-bold text-slate-900 ${lockStats.needsLock > 0 ? 'text-[15.5px]' : 'text-[13.5px] font-semibold'}`}>
+            Loans without a rate lock
+          </h2>
+          {lockStats.expired > 0 && <Pill tone="crit">{lockStats.expired} expired</Pill>}
+          {lockStats.unlocked > 0 && <Pill tone="warn">{lockStats.unlocked} never locked</Pill>}
+          {lockStats.expiring > 0 && <Pill tone="acc">{lockStats.expiring} expiring ≤7d</Pill>}
+          {lockStats.needsLock === 0 && lockStats.total > 0 && (
+            <span className="text-xs text-slate-500">{lockStats.locked} of {lockStats.total} escrows locked</span>
+          )}
+          <div className="ml-auto"><CardLink href="/deals">Open Tracker</CardLink></div>
+        </div>
+
+        {/* The figure that makes the risk concrete: how many, and how much loan
+            volume is sitting in escrow with no rate protection. */}
+        {lockStats.needsLock > 0 && (
+          <div className="flex flex-wrap items-baseline gap-x-9 gap-y-2 border-b border-amber-100 px-[18px] py-3.5">
+            <div className="flex items-baseline gap-2.5">
+              <span className="text-[32px] font-bold leading-none tabular-nums text-amber-600">{lockStats.needsLock}</span>
+              <span className="text-[12.5px] font-medium text-slate-600">
+                loan{lockStats.needsLock !== 1 ? 's' : ''} with no live lock
+              </span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-[19px] font-bold leading-none tabular-nums text-slate-900">{formatCurrency(unlockedVolume)}</span>
+              <span className="text-[12.5px] text-slate-500">unprotected volume</span>
+            </div>
+            <span className="text-[12.5px] text-slate-500">{lockStats.locked} of {lockStats.total} escrows locked</span>
+          </div>
+        )}
+
+        {lockStats.total === 0 ? (
+          <p className="px-[18px] py-4 text-[12.5px] text-slate-400">No active escrows in the current view.</p>
+        ) : unlockedRows.length === 0 ? (
+          <div className="flex items-start gap-2.5 px-[18px] py-4 text-[12.5px] leading-relaxed text-slate-500">
+            <CheckCircle className="mt-px h-[18px] w-[18px] shrink-0 text-green-700" />
+            <div>
+              <p className="font-semibold text-slate-700">
+                Every active escrow is locked{!allLOsSelected && ' for the selected LOs'}
+              </p>
+              All {lockStats.total} loan{lockStats.total !== 1 ? 's' : ''} in process carry a live rate lock.
+              {hiddenUnlocked > 0 && ` ${hiddenUnlocked} more under loan officers not selected above still need one.`}
+            </div>
+          </div>
+        ) : (
+          <div className="max-h-[520px] divide-y divide-slate-100 overflow-y-auto">
+            {unlockedRows.map(d => {
+              const isExpired = d.lock.state === 'expired'
+              return (
+                <Link key={d.id} href={`/deals/${d.id}`} className={`${LOCK_ROW} ${isExpired ? 'hover:bg-red-50/60' : 'hover:bg-amber-50/60'}`}>
+                  <span className={`h-11 rounded-r-sm ${isExpired ? 'bg-red-500' : 'bg-amber-400'}`} />
+                  <div className="text-right">
+                    <span className={`inline-block rounded px-1.5 py-[3px] text-[11px] font-bold ${
+                      isExpired ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'
+                    }`}>
+                      {isExpired ? `Expired ${-(d.lock.days as number)}d` : 'No lock'}
+                    </span>
+                    {d.lock.expiration && (
+                      <div className="mt-0.5 font-mono text-[10px] text-slate-400">{formatDate(d.lock.expiration)}</div>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-[13.5px] font-semibold text-slate-900 group-hover:text-blue-700">{d.name}</div>
+                    <div className="flex items-center gap-1.5 truncate text-[11.5px] text-slate-500">
+                      <LoDot name={d.loan_officer} size={7} />{d.loan_officer || 'No LO'}
+                      <span className="text-slate-300">·</span>
+                      {/* Lender = `investor` (what the escrow card labels "Lender").
+                          Set on 31 of the 33 active escrows, so the blank case is real. */}
+                      {d.investor
+                        ? <span className="truncate text-slate-600">{d.investor}</span>
+                        : <span className="italic text-slate-400">No lender</span>}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[13.5px] font-bold tabular-nums text-slate-900">{formatCurrency(d.loan_amount)}</div>
+                    <span className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_COLORS[d.status || ''] || 'bg-slate-100 text-slate-600'}`}>{d.status}</span>
+                  </div>
+                </Link>
+              )
+            })}
+            {hiddenUnlocked > 0 && (
+              <p className="px-[18px] py-2 text-[11.5px] text-slate-400">
+                + {hiddenUnlocked} more under loan officers not selected above
+              </p>
+            )}
+          </div>
+        )}
+      </section>
+
       {/* Today widget — escrow follow-ups due today + overdue */}
       {(todayItems.length > 0) && (
         <section className={CARD}>
@@ -489,78 +598,6 @@ export default function Dashboard() {
           </div>
         </section>
       )}
-
-      {/* Rate locks — active escrows with no live lock. Red = the lock already
-          expired, amber = never locked. Green confirmation when everything is
-          covered, so an empty card never reads as a broken one. */}
-      <section className={CARD}>
-        <CardHeader
-          badge={lockStats.needsLock > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}
-          icon={<Lock className="h-3.5 w-3.5" />}
-          title="Loans without a rate lock"
-          meta={<>
-            {lockStats.expired > 0 && <Pill tone="crit">{lockStats.expired} expired</Pill>}
-            {lockStats.unlocked > 0 && <Pill tone="warn">{lockStats.unlocked} never locked</Pill>}
-            <span>{lockStats.locked} of {lockStats.total} escrow{lockStats.total !== 1 ? 's' : ''} locked</span>
-            {lockStats.expiring > 0 && <Pill tone="acc">{lockStats.expiring} expiring ≤7d</Pill>}
-          </>}
-          action={<CardLink href="/deals">Open Tracker</CardLink>}
-        />
-        {lockStats.total === 0 ? (
-          <p className="px-[18px] py-4 text-[12.5px] text-slate-400">No active escrows in the current view.</p>
-        ) : unlockedRows.length === 0 ? (
-          <div className="flex items-start gap-2.5 px-[18px] py-4 text-[12.5px] leading-relaxed text-slate-500">
-            <CheckCircle className="mt-px h-[18px] w-[18px] shrink-0 text-green-700" />
-            <div>
-              <p className="font-semibold text-slate-700">
-                Every active escrow is locked{!allLOsSelected && ' for the selected LOs'}
-              </p>
-              All {lockStats.total} loan{lockStats.total !== 1 ? 's' : ''} in process carry a live rate lock.
-              {hiddenUnlocked > 0 && ` ${hiddenUnlocked} more under loan officers not selected above still need one.`}
-            </div>
-          </div>
-        ) : (
-          <div className="max-h-96 divide-y divide-slate-100 overflow-y-auto">
-            {unlockedRows.map(d => {
-              const isExpired = d.lock.state === 'expired'
-              return (
-                <Link key={d.id} href={`/deals/${d.id}`} className={`${ROW} hover:bg-slate-50`}>
-                  <span className={`h-9 rounded-r-sm ${isExpired ? 'bg-red-500' : 'bg-amber-500'}`} />
-                  <div className="text-right">
-                    <div className={`text-[11.5px] font-semibold ${isExpired ? 'text-red-600' : 'text-amber-700'}`}>
-                      {isExpired ? `Expired ${-(d.lock.days as number)}d` : 'No lock'}
-                    </div>
-                    {d.lock.expiration && (
-                      <div className="font-mono text-[10px] text-slate-400">{formatDate(d.lock.expiration)}</div>
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="truncate text-[13px] font-medium text-slate-900 group-hover:text-blue-700">{d.name}</div>
-                    <div className="flex items-center gap-1.5 truncate text-[11.5px] text-slate-500">
-                      <LoDot name={d.loan_officer} size={7} />{d.loan_officer || 'No LO'}
-                      <span className="text-slate-300">·</span>
-                      {/* Lender = `investor` (what the escrow card labels "Lender").
-                          Set on 31 of the 33 active escrows, so the blank case is real. */}
-                      {d.investor
-                        ? <span className="truncate text-slate-600">{d.investor}</span>
-                        : <span className="italic text-slate-400">No lender</span>}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[12.5px] font-semibold tabular-nums text-slate-900">{formatCurrency(d.loan_amount)}</div>
-                    <span className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_COLORS[d.status || ''] || 'bg-slate-100 text-slate-600'}`}>{d.status}</span>
-                  </div>
-                </Link>
-              )
-            })}
-            {hiddenUnlocked > 0 && (
-              <p className="px-[18px] py-2 text-[11.5px] text-slate-400">
-                + {hiddenUnlocked} more under loan officers not selected above
-              </p>
-            )}
-          </div>
-        )}
-      </section>
 
       {/* Charts row — stage bars (stage colors) + loan-type bars (type colors) */}
       <div className="grid grid-cols-1 gap-[18px] lg:grid-cols-3">
