@@ -30,8 +30,9 @@ in ONE place, **`lib/lockStatus.ts`** (fixtures: `scripts/lock-status-check.ts`,
 alert or report goes through it.
 
 **It is deliberately the loudest card on the page** and the first one under the stat strip (Efrain,
-2026-09-16: "this is a really important section") — amber border + figure band with the count, the
-**unprotected loan volume**, and the locked ratio. ⚠️ The loud treatment is **conditional**: with every
+2026-09-16: "this is a really important section") — amber border + figure band with the count and
+the locked ratio. ⚠️ A dollar "unprotected volume" figure was there briefly and **Efrain cut it**
+("I dont care about that", 2026-09-16) — don't re-add it. ⚠️ The loud treatment is **conditional**: with every
 escrow locked it reverts to the plain flat card + a green line, so it only shouts when something is
 wrong. Don't make the alert state unconditional.
 

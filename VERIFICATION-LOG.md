@@ -1,6 +1,13 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-09-16] Dashboard — "unprotected volume" removed from the rate-lock card
+**Status:** CHANGED — tsc = the 7-error `main` baseline, eslint clean, 31/31 offline fixtures, `npm run build` ✓, bypass screenshot confirms the figure band now reads `N loans with no live lock · N of M escrows locked`.
+**Issue:** Efrain: "get rid of the unprotected volume section, I dont care about that." The dollar figure was mine, not his — added the same day when the card was promoted.
+**Changes:** [components/Dashboard.tsx](components/Dashboard.tsx) — the `formatCurrency(unlockedVolume)` element and its `unlockedVolume` reduce are gone. The count and the locked ratio stay, so the card keeps the emphasis he asked for. ⚠️ Don't re-add a dollar figure here.
+**Test Method:** open `/` → the band under the card header shows only the count and the ratio.
+**Result:** (pending Efrain's look at prod)
+
 ### [2026-09-16] Dashboard — the rate-lock card promoted to the page's alert card
 **Status:** CHANGED — verified locally: `npx tsc --noEmit` = the 7-error `main` baseline, eslint clean, 31/31 offline fixtures, `npm run build` ✓, and all three states screenshotted on the bypass server via a temporary local seed (removed before commit, file restored by checksum): loud (default Matt+Moe), loud with expired rows (all 4 LOs), and the calm/empty state.
 **Issue:** Efrain: "Make this pop more, this is a really important section." The card was styled like every other flat white card on the page and sat below the tasks widget, so the most consequential list on the dashboard read as the least important.

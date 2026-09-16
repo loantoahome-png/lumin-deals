@@ -251,7 +251,6 @@ export default function Dashboard() {
   }
   const unlockedRows = unlockedEscrows(escrowDeals, stageDepth)
   const lockStats = lockCounts(escrowDeals)
-  const unlockedVolume = unlockedRows.reduce((sum, d) => sum + (d.loan_amount || 0), 0)
   // The LO checkboxes default to Matt + Moe, so Randy's and Daniel's escrows are
   // hidden unless opted in. On every other metric that's fine; on a RISK list it
   // would be a blind spot, so count what the filter is hiding and say so.
@@ -421,8 +420,8 @@ export default function Dashboard() {
           <div className="ml-auto"><CardLink href="/deals">Open Tracker</CardLink></div>
         </div>
 
-        {/* The figure that makes the risk concrete: how many, and how much loan
-            volume is sitting in escrow with no rate protection. */}
+        {/* The headline count. Dollar volume was here and Efrain cut it
+            2026-09-16 ("I dont care about that") — don't re-add it. */}
         {lockStats.needsLock > 0 && (
           <div className="flex flex-wrap items-baseline gap-x-9 gap-y-2 border-b border-amber-100 px-[18px] py-3.5">
             <div className="flex items-baseline gap-2.5">
@@ -430,10 +429,6 @@ export default function Dashboard() {
               <span className="text-[12.5px] font-medium text-slate-600">
                 loan{lockStats.needsLock !== 1 ? 's' : ''} with no live lock
               </span>
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-[19px] font-bold leading-none tabular-nums text-slate-900">{formatCurrency(unlockedVolume)}</span>
-              <span className="text-[12.5px] text-slate-500">unprotected volume</span>
             </div>
             <span className="text-[12.5px] text-slate-500">{lockStats.locked} of {lockStats.total} escrows locked</span>
           </div>
