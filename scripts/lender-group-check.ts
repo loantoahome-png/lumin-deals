@@ -46,7 +46,7 @@ const SINGLES: [string, string][] = [
   ['Cake Mortgage', 'cake'],
   ['Button Finance', 'button'],
   ['Symmetry Lending', 'symmetry'],
-  ['Lumen Lending', 'lumen'],
+  ['Lumin Lending', 'lumin'],   // 'Lumen' is the typo — it aliases onto this key
   ['American Heritage Lending', 'american heritage'],
   ['Amwest Funding Corporation', 'amwest'],
   ['Carrington Mortgage Services, LLC', 'carrington'],
@@ -128,6 +128,8 @@ const RENAMES: [string, string][] = [
   ['Longbridge Financial, LLC', 'Longbridge Financial'],
   ['Amwest Funding Corporation', 'Amwest Funding'],
   ['Flagstar Bank, National Association', 'Flagstar Bank'],
+  // Misspelling of the house name — Efrain confirmed 2026-09-16.
+  ['Lumen Lending', 'Lumin Lending'],
 ]
 for (const [raw, want] of RENAMES) eq(`canonical ${JSON.stringify(raw)}`, canonicalLenderName(raw), want)
 
@@ -141,6 +143,9 @@ for (const raw of UNTOUCHED) eq(`untouched ${JSON.stringify(raw)}`, canonicalLen
 
 // Unknown lenders pass through unchanged (only whitespace is tidied).
 eq('unknown lender passes through', canonicalLenderName('Some New Lender, LLC'), 'Some New Lender, LLC')
+// The typo and the correct spelling must also land in ONE display group, so a
+// stray 'Lumen' typed anywhere still stacks under Lumin Lending.
+eq('Lumen/Lumin share a display key', [lenderKey('Lumen Lending'), lenderKey('Lumin Lending')], ['lumin', 'lumin'])
 eq('whitespace tidied', canonicalLenderName('  Spring   EQ  '), 'Spring EQ')
 eq('blank → null', [canonicalLenderName(null), canonicalLenderName('   ')], [null, null])
 eq('canonical names are idempotent', RENAMES.map(([, want]) => canonicalLenderName(want)), RENAMES.map(([, want]) => want))

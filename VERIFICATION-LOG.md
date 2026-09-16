@@ -1,6 +1,16 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-09-16] deals.investor — "Lumen Lending" typo fixed, and the deal form canonicalized
+**Status:** CHANGED (data write APPLIED + verified by re-read) — 89/89 lender fixtures, tsc = the 7-error `main` baseline, `npm run build` ✓.
+**Issue:** Efrain: "Lumen Lending is a typo, fix it to Lumin Lending." Flagged in the previous cleanup and deliberately left for him to confirm, since it's one letter off the house name.
+**Changes:**
+- [lib/lenderGroup.ts](lib/lenderGroup.ts) — `'lumen lending' → 'Lumin Lending'` in `CANONICAL_NAMES`; the display side aliases key `lumen → lumin` so a stray typo typed anywhere still stacks under Lumin Lending instead of opening a second section.
+- [components/DealForm.tsx](components/DealForm.tsx) — the **manual deal form now canonicalizes `investor` on save**, which was the one write path still storing raw text (and the likely way "Lumen Lending" got in). Unrecognised lenders are still stored exactly as typed.
+**Applied:** 2 rows renamed (Dianne Swann, Tammy Gunter — both Daniel's, both lead-stage). Re-read of all 5,829 deals: 0 rows still spelled "Lumen", every stored value canonical. Backup: `_lender-cleanup-backup-2026-09-16T22-31-44-785Z.json`.
+**Test Method:** `npx tsx scripts/lender-name-cleanup.ts` (dry run) reports 0 renames.
+**Result:** VERIFIED (data) — queried back: both rows read `Lumin Lending`, no `%lumen%` rows remain.
+
 ### [2026-09-16] deals.investor — lender names collapsed 60 → 45, and normalized on write
 **Status:** CHANGED (data write APPLIED + verified by re-read) — `npx tsx scripts/tsc` = the 7-error `main` baseline, `npm run build` ✓, 87/87 lender fixtures, and 11 neighbouring offline suites re-run green (arive-lock 10, arive-match 29, webhook-fields 45, import-revenue 52, lock-status 17, loan-outcome 24, comp 16, resolver, triage 53, lead-roi 85, roles 133).
 **Issue:** Efrain: "yes, clean up the lender values in the database." `deals.investor` is free text written by three paths, so one lender was stored under up to 5 spellings (Rocket 4 ways / 188 deals, Figure 5 ways / 169).

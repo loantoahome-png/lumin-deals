@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { canonicalLenderName } from '@/lib/lenderGroup'
 import {
   Deal, PIPELINE_GROUPS, PIPELINE_STATUSES, LOAN_OFFICERS, PROCESSORS,
   LOAN_TYPES, REFINANCE_TYPES, LIEN_POSITIONS, OCCUPANCY_TYPES, APPRAISAL_STATUSES,
@@ -228,6 +229,12 @@ export default function DealForm({ deal }: { deal?: Deal }) {
     if (!form.name.trim()) { setError('Name is required'); return }
     setSaving(true)
     setError('')
+
+    // Hand-typed lenders go through the same canonical spelling as the Arive
+    // import and the GHL sync, or this form quietly re-introduces the drift the
+    // 2026-09-16 cleanup removed ('Lumen Lending' got in here that way). An
+    // unrecognised lender is stored exactly as typed.
+    if (typeof form.investor === 'string') form.investor = canonicalLenderName(form.investor)
 
     if (isEdit) {
       const { error: err } = await supabase.from('deals').update(form).eq('id', deal.id)

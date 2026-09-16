@@ -62,6 +62,8 @@ const ALIAS_KEYS: Record<string, string> = {
   nftydoor: 'nfty',
   'nfty leadbank': 'nfty',
   flyhomes: 'fly homes',
+  // 'Lumen Lending' is a misspelling of the house name (Efrain, 2026-09-16).
+  lumen: 'lumin',
 }
 
 /**
@@ -105,7 +107,7 @@ const LENDER_LABELS: Record<string, string> = {
   cake: 'Cake Mortgage',
   button: 'Button Finance',
   symmetry: 'Symmetry Lending',
-  lumen: 'Lumen Lending',
+  lumin: 'Lumin Lending',
   'american heritage': 'American Heritage Lending',
 }
 
@@ -218,8 +220,7 @@ export function groupDealsByLender(deals: Deal[]): LenderGroup[] {
  * lenderKey(); only the stored value is left untouched.
  *
  * Also deliberately absent: 'REMN', 'SPMC', 'FUND', 'TLS'-style acronyms with no
- * confirmed expansion (beyond the explicit pairs below), and 'Lumen Lending'
- * (2 deals) — possibly a typo of the house name, but that's Efrain's to say.
+ * confirmed expansion beyond the explicit pairs below.
  */
 export const CANONICAL_NAMES: Record<string, string> = {
   // Shouting / casing only
@@ -253,6 +254,8 @@ export const CANONICAL_NAMES: Record<string, string> = {
   'mega': 'Mega Capital Funding',
   'valchris': 'Val Chris Investments',
   'val chris investments': 'Val Chris Investments',
+  // Typo of the house name, confirmed by Efrain 2026-09-16.
+  'lumen lending': 'Lumin Lending',
 }
 
 /**
