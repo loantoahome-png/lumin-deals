@@ -1,6 +1,13 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-09-16] /deals — By Lender is now the default view
+**Status:** CHANGED — tsc = the 7-error `main` baseline, `npm run build` ✓, 89/89 lender fixtures, and confirmed on the bypass dev server: `/deals` opens with the By Lender pill already active, no click needed.
+**Issue:** Efrain: "Make the By lender view the default view."
+**Changes:** [app/deals/page.tsx](app/deals/page.tsx) — `viewMode` initial state `'tracker'` → `'lender'`. ⚠️ **Only this page changed.** `/processing` ([app/processing/page.tsx:237](app/processing/page.tsx)) renders the SAME `EscrowTracker` with no `groupBy`, so `EscrowTracker`'s own default stays `'stage'` and the Processing Desk keeps its drag-by-stage kanban. Don't "tidy" the component default to match the page.
+**Test Method:** open `/deals` → the By Lender pill is active on load; `/processing` still shows stage columns.
+**Result:** (pending Efrain's look at prod)
+
 ### [2026-09-16] /deals By Lender — section headers made loud
 **Status:** CHANGED — tsc = the 7-error `main` baseline, `npm run build` ✓, 89/89 lender fixtures, screenshotted on the bypass dev server via a temporary fixture route (deleted before commit); only dev HMR websocket noise in the console.
 **Issue:** Efrain: "make the lender titles bigger and a different color so it sticks out more." The header was a white card with 14px slate text sitting on a page of white cards — it read as another card, not as a divider.

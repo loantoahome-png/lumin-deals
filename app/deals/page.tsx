@@ -268,10 +268,12 @@ function DealsPageInner() {
 
   // Inline cell editing
   const [editCell, setEditCell] = useState<{ id: string; field: string } | null>(null)
-  // View mode: 'tracker' is the operational kanban-style view (columns per stage),
-  // 'lender' is the same cards stacked under one section per lender, 'table' is
-  // the classic table.
-  const [viewMode, setViewMode] = useState<'tracker' | 'lender' | 'table'>('tracker')
+  // View mode: 'lender' is the DEFAULT (Efrain, 2026-09-16) — the same cards
+  // stacked under one section per lender. 'tracker' is the drag-by-stage kanban
+  // and 'table' the classic table. ⚠️ Only THIS page defaults to lender;
+  // /processing renders the same component with the stage board, which is why
+  // EscrowTracker's own `groupBy` default stays 'stage'.
+  const [viewMode, setViewMode] = useState<'tracker' | 'lender' | 'table'>('lender')
 
   async function handleCellUpdate(id: string, field: string, value: unknown) {
     setDeals(prev => prev.map(d =>
@@ -536,7 +538,7 @@ function DealsPageInner() {
         )}
       </div>
 
-      {/* ── Tracker / By Lender views ─────────────────────────────────────── */}
+      {/* ── By Lender (default) / Tracker views ───────────────────────────── */}
       {/* Same board, same filters and cards — only the grouping differs. */}
       {!loading && (viewMode === 'tracker' || viewMode === 'lender') && (
         <div className="flex-1 overflow-y-auto">
