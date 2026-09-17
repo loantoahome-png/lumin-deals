@@ -1,6 +1,13 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-09-16] Dashboard — "Open Tracker" replaced by a locked-loans toggle
+**Status:** CHANGED — tsc = the 7-error `main` baseline, eslint clean on all three touched files, **31/31** offline fixtures (`lock-status-check` now 19, +2 for the locked list), `npm run build` ✓, both toggle states screenshotted on the bypass server via a temporary local seed covering locked / expiring / expires-today / no-expiry (removed before commit, file restored by checksum).
+**Issue:** Efrain asked for the card's "Open Tracker" link to become a button that shows the LOCKED loans and their expiration dates instead of navigating away.
+**Changes:** [lib/lockStatus.ts](lib/lockStatus.ts) — new `lockedEscrows()`: the flip side of `unlockedEscrows`, **soonest expiry first**, with a hand-flagged `locked = 'Yes'` and no date sorting last (there is no date to act on). [components/Dashboard.tsx](components/Dashboard.tsx) — the header link is now a `showLocked` toggle button reading `Show locked loans (N)` / `Show loans needing a lock (N)`; the locked view reuses the same row with an expiry chip and the date underneath — **amber ≤7 days (and `Today` at 0)**, green beyond, slate `No expiry`. The big count band is hidden in the locked view; the header pills stay so the outstanding risk is still visible while browsing locks. [scripts/lock-status-check.ts](scripts/lock-status-check.ts) — 2 new fixtures for the ordering and the exclusions.
+**Test Method:** open `/` → click `Show locked loans (N)` → the list flips to locked loans, soonest expiry first, each showing days left + the expiry date; click again to go back. Cross-check with `npx tsx scripts/unlocked-loans-report.ts`.
+**Result:** (pending Efrain's look at prod)
+
 ### [2026-09-16] /deals — By Lender is now the default view
 **Status:** CHANGED — tsc = the 7-error `main` baseline, `npm run build` ✓, 89/89 lender fixtures, and confirmed on the bypass dev server: `/deals` opens with the By Lender pill already active, no click needed.
 **Issue:** Efrain: "Make the By lender view the default view."

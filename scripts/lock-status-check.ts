@@ -13,7 +13,7 @@
 // Plus the DATE-column trap: `lock_expiration` must parse as LOCAL midnight, or
 // a lock expiring today reads as expired yesterday in Pacific.
 
-import { lockStatus, lockDaysLeft, unlockedEscrows, lockCounts, parseLocalDate } from '../lib/lockStatus'
+import { lockStatus, lockDaysLeft, unlockedEscrows, lockedEscrows, lockCounts, parseLocalDate } from '../lib/lockStatus'
 
 let pass = 0, fail = 0
 function eq(label: string, got: unknown, want: unknown) {
@@ -88,6 +88,23 @@ eq('counts',
 eq('all locked → empty list',
   unlockedEscrows([{ name: 'Locked Lou', pipeline_group: 'Loans in Process', status: 'Docs Signed', locked: 'No', lock_expiration: '2026-12-01' }], depth, TODAY).length,
   0)
+
+// ── the locked list (what the card's toggle shows) ───────────────────────────
+eq('locked list: soonest expiry first, no-expiry last, unlocked/expired excluded',
+  lockedEscrows([
+    ...rows,
+    { name: 'NoExpiry Nick', pipeline_group: 'Loans in Process', status: 'Disclosed', locked: 'Yes', lock_expiration: null },
+    { name: 'Soon Sophie',   pipeline_group: 'Loans in Process', status: 'Docs Out',  locked: 'No',  lock_expiration: '2026-09-18' },
+    { name: 'Funded Fiona',  pipeline_group: 'Funded',           status: 'Loan Funded', locked: 'No', lock_expiration: '2026-10-01' },
+  ], TODAY).map(r => [r.name, r.lock.state]),
+  [['Soon Sophie', 'expiring'], ['Locked Lou', 'locked'], ['NoExpiry Nick', 'no-expiry']])
+
+eq('a lock expiring TODAY leads the locked list', 
+  lockedEscrows([
+    { name: 'Later Larry', pipeline_group: 'Loans in Process', status: 'Docs Out', locked: 'No', lock_expiration: '2026-10-05' },
+    { name: 'Today Tina',  pipeline_group: 'Loans in Process', status: 'Docs Out', locked: 'No', lock_expiration: '2026-09-16' },
+  ], TODAY).map(r => r.name),
+  ['Today Tina', 'Later Larry'])
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

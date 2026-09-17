@@ -108,6 +108,25 @@ export function unlockedEscrows<T extends LockCarrier & Pick<Deal, 'status' | 'p
     })
 }
 
+/** The flip side of `unlockedEscrows`: active escrows that DO have rate protection,
+ *  soonest expiry first so the next lock to fall off the end leads. A lock with no
+ *  expiry date (hand-flagged `locked = 'Yes'`) sorts last — there is no date to act on. */
+export function lockedEscrows<T extends LockCarrier & Pick<Deal, 'status' | 'pipeline_group' | 'name'>>(
+  deals: T[],
+  today = new Date(),
+): Array<T & { lock: LockStatus }> {
+  return deals
+    .filter(d => d.pipeline_group === ESCROW_PIPELINE)
+    .map(d => ({ ...d, lock: lockStatus(d, today) }))
+    .filter(d => !d.lock.needsLock && d.lock.state !== 'unlocked')
+    .sort((a, b) => {
+      const ad = a.lock.expiration ? a.lock.days ?? 0 : Infinity
+      const bd = b.lock.expiration ? b.lock.days ?? 0 : Infinity
+      if (ad !== bd) return ad - bd
+      return (a.name || '').localeCompare(b.name || '')
+    })
+}
+
 /** Header counters for the card. `total` / `locked` are over active escrows only. */
 export function lockCounts(deals: Array<LockCarrier & Pick<Deal, 'pipeline_group'>>, today = new Date()) {
   const esc = deals.filter(d => d.pipeline_group === ESCROW_PIPELINE)

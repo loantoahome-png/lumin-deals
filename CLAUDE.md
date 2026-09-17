@@ -36,6 +36,10 @@ the locked ratio. ⚠️ A dollar "unprotected volume" figure was there briefly 
 escrow locked it reverts to the plain flat card + a green line, so it only shouts when something is
 wrong. Don't make the alert state unconditional.
 
+**The header button toggles the card between the two lists** (2026-09-16, replacing an "Open Tracker"
+link): loans needing a lock ↔ **locked loans with their expiry dates**, soonest first — amber ≤7 days,
+green beyond, slate for a hand-flagged lock with no date. `lockedEscrows()` in `lib/lockStatus.ts`.
+
 Each row shows borrower · **LO · lender** · amount · stage. **The lender field is `investor`** (the
 same column the escrow card labels "Lender"); 31 of 33 active escrows have one set.
 

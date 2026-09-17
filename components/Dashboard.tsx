@@ -8,11 +8,11 @@ import { resolveLO } from '@/lib/loanOfficer'
 import { endOfDay, isDueNow, relativeDue, DUE_TONE_TEXT, DUE_TONE_BAR } from '@/components/TaskBoard'
 import { toBoardTask, isGhlTask, byDueAsc, type BoardTask, type GhlTaskRow } from '@/lib/ghlTasks'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { unlockedEscrows, lockCounts } from '@/lib/lockStatus'
+import { unlockedEscrows, lockedEscrows, lockCounts } from '@/lib/lockStatus'
 import UnreadInbox from '@/components/UnreadInbox'
 import {
   DollarSign, TrendingUp, Users, CheckCircle, Clock, AlertCircle, ChevronRight,
-  Flame, ListChecks, Wallet, Layers, BarChart3, Tag, CalendarClock, Lock,
+  Flame, ListChecks, Wallet, Layers, BarChart3, Tag, CalendarClock, Lock, LockOpen,
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts'
 import Link from 'next/link'
@@ -133,6 +133,10 @@ export default function Dashboard() {
   // are Efrain's and Brianne's, who aren't loan officers at all.
   const [boardTasks, setBoardTasks] = useState<BoardTask[]>([])
 
+  // The rate-lock card flips between the loans that need a lock (the default)
+  // and the ones that HAVE one, with their expiry dates.
+  const [showLocked, setShowLocked] = useState(false)
+
 
   useEffect(() => {
     async function fetchDeals() {
@@ -251,6 +255,7 @@ export default function Dashboard() {
   }
   const unlockedRows = unlockedEscrows(escrowDeals, stageDepth)
   const lockStats = lockCounts(escrowDeals)
+  const lockedRows = lockedEscrows(escrowDeals)
   // The LO checkboxes default to Matt + Moe, so Randy's and Daniel's escrows are
   // hidden unless opted in. On every other metric that's fine; on a RISK list it
   // would be a blind spot, so count what the filter is hiding and say so.
@@ -417,12 +422,21 @@ export default function Dashboard() {
           {lockStats.needsLock === 0 && lockStats.total > 0 && (
             <span className="text-xs text-slate-500">{lockStats.locked} of {lockStats.total} escrows locked</span>
           )}
-          <div className="ml-auto"><CardLink href="/deals">Open Tracker</CardLink></div>
+          <button
+            type="button"
+            onClick={() => setShowLocked(v => !v)}
+            aria-pressed={showLocked}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-50"
+          >
+            {showLocked
+              ? <><LockOpen className="h-3.5 w-3.5 text-amber-600" />Show loans needing a lock ({lockStats.needsLock})</>
+              : <><Lock className="h-3.5 w-3.5 text-emerald-600" />Show locked loans ({lockStats.locked})</>}
+          </button>
         </div>
 
         {/* The headline count. Dollar volume was here and Efrain cut it
             2026-09-16 ("I dont care about that") — don't re-add it. */}
-        {lockStats.needsLock > 0 && (
+        {lockStats.needsLock > 0 && !showLocked && (
           <div className="flex flex-wrap items-baseline gap-x-9 gap-y-2 border-b border-amber-100 px-[18px] py-3.5">
             <div className="flex items-baseline gap-2.5">
               <span className="text-[32px] font-bold leading-none tabular-nums text-amber-600">{lockStats.needsLock}</span>
@@ -434,7 +448,55 @@ export default function Dashboard() {
           </div>
         )}
 
-        {lockStats.total === 0 ? (
+        {showLocked ? (
+          lockedRows.length === 0 ? (
+            <p className="px-[18px] py-4 text-[12.5px] text-slate-400">
+              No locked loans in the current view.
+            </p>
+          ) : (
+            <div className="max-h-[520px] divide-y divide-slate-100 overflow-y-auto">
+              {lockedRows.map(d => {
+                // Soonest expiry leads. Amber = expires within a week (incl. today),
+                // slate = hand-flagged locked with no date to act on, green = healthy.
+                const tone = d.lock.state === 'expiring' ? 'amber' : d.lock.state === 'no-expiry' ? 'slate' : 'green'
+                const chip = tone === 'amber' ? 'bg-amber-100 text-amber-800'
+                  : tone === 'slate' ? 'bg-slate-100 text-slate-600'
+                  : 'bg-emerald-100 text-emerald-700'
+                const stripe = tone === 'amber' ? 'bg-amber-400' : tone === 'slate' ? 'bg-slate-300' : 'bg-emerald-500'
+                const days = d.lock.days
+                const label = d.lock.state === 'no-expiry' ? 'No expiry'
+                  : days === 0 ? 'Today'
+                  : days == null ? 'Locked'
+                  : `${days}d left`
+                return (
+                  <Link key={d.id} href={`/deals/${d.id}`} className={`${LOCK_ROW} hover:bg-slate-50`}>
+                    <span className={`h-11 rounded-r-sm ${stripe}`} />
+                    <div className="text-right">
+                      <span className={`inline-block rounded px-1.5 py-[3px] text-[11px] font-bold ${chip}`}>{label}</span>
+                      {d.lock.expiration && (
+                        <div className="mt-0.5 font-mono text-[10px] text-slate-400">{formatDate(d.lock.expiration)}</div>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-[13.5px] font-semibold text-slate-900 group-hover:text-blue-700">{d.name}</div>
+                      <div className="flex items-center gap-1.5 truncate text-[11.5px] text-slate-500">
+                        <LoDot name={d.loan_officer} size={7} />{d.loan_officer || 'No LO'}
+                        <span className="text-slate-300">·</span>
+                        {d.investor
+                          ? <span className="truncate text-slate-600">{d.investor}</span>
+                          : <span className="italic text-slate-400">No lender</span>}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[13.5px] font-bold tabular-nums text-slate-900">{formatCurrency(d.loan_amount)}</div>
+                      <span className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_COLORS[d.status || ''] || 'bg-slate-100 text-slate-600'}`}>{d.status}</span>
+                    </div>
+                  </Link>
+                )
+              })}
+            </div>
+          )
+        ) : lockStats.total === 0 ? (
           <p className="px-[18px] py-4 text-[12.5px] text-slate-400">No active escrows in the current view.</p>
         ) : unlockedRows.length === 0 ? (
           <div className="flex items-start gap-2.5 px-[18px] py-4 text-[12.5px] leading-relaxed text-slate-500">
