@@ -1,6 +1,14 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-09-21] /lead-roi — Source × state matrix REMOVED
+**Status:** CHANGED — tsc = the 7-error `main` baseline (0 new), `npm run build` ✓ exit 0, **174/174** fixtures (183 − 9 matrix fixtures deleted with the feature), eslint unchanged from baseline, live reconciliation re-run and still 10/10 OK.
+**Issue:** Efrain, after using it: remove the Source × state matrix from /lead-roi. The "One source, every state" tabbed section shipped hours later supersedes it — same data, every metric at once instead of one metric at a time, and it reads as a table rather than a grid of bare numbers.
+**Changes:** [app/lead-roi/page.tsx](app/lead-roi/page.tsx) — section JSX, the `MatrixCell` component, `matrixMetric` state, the `matrix` memo and the `Grid3x3` icon import all removed. [lib/leadRoi.ts](lib/leadRoi.ts) — `sourceStateMatrix`, `MATRIX_METRICS`, `MatrixMetric`, `MatrixRow`, `SourceStateMatrix`, `metricOf`, `sourceMetricOf` **deleted** rather than left as unused exports. [scripts/lead-roi-check.ts](scripts/lead-roi-check.ts) + [scripts/lead-roi-state-report.ts](scripts/lead-roi-state-report.ts) — matrix fixtures and read-out removed with it.
+**Note:** deleted, not commented out or left dangling — dead exported helpers invite a future caller. It is all recoverable from `a708fb1`.
+**Test Method:** `/lead-roi` → the source table is followed directly by "One source, every state"; no matrix section. `npx tsx scripts/lead-roi-state-report.ts "Moe Sefati"` still reconciles 10/10.
+**Result:** VERIFIED — grep for `sourceStateMatrix|MATRIX_METRICS|MatrixMetric` across lib/app/components/scripts returns 0. Live figures match Efrain's screenshot exactly (Lendgo 628 leads · $14,785 spend · CA 444).
+
 ### [2026-09-21] /lead-roi report — "By source and state" capped to purchased vendors
 **Status:** CHANGED — tsc = the 7-error `main` baseline (0 new), `npm run build` ✓ exit 0, **183/183** fixtures, eslint identical to baseline on both touched files, report route re-rendered on the bypass dev server with no runtime errors.
 **Issue:** Efrain: "cap the report at the purchased vendors, we realistically only want data on the purchased leads." Under All-sources scope the section printed one table per source — 37 for Randy.

@@ -6,12 +6,12 @@
 // these numbers. This can. Pure read — writes nothing.
 //
 // It runs the SAME lib/leadRoi pipeline the page runs (filterDeals → buildSourceStats →
-// rollupKpis → stateStats → sourceStateMatrix), so a disagreement between this and the
+// rollupKpis → stateStats), so a disagreement between this and the
 // page is a rendering bug, not a math one.
 import { readFileSync } from 'fs'
 import { createClient } from '@supabase/supabase-js'
 import {
-  filterDeals, buildSourceStats, rollupKpis, stateStats, sourceStateMatrix,
+  filterDeals, buildSourceStats, rollupKpis, stateStats,
   isSubmitted, isSubmittedUnder, SUBMISSION_RULE, rangeBounds, monthsBetween,
 } from '../lib/leadRoi'
 import { LOAN_OFFICERS } from '../lib/types'
@@ -83,12 +83,6 @@ async function main() {
     const ok = (a: number, b: number) => (Math.abs(a - b) < 0.01 ? 'OK' : `MISMATCH (${a} vs ${b})`)
     console.log(`     reconcile → leads ${ok(sum(r => r.n), top.total)} · spend ${ok(sum(r => r.spend), top.spend)} · net ${ok(sum(r => r.netProfit), top.netProfit)} · submitted ${ok(sum(r => r.submitted), top.submitted)} · applied ${ok(sum(r => r.applied), top.applied)} · open ${ok(sum(r => r.open), top.open)} · active ${ok(sum(r => r.active), top.active)} · lost ${ok(sum(r => r.lost), top.lost)} · optout ${ok(sum(r => r.optout), top.optout)} · volume ${ok(sum(r => r.fundedVolume), top.fundedVolume)}`)
 
-    const mx = sourceStateMatrix(sources, 'leads')
-    console.log(`\n   matrix: ${mx.rows.length} sources × ${mx.states.length} states [${mx.states.join(' ')}]`)
-    for (const r of mx.rows.slice(0, 5)) {
-      const cells = r.cells.map(c => (c == null ? '—' : String(c)).padStart(5)).join('')
-      console.log(`     ${r.source.padEnd(18)}${cells}  | ${r.total}`)
-    }
     console.log()
   }
 }

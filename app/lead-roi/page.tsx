@@ -27,9 +27,9 @@ import { rrBand, isFunded, PURCHASED_SOURCES, type Purpose, type SourceScope } f
 import { totalComp, discountCredit, hasDiscountCredit } from '@/lib/comp'
 import {
   RANGE_OPTIONS, rangeBounds, monthsBetween, filterDeals, buildSourceStats, rollupKpis,
-  funnel, stateRows, stateStats, sourceStateMatrix, MATRIX_METRICS, SUBMISSION_DESC,
+  funnel, stateRows, stateStats, SUBMISSION_DESC,
   monthlySeries, projection, optout7dStats, insights, netOf, LO_SPLIT,
-  type RangeKey, type CostRow, type MatrixMetric,
+  type RangeKey, type CostRow,
 } from '@/lib/leadRoi'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -37,7 +37,7 @@ import {
 import {
   RefreshCw, Download, Target, Users, TrendingUp, DollarSign, CheckCircle2, Calendar,
   ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, ExternalLink, Pencil, Check, X,
-  Filter, ArrowRight, Save, FileText, Grid3x3, MapPin, FileCheck2,
+  Filter, ArrowRight, Save, FileText, MapPin, FileCheck2,
 } from 'lucide-react'
 
 // broker_corr + net_discount_points are load-bearing for revenue, not decoration:
@@ -114,7 +114,6 @@ export default function LeadRoiPage() {
   const [includedSources, setIncludedSources] = useState<Set<string> | null>(null)
   const [showSourceFilter, setShowSourceFilter] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [matrixMetric, setMatrixMetric] = useState<MatrixMetric>('leads')
   // Which source the per-source state section is showing. Null = follow the biggest.
   // Never read directly — `stateTabSource` clamps it to a source that is still visible,
   // so switching LO or narrowing the source filter can't strand it on a missing tab.
@@ -174,7 +173,6 @@ export default function LeadRoiPage() {
   const kpis = useMemo(() => rollupKpis(visibleSources), [visibleSources])
   const funnelStages = useMemo(() => funnel(kpis), [kpis])
   const states = useMemo(() => stateRows(visibleDeals), [visibleDeals])
-  const matrix = useMemo(() => sourceStateMatrix(visibleSources, matrixMetric), [visibleSources, matrixMetric])
   const stateTabSource = useMemo(() => {
     if (stateTabPick && visibleSources.some(s => s.source === stateTabPick)) return stateTabPick
     return visibleSources[0]?.source ?? null
@@ -858,61 +856,6 @@ export default function LeadRoiPage() {
                 </div>
               )}
 
-              {/* Source × state matrix */}
-              {matrix.rows.length > 0 && matrix.states.length > 0 && (
-                <div className="mt-6 bg-white border border-slate-200 rounded-xl overflow-hidden">
-                  <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between flex-wrap gap-2">
-                    <div className="flex items-center gap-2">
-                      <Grid3x3 className="w-4 h-4 text-slate-400" />
-                      <h3 className="text-sm font-semibold text-slate-800">Source × state</h3>
-                      <span className="text-[11px] text-slate-400">every source across the {matrix.states.length} busiest states</span>
-                    </div>
-                    <div className="flex items-center gap-1 flex-wrap">
-                      {MATRIX_METRICS.map(m => (
-                        <button key={m.key} onClick={() => setMatrixMetric(m.key)}
-                          className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition-colors ${
-                            matrixMetric === m.key
-                              ? 'bg-indigo-600 border-indigo-600 text-white'
-                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                          }`}>{m.label}</button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-slate-50 border-b border-slate-200">
-                        <tr className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
-                          <th className="px-3 py-2 text-left sticky left-0 bg-slate-50 z-10">Source</th>
-                          {matrix.states.map(st => <th key={st} className="px-2 py-2 text-right">{st}</th>)}
-                          <th className="px-3 py-2 text-right border-l border-slate-200">All states</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {matrix.rows.map((r, i) => (
-                          <tr key={r.source} className={i % 2 === 1 ? 'bg-slate-50/40' : 'bg-white'}>
-                            <td className={`px-3 py-2 font-medium text-slate-900 whitespace-nowrap sticky left-0 z-10 ${i % 2 === 1 ? 'bg-slate-50' : 'bg-white'}`}>{r.source}</td>
-                            {r.cells.map((c, j) => (
-                              <td key={matrix.states[j]} className="px-2 py-2 text-right tabular-nums"
-                                title={r.leadsByState[j] > 0 ? `${r.source} · ${matrix.states[j]} — ${r.leadsByState[j]} lead${r.leadsByState[j] === 1 ? '' : 's'}` : `${r.source} bought no leads in ${matrix.states[j]}`}>
-                                <MatrixCell value={c} metric={matrixMetric} hasLeads={r.leadsByState[j] > 0} />
-                              </td>
-                            ))}
-                            <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-700 border-l border-slate-200">
-                              <MatrixCell value={r.total} metric={matrixMetric} hasLeads />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="px-4 py-2 text-[10.5px] text-slate-400 border-t border-slate-200">
-                    A <span className="text-slate-300 font-semibold">—</span> means the source bought no leads in that state — not that it earned nothing there.
-                    {' '}States are ordered by total leads; a thinner tail beyond the {matrix.states.length} shown is in the CSV.
-                    {retainerPerMonth > 0 && <> Retainers are billed per source, so they are split across a source&apos;s states pro-rata by lead count.</>}
-                  </p>
-                </div>
-              )}
-
               {/* One source, every state, every metric — tabbed */}
               {stateTabStats && (
                 <SourceStateBreakdown
@@ -1158,22 +1101,6 @@ export default function LeadRoiPage() {
       </div>
     </div>
   )
-}
-
-/** One matrix cell — formatted by metric. `hasLeads` false ⇒ the source never bought
- *  a lead in that state, which is rendered as an em-dash and must NOT read as a zero. */
-function MatrixCell({ value, metric, hasLeads }: { value: number | null; metric: MatrixMetric; hasLeads: boolean }) {
-  if (!hasLeads || value == null) return <span className="text-slate-300">—</span>
-  const kind = MATRIX_METRICS.find(m => m.key === metric)?.kind ?? 'count'
-  if (kind === 'pct')   return <span className={value > 0 ? 'text-slate-700 font-medium' : 'text-slate-300'}>{pct(value)}</span>
-  if (kind === 'roi')   return <span className={`px-1.5 py-0.5 rounded-md text-xs font-bold ${value >= 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>{value.toFixed(2)}×</span>
-  if (kind === 'money') {
-    if (metric === 'netProfit') {
-      return <span className={value >= 0 ? 'text-emerald-700 font-medium' : 'text-red-600 font-medium'}>{formatCurrency(value)}</span>
-    }
-    return <span className={value > 0 ? 'text-rose-600' : 'text-slate-300'}>{value > 0 ? formatCurrency(value) : '—'}</span>
-  }
-  return <span className={value > 0 ? 'text-slate-700' : 'text-slate-300'}>{value > 0 ? value.toLocaleString() : '—'}</span>
 }
 
 /** Per-source geography with the full money set — "is this vendor worth buying HERE?"

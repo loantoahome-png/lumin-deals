@@ -4,7 +4,7 @@ import {
   rangeBounds, monthsBetween, parseLocalMs, anchorDate, filterDeals, buildSourceStats,
   rollupKpis, funnel, stateRows, monthlySeries, projection, sourceLabel,
   optout7dStats, insights, netOf, LO_SPLIT,
-  isSubmitted, isApplied, isSubmittedUnder, SUBMISSION_RULE, stateStats, sourceStateMatrix,
+  isSubmitted, isApplied, isSubmittedUnder, SUBMISSION_RULE, stateStats,
   type CostRow, type RoiFilters,
 } from '../lib/leadRoi'
 import { isPurchasedSource } from '../lib/leadReport'
@@ -433,26 +433,6 @@ approx('retainer allocated to PA pro-rata', geoStatesR[1].retainer, 100 / 3)
 approx('Σ allocated retainer = the retainer EXACTLY', geoStatesR.reduce((a, r) => a + r.retainer, 0), 100, 1e-9)
 approx('Σ state spend still = source spend', geoStatesR.reduce((a, r) => a + r.spend, 0), geoSrcR.spend, 1e-9)
 eq('empty book → no state rows', stateStats([], 0).length, 0)
-
-// ── sourceStateMatrix ──────────────────────────────────────────────────────────
-const mxBook: Deal[] = [
-  ...geoBook,
-  deal({ id: 'o1', source: 'Other', state: 'CA', lead_price: 10, status: 'New Lead' }),
-  deal({ id: 'o2', source: 'Other', state: 'TX', lead_price: 10, status: 'New Lead' }),
-]
-const mxSources = buildSourceStats(mxBook, new Map(), 1)
-const mx = sourceStateMatrix(mxSources, 'leads')
-eq('columns ordered by total leads desc', mx.states, ['CA', 'PA', '(none)', 'TX'])
-eq('one row per source', mx.rows.map(r => r.source), ['Geo', 'Other'])
-// A null cell means the source bought NO leads there — NOT that it earned nothing.
-eq('Geo has no TX leads → null cell', mx.rows[0].cells[3], null)
-eq('Other has 1 TX lead', mx.rows[1].cells[3], 1)
-eq('row total = the source-level metric', mx.rows[0].total, mxSources[0].total)
-eq('cells sum to the row total', mx.rows[0].cells.reduce((a: number, c) => a + (c ?? 0), 0), mx.rows[0].total)
-eq('leadsByState always carries the count', mx.rows[1].leadsByState, [1, 0, 0, 1])
-const mxRoi = sourceStateMatrix(mxSources, 'roi')
-eq('roi row total = the source roi', mxRoi.rows[0].total, mxSources[0].roi)
-eq('maxStates trims the thin tail', sourceStateMatrix(mxSources, 'leads', 2).states, ['CA', 'PA'])
 
 // ── Purchased-vendor test (caps the report's per-source state section) ─────────
 // The printable report breaks out ONLY the aggregators we pay per lead. Under "All
