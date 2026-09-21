@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { normPhone, normEmail, resolveExistingLoan } from '@/lib/dealMatcher'
 import { titleCase, resolveLeadSource, normalizeLoanPurpose } from '@/lib/utils'
 import { SOURCE_PINS_KEY, parseSourcePins, applySourcePin } from '@/lib/sourcePins'
+import { LEAD_PRICE_PINS_KEY, parseLeadPricePins, applyLeadPricePin } from '@/lib/leadPricePins'
 import { shouldProcessOpportunity } from '@/lib/syncCursor'
 import { resolveLO } from '@/lib/loanOfficer'
 import { canonicalLenderName } from '@/lib/lenderGroup'
@@ -645,6 +646,18 @@ async function syncAccount(
     console.error(`[GHL Sync:${label}] source pins unavailable:`, e)
   }
 
+  // Manual lead-PRICE pins — same mechanism, for the opportunities whose real cost
+  // GHL cannot express (see lib/leadPricePins.ts). Same failure posture: never stop
+  // a sync over them.
+  let leadPricePins = new Map<string, number>()
+  try {
+    const { data } = await supabase.from('sync_state').select('value').eq('key', LEAD_PRICE_PINS_KEY).maybeSingle()
+    leadPricePins = parseLeadPricePins(data?.value)
+    if (leadPricePins.size) console.log(`[GHL Sync:${label}] ${leadPricePins.size} manual lead-price pin(s) loaded`)
+  } catch (e) {
+    console.error(`[GHL Sync:${label}] lead price pins unavailable:`, e)
+  }
+
   // Load the last successful run timestamp for this location (null if first
   // run, table missing, or ?full=1 was passed). Anything older than this in
   // GHL will be skipped — that's the incremental-sync trick.
@@ -1034,6 +1047,14 @@ async function syncAccount(
         // custom fields, so mapOpportunityFields returns {} and the contact value stands.
         // loan_amount is deliberately NOT in the overlay (stays monetaryValue + funded guard).
         Object.assign(dealData, mapOpportunityFields(opp, customFieldDefs))
+
+        // Lead-price pin LAST: the overlay above writes lead_price too, so a pin
+        // applied any earlier would be silently discarded by it. See
+        // lib/leadPricePins.ts — a pinned 0 means "free and we know it", which is
+        // the one thing the contact-price fallback cannot say.
+        dealData.lead_price = applyLeadPricePin(
+          leadPricePins, str(opp.id), dealData.lead_price as number | null,
+        )
 
         // ── Match by OPPORTUNITY id, then fall back to the ARIVE loan # ──────
         // The arive# fallback re-points a card when its GHL opportunity was

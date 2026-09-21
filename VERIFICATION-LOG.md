@@ -3270,3 +3270,24 @@ spaced `gap-x-10 gap-y-4`.
 **Test Method:** 11 new assertions in `scripts/calls-check.ts` (carrier-refused flagged; never-answers NOT flagged; deal join; threshold floor at 2 vs 3; one real connect clears it; Answered-0s does not; both 'Failed'/'failed' spellings; unmatched number still reports); `calls-check` 103/103; `calls-api-check` 61/61; `tsc` (7 pre-existing, none in touched files); `next build`; live rollup run against the real table; local DOM + screenshot on the Effort tab.
 **Result:** **10 numbers flagged, 48 refused dials, $283.60 of lead spend on numbers that cannot be dialed.** Worst: Nestor Morris (Lendgo, 10/10) and "Tal Tasldsa" (LMB, 10/10). Two are self-evidently junk leads — "Tal Tasldsa" is not a name, and **"Mr Drool" is (928) 555-1212, directory assistance** — both sold by LMB at $18. Panel renders with correct data, deal links, and per-LO attribution.
 **Fixed while writing the tests:** the rollup preferred the call's cached `contact_name` over the deal's name. Flipped — the deal is authoritative, the cached name is the fallback and the only source when no deal matches.
+
+### [2026-09-21] File: lib/leadPricePins.ts, app/api/sync/ghl/route.ts, scripts/lead-price-pins.ts
+**Status:** CHANGED
+**Issue:** Self Source showed $23 spend on /lead-roi. One row carried it: Ellen Kessler
+(opp w2zrfbVYV6sDk4tEPwvF). She shares a GHL contact with Daniel Kessler, a real Lendgo
+purchase (vendor_lead_id 16105585, $23 — Lendgo's standard price; 546 of the 555 $23 rows
+in the book are Lendgo). Her opportunity has no "Lead Price" custom field, so the sync's
+CONTACT-level fallback stamped Daniel's $23 onto her too. Efrain confirmed she is a
+returning borrower with no lead cost. One charge, billed once, was sitting on two rows.
+**Changes:** Added lead-price pins — the lib/sourcePins.ts mechanism applied to lead_price.
+Pins live in sync_state under `lead_price_pins`, keyed by GHL opportunity id; a pinned 0
+means "free and we know it". Applied in the sync AFTER mapOpportunityFields (that overlay
+also writes lead_price, so an earlier application would be discarded). Pinned Ellen's
+opportunity to $0 and applied it to the row immediately.
+**Test Method:** (1) scripts/self-source-spend-check.ts → Self Source spend; (2)
+scripts/lead-price-pins.ts list; (3) Daniel's row still $23; (4) scripts/lead-roi-check.ts;
+(5) after a post-deploy sync pass, re-run (1) — the pin must hold, since the pre-fix
+behaviour re-stamped $23 within 15 minutes.
+**Result:** (1) Self Source $23 → $0, 0 priced rows. (2) 1 pin, honoured by the parser.
+(3) Daniel unchanged at $23. (4) 149 passed, 0 failed. (5) PENDING — needs a live sync
+pass against deployed code.
