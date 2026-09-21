@@ -3272,7 +3272,7 @@ spaced `gap-x-10 gap-y-4`.
 **Fixed while writing the tests:** the rollup preferred the call's cached `contact_name` over the deal's name. Flipped — the deal is authoritative, the cached name is the fallback and the only source when no deal matches.
 
 ### [2026-09-21] File: lib/leadPricePins.ts, app/api/sync/ghl/route.ts, scripts/lead-price-pins.ts
-**Status:** CHANGED
+**Status:** VERIFIED
 **Issue:** Self Source showed $23 spend on /lead-roi. One row carried it: Ellen Kessler
 (opp w2zrfbVYV6sDk4tEPwvF). She shares a GHL contact with Daniel Kessler, a real Lendgo
 purchase (vendor_lead_id 16105585, $23 — Lendgo's standard price; 546 of the 555 $23 rows
@@ -3289,5 +3289,9 @@ scripts/lead-price-pins.ts list; (3) Daniel's row still $23; (4) scripts/lead-ro
 (5) after a post-deploy sync pass, re-run (1) — the pin must hold, since the pre-fix
 behaviour re-stamped $23 within 15 minutes.
 **Result:** (1) Self Source $23 → $0, 0 priced rows. (2) 1 pin, honoured by the parser.
-(3) Daniel unchanged at $23. (4) 149 passed, 0 failed. (5) PENDING — needs a live sync
-pass against deployed code.
+(3) Daniel unchanged at $23. (4) 149 passed, 0 failed. (5) **PASSED** — deployed ce32190/8ef768e,
+then the live GHL sync ran at 2026-09-21T20:30:10.988Z against the previous cursor of
+20:15:08.283Z and Ellen's lead_price was still $0 afterwards. This is the decisive check: the
+pre-fix behaviour re-stamped the contact's $23 on every pass, so surviving a real sync is what
+distinguishes the pin from a write that merely has not been overwritten yet. Re-confirmed after
+the pass: Self Source 253 leads / $0, pin listed and honoured.
