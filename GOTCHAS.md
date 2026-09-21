@@ -667,3 +667,27 @@ account can no longer log in. The script spreads the existing object.
 **What works:** don't test provenance fights against an incremental pass — wait for (or force) the full/maintenance pass, or reason from the write rule in `app/api/sync/ghl/route.ts`. And don't let an import write a field another writer owns: `status`/`loan_amount` are now `ghl_owned` in the import plan until the loan is funded. Per-field history came from the import log (`import_runs`/`import_changes`) — without it the 444 from the earlier import was unattributable.
 **Project:** lumin-deals
 **Date:** 2026-09-02
+
+### A wrong `lead_price` cannot be fixed with an UPDATE — the sync re-stamps it in 15 minutes
+**Tried:** Ellen Kessler's deal showed $23 of spend under `Self Source`, which should be free.
+The obvious fix is `update deals set lead_price = null where id = …`.
+**Failed because:** `lead_price` is in the GHL sync's `maybeSet` list, so every pass rewrites it
+— and it is sourced from the **contact**, with the opportunity's own "Lead Price" custom field
+only overlaid when present. Ellen shares a GHL contact with Daniel Kessler, a real Lendgo
+purchase; her opportunity has no Lead Price field, so the contact's $23 lands on her again
+within 15 minutes, silently. Nulling it is doubly wrong: the codebase deliberately treats a
+blank price as UNKNOWN, never FREE, because Arive-created loan opportunities carry no lead
+fields at all and the contact price is their only surviving cost record.
+**What works:** a **lead-price pin** — `lib/leadPricePins.ts`, managed by
+`npx tsx scripts/lead-price-pins.ts add <oppId> <price> "<reason>"`. Same mechanism as
+`lib/sourcePins.ts`, stored in `sync_state` under `lead_price_pins`, keyed by GHL opportunity
+id. A pinned **0** says "free and we know it" — the statement the fallback cannot make — so 0
+has to survive every falsy check (`Number.isFinite`, not truthiness). It must be applied
+**after** `mapOpportunityFields`, because that overlay writes `lead_price` too and would
+discard a pin set earlier.
+**Diagnostic worth reusing:** the price is a vendor fingerprint. 546 of the 555 rows priced at
+exactly $23 are Lendgo — a $23 row under any other source is suspect. And **two priced
+opportunities sharing one `vendor_lead_id` means one charge on two rows**; two genuine
+purchases of the same person carry two different vendor ids.
+**Project:** lumin-deals
+**Date:** 2026-09-21
