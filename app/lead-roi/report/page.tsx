@@ -310,7 +310,7 @@ function ReportBody() {
             <table className="w-full text-[12px]">
               <thead>
                 <tr className="text-[9px] uppercase tracking-wide text-slate-500 bg-slate-50 border-b-2 border-slate-200">
-                  <Th left>Source</Th><Th>Leads</Th><Th>Resp %</Th><Th>Opt-out</Th><Th>Sub %</Th>
+                  <Th left>Source</Th><Th>Leads</Th><Th>Resp %</Th><Th>Opt-out</Th><Th>Sub %</Th>{/* status ≥ 'Submitted to UW' — see lib/leadRoi SUBMISSION_RULE */}
                   <Th>Open</Th><Th>Active</Th><Th>Lost</Th><Th>Funded</Th><Th>Fund %</Th>
                   <Th>Volume</Th><Th>Spend</Th><Th>Revenue</Th><Th>Net rev</Th><Th>Net</Th><Th>ROI</Th>
                 </tr>

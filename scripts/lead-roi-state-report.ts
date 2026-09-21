@@ -12,7 +12,7 @@ import { readFileSync } from 'fs'
 import { createClient } from '@supabase/supabase-js'
 import {
   filterDeals, buildSourceStats, rollupKpis, stateStats, sourceStateMatrix,
-  isSubmitted, rangeBounds, monthsBetween,
+  isSubmitted, isSubmittedUnder, SUBMISSION_RULE, rangeBounds, monthsBetween,
 } from '../lib/leadRoi'
 import { LOAN_OFFICERS } from '../lib/types'
 import type { Deal } from '../lib/types'
@@ -40,15 +40,16 @@ async function main() {
     if (!data || data.length < 1000) break
   }
 
-  // Repo-wide submission split — the two clauses, so a drift in either is visible.
+  // Repo-wide submission split. `isSubmitted` is the UW rank test only — the Arive
+  // file number is issued at APPLICATION (Efrain 2026-09-21), so it is reported here
+  // as a SEPARATE milestone rather than folded into the submission count.
   const priced = rows.filter(d => (d.lead_price ?? 0) > 0)
-  const byFile = priced.filter(d => (d.arive_file_no ?? '').trim()).length
-  const both = priced.filter(isSubmitted).length
-  const fileOnly = priced.filter(d => (d.arive_file_no ?? '').trim() && !isSubmitted({ ...d, arive_file_no: null })).length
+  const submitted = priced.filter(isSubmitted).length
+  const applied = priced.filter(d => isSubmittedUnder(d, 'application')).length
   console.log(`Priced leads (all LOs): ${priced.length}`)
-  console.log(`  submitted (either clause): ${both} (${pct(100 * both / priced.length)})`)
-  console.log(`  ├─ has an Arive file:     ${byFile}`)
-  console.log(`  └─ rescued by that file:  ${fileOnly}  ← would be LOST to a status-only test\n`)
+  console.log(`  submitted to UW (the live metric): ${submitted} (${pct(100 * submitted / priced.length)})`)
+  console.log(`  applications taken (Arive file):   ${applied} (${pct(100 * applied / priced.length)})  ← NOT counted as submitted`)
+  console.log(`  rule in force: ${SUBMISSION_RULE}\n`)
 
   const { start, end } = rangeBounds('all')
   const months = monthsBetween(start, end)

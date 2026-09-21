@@ -18,7 +18,7 @@ Two gaps on /lead-roi:
 
 | Question | Decision |
 |---|---|
-| What counts as a submission | **Submitted to underwriting** — status at/past `Submitted to UW`, **OR** an Arive file number exists |
+| What counts as a submission | **Submitted to underwriting** — status at/past `Submitted to UW`. ⚠️ The *OR an Arive file* half was removed 2026-09-21: the file number is issued at application (see the correction below) |
 | Where the state breakdown lives | **Both** — inside the source drill-down AND a standalone Source × State matrix |
 | State breakdown columns | **Full money set** — leads, resp %, sub %, funded, fund %, spend, net revenue, net profit, ROI |
 | Where Submission % appears | Source table, **lifecycle funnel**, **KPI band**, **printable report + CSV** |
@@ -27,50 +27,63 @@ Two gaps on /lead-roi:
 
 ```
 isSubmitted(d) = statusRank(d.status) in [rank('Submitted to UW') .. rank('Loan Finalized')]
-              || nonEmpty(d.arive_file_no)
 ```
 
-**Why the Arive-file clause exists.** A deal stores only its CURRENT status. A loan that
-reached underwriting and then died regresses into a Not-Ready status, erasing the fact
-it was ever submitted. An Arive file number is issued for a real file and is never
-rewritten when the lead goes cold.
+**Status rank only. It deliberately does NOT read `arive_file_no`.**
 
-**Measured live 2026-09-21, 5,222 priced leads — submitted = 345 (6.6%):**
+### Correction — the first cut of this was wrong
 
-| Clause | Count |
-|---|---|
-| status rank ≥ `Submitted to UW` | 108 |
-| rescued by `arive_file_no` | 237 |
+The spec originally defined submission as *status ≥ `Submitted to UW` **OR** an Arive
+file number exists*, on the theory that a file number proved the loan had gone to
+underwriting and so rescued loans that were submitted and then died (a deal stores only
+its CURRENT status, so a dead loan regresses into a Not-Ready stage and erases its
+history).
 
-⚠️ **Correction to the estimate this spec was first written with.** An earlier draft
-said the Arive clause rescues 64 leads (~23%). That figure was measured against a
-different threshold (`App Intake`), not the one chosen. Against `Submitted to UW` the
-clause contributes **237 of 345 — 69% of the metric** — and those 237 are two different
-populations:
+**Efrain, 2026-09-21: the Arive file number is created at APPLICATION, not at submission
+to underwriting.** That invalidates the theory. A file number proves an application was
+taken and nothing more.
 
-- **162 still in the Leads group** — 151 `App Intake`, plus `Disclosed`, `Pre-Approved`,
-  `Arive Lead`, `Qualification`, `Loan Setup`. A file was **opened** in the LOS; whether
-  it went to underwriting is not knowable from the status.
-- **74 in Not Ready** — the genuine information-loss rescues.
-- **1 in Loans in Process.**
+Impact of the wrong definition, measured across 5,222 priced leads:
 
-**Open question for Efrain:** is an Arive file number issued at **application** or at
-**submission to underwriting**? If it is issued at application, the honest label for
-this metric is "application taken", not "reached UW". Not resolvable from the DB — it is
-a fact about the workflow.
-
-**Mitigation shipped:** `SUBMISSION_RULE` in `lib/leadRoi.ts` selects between three
-readings, all fixture-pinned, so switching is one constant and the page, report, CSV and
-funnel follow:
-
-| Rule | Meaning | Count |
+| | Count | % |
 |---|---|---|
-| `file_or_status` (current) | status ≥ UW **or** an Arive file | 345 · 6.6% |
-| `status_only` | status ≥ UW only | 108 · 2.1% |
-| `dead_file_or_status` | status ≥ UW, or a file on a **dead** deal | 182 · 3.5% |
+| status ≥ `Submitted to UW` (correct) | 108 | 2.1% |
+| …with the file clause (wrong) | 345 | 6.6% |
+
+The clause added 237 leads, **162 of which were still in the Leads group — 151 at
+`App Intake`.** Those are open applications, not loans in underwriting.
+
+It also retired a third reading (`status ≥ UW, or a file on a dead deal`). Its premise
+was that a file implies submission; once the file means application, a dead deal holding
+one only proves the borrower applied before going cold, so it mixed two milestones under
+one label. Removed rather than left in the enum for someone to pick.
+
+### What the correct metric looks like
+
+Sub % now sits very close to Fund %, because most loans that reach underwriting go on to
+fund:
+
+| LO · source | Sub % | Fund % |
+|---|---|---|
+| Moe · Lendgo | 1.3% | 1.1% |
+| Moe · LMB | 2.6% | 2.1% |
+| Moe · OwnUp | 4.4% | 3.1% |
+| Matt · LeadPoint | 1.8% | 1.8% |
+
+⚠️ **The UW rate is a floor, not a true rate.** A loan submitted and then declined reads
+as Not-Ready, and nothing in the schema recovers that. The UI tooltip says so.
+
+### The application milestone is kept, unused
+
+`SubmissionRule` retains an `'application'` branch (adds the file clause — 345 · 6.6%),
+fixture-pinned and ready for an **App %** column. It has far more spread across vendors
+than the UW rate (OwnUp 13.1% / LMB 7.0% / Lendgo 3.3%, where UW is 4.4 / 2.6 / 1.3%),
+so it is the better vendor-comparison signal — it is just not "submitted".
+`SUBMISSION_RULE = 'status_only'` is what ships; `SUBMISSION_DESC` derives the UI copy
+from it so a label cannot drift from the arithmetic.
 
 **Funded implies submitted** — every funded status ranks past `Submitted to UW`, so the
-rank clause covers it without a special case. Submission % is therefore always ≥ fund %.
+rank clause covers it without a special case. Submission % is always ≥ fund %.
 
 ## Scope
 

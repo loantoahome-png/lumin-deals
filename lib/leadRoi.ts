@@ -39,76 +39,78 @@ export const NO_SOURCE = '(no source set)'
 export const sourceLabel = (d: Pick<Deal, 'source'>): string => (d.source ?? '').trim() || NO_SOURCE
 
 // ── Submission ─────────────────────────────────────────────────────────────────
-// "Submitted" = the loan reached underwriting. Efrain's call 2026-09-21: submission is
+// "Submitted" = the loan reached UNDERWRITING. Efrain's call 2026-09-21: submission is
 // the earliest point a purchased lead has produced real work, and at 1–3% funded rates
-// it is the only mid-funnel number with enough volume to judge a vendor on.
+// it is the mid-funnel number a vendor gets judged on.
 //
-// TWO clauses, and it is worth knowing exactly what each one contributes. Measured
-// live 2026-09-21 across 5,222 priced leads — submitted = 345 (6.6%):
+// ⚠️ THIS IS A STATUS-RANK TEST ONLY. It deliberately does NOT read `arive_file_no`.
 //
-//   status rank ≥ 'Submitted to UW' ......... 108
-//   + rescued by the arive_file_no clause ... 237
+// The first cut of this did, on the theory that an Arive file number proved the loan
+// had gone to underwriting and so rescued loans that were submitted and then died (a
+// deal stores only its CURRENT status, so a dead loan regresses into a Not-Ready stage
+// and erases its history). That theory was WRONG, and Efrain corrected it 2026-09-21:
+// **the Arive file number is created at APPLICATION, not at submission to UW.**
 //
-// The second clause exists because a deal stores only its CURRENT status. A loan that
-// reached underwriting and then died REGRESSES into a Not-Ready status, erasing the
-// fact it was ever submitted; an Arive file number is issued for a real file and is
-// never rewritten when the lead goes cold, so it survives that death. Those 237 split
-// into two populations that are NOT the same thing:
+// So a file number proves an application was taken — nothing more. Counting it as a
+// submission inflated the metric from 108 to 345 across 5,222 priced leads (2.1% →
+// 6.6%) and, worse, mislabelled it: 162 of the 237 it added were still sitting in the
+// Leads group, 151 of them at `App Intake`. Those are open applications, not loans in
+// underwriting. Do not re-add the clause to THIS predicate.
 //
-//   162 still in the Leads group — 151 `App Intake`, plus `Disclosed`, `Pre-Approved`,
-//       `Arive Lead`, `Qualification`, `Loan Setup`. A file was OPENED in the LOS;
-//       whether it has gone to underwriting is not knowable from the status.
-//    74 in Not Ready — `Not Ready - Timeframe` (22), `Remove from All Automations`
-//       (19), `Not Qualified - Credit` (4), `Lost to Competitor` (3), and a tail.
-//       These are the genuine information-loss rescues.
-//     1 in Loans in Process.
+// That also retired a third reading ('status ≥ UW, or a file on a DEAD deal'). Its
+// whole premise was that a file implies submission; once the file means application,
+// a dead deal holding one only proves the borrower applied before going cold, so it
+// mixed two different milestones under one label. Removed rather than left loaded.
 //
-// ⚠️ So this counts "a real Arive file exists" as a submission. That is the definition
-// Efrain selected with the 345 figure in front of him, and it is the widest of the
-// three readings below. If an Arive file number is issued at APPLICATION rather than
-// at submission to underwriting, the honest label for this metric is "application
-// taken", not "reached UW" — flip SUBMISSION_RULE and the whole page, report, CSV and
-// fixtures follow, because nothing else reads either clause directly.
-//
-//   'file_or_status' (current) — status ≥ UW OR an Arive file .......... 345 · 6.6%
-//   'status_only'              — status ≥ UW only ....................... 108 · 2.1%
-//   'dead_file_or_status'      — status ≥ UW, OR a file on a DEAD deal .. 182 · 3.5%
+// The application signal is still worth having — it has far more spread across vendors
+// than the UW rate does (OwnUp 13.1% vs LMB 7.0% vs Lendgo 3.3%, where the UW rate is
+// 4.4 / 2.6 / 1.3%) — so the 'application' rule below is kept and fixture-pinned,
+// ready for an App % column. It is just not what `isSubmitted` means.
 //
 // Funded needs no special case: every funded status ranks past 'Submitted to UW', so
-// submission % is always ≥ fund % and the funnel stage can never invert.
-export type SubmissionRule = 'file_or_status' | 'status_only' | 'dead_file_or_status'
-export const SUBMISSION_RULE: SubmissionRule = 'file_or_status'
+// submission % is always ≥ fund % and the funnel stage can never invert. In practice
+// the two sit very close, because most loans that reach underwriting go on to fund.
+export type SubmissionRule =
+  /** Status rank ≥ 'Submitted to UW'. The real underwriting test — 108 · 2.1%. */
+  | 'status_only'
+  /** Adds `arive_file_no`, which is issued at APPLICATION — so this measures the
+   *  application milestone, NOT submission. 345 · 6.6%. Kept for a future App % column. */
+  | 'application'
+
+export const SUBMISSION_RULE: SubmissionRule = 'status_only'
+
+/** UI copy derived from the rule, so a label can never drift from the arithmetic
+ *  (same pattern as SPLIT_LABEL on the page). */
+export const SUBMISSION_LABEL = 'Submitted'
+export const SUBMISSION_DESC =
+  SUBMISSION_RULE === 'status_only'
+    ? "reached underwriting — status at or past 'Submitted to UW'"
+    : 'reached application — an Arive file exists, or the status is past it'
 
 const STATUS_RANK: ReadonlyMap<string, number> = new Map(LOAN_STATUSES.map((s, i) => [s, i]))
 const SUBMITTED_RANK = STATUS_RANK.get('Submitted to UW') ?? Infinity
 const FINAL_RANK     = STATUS_RANK.get('Loan Finalized') ?? -Infinity
 
-// `pipeline_group` is OPTIONAL: only the 'dead_file_or_status' branch reads it, and
-// making it required would force every caller that just wants the status test — the
-// fixtures included — to supply a field it does not care about.
+// `pipeline_group` is no longer read by any rule, but stays in the input type so a
+// caller passing a whole Deal keeps working and a future rule can use it.
 type SubmissionInput = Pick<Deal, 'status' | 'arive_file_no'> & Partial<Pick<Deal, 'pipeline_group'>>
 
 /** The test under an EXPLICIT rule. Callers want `isSubmitted` — this is for the
- *  fixtures and for anything that deliberately compares two readings side by side. */
+ *  fixtures and for anything that deliberately compares the two milestones. */
 export function isSubmittedUnder(d: SubmissionInput, rule: SubmissionRule): boolean {
   const r = STATUS_RANK.get((d.status ?? '').trim())
   if (r != null && r >= SUBMITTED_RANK && r <= FINAL_RANK) return true
-  if (rule === 'status_only') return false
-  if (!(d.arive_file_no ?? '').trim()) return false
-  // 'dead_file_or_status' trusts the file only where the status can no longer be
-  // believed — a Not-Ready deal has lost whatever stage it actually died at.
-  return rule === 'file_or_status' || (d.pipeline_group ?? '') === 'Not Ready'
+  return rule === 'application' && !!(d.arive_file_no ?? '').trim()
 }
 
-/** Did this loan reach underwriting? Single chokepoint — never inline either clause.
+/** Did this loan reach underwriting? Single chokepoint — never inline the rank test.
  *
  *  ⚠️ ONE parameter, deliberately. This was written with an optional `rule` second
  *  argument and it silently broke the first caller that did `deals.filter(isSubmitted)`
  *  — Array.filter passes (element, INDEX, array), so the index landed in `rule`, every
- *  element after the first fell through to the 'dead_file_or_status' branch, and a
- *  repo-wide count read 182 instead of 345 with no error anywhere. The rule is not a
- *  parameter here precisely so that cannot happen again; use isSubmittedUnder to pick
- *  one explicitly. */
+ *  element after the first fell through to a different branch, and a repo-wide count
+ *  read 182 instead of 345 with no error anywhere. The rule is not a parameter here
+ *  precisely so that cannot happen again; use isSubmittedUnder to pick one explicitly. */
 export function isSubmitted(d: SubmissionInput): boolean {
   return isSubmittedUnder(d, SUBMISSION_RULE)
 }

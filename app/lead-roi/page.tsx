@@ -26,7 +26,7 @@ import { rrBand, isFunded, PURCHASED_SOURCES, type Purpose, type SourceScope } f
 import { totalComp, discountCredit, hasDiscountCredit } from '@/lib/comp'
 import {
   RANGE_OPTIONS, rangeBounds, monthsBetween, filterDeals, buildSourceStats, rollupKpis,
-  funnel, stateRows, stateStats, sourceStateMatrix, MATRIX_METRICS,
+  funnel, stateRows, stateStats, sourceStateMatrix, MATRIX_METRICS, SUBMISSION_DESC,
   monthlySeries, projection, optout7dStats, insights, netOf, LO_SPLIT,
   type RangeKey, type CostRow, type StateStats, type MatrixMetric,
 } from '@/lib/leadRoi'
@@ -576,7 +576,7 @@ export default function LeadRoiPage() {
                   sub={o7.timed > 0 ? `${o7.within} of ${kpis.totalLeads} leads opted out ≤ ${o7.days}d · timing covers ${o7.timed}/${o7.optouts} opt-outs` : 'no timing logged yet'} />
                 <Kpi icon={<FileCheck2 className="w-4 h-4 text-indigo-500" />} label="Submitted" subWrap
                   value={pct(kpis.sr)}
-                  sub={`${kpis.submitted.toLocaleString()} reached underwriting — status at/past Submitted to UW, or an Arive file exists`} />
+                  sub={`${kpis.submitted.toLocaleString()} ${SUBMISSION_DESC}`} />
                 <Kpi icon={<TrendingUp className="w-4 h-4 text-amber-500" />} label="Active escrows" value={kpis.active.toLocaleString()} />
                 <Kpi icon={<CheckCircle2 className="w-4 h-4 text-emerald-600" />} label="Funded" value={kpis.funded.toLocaleString()} sub={`${pct(kpis.fr)} · ${formatCurrency(kpis.volume)}`} highlight="good" />
               </div>
@@ -687,7 +687,7 @@ export default function LeadRoiPage() {
                           <th className="px-2 py-2.5 text-right">Leads</th>
                           <th className="px-2 py-2.5 text-right border-l border-slate-200" title="Engaged at least once — Ghosted counts">Resp %</th>
                           <th className="px-2 py-2.5 text-right" title="CUSTOMER opt-outs only: STOP · DND-SMS. Team dispositions (Remove from All Automations) are NOT counted here — they fold into Responded or No-response by whether the borrower ever replied.">Opt-out</th>
-                          <th className="px-2 py-2.5 text-right border-l border-slate-200" title="Reached underwriting — status at or past 'Submitted to UW', OR an Arive file number exists. The Arive clause catches loans that were submitted and then died: a deal only stores its CURRENT status, so those regress into a Not-Ready stage and would otherwise vanish from the count.">Sub %</th>
+                          <th className="px-2 py-2.5 text-right border-l border-slate-200" title="Reached underwriting — status at or past 'Submitted to UW'. NOT based on the Arive file number, which is issued at application, not at submission. A deal stores only its CURRENT status, so a loan that was submitted and then died reads as Not-Ready and is not counted here — this rate is a floor.">Sub %</th>
                           <th className="px-2 py-2.5 text-right border-l border-slate-200">Open</th>
                           <th className="px-2 py-2.5 text-right">Active</th>
                           <th className="px-2 py-2.5 text-right">Lost</th>
@@ -1178,7 +1178,7 @@ function SourceStatesTable({ source, deals, retainer, sourceSpend, sourceNetProf
               <th className="px-3 py-1.5 text-left">State</th>
               <th className="px-2 py-1.5">Leads</th>
               <th className="px-2 py-1.5 border-l border-slate-200">Resp %</th>
-              <th className="px-2 py-1.5" title="Reached underwriting">Sub %</th>
+              <th className="px-2 py-1.5" title="Reached underwriting — status at or past 'Submitted to UW'">Sub %</th>
               <th className="px-2 py-1.5">Funded</th>
               <th className="px-2 py-1.5">Fund %</th>
               <th className="px-2 py-1.5 border-l border-slate-200">Spend</th>
