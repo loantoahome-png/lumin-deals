@@ -7,6 +7,7 @@ import {
   isSubmitted, isApplied, isSubmittedUnder, SUBMISSION_RULE, stateStats, sourceStateMatrix,
   type CostRow, type RoiFilters,
 } from '../lib/leadRoi'
+import { isPurchasedSource } from '../lib/leadReport'
 import type { Deal } from '../lib/types'
 
 let pass = 0, fail = 0
@@ -452,6 +453,36 @@ eq('leadsByState always carries the count', mx.rows[1].leadsByState, [1, 0, 0, 1
 const mxRoi = sourceStateMatrix(mxSources, 'roi')
 eq('roi row total = the source roi', mxRoi.rows[0].total, mxSources[0].roi)
 eq('maxStates trims the thin tail', sourceStateMatrix(mxSources, 'leads', 2).states, ['CA', 'PA'])
+
+// ── Purchased-vendor test (caps the report's per-source state section) ─────────
+// The printable report breaks out ONLY the aggregators we pay per lead. Under "All
+// sources" an LO can carry 37 sources (Randy, 2026-09-21) and the section would run to
+// 37 tables of one-off referral / website sources.
+eq('Lendgo is a purchased vendor',      isPurchasedSource('Lendgo'), true)
+eq('LMB is a purchased vendor',         isPurchasedSource('LMB'), true)
+eq('OwnUp is a purchased vendor',       isPurchasedSource('OwnUp'), true)
+eq('Lending Tree is a purchased vendor',isPurchasedSource('Lending Tree'), true)
+eq('case-insensitive',                  isPurchasedSource('lendgo'), true)
+eq('trims whitespace',                  isPurchasedSource('  LMB  '), true)
+eq('Self Source is NOT purchased',      isPurchasedSource('Self Source'), false)
+eq('Meta Lead Ad is NOT purchased',     isPurchasedSource('Meta Lead Ad'), false)
+eq('a referral is NOT purchased',       isPurchasedSource('Referral - Friend / Family'), false)
+eq('null is NOT purchased',             isPurchasedSource(null), false)
+eq('blank is NOT purchased',            isPurchasedSource('   '), false)
+// ⚠️ NOT a substring match — "LendingTree Longform" is a different source from
+// "Lending Tree" and must not sneak into the purchased set.
+eq('no substring matching',             isPurchasedSource('LendingTree Longform'), false)
+// The report filter is exactly this test over the source rollup.
+const mixedBook: Deal[] = [
+  deal({ id: 'm1', source: 'Lendgo', state: 'CA' }),
+  deal({ id: 'm2', source: 'Self Source', state: 'CA' }),
+  deal({ id: 'm3', source: 'Meta Lead Ad', state: 'CA' }),
+]
+const mixedSrcs = buildSourceStats(mixedBook, new Map(), 1)
+eq('report keeps only purchased vendors',
+  mixedSrcs.filter(s => isPurchasedSource(s.source)).map(s => s.source), ['Lendgo'])
+eq('…and counts what it omitted',
+  mixedSrcs.length - mixedSrcs.filter(s => isPurchasedSource(s.source)).length, 2)
 
 // ── Misc ───────────────────────────────────────────────────────────────────────
 eq('sourceLabel blank → sentinel', sourceLabel({ source: '  ' }), '(no source set)')

@@ -56,7 +56,13 @@ export type LeadRow = Pick<Deal, 'loan_officer' | 'pipeline_group' | 'status' | 
 }
 
 export const rawSource = (d: LeadRow): string => (d.source ?? '').trim()
-export const isPurchased = (d: LeadRow): boolean => PURCHASED_SET.has(rawSource(d).toLowerCase())
+/** Is this SOURCE NAME one of the aggregators we pay per lead? Case-insensitive.
+ *  Split out so callers holding a source name (per-source rollups, report sections)
+ *  don't rebuild the lowercase set — `isPurchased` is this same test on a deal. */
+export const isPurchasedSource = (source: string | null | undefined): boolean =>
+  PURCHASED_SET.has((source ?? '').trim().toLowerCase())
+
+export const isPurchased = (d: LeadRow): boolean => isPurchasedSource(rawSource(d))
 
 // ── Status-level predicates (single source of truth) ───────────────────────────
 // The stage-change webhook (lib/stageEvents.ts) needs to decide "did this move

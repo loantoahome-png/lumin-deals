@@ -1,6 +1,14 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-09-21] /lead-roi report — "By source and state" capped to purchased vendors
+**Status:** CHANGED — tsc = the 7-error `main` baseline (0 new), `npm run build` ✓ exit 0, **183/183** fixtures, eslint identical to baseline on both touched files, report route re-rendered on the bypass dev server with no runtime errors.
+**Issue:** Efrain: "cap the report at the purchased vendors, we realistically only want data on the purchased leads." Under All-sources scope the section printed one table per source — 37 for Randy.
+**Changes:** [lib/leadReport.ts](lib/leadReport.ts) — new **`isPurchasedSource(name)`**, and `isPurchased(deal)` is now defined in terms of it so the lowercase set has ONE owner. [app/lead-roi/report/page.tsx](app/lead-roi/report/page.tsx) — the section maps `purchasedSources` instead of `visibleSources`, and when anything is dropped it says so inline ("Purchased vendors only — N other sources… They still count in every figure above"), so a reader can't mistake the section for the whole book. [scripts/lead-roi-check.ts](scripts/lead-roi-check.ts) — 14 fixtures incl. case/whitespace handling and a **no-substring-matching** guard: `LendingTree Longform` is a real, separate source in Randy's data and must NOT be absorbed into `Lending Tree`.
+**Measured effect (live, all time):** Agg-leads scope — **0 sources omitted for every LO, the default report is byte-identical**. All-sources scope — Randy **37 → 5 sources, 198 → 48 state rows**; Matt 20 → 6 (77 → 41); Moe 20 → 6 (55 → 26); Daniel 10 → 5 (65 → 54). Omitted are Self Source, (no source set), referrals, Meta/Facebook lead ads, website forms.
+**Test Method:** Visual Report under **All sources** → the section lists only Lendgo / LMB / FRU / OwnUp / Lending Tree / LeadPoint and carries the omission note; under Agg leads the note is absent because nothing is dropped.
+**Result:** VERIFIED (fixtures + live source-count measurement). The page's tabbed section deliberately still offers EVERY source — it has a More dropdown and no page-count cost; only the printable report is capped.
+
 ### [2026-09-21] /lead-roi — "One source, every state" tabbed section + stacked report
 **Status:** CHANGED — tsc = the 7-error `main` baseline (0 new), `npm run build` ✓ exit 0, **169/169** fixtures, live reconciliation via `scripts/lead-roi-state-report.ts` now checks 10 columns, and the component was rendered and **interacted with** on the bypass dev server via a temporary synthetic-data route (`app/ssbtest`, deleted before commit).
 **Issue:** Efrain: "I want one lead source to show all states… use the tabs to switch between lead source… make sure all this info will go into the visual report." The Source × state matrix answers one metric across every source; this is the other half — one source, every state, every metric.

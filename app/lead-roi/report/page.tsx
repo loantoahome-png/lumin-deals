@@ -12,7 +12,7 @@ import { useSearchParams } from 'next/navigation'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal, LOAN_OFFICERS } from '@/lib/types'
 import { formatCurrency, formatDate as fmtDate } from '@/lib/utils'
-import { rrBand, isFunded, PURCHASED_SOURCES, type Purpose, type SourceScope } from '@/lib/leadReport'
+import { rrBand, isPurchasedSource, isFunded, PURCHASED_SOURCES, type Purpose, type SourceScope } from '@/lib/leadReport'
 import { totalComp } from '@/lib/comp'
 import {
   RANGE_OPTIONS, rangeBounds, monthsBetween, filterDeals, buildSourceStats, rollupKpis,
@@ -101,6 +101,18 @@ function ReportBody() {
   const kpis = useMemo(() => rollupKpis(visibleSources), [visibleSources])
   const stages = useMemo(() => funnel(kpis), [kpis])
   const states = useMemo(() => stateRows(visibleDeals), [visibleDeals])
+  // The per-source state breakdown is capped to the aggregators we pay per lead
+  // (Efrain 2026-09-21: "we realistically only want data on the purchased leads").
+  // Under "Agg leads" scope this changes nothing — every visible source is already a
+  // purchased vendor. It matters under "All sources", where an LO can carry 37 sources
+  // (Randy, measured 2026-09-21) and the section would otherwise run to 37 tables of
+  // one-off referral and website sources. Those sources still count in every other
+  // figure in the report; only this breakdown skips them, and it says so.
+  const purchasedSources = useMemo(
+    () => visibleSources.filter(s => isPurchasedSource(s.source)),
+    [visibleSources],
+  )
+  const omittedSourceCount = visibleSources.length - purchasedSources.length
   const retainerPerMonth = useMemo(() => visibleSources.reduce((a, s) => a + s.costPerMonth, 0), [visibleSources])
   const monthly = useMemo(() => monthlySeries(visibleDeals, retainerPerMonth), [visibleDeals, retainerPerMonth])
   const proj = useMemo(() => projection(visibleSources, kpis), [visibleSources, kpis])
@@ -367,15 +379,20 @@ function ReportBody() {
 
         {/* Every source, every state — the print form of the page's tabbed section.
             A PDF has no tabs, so each source gets its own table, stacked. */}
-        {visibleSources.length > 0 && (
+        {purchasedSources.length > 0 && (
           <Section title="By source and state">
             <p className="text-[10px] text-slate-400 -mt-1 mb-3">
-              Each source across every state it bought in. Per-state figures add up to that source&apos;s row above;
+              Each purchased vendor across every state it bought in. Per-state figures add up to that source&apos;s row above;
               a retainer is billed per source, so it is split across states pro-rata by lead count.
               <span className="font-semibold text-slate-500"> (none)</span> is a lead with no state recorded.
+              {omittedSourceCount > 0 && (
+                <> <b className="text-slate-500">Purchased vendors only</b> — {omittedSourceCount} other
+                {' '}{omittedSourceCount === 1 ? 'source' : 'sources'} in this report {omittedSourceCount === 1 ? 'is' : 'are'} not
+                broken out here. They still count in every figure above.</>
+              )}
             </p>
             <div className="space-y-5">
-              {visibleSources.map(src => (
+              {purchasedSources.map(src => (
                 <SourceStateBlock key={src.source} src={src} />
               ))}
             </div>
