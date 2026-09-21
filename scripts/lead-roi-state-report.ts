@@ -81,7 +81,7 @@ async function main() {
     }
     const sum = (f: (r: typeof st[number]) => number) => st.reduce((a, r) => a + f(r), 0)
     const ok = (a: number, b: number) => (Math.abs(a - b) < 0.01 ? 'OK' : `MISMATCH (${a} vs ${b})`)
-    console.log(`     reconcile → leads ${ok(sum(r => r.n), top.total)} · spend ${ok(sum(r => r.spend), top.spend)} · net ${ok(sum(r => r.netProfit), top.netProfit)} · submitted ${ok(sum(r => r.submitted), top.submitted)} · applied ${ok(sum(r => r.applied), top.applied)}`)
+    console.log(`     reconcile → leads ${ok(sum(r => r.n), top.total)} · spend ${ok(sum(r => r.spend), top.spend)} · net ${ok(sum(r => r.netProfit), top.netProfit)} · submitted ${ok(sum(r => r.submitted), top.submitted)} · applied ${ok(sum(r => r.applied), top.applied)} · open ${ok(sum(r => r.open), top.open)} · active ${ok(sum(r => r.active), top.active)} · lost ${ok(sum(r => r.lost), top.lost)} · optout ${ok(sum(r => r.optout), top.optout)} · volume ${ok(sum(r => r.fundedVolume), top.fundedVolume)}`)
 
     const mx = sourceStateMatrix(sources, 'leads')
     console.log(`\n   matrix: ${mx.rows.length} sources × ${mx.states.length} states [${mx.states.join(' ')}]`)

@@ -450,10 +450,15 @@ export type StateStats = {
   state: string
   n: number
   responded: number; rr: number
+  cold: number
+  /** CUSTOMER opt-outs (STOP / DND-SMS) — same split as SourceStats. */
+  optout: number; orate: number
+  teamRemoved: number; trate: number
   applied: number; ar: number
   submitted: number; sr: number
+  open: number; active: number; lost: number
   funded: number; fr: number
-  fundedVolume: number
+  fundedVolume: number; fundedAvg: number
   leadCost: number
   retainer: number
   spend: number
@@ -472,24 +477,33 @@ export function stateStats(deals: Deal[], retainer = 0): StateStats[] {
     let r = map.get(key)
     if (!r) {
       r = {
-        state: key, n: 0, responded: 0, rr: 0, applied: 0, ar: 0, submitted: 0, sr: 0, funded: 0, fr: 0,
-        fundedVolume: 0, leadCost: 0, retainer: 0, spend: 0, revenue: 0,
+        state: key, n: 0, responded: 0, rr: 0, cold: 0, optout: 0, orate: 0,
+        teamRemoved: 0, trate: 0, applied: 0, ar: 0, submitted: 0, sr: 0,
+        open: 0, active: 0, lost: 0, funded: 0, fr: 0,
+        fundedVolume: 0, fundedAvg: 0, leadCost: 0, retainer: 0, spend: 0, revenue: 0,
         netRevenue: 0, netProfit: 0, roi: null, costPerFunded: null,
       }
       map.set(key, r)
     }
     r.n++
     if (isResponded(d)) r.responded++
+    if (isCold(d)) r.cold++
+    if (isCustomerOptout(d)) r.optout++
+    if (isTeamRemoved(d)) r.teamRemoved++
     if (isApplied(d)) r.applied++
     if (isSubmitted(d)) r.submitted++
     // Same rule as buildSourceStats: every opportunity's lead_price is a real,
     // separate charge. Never dedupe by contact or vendor_lead_id.
     r.leadCost += d.lead_price ?? 0
+    // Funded / active / lost / open must stay the SAME else-chain buildSourceStats
+    // uses, or a state's pipeline counts won't add up to the source row's.
     if (isFunded(d)) {
       r.funded++
       r.fundedVolume += d.loan_amount ?? 0
       r.revenue += totalComp(d)
-    }
+    } else if ((d.pipeline_group ?? '') === 'Loans in Process') r.active++
+    else if ((d.pipeline_group ?? '') === 'Not Ready') r.lost++
+    else r.open++
   }
   const rows = [...map.values()].sort((a, b) => b.n - a.n || a.state.localeCompare(b.state))
   const totalLeads = rows.reduce((a, r) => a + r.n, 0)
@@ -501,9 +515,12 @@ export function stateStats(deals: Deal[], retainer = 0): StateStats[] {
       : (totalLeads > 0 ? (retainer * r.n) / totalLeads : 0)
     allocated += r.retainer
     r.rr = r.n ? (100 * r.responded) / r.n : 0
+    r.orate = r.n ? (100 * r.optout) / r.n : 0
+    r.trate = r.n ? (100 * r.teamRemoved) / r.n : 0
     r.ar = r.n ? (100 * r.applied) / r.n : 0
     r.sr = r.n ? (100 * r.submitted) / r.n : 0
     r.fr = r.n ? (100 * r.funded) / r.n : 0
+    r.fundedAvg = r.funded ? r.fundedVolume / r.funded : 0
     r.spend = r.leadCost + r.retainer
     r.netRevenue = netOf(r.revenue)
     r.netProfit = r.netRevenue - r.spend

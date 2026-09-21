@@ -16,8 +16,8 @@ import { rrBand, isFunded, PURCHASED_SOURCES, type Purpose, type SourceScope } f
 import { totalComp } from '@/lib/comp'
 import {
   RANGE_OPTIONS, rangeBounds, monthsBetween, filterDeals, buildSourceStats, rollupKpis,
-  funnel, stateRows, monthlySeries, projection, optout7dStats, insights, netOf, LO_SPLIT,
-  type RangeKey, type CostRow,
+  funnel, stateRows, stateStats, monthlySeries, projection, optout7dStats, insights, netOf, LO_SPLIT,
+  type RangeKey, type CostRow, type SourceStats,
 } from '@/lib/leadRoi'
 import { Printer } from 'lucide-react'
 
@@ -365,6 +365,23 @@ function ReportBody() {
           </div>
         </Section>
 
+        {/* Every source, every state — the print form of the page's tabbed section.
+            A PDF has no tabs, so each source gets its own table, stacked. */}
+        {visibleSources.length > 0 && (
+          <Section title="By source and state">
+            <p className="text-[10px] text-slate-400 -mt-1 mb-3">
+              Each source across every state it bought in. Per-state figures add up to that source&apos;s row above;
+              a retainer is billed per source, so it is split across states pro-rata by lead count.
+              <span className="font-semibold text-slate-500"> (none)</span> is a lead with no state recorded.
+            </p>
+            <div className="space-y-5">
+              {visibleSources.map(src => (
+                <SourceStateBlock key={src.source} src={src} />
+              ))}
+            </div>
+          </Section>
+        )}
+
         {/* States + donut */}
         <div className="grid sm:grid-cols-2 gap-8 mt-7">
           <div>
@@ -492,6 +509,59 @@ function ReportBody() {
           <span>Lumin Lending · Lead ROI Report · live from the Lumin pipeline</span>
           <span>lead price coverage ~84% — money columns understate price-less leads</span>
         </div>
+      </div>
+    </div>
+  )
+}
+
+/** One source's state table in the printable report. `break-inside-avoid` keeps a
+ *  source's rows from splitting across a page break mid-table. */
+function SourceStateBlock({ src }: { src: SourceStats }) {
+  const rows = stateStats(src.deals, src.retainer)
+  if (rows.length === 0) return null
+  return (
+    <div className="break-inside-avoid" style={{ breakInside: 'avoid' }}>
+      <div className="flex items-baseline gap-2 mb-1.5">
+        <h3 className="text-[12px] font-extrabold text-slate-800">{src.source}</h3>
+        <span className="text-[10px] text-slate-400">
+          {src.total} leads · {rows.length} state{rows.length === 1 ? '' : 's'} · {formatCurrency(src.spend)} spend · {formatCurrency(src.netProfit)} net
+        </span>
+      </div>
+      <div className="overflow-x-auto border border-slate-200 rounded-lg">
+        <table className="w-full text-[11px]">
+          <thead>
+            <tr className="text-[9px] uppercase tracking-wide text-slate-500 bg-slate-50 border-b border-slate-200">
+              <Th left>State</Th><Th>Leads</Th><Th>Resp %</Th><Th>Opt-out</Th><Th>App %</Th><Th>Sub %</Th>
+              <Th>Open</Th><Th>Active</Th><Th>Lost</Th><Th>Funded</Th><Th>Fund %</Th>
+              <Th>Volume</Th><Th>Spend</Th><Th>Revenue</Th><Th>Net rev</Th><Th>Net</Th><Th>ROI</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.state} className="border-b border-slate-100 last:border-0">
+                <Td left bold>{r.state}</Td>
+                <Td>{r.n}</Td>
+                <Td className={`font-semibold ${RR_TXT[rrBand(r.rr)]}`}>{pct(r.rr)}</Td>
+                <Td dim>{r.optout ? `${r.optout} · ${pct(r.orate)}` : '—'}</Td>
+                <Td className={r.applied > 0 ? 'text-sky-700 font-semibold' : 'text-slate-300'}>{r.applied > 0 ? pct(r.ar) : '—'}</Td>
+                <Td className={r.submitted > 0 ? 'text-indigo-700 font-semibold' : 'text-slate-300'}>{r.submitted > 0 ? pct(r.sr) : '—'}</Td>
+                <Td dim>{r.open || '—'}</Td>
+                <Td className={r.active ? 'text-amber-600 font-semibold' : 'text-slate-300'}>{r.active || '—'}</Td>
+                <Td dim>{r.lost || '—'}</Td>
+                <Td bold>{r.funded || '—'}</Td>
+                <Td dim>{pct(r.fr)}</Td>
+                <Td>{r.fundedVolume > 0 ? formatCurrency(r.fundedVolume) : '—'}</Td>
+                <Td className="text-rose-600">{r.spend > 0 ? formatCurrency(r.spend) : '—'}</Td>
+                <Td dim>{r.revenue > 0 ? formatCurrency(r.revenue) : '—'}</Td>
+                <Td className="text-emerald-700">{r.netRevenue > 0 ? formatCurrency(r.netRevenue) : '—'}</Td>
+                <Td bold className={(r.revenue === 0 && r.spend === 0) ? 'text-slate-300' : r.netProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}>
+                  {(r.revenue === 0 && r.spend === 0) ? '—' : formatCurrency(r.netProfit)}
+                </Td>
+                <Td bold className={r.roi == null ? 'text-slate-300' : r.roi >= 1 ? 'text-emerald-700' : 'text-red-600'}>{roiFmt(r.roi)}</Td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   )

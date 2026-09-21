@@ -20,6 +20,7 @@ import { supabase } from '@/lib/supabase'
 import { useCurrentUser } from '@/lib/useCurrentUser'
 import { resolveLO } from '@/lib/loanOfficer'
 import { fetchAllDeals } from '@/lib/fetchAllDeals'
+import SourceStateBreakdown from '@/components/SourceStateBreakdown'
 import { Deal, LOAN_OFFICERS, PIPELINE_GROUPS, PIPELINE_STATUSES } from '@/lib/types'
 import { formatCurrency, formatDate as fmtDate } from '@/lib/utils'
 import { rrBand, isFunded, PURCHASED_SOURCES, type Purpose, type SourceScope } from '@/lib/leadReport'
@@ -28,7 +29,7 @@ import {
   RANGE_OPTIONS, rangeBounds, monthsBetween, filterDeals, buildSourceStats, rollupKpis,
   funnel, stateRows, stateStats, sourceStateMatrix, MATRIX_METRICS, SUBMISSION_DESC,
   monthlySeries, projection, optout7dStats, insights, netOf, LO_SPLIT,
-  type RangeKey, type CostRow, type StateStats, type MatrixMetric,
+  type RangeKey, type CostRow, type MatrixMetric,
 } from '@/lib/leadRoi'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -114,6 +115,10 @@ export default function LeadRoiPage() {
   const [showSourceFilter, setShowSourceFilter] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [matrixMetric, setMatrixMetric] = useState<MatrixMetric>('leads')
+  // Which source the per-source state section is showing. Null = follow the biggest.
+  // Never read directly — `stateTabSource` clamps it to a source that is still visible,
+  // so switching LO or narrowing the source filter can't strand it on a missing tab.
+  const [stateTabPick, setStateTabPick] = useState<string | null>(null)
   // ⚠️ /lead-roi is NOT a read-only page. It can rewrite `deals.source` — one
   // deal at a time AND in bulk across every deal from a source — and edit the
   // retainer costs that feed every ROI figure on it. A `reporting` LO is here to
@@ -170,6 +175,14 @@ export default function LeadRoiPage() {
   const funnelStages = useMemo(() => funnel(kpis), [kpis])
   const states = useMemo(() => stateRows(visibleDeals), [visibleDeals])
   const matrix = useMemo(() => sourceStateMatrix(visibleSources, matrixMetric), [visibleSources, matrixMetric])
+  const stateTabSource = useMemo(() => {
+    if (stateTabPick && visibleSources.some(s => s.source === stateTabPick)) return stateTabPick
+    return visibleSources[0]?.source ?? null
+  }, [stateTabPick, visibleSources])
+  const stateTabStats = useMemo(
+    () => visibleSources.find(s => s.source === stateTabSource) ?? null,
+    [visibleSources, stateTabSource],
+  )
   const retainerPerMonth = useMemo(() => visibleSources.reduce((a, s) => a + s.costPerMonth, 0), [visibleSources])
   const monthly = useMemo(() => monthlySeries(visibleDeals, retainerPerMonth), [visibleDeals, retainerPerMonth])
   const proj = useMemo(() => projection(visibleSources, kpis), [visibleSources, kpis])
@@ -898,6 +911,15 @@ export default function LeadRoiPage() {
                     {retainerPerMonth > 0 && <> Retainers are billed per source, so they are split across a source&apos;s states pro-rata by lead count.</>}
                   </p>
                 </div>
+              )}
+
+              {/* One source, every state, every metric — tabbed */}
+              {stateTabStats && (
+                <SourceStateBreakdown
+                  sources={visibleSources}
+                  selected={stateTabStats}
+                  onSelect={setStateTabPick}
+                />
               )}
 
               {/* State + donut */}

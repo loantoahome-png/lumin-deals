@@ -390,6 +390,38 @@ eq('Σ state leads = source leads',          geoStates.reduce((a, r) => a + r.n,
 eq('Σ state submitted = source submitted',  geoStates.reduce((a, r) => a + r.submitted, 0), geoSrc.submitted)
 eq('Σ state funded = source funded',        geoStates.reduce((a, r) => a + r.funded, 0), geoSrc.funded)
 
+// The per-source state table renders EVERY column the source table does, so the whole
+// metric set has to reconcile — not just the money. The open/active/lost else-chain in
+// stateStats must stay identical to buildSourceStats or these drift apart silently.
+eq('Σ state open = source open',           geoStates.reduce((a, r) => a + r.open, 0), geoSrc.open)
+eq('Σ state active = source active',       geoStates.reduce((a, r) => a + r.active, 0), geoSrc.active)
+eq('Σ state lost = source lost',           geoStates.reduce((a, r) => a + r.lost, 0), geoSrc.lost)
+eq('Σ state optout = source optout',       geoStates.reduce((a, r) => a + r.optout, 0), geoSrc.optout)
+eq('Σ state cold = source cold',           geoStates.reduce((a, r) => a + r.cold, 0), geoSrc.cold)
+eq('Σ state teamRemoved = source',         geoStates.reduce((a, r) => a + r.teamRemoved, 0), geoSrc.teamRemoved)
+eq('Σ state volume = source volume',       geoStates.reduce((a, r) => a + r.fundedVolume, 0), geoSrc.fundedVolume)
+// A state's pipeline buckets partition its leads, exactly like the source row's do.
+eq('open+active+lost+funded = leads, per state',
+  geoStates.every(r => r.open + r.active + r.lost + r.funded === r.n), true)
+approx('CA avg funded volume', geoStates[0].fundedAvg, 500000)
+eq('a state with no funded has 0 avg', geoStates[1].fundedAvg, 0)
+
+// A dead lead lands in `lost`, an in-process one in `active` — pinned because the state
+// table now shows those columns and a mis-bucketed row would not be obvious on screen.
+const bucketBook: Deal[] = [
+  deal({ id: 'b1', source: 'Buck', state: 'CA', status: 'New Lead', pipeline_group: 'Leads' }),
+  deal({ id: 'b2', source: 'Buck', state: 'CA', status: 'Loan Setup', pipeline_group: 'Loans in Process' }),
+  deal({ id: 'b3', source: 'Buck', state: 'CA', status: 'Lost to Competitor', pipeline_group: 'Not Ready' }),
+  deal({ id: 'b4', source: 'Buck', state: 'CA', status: 'Loan Funded', pipeline_group: 'Funded', funded_date: '2026-06-01' }),
+]
+const bucketState = stateStats(bucketBook, 0)[0]
+eq('state buckets: open/active/lost/funded',
+  [bucketState.open, bucketState.active, bucketState.lost, bucketState.funded], [1, 1, 1, 1])
+const bucketSrc = buildSourceStats(bucketBook, new Map(), 1)[0]
+eq('…and they match the source row',
+  [bucketState.open, bucketState.active, bucketState.lost, bucketState.funded],
+  [bucketSrc.open, bucketSrc.active, bucketSrc.lost, bucketSrc.funded])
+
 // Retainer: billed per SOURCE, split pro-rata by lead count, last state absorbs the
 // remainder so the column sums EXACTLY. 100 over 6 leads = 3 CA + 2 PA + 1 (none).
 const geoCosts = new Map<string, CostRow>([['Geo', { source: 'Geo', cost_per_month: 100, notes: null, updated_at: '' }]])
