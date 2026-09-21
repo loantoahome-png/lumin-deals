@@ -126,7 +126,7 @@ function ReportBody() {
   // Scaled to what is actually PLOTTED (spend + net revenue) — using gross here
   // would shrink every bar by the split and leave dead space at the top.
   const maxMonthVal = Math.max(1, ...monthly.flatMap(p => [p.spend, p.netRevenue]))
-  const FUNNEL_BG = ['#c7d2fe', '#a5b4fc', '#818cf8', '#6366f1', '#4f46e5']
+  const FUNNEL_BG = ['#c7d2fe', '#a5b4fc', '#38bdf8', '#818cf8', '#6366f1', '#4f46e5']
 
   // Donut geometry (pure SVG — prints reliably, unlike a responsive chart lib)
   const donutData = useMemo(() => {
@@ -310,7 +310,7 @@ function ReportBody() {
             <table className="w-full text-[12px]">
               <thead>
                 <tr className="text-[9px] uppercase tracking-wide text-slate-500 bg-slate-50 border-b-2 border-slate-200">
-                  <Th left>Source</Th><Th>Leads</Th><Th>Resp %</Th><Th>Opt-out</Th><Th>Sub %</Th>{/* status ≥ 'Submitted to UW' — see lib/leadRoi SUBMISSION_RULE */}
+                  <Th left>Source</Th><Th>Leads</Th><Th>Resp %</Th><Th>Opt-out</Th><Th>App %</Th><Th>Sub %</Th>{/* App = an Arive file exists (issued at application); Sub = status ≥ 'Submitted to UW'. See lib/leadRoi SUBMISSION_RULE */}
                   <Th>Open</Th><Th>Active</Th><Th>Lost</Th><Th>Funded</Th><Th>Fund %</Th>
                   <Th>Volume</Th><Th>Spend</Th><Th>Revenue</Th><Th>Net rev</Th><Th>Net</Th><Th>ROI</Th>
                 </tr>
@@ -322,6 +322,7 @@ function ReportBody() {
                     <Td>{s.total}</Td>
                     <Td className={`font-semibold ${RR_TXT[rrBand(s.rr)]}`}>{pct(s.rr)}</Td>
                     <Td dim>{s.optout ? `${s.optout} · ${pct(s.orate)}` : '—'}</Td>
+                    <Td className={s.applied > 0 ? 'text-sky-700 font-semibold' : 'text-slate-300'}>{s.applied > 0 ? pct(s.ar) : '—'}</Td>
                     <Td className={s.submitted > 0 ? 'text-indigo-700 font-semibold' : 'text-slate-300'}>{s.submitted > 0 ? pct(s.sr) : '—'}</Td>
                     <Td dim>{s.open || '—'}</Td>
                     <Td className={s.active ? 'text-amber-600 font-semibold' : 'text-slate-300'}>{s.active || '—'}</Td>
@@ -345,6 +346,7 @@ function ReportBody() {
                   <Td>{kpis.totalLeads}</Td>
                   <Td className={RR_TXT[rrBand(kpis.rr)]}>{pct(kpis.rr)}</Td>
                   <Td>{kpis.optout} · {pct(kpis.orate)}</Td>
+                  <Td className="text-sky-700">{pct(kpis.ar)}</Td>
                   <Td className="text-indigo-700">{pct(kpis.sr)}</Td>
                   <Td>{visibleSources.reduce((a, s) => a + s.open, 0)}</Td>
                   <Td>{kpis.active}</Td>
@@ -374,7 +376,7 @@ function ReportBody() {
                   <div key={r.state} className="grid grid-cols-[40px_1fr_150px] items-center gap-2.5">
                     <span className={`text-xs font-bold ${i > 5 ? 'text-slate-400' : 'text-slate-600'}`}>{r.state}</span>
                     <div className="bg-slate-100 rounded h-3.5"><div className="h-full rounded bg-sky-700" style={{ width: `${Math.max(2, (r.n / max) * 100)}%` }} /></div>
-                    <span className="text-[11px] text-slate-500 text-right tabular-nums"><b className="text-slate-800">{r.n}</b> leads · {r.submitted} sub · {r.funded} funded</span>
+                    <span className="text-[11px] text-slate-500 text-right tabular-nums"><b className="text-slate-800">{r.n}</b> leads · {r.applied} app · {r.submitted} sub · {r.funded} funded</span>
                   </div>
                 )
               })}

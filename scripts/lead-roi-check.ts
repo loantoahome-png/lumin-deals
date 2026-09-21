@@ -4,7 +4,7 @@ import {
   rangeBounds, monthsBetween, parseLocalMs, anchorDate, filterDeals, buildSourceStats,
   rollupKpis, funnel, stateRows, monthlySeries, projection, sourceLabel,
   optout7dStats, insights, netOf, LO_SPLIT,
-  isSubmitted, isSubmittedUnder, SUBMISSION_RULE, stateStats, sourceStateMatrix,
+  isSubmitted, isApplied, isSubmittedUnder, SUBMISSION_RULE, stateStats, sourceStateMatrix,
   type CostRow, type RoiFilters,
 } from '../lib/leadRoi'
 import type { Deal } from '../lib/types'
@@ -122,9 +122,9 @@ approx('kpis netProfit runs on net', k.netProfit, 2300)
 approx('kpis avgComp = GROSS ÷ funded', k.avgComp, 1500)      // 3000 across 2 funded
 approx('kpis avgNetComp = NET ÷ funded', k.avgNetComp, 1275)  // what cost/funded must beat
 const fn = funnel(k)
-// leads, responded, SUBMITTED, became-a-loan, funded. 0 active → became-a-loan =
+// leads, responded, APPLIED, SUBMITTED, became-a-loan, funded. 0 active → became-a-loan =
 // funded; both funded deals rank past 'Submitted to UW', so submitted = 2 as well.
-eq('funnel stages', fn.map(s => s.n), [4, 3, 2, 2, 2])
+eq('funnel stages', fn.map(s => s.n), [4, 3, 2, 2, 2, 2])
 
 // ── States ─────────────────────────────────────────────────────────────────────
 const st = stateRows(moes)
@@ -317,6 +317,24 @@ eq('filter(isSubmitted) is index-safe', filterBook.filter(isSubmitted).length, 3
 eq('…and agrees with an explicit loop',
   filterBook.filter(isSubmitted).length, filterBook.filter(d => isSubmitted(d)).length)
 
+// ── Application (isApplied) ────────────────────────────────────────────────────
+// The OTHER milestone. An Arive file number is issued at application, so it IS the
+// signal here — the exact clause isSubmitted must never use.
+eq('App Intake + Arive file IS applied',   isApplied({ status: 'App Intake', arive_file_no: 'L-1' }), true)
+eq('dead status + Arive file IS applied',  isApplied({ status: 'Not Ready - Timeframe', arive_file_no: 'L-1' }), true)
+eq('no file, early status → not applied',  isApplied({ status: 'App Intake', arive_file_no: null }), false)
+eq('whitespace file is empty',             isApplied({ status: 'App Intake', arive_file_no: '  ' }), false)
+// applied ⊇ submitted by construction: anything past UW on status counts either way,
+// so the funnel can never invert even if the file column was not imported.
+eq('a UW status with no file is still applied', isApplied({ status: 'Submitted to UW', arive_file_no: null }), true)
+eq('Loan Funded with no file is still applied', isApplied({ status: 'Loan Funded', arive_file_no: null }), true)
+eq('applied is index-safe under filter',
+  [
+    { status: 'App Intake',            arive_file_no: 'L-1' },
+    { status: 'App Intake',            arive_file_no: 'L-2' },
+    { status: 'Attempted Contact',     arive_file_no: null  },
+  ].filter(isApplied).length, 2)
+
 // Submission rolls up, and can never sit below funded.
 const subBook: Deal[] = [
   deal({ id: 's1', source: 'Zed', status: 'Attempted Contact' }),
@@ -327,13 +345,21 @@ const subBook: Deal[] = [
 const subStats = buildSourceStats(subBook, new Map(), 1)
 eq('submitted counts the UW status + funded, NOT the Arive file', subStats[0].submitted, 2)
 approx('sub rate = 2/4', subStats[0].sr, 50)
+// s3 is the dead deal holding a file: an APPLICATION, not a submission.
+eq('applied counts the file too', subStats[0].applied, 3)
+approx('app rate = 3/4', subStats[0].ar, 75)
+eq('applied ≥ submitted', subStats[0].applied >= subStats[0].submitted, true)
 const subK = rollupKpis(subStats)
 eq('kpis carry submitted', subK.submitted, 2)
+eq('kpis carry applied', subK.applied, 3)
 approx('kpi sub rate', subK.sr, 50)
+approx('kpi app rate', subK.ar, 75)
 eq('submission is never below funded', subK.submitted >= subK.funded, true)
+eq('application is never below submission', subK.applied >= subK.submitted, true)
 const subFunnel = funnel(subK)
-eq('funnel has 5 stages', subFunnel.map(f => f.key), ['leads', 'responded', 'submitted', 'loan', 'funded'])
-eq('funnel Submitted count', subFunnel[2].n, 2)
+eq('funnel has 6 stages', subFunnel.map(f => f.key), ['leads', 'responded', 'applied', 'submitted', 'loan', 'funded'])
+eq('funnel Applied count', subFunnel[2].n, 3)
+eq('funnel Submitted count', subFunnel[3].n, 2)
 
 // ── stateStats: the full money set, and it MUST reconcile to the source row ─────
 const geoBook: Deal[] = [
@@ -353,6 +379,8 @@ eq('CA submitted = UW + funded', geoStates[0].submitted, 2)
 // PA's only candidate is a dead deal holding an Arive file — an APPLICATION, not
 // a submission, so it no longer counts.
 eq('PA Arive file does NOT count as submitted', geoStates[1].submitted, 0)
+eq('…but it DOES count as an application', geoStates[1].applied, 1)
+eq('Σ state applied = source applied', geoStates.reduce((a, r) => a + r.applied, 0), geoSrc.applied)
 approx('CA net revenue is the LO share', geoStates[0].netRevenue, 1700)
 // Reconciliation — the contract the UI footer asserts out loud.
 approx('Σ state spend = source spend',      geoStates.reduce((a, r) => a + r.spend, 0), geoSrc.spend)

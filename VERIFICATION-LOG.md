@@ -1,6 +1,14 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-09-21] /lead-roi — App % column added beside Sub %
+**Status:** CHANGED — tsc = the 7-error `main` baseline (0 new), `npm run build` ✓ exit 0, **157/157** fixtures, live numbers verified via `scripts/lead-roi-state-report.ts` (reconcile prints `applied OK` too), page renders on the bypass dev server with only HMR websocket noise.
+**Issue:** Efrain: "add the app % column." After Sub % was corrected to a UW-only test it sat almost on top of Fund % (Lendgo 1.3% vs 1.1%) and stopped separating vendors. The application milestone — which the Arive file number actually marks — has 4× the spread.
+**Changes:** [lib/leadRoi.ts](lib/leadRoi.ts) — new `isApplied()` (wraps the pinned `'application'` rule); `applied`/`ar` added to `SourceStats`, `RoiKpis`, `StateRow` and `StateStats`; an **Applied** funnel stage between *Responded* and *Submitted*; `MATRIX_METRICS` gains `Applied` + `App %`. [app/lead-roi/page.tsx](app/lead-roi/page.tsx) — App % column (sky) before Sub % (indigo) in the source table + totals, an Applied KPI card, App % in the drill-down states table, CSV gains `Applied` + `App %`, drill-down colSpan 17 → 18. [app/lead-roi/report/page.tsx](app/lead-roi/report/page.tsx) — App % column, tfoot, and per-state line. [scripts/lead-roi-check.ts](scripts/lead-roi-check.ts) — 16 new fixtures incl. `applied ⊇ submitted` and a filter-index guard. [scripts/lead-roi-state-report.ts](scripts/lead-roi-state-report.ts) — App % in both tables.
+**Note:** `isApplied` counts the Arive file **OR** any status already past UW. The second half is not redundant — it guarantees `applied ≥ submitted` by construction, so the funnel cannot invert on a loan that reached underwriting before its file number was imported.
+**Test Method:** `npx tsx scripts/lead-roi-state-report.ts "Moe Sefati"` — App % column must read OwnUp 13.1% / LMB 7.0% / FRU 5.1% / LeadPoint 3.8% / Lendgo 3.3%, and every drill-down must print `… · submitted OK · applied OK`.
+**Result:** VERIFIED. Moe: applied 95 (5.5%), submitted 33 (1.9%), funded 27 (1.6%). App % separates vendors 4× wider than Sub % — OwnUp 13.1% vs Lendgo 3.3%, where the UW rate is 4.4% vs 1.3%.
+
 ### [2026-09-21] /lead-roi — Submission % corrected to a UW-only test
 **Status:** CHANGED — tsc = the 7-error `main` baseline (0 new), `npm run build` ✓ exit 0, **141/141** fixtures, live numbers re-verified via `scripts/lead-roi-state-report.ts`.
 **Issue:** The metric shipped earlier today counted `arive_file_no` as proof of submission. **Efrain, 2026-09-21: "the file number is created at application."** That invalidates the clause — a file number proves an application was taken, not that the loan went to underwriting. It was inflating the metric 108 → 345 across 5,222 priced leads (2.1% → 6.6%) and mislabelling **162 leads still in the Leads group, 151 of them at `App Intake`**, as submissions.

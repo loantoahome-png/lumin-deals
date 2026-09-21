@@ -115,6 +115,19 @@ export function isSubmitted(d: SubmissionInput): boolean {
   return isSubmittedUnder(d, SUBMISSION_RULE)
 }
 
+/** Was an APPLICATION taken? An Arive file number is issued at application (Efrain
+ *  2026-09-21), so its presence is the milestone — plus anything already past it on
+ *  status, which keeps `applied ⊇ submitted` true by construction and stops the funnel
+ *  inverting when a loan reaches UW without the file column having been imported yet.
+ *
+ *  This is the metric with real vendor spread: measured 2026-09-21 on Moe's book,
+ *  OwnUp 13.1% / LMB 7.0% / FRU 5.1% / Lendgo 3.3%, where the UW rate is a flat
+ *  4.4 / 2.6 / 1.8 / 1.3% and barely separates from fund %. Same one-argument rule as
+ *  isSubmitted — see the note above about `.filter()` and the index. */
+export function isApplied(d: SubmissionInput): boolean {
+  return isSubmittedUnder(d, 'application')
+}
+
 // ── LO revenue split ───────────────────────────────────────────────────────────
 // The loan officer keeps 85% of what a funded loan earns; the remaining 15% never
 // reaches them. Efrain, 2026-08-10: "the loan officer does not keep 100% of that,
@@ -232,7 +245,10 @@ export type SourceStats = {
    *  separately so triage adoption can't masquerade as leads opting out. */
   teamRemoved: number; trate: number
   open: number; active: number; lost: number
-  /** Reached underwriting — isSubmitted (status rank OR an Arive file). Always ≥ funded. */
+  /** Application taken — isApplied (an Arive file exists, or the status is past it).
+   *  Always ≥ submitted. The earlier, higher-volume milestone. */
+  applied: number; ar: number
+  /** Reached underwriting — isSubmitted (status rank only). Always ≥ funded. */
   submitted: number; sr: number
   funded: number; fr: number
   fundedVolume: number; fundedAvg: number
@@ -257,7 +273,7 @@ export function buildSourceStats(deals: Deal[], costs: Map<string, CostRow>, mon
       s = {
         source: src, total: 0, responded: 0, rr: 0, cold: 0, optout: 0, orate: 0,
         teamRemoved: 0, trate: 0,
-        open: 0, active: 0, lost: 0, submitted: 0, sr: 0, funded: 0, fr: 0,
+        open: 0, active: 0, lost: 0, applied: 0, ar: 0, submitted: 0, sr: 0, funded: 0, fr: 0,
         fundedVolume: 0, fundedAvg: 0,
         leadCost: 0, retainer: cpm * months, spend: 0, revenue: 0, netRevenue: 0, netProfit: 0,
         roi: null, costPerFunded: null, costPerMonth: cpm, deals: [],
@@ -274,6 +290,7 @@ export function buildSourceStats(deals: Deal[], costs: Map<string, CostRow>, mon
     if (isCold(d)) s.cold++
     if (isCustomerOptout(d)) s.optout++
     if (isTeamRemoved(d)) s.teamRemoved++
+    if (isApplied(d)) s.applied++
     if (isSubmitted(d)) s.submitted++
     // EVERY opportunity's lead_price is a REAL, SEPARATE charge — never dedupe it.
     // Efrain, 2026-07-28: "there are definitely leads that are purchased twice,
@@ -304,6 +321,7 @@ export function buildSourceStats(deals: Deal[], costs: Map<string, CostRow>, mon
     s.rr = s.total ? (100 * s.responded) / s.total : 0
     s.orate = s.total ? (100 * s.optout) / s.total : 0
     s.trate = s.total ? (100 * s.teamRemoved) / s.total : 0
+    s.ar = s.total ? (100 * s.applied) / s.total : 0
     s.sr = s.total ? (100 * s.submitted) / s.total : 0
     s.fr = s.total ? (100 * s.funded) / s.total : 0
     s.fundedAvg = s.funded ? s.fundedVolume / s.funded : 0
@@ -325,6 +343,7 @@ export type RoiKpis = {
   optout: number; orate: number          // CUSTOMER opt-outs (STOP / DND-SMS)
   teamRemoved: number; trate: number     // team dispositions (Remove from All Automations)
   active: number
+  applied: number; ar: number            // application taken — isApplied
   submitted: number; sr: number          // reached underwriting — isSubmitted
   funded: number; fr: number
   volume: number
@@ -340,12 +359,13 @@ export type RoiKpis = {
 
 export function rollupKpis(sources: SourceStats[]): RoiKpis {
   let totalLeads = 0, responded = 0, cold = 0, optout = 0, teamRemoved = 0, active = 0
-  let submitted = 0, funded = 0
+  let applied = 0, submitted = 0, funded = 0
   let volume = 0, leadCost = 0, retainer = 0, revenue = 0
   for (const s of sources) {
     totalLeads += s.total; responded += s.responded; cold += s.cold; optout += s.optout
     teamRemoved += s.teamRemoved
-    active += s.active; submitted += s.submitted; funded += s.funded; volume += s.fundedVolume
+    active += s.active; applied += s.applied; submitted += s.submitted
+    funded += s.funded; volume += s.fundedVolume
     leadCost += s.leadCost; retainer += s.retainer; revenue += s.revenue
   }
   const spend = leadCost + retainer
@@ -358,7 +378,8 @@ export function rollupKpis(sources: SourceStats[]): RoiKpis {
     totalLeads, responded, rr: (100 * responded) / safe,
     cold, crate: (100 * cold) / safe, optout, orate: (100 * optout) / safe,
     teamRemoved, trate: (100 * teamRemoved) / safe,
-    active, submitted, sr: (100 * submitted) / safe,
+    active, applied, ar: (100 * applied) / safe,
+    submitted, sr: (100 * submitted) / safe,
     funded, fr: (100 * funded) / safe, volume,
     leadCost, retainer, spend, revenue, netRevenue, netProfit: netRevenue - spend,
     roi: spend > 0 ? netRevenue / spend : null,
@@ -380,6 +401,7 @@ export function funnel(k: RoiKpis): FunnelStage[] {
   return [
     { key: 'leads',     label: 'Leads',         sub: 'in scope',          n: k.totalLeads, pctOfLeads: 100 },
     { key: 'responded', label: 'Responded',     sub: 'engaged ≥ once',    n: k.responded,  pctOfLeads: pct(k.responded) },
+    { key: 'applied',   label: 'Applied',       sub: 'file opened',       n: k.applied,    pctOfLeads: pct(k.applied) },
     { key: 'submitted', label: 'Submitted',     sub: 'reached UW',        n: k.submitted,  pctOfLeads: pct(k.submitted) },
     { key: 'loan',      label: 'Became a loan', sub: 'active + funded',   n: becameLoan,   pctOfLeads: pct(becameLoan) },
     { key: 'funded',    label: 'Funded',        sub: 'comp earned',       n: k.funded,     pctOfLeads: pct(k.funded) },
@@ -387,21 +409,23 @@ export function funnel(k: RoiKpis): FunnelStage[] {
 }
 
 // ── Per-state rows ─────────────────────────────────────────────────────────────
-export type StateRow = { state: string; n: number; responded: number; rr: number; submitted: number; sr: number; funded: number; fr: number }
+export type StateRow = { state: string; n: number; responded: number; rr: number; applied: number; ar: number; submitted: number; sr: number; funded: number; fr: number }
 export function stateRows(deals: Deal[]): StateRow[] {
   const map = new Map<string, StateRow>()
   for (const d of deals) {
     const t = (d.state ?? '').trim()
     const key = t ? t.toUpperCase().slice(0, 2) : '(none)'
     let r = map.get(key)
-    if (!r) { r = { state: key, n: 0, responded: 0, rr: 0, submitted: 0, sr: 0, funded: 0, fr: 0 }; map.set(key, r) }
+    if (!r) { r = { state: key, n: 0, responded: 0, rr: 0, applied: 0, ar: 0, submitted: 0, sr: 0, funded: 0, fr: 0 }; map.set(key, r) }
     r.n++
     if (isResponded(d)) r.responded++
+    if (isApplied(d)) r.applied++
     if (isSubmitted(d)) r.submitted++
     if (isFunded(d)) r.funded++
   }
   for (const r of map.values()) {
     r.rr = r.n ? (100 * r.responded) / r.n : 0
+    r.ar = r.n ? (100 * r.applied) / r.n : 0
     r.sr = r.n ? (100 * r.submitted) / r.n : 0
     r.fr = r.n ? (100 * r.funded) / r.n : 0
   }
@@ -426,6 +450,7 @@ export type StateStats = {
   state: string
   n: number
   responded: number; rr: number
+  applied: number; ar: number
   submitted: number; sr: number
   funded: number; fr: number
   fundedVolume: number
@@ -447,7 +472,7 @@ export function stateStats(deals: Deal[], retainer = 0): StateStats[] {
     let r = map.get(key)
     if (!r) {
       r = {
-        state: key, n: 0, responded: 0, rr: 0, submitted: 0, sr: 0, funded: 0, fr: 0,
+        state: key, n: 0, responded: 0, rr: 0, applied: 0, ar: 0, submitted: 0, sr: 0, funded: 0, fr: 0,
         fundedVolume: 0, leadCost: 0, retainer: 0, spend: 0, revenue: 0,
         netRevenue: 0, netProfit: 0, roi: null, costPerFunded: null,
       }
@@ -455,6 +480,7 @@ export function stateStats(deals: Deal[], retainer = 0): StateStats[] {
     }
     r.n++
     if (isResponded(d)) r.responded++
+    if (isApplied(d)) r.applied++
     if (isSubmitted(d)) r.submitted++
     // Same rule as buildSourceStats: every opportunity's lead_price is a real,
     // separate charge. Never dedupe by contact or vendor_lead_id.
@@ -475,6 +501,7 @@ export function stateStats(deals: Deal[], retainer = 0): StateStats[] {
       : (totalLeads > 0 ? (retainer * r.n) / totalLeads : 0)
     allocated += r.retainer
     r.rr = r.n ? (100 * r.responded) / r.n : 0
+    r.ar = r.n ? (100 * r.applied) / r.n : 0
     r.sr = r.n ? (100 * r.submitted) / r.n : 0
     r.fr = r.n ? (100 * r.funded) / r.n : 0
     r.spend = r.leadCost + r.retainer
@@ -493,10 +520,12 @@ export function stateStats(deals: Deal[], retainer = 0): StateStats[] {
 // A null cell means the source bought NO leads in that state — which is different
 // from "bought leads and made nothing there" (0). The UI must render them differently
 // or an untouched state reads as a failure.
-export type MatrixMetric = 'leads' | 'submitted' | 'sr' | 'funded' | 'fr' | 'spend' | 'netProfit' | 'roi'
+export type MatrixMetric = 'leads' | 'applied' | 'ar' | 'submitted' | 'sr' | 'funded' | 'fr' | 'spend' | 'netProfit' | 'roi'
 
 export const MATRIX_METRICS: Array<{ key: MatrixMetric; label: string; kind: 'count' | 'pct' | 'money' | 'roi' }> = [
   { key: 'leads',     label: 'Leads',      kind: 'count' },
+  { key: 'applied',   label: 'Applied',    kind: 'count' },
+  { key: 'ar',        label: 'App %',      kind: 'pct'   },
   { key: 'submitted', label: 'Submitted',  kind: 'count' },
   { key: 'sr',        label: 'Sub %',      kind: 'pct'   },
   { key: 'funded',    label: 'Funded',     kind: 'count' },
@@ -517,6 +546,8 @@ export type SourceStateMatrix = { states: string[]; rows: MatrixRow[] }
 const metricOf = (r: StateStats, m: MatrixMetric): number | null => {
   switch (m) {
     case 'leads':     return r.n
+    case 'applied':   return r.applied
+    case 'ar':        return r.ar
     case 'submitted': return r.submitted
     case 'sr':        return r.sr
     case 'funded':    return r.funded
@@ -529,6 +560,8 @@ const metricOf = (r: StateStats, m: MatrixMetric): number | null => {
 const sourceMetricOf = (s: SourceStats, m: MatrixMetric): number | null => {
   switch (m) {
     case 'leads':     return s.total
+    case 'applied':   return s.applied
+    case 'ar':        return s.ar
     case 'submitted': return s.submitted
     case 'sr':        return s.sr
     case 'funded':    return s.funded
