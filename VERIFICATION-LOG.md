@@ -1,6 +1,18 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-09-21] lock-alerts cron — fired for nobody, and would have emailed dead loans
+**Status:** CHANGED — tsc = the 7-error `main` baseline, `npm run build` ✓ exit 0, `lock-status-check` 25 + `loan-outcome-check` 24 green, and the route itself was **run end-to-end** against live data in dry mode.
+**Issue:** Efrain: "fix the cron too." `app/api/cron/lock-alerts` was the last consumer of the dead `locked` flag.
+**Two bugs, and the second is the dangerous one.**
+1. **It required `locked = 'Yes'`.** That column has no importer — of the 28 live escrows carrying a real Arive `lock_expiration`, **zero** carry 'Yes'. The loop `continue`d on everything, so the highest-value alert in the app mailed **one deal, once, in July** (the only hand-flagged row) and nothing since.
+2. **⚠️ Gating on STATUS alone lets DEAD loans through.** A declined loan keeps the stage it died at, so of the **50** rows the cron's own query returns, **22 are `Not Ready` with `ghl_status = 'lost'` and an Arive adverse date** — Robert Rapolas, Gumaro Trevino, Katherine Sison and 19 more. **Fixing bug 1 alone would have started emailing four LOs about loans that are already dead.** Found only by reading the query's actual output instead of trusting the status filter.
+**Changes:** [app/api/cron/lock-alerts/route.ts](app/api/cron/lock-alerts/route.ts) — the `locked` flag is no longer consulted (`lock_expiration` is the evidence); `isClosedLoan` from `lib/loanOutcome` guards every row and is counted as `skipped_closed_loans`; local `daysFromTodayTo`/`MS_PER_DAY` replaced by `lockDaysLeft` so the day math has one owner. **New `?dry=1` mode** resolves exactly who would be mailed and returns it, sending nothing and writing no dedup stamps — this alert mails four LOs, so the blast radius has to be checkable without a send. [scripts/lock-alert-preview.ts](scripts/lock-alert-preview.ts) — **new** offline preview of the same rules.
+**Blast radius, measured before deploying:** **0 emails on the next run** (nothing sits at exactly 5/3/1/0 days today). First real alerts are Michael Nouguier, Dutch Blue and Johnathan Morales, currently 2 days out. Prod env confirmed complete via `vercel env ls` — all four `LO_EMAIL_*`, `BREVO_API_KEY`, `ADMIN_EMAIL_EFRAIN`, `CRON_SECRET` — so mail really will flow now.
+**Test Method:** `GET /api/cron/lock-alerts?dry=1` → `{scanned, skipped_closed_loans, would_send}`; or `npx tsx scripts/lock-alert-preview.ts` offline.
+**Result:** VERIFIED end-to-end on live data: **scanned 28 · skipped_closed_loans 22 · alerts_triggered 0 · emails_sent 0**, identical to the offline preview.
+**⚠️ Known gap, policy unchanged:** `WINDOWS` stops at 0, so the **3 already-expired** live escrows (Richard St Jean −23d, Artemio Castellanos −10d, Kyle Alexander −9d) will never be alerted. They were never alerted while the cron was dead either. They are visible on /reports/escrows and the Dashboard card. Adding an overdue window is a policy decision, not a bug fix — not taken.
+
 ### [2026-09-21] /lead-roi/report — wide tables overflow on SCREEN too, not just print (2nd attempt)
 **Status:** CHANGED — tsc = the 7-error `main` baseline, `npm run build` ✓ exit 0, eslint unchanged, widths measured on the live report DOM.
 **Issue:** Efrain, after the first print fix shipped: "formatting is still off." His screenshot showed **horizontal scrollbars under each table** — and print preview does not render scrollbars. That was the tell: this is the **on-screen** layout, not only print.

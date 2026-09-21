@@ -1,19 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
+import { lockDaysLeft } from '@/lib/lockStatus'
+import { isClosedLoan } from '@/lib/loanOutcome'
 
 // Runs once a day. Walks every IN-ESCROW loan (an active, pre-funding status —
-// see ESCROW_STATUSES) that has a live rate lock (locked = 'Yes') with a
-// lock_expiration date, figures out which are approaching expiration, and emails
-// the LO (cc'd to admin). Funded loans, leads, and not-ready deals are never
-// scanned. A blown lock costs real money, so this is the highest-value alert.
+// see ESCROW_STATUSES) that carries a `lock_expiration`, figures out which are
+// approaching expiration, and emails the LO (cc'd to admin). A blown lock costs
+// real money, so this is the highest-value alert.
+//
+// ⚠️ TWO bugs fixed 2026-09-21 — this alert was effectively dead for months.
+//
+// 1. It required `locked = 'Yes'`. That column has NO importer (see lib/lockStatus)
+//    and is dead: of the 32 active escrows measured 2026-09-21, **zero** carry 'Yes'
+//    while 28 carry a real Arive `lock_expiration`. So the loop `continue`d on
+//    everything and the alert fired for nobody — the only deal ever emailed was one
+//    hand-flagged row back in July. `lock_expiration` is the evidence of a lock;
+//    the flag is not read at all any more.
+//
+// 2. Gating on STATUS alone lets DEAD loans through. A declined loan keeps the
+//    stage it died at (lib/loanOutcome), so of the 50 rows this query returns,
+//    **22 are `Not Ready` with `ghl_status = 'lost'` and an Arive adverse date** —
+//    Robert Rapolas, Gumaro Trevino, Katherine Sison and 19 more. Fixing bug 1
+//    alone would have started emailing four LOs about loans that are already dead.
+//    `isClosedLoan` is the guard; it is the same rule the rest of the app uses.
 //
 // Dedup'd via the `lock_alerts_sent` JSONB column so the same alert never sends
 // twice for the same date+window. The cron still works if that column does not
 // yet exist — it just won't dedup until you run:
 //   ALTER TABLE deals ADD COLUMN IF NOT EXISTS lock_alerts_sent jsonb;
 export const maxDuration = 60
-
-const MS_PER_DAY = 86_400_000
 
 // Alert at these days-out from the lock expiration (heads-up + day-of). No
 // overdue spam — once expired we stop (the LO will have been told 3 times).
@@ -46,12 +61,6 @@ function todayLocalDate(): string {
   const d = new Date(); d.setHours(0, 0, 0, 0)
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
-
-function daysFromTodayTo(dateStr: string): number {
-  const due = new Date(dateStr + 'T00:00:00')
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  return Math.round((due.getTime() - today.getTime()) / MS_PER_DAY)
 }
 
 // ── Email rendering ───────────────────────────────────────────────────────
@@ -185,6 +194,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // ?dry=1 — resolve exactly who WOULD be emailed and return it, sending nothing and
+  // writing no dedup stamps. This alert mails four LOs and was dead for months; there
+  // has to be a way to confirm the blast radius before a real run.
+  const dryRun = req.nextUrl.searchParams.get('dry') === '1'
+
   const startedAt = new Date().toISOString()
   const todayStr  = todayLocalDate()
   const supabase  = createServiceClient()
@@ -210,19 +224,23 @@ export async function GET(req: NextRequest) {
   let scanned = 0
   let emailsSent = 0
   let alertsTriggered = 0
+  let skippedClosed = 0
   const noLoEmail: string[] = []
+  const wouldSend: Array<{ deal: string; lo: string; to: string; daysOut: number; expires: string }> = []
   let lastSendResult: { dealName: string; ok: boolean; status?: number; body?: string; error?: string } | null = null
 
   for (const d of (deals ?? []) as DealRow[]) {
-    // Only loans with a LIVE lock — floating loans have no lock to expire.
-    const isLocked = String(d.locked ?? '').trim().toLowerCase() === 'yes'
-    if (!isLocked) continue
+    // A `lock_expiration` IS the lock — the `locked` Yes/No flag is dead and is
+    // deliberately not consulted. See the note at the top of this file.
     const dateStr = d.lock_expiration
     if (!dateStr) continue
+    // Never alert on a loan that is already dead. A declined loan keeps the stage it
+    // died at, so the status filter above does NOT exclude it (22 of 50 rows).
+    if (isClosedLoan(d as unknown as Parameters<typeof isClosedLoan>[0])) { skippedClosed++; continue }
     scanned++
 
-    const daysOut = daysFromTodayTo(dateStr)
-    if (!WINDOWS.includes(daysOut)) continue
+    const daysOut = lockDaysLeft(dateStr)
+    if (daysOut == null || !WINDOWS.includes(daysOut)) continue
 
     const sentStamps = (d.lock_alerts_sent ?? {}) as Record<string, string>
     const dedupKey = `${daysOut}_${dateStr}`
@@ -234,6 +252,11 @@ export async function GET(req: NextRequest) {
     const loEmail = getLoEmail(d.loan_officer as string | null)
     if (!loEmail) {
       noLoEmail.push(`${d.name as string} (LO: ${loName})`)
+      continue
+    }
+
+    if (dryRun) {
+      wouldSend.push({ deal: d.name as string, lo: loName, to: loEmail, daysOut, expires: dateStr })
       continue
     }
 
@@ -251,17 +274,21 @@ export async function GET(req: NextRequest) {
   void lastSendResult
 
   console.log(
-    `[Lock Alerts] ${startedAt} — scanned ${scanned} locked active loans, ` +
-    `triggered ${alertsTriggered}, emailed ${emailsSent}, skipped-no-lo-email ${noLoEmail.length}`
+    `[Lock Alerts]${dryRun ? ' DRY RUN —' : ''} ${startedAt} — scanned ${scanned} locked active loans, ` +
+    `skipped ${skippedClosed} closed, triggered ${alertsTriggered}, emailed ${emailsSent}, ` +
+    `skipped-no-lo-email ${noLoEmail.length}`
   )
 
   return NextResponse.json({
     ok: true,
+    dry_run: dryRun,
     startedAt,
     finishedAt: new Date().toISOString(),
     scanned,
+    skipped_closed_loans: skippedClosed,
     alerts_triggered: alertsTriggered,
     emails_sent: emailsSent,
+    would_send: dryRun ? wouldSend : undefined,
     missing_lo_email: noLoEmail,
     last_send_error: lastSendResult,
   })
