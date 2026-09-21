@@ -26,8 +26,9 @@ import { rrBand, isFunded, PURCHASED_SOURCES, type Purpose, type SourceScope } f
 import { totalComp, discountCredit, hasDiscountCredit } from '@/lib/comp'
 import {
   RANGE_OPTIONS, rangeBounds, monthsBetween, filterDeals, buildSourceStats, rollupKpis,
-  funnel, stateRows, monthlySeries, projection, optout7dStats, insights, netOf, LO_SPLIT,
-  type RangeKey, type CostRow,
+  funnel, stateRows, stateStats, sourceStateMatrix, MATRIX_METRICS,
+  monthlySeries, projection, optout7dStats, insights, netOf, LO_SPLIT,
+  type RangeKey, type CostRow, type StateStats, type MatrixMetric,
 } from '@/lib/leadRoi'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -35,12 +36,17 @@ import {
 import {
   RefreshCw, Download, Target, Users, TrendingUp, DollarSign, CheckCircle2, Calendar,
   ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, ExternalLink, Pencil, Check, X,
-  Filter, ArrowRight, Save, FileText,
+  Filter, ArrowRight, Save, FileText, Grid3x3, MapPin, FileCheck2,
 } from 'lucide-react'
 
 // broker_corr + net_discount_points are load-bearing for revenue, not decoration:
 // totalComp() adds the Non-Del Final Price credit and returns comp alone without them.
-const LEAD_COLS = 'id,name,source,loan_officer,pipeline_group,status,loan_amount,state,loan_purpose,loan_type,lead_price,compensation_amount,broker_corr,net_discount_points,date_added_ghl,funded_date,created_at,ghl_opportunity_id,last_inbound_at'
+// ⚠️ `arive_file_no` is load-bearing, not decoration: isSubmitted() reads it as the
+// second clause of the submission test and the predicate is INERT without the column
+// fetched. This is the same trap `loan_type` hit on 2026-07-28 — and it has to be
+// added to app/lead-roi/report/page.tsx's own copy of LEAD_COLS too, or the printable
+// report silently reports a lower submission count than the page.
+const LEAD_COLS = 'id,name,source,loan_officer,pipeline_group,status,loan_amount,state,loan_purpose,loan_type,lead_price,compensation_amount,broker_corr,net_discount_points,date_added_ghl,funded_date,created_at,ghl_opportunity_id,last_inbound_at,arive_file_no'
 
 const PURPOSE_TABS: Purpose[] = ['All', 'Purchase', 'Refinance']
 const SCOPE_TABS: SourceScope[] = ['Purchased', 'All']
@@ -107,6 +113,7 @@ export default function LeadRoiPage() {
   const [includedSources, setIncludedSources] = useState<Set<string> | null>(null)
   const [showSourceFilter, setShowSourceFilter] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [matrixMetric, setMatrixMetric] = useState<MatrixMetric>('leads')
   // ⚠️ /lead-roi is NOT a read-only page. It can rewrite `deals.source` — one
   // deal at a time AND in bulk across every deal from a source — and edit the
   // retainer costs that feed every ROI figure on it. A `reporting` LO is here to
@@ -162,6 +169,7 @@ export default function LeadRoiPage() {
   const kpis = useMemo(() => rollupKpis(visibleSources), [visibleSources])
   const funnelStages = useMemo(() => funnel(kpis), [kpis])
   const states = useMemo(() => stateRows(visibleDeals), [visibleDeals])
+  const matrix = useMemo(() => sourceStateMatrix(visibleSources, matrixMetric), [visibleSources, matrixMetric])
   const retainerPerMonth = useMemo(() => visibleSources.reduce((a, s) => a + s.costPerMonth, 0), [visibleSources])
   const monthly = useMemo(() => monthlySeries(visibleDeals, retainerPerMonth), [visibleDeals, retainerPerMonth])
   const proj = useMemo(() => projection(visibleSources, kpis), [visibleSources, kpis])
@@ -203,7 +211,7 @@ export default function LeadRoiPage() {
   function exportCsv() {
     const headers = [
       'Source', 'Leads', 'Responded', 'Resp %', 'No Resp', 'Opt-out', 'Opt-out %', 'Team-removed', 'Team-removed %',
-      'Open', 'Active', 'Lost', 'Funded', 'Fund %', 'Funded Volume', 'Avg Funded',
+      'Open', 'Active', 'Lost', 'Submitted', 'Sub %', 'Funded', 'Fund %', 'Funded Volume', 'Avg Funded',
       'Lead Cost', 'Retainer', 'Spend', 'Revenue (gross)', `Net Revenue (${SPLIT_LABEL})`,
       'Net Profit', 'ROI x', 'Cost per Funded', 'Monthly Cost',
     ]
@@ -213,7 +221,7 @@ export default function LeadRoiPage() {
     }
     const rows = visibleSources.map(s => [
       s.source, s.total, s.responded, s.rr.toFixed(1), s.cold, s.optout, s.orate.toFixed(1), s.teamRemoved, s.trate.toFixed(1),
-      s.open, s.active, s.lost, s.funded, s.fr.toFixed(1), s.fundedVolume, s.fundedAvg.toFixed(0),
+      s.open, s.active, s.lost, s.submitted, s.sr.toFixed(1), s.funded, s.fr.toFixed(1), s.fundedVolume, s.fundedAvg.toFixed(0),
       s.leadCost.toFixed(0), s.retainer.toFixed(0), s.spend.toFixed(0), s.revenue.toFixed(0), s.netRevenue.toFixed(0),
       s.netProfit.toFixed(0), s.roi == null ? '' : s.roi.toFixed(2), s.costPerFunded == null ? '' : s.costPerFunded.toFixed(0),
       s.costPerMonth,
@@ -557,7 +565,7 @@ export default function LeadRoiPage() {
 
             {/* KPIs */}
             <div className="px-6 py-4 bg-slate-50/60 border-b border-slate-200 space-y-3">
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
                 <Kpi icon={<Users className="w-4 h-4 text-blue-500" />} label={scope === 'All' ? 'Total leads' : 'Agg leads'} value={kpis.totalLeads.toLocaleString()} />
                 <Kpi icon={<CheckCircle2 className="w-4 h-4 text-emerald-500" />} label="Responded" value={pct(kpis.rr)} sub={`${kpis.responded} leads`} valueClass={RR_COLOR[rrBand(kpis.rr)]} />
                 <Kpi icon={<X className="w-4 h-4 text-slate-400" />} label="No response" value={pct(kpis.crate)} sub={`${kpis.cold} leads`} />
@@ -566,6 +574,9 @@ export default function LeadRoiPage() {
                 <Kpi icon={<Calendar className="w-4 h-4 text-rose-500" />} label="Fast opt-outs" subWrap
                   value={o7.timed > 0 ? `${(100 * o7.within / (kpis.totalLeads || 1)).toFixed(1)}%` : '—'}
                   sub={o7.timed > 0 ? `${o7.within} of ${kpis.totalLeads} leads opted out ≤ ${o7.days}d · timing covers ${o7.timed}/${o7.optouts} opt-outs` : 'no timing logged yet'} />
+                <Kpi icon={<FileCheck2 className="w-4 h-4 text-indigo-500" />} label="Submitted" subWrap
+                  value={pct(kpis.sr)}
+                  sub={`${kpis.submitted.toLocaleString()} reached underwriting — status at/past Submitted to UW, or an Arive file exists`} />
                 <Kpi icon={<TrendingUp className="w-4 h-4 text-amber-500" />} label="Active escrows" value={kpis.active.toLocaleString()} />
                 <Kpi icon={<CheckCircle2 className="w-4 h-4 text-emerald-600" />} label="Funded" value={kpis.funded.toLocaleString()} sub={`${pct(kpis.fr)} · ${formatCurrency(kpis.volume)}`} highlight="good" />
               </div>
@@ -598,7 +609,7 @@ export default function LeadRoiPage() {
                 {funnelStages.map((s, i) => {
                   const prev = funnelStages[i - 1]
                   const stepConv = prev && prev.n > 0 ? (100 * s.n) / prev.n : null
-                  const FUNNEL_BG = ['bg-indigo-200', 'bg-indigo-300', 'bg-indigo-400', 'bg-indigo-600']
+                  const FUNNEL_BG = ['bg-indigo-200', 'bg-indigo-300', 'bg-indigo-400', 'bg-indigo-500', 'bg-indigo-600']
                   return (
                     <React.Fragment key={s.key}>
                       {stepConv != null && (
@@ -676,6 +687,7 @@ export default function LeadRoiPage() {
                           <th className="px-2 py-2.5 text-right">Leads</th>
                           <th className="px-2 py-2.5 text-right border-l border-slate-200" title="Engaged at least once — Ghosted counts">Resp %</th>
                           <th className="px-2 py-2.5 text-right" title="CUSTOMER opt-outs only: STOP · DND-SMS. Team dispositions (Remove from All Automations) are NOT counted here — they fold into Responded or No-response by whether the borrower ever replied.">Opt-out</th>
+                          <th className="px-2 py-2.5 text-right border-l border-slate-200" title="Reached underwriting — status at or past 'Submitted to UW', OR an Arive file number exists. The Arive clause catches loans that were submitted and then died: a deal only stores its CURRENT status, so those regress into a Not-Ready stage and would otherwise vanish from the count.">Sub %</th>
                           <th className="px-2 py-2.5 text-right border-l border-slate-200">Open</th>
                           <th className="px-2 py-2.5 text-right">Active</th>
                           <th className="px-2 py-2.5 text-right">Lost</th>
@@ -715,6 +727,11 @@ export default function LeadRoiPage() {
                                     ? <>{s.optout} <span className="text-slate-300">·</span> <span className="text-[11px] font-medium text-slate-500">{pct(s.orate)}</span></>
                                     : <span className="text-slate-300">—</span>}
                                 </td>
+                                <td className="px-2 py-2 text-right border-l border-slate-200" title={`${s.submitted} of ${s.total} leads reached underwriting`}>
+                                  {s.submitted > 0
+                                    ? <span className="inline-block px-1.5 py-0.5 rounded-md text-xs font-semibold tabular-nums bg-indigo-50 text-indigo-700">{pct(s.sr)}</span>
+                                    : <span className="tabular-nums text-slate-300">—</span>}
+                                </td>
                                 <td className="px-2 py-2 text-right tabular-nums text-slate-400 border-l border-slate-200">{s.open || <span className="text-slate-300">—</span>}</td>
                                 <td className="px-2 py-2 text-right tabular-nums">{s.active ? <span className="text-amber-700 font-medium">{s.active}</span> : <span className="text-slate-300">—</span>}</td>
                                 <td className="px-2 py-2 text-right tabular-nums text-slate-400">{s.lost || <span className="text-slate-300">—</span>}</td>
@@ -746,7 +763,7 @@ export default function LeadRoiPage() {
                               </tr>
                               {isExpanded && (
                                 <tr className="bg-indigo-50/30">
-                                  <td colSpan={16} className="px-6 py-3">
+                                  <td colSpan={17} className="px-6 py-3">
                                     <div className="flex items-center flex-wrap gap-2 mb-3 text-xs bg-white border border-slate-200 rounded px-3 py-2">
                                       <span className="text-slate-500 font-medium whitespace-nowrap">Flat monthly cost:</span>
                                       {editingCost === s.source ? (
@@ -774,6 +791,8 @@ export default function LeadRoiPage() {
                                       )}
                                       <span className="text-[10px] text-slate-400 ml-1">For retainer-billed sources — now included in Spend and ROI.</span>
                                     </div>
+                                    <SourceStatesTable source={s.source} deals={s.deals} retainer={s.retainer}
+                                      sourceSpend={s.spend} sourceNetProfit={s.netProfit} />
                                     <SourceDealsList
                                       sourceLabel={s.source}
                                       deals={s.deals}
@@ -795,6 +814,7 @@ export default function LeadRoiPage() {
                           <td className="px-2 py-2.5 text-right tabular-nums">{kpis.totalLeads}</td>
                           <td className={`px-2 py-2.5 text-right tabular-nums border-l border-slate-200 ${RR_COLOR[rrBand(kpis.rr)]}`}>{pct(kpis.rr)}</td>
                           <td className="px-2 py-2.5 text-right tabular-nums whitespace-nowrap">{kpis.optout} <span className="text-slate-400">·</span> <span className="text-[11px]">{pct(kpis.orate)}</span></td>
+                          <td className="px-2 py-2.5 text-right tabular-nums text-indigo-700 border-l border-slate-200" title={`${kpis.submitted} of ${kpis.totalLeads} leads reached underwriting`}>{pct(kpis.sr)}</td>
                           <td className="px-2 py-2.5 text-right tabular-nums border-l border-slate-200">{visibleSources.reduce((a, s) => a + s.open, 0)}</td>
                           <td className="px-2 py-2.5 text-right tabular-nums">{kpis.active}</td>
                           <td className="px-2 py-2.5 text-right tabular-nums">{visibleSources.reduce((a, s) => a + s.lost, 0)}</td>
@@ -812,6 +832,61 @@ export default function LeadRoiPage() {
                       </tbody>
                     </table>
                   </div>
+                </div>
+              )}
+
+              {/* Source × state matrix */}
+              {matrix.rows.length > 0 && matrix.states.length > 0 && (
+                <div className="mt-6 bg-white border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <Grid3x3 className="w-4 h-4 text-slate-400" />
+                      <h3 className="text-sm font-semibold text-slate-800">Source × state</h3>
+                      <span className="text-[11px] text-slate-400">every source across the {matrix.states.length} busiest states</span>
+                    </div>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {MATRIX_METRICS.map(m => (
+                        <button key={m.key} onClick={() => setMatrixMetric(m.key)}
+                          className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition-colors ${
+                            matrixMetric === m.key
+                              ? 'bg-indigo-600 border-indigo-600 text-white'
+                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                          }`}>{m.label}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50 border-b border-slate-200">
+                        <tr className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                          <th className="px-3 py-2 text-left sticky left-0 bg-slate-50 z-10">Source</th>
+                          {matrix.states.map(st => <th key={st} className="px-2 py-2 text-right">{st}</th>)}
+                          <th className="px-3 py-2 text-right border-l border-slate-200">All states</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {matrix.rows.map((r, i) => (
+                          <tr key={r.source} className={i % 2 === 1 ? 'bg-slate-50/40' : 'bg-white'}>
+                            <td className={`px-3 py-2 font-medium text-slate-900 whitespace-nowrap sticky left-0 z-10 ${i % 2 === 1 ? 'bg-slate-50' : 'bg-white'}`}>{r.source}</td>
+                            {r.cells.map((c, j) => (
+                              <td key={matrix.states[j]} className="px-2 py-2 text-right tabular-nums"
+                                title={r.leadsByState[j] > 0 ? `${r.source} · ${matrix.states[j]} — ${r.leadsByState[j]} lead${r.leadsByState[j] === 1 ? '' : 's'}` : `${r.source} bought no leads in ${matrix.states[j]}`}>
+                                <MatrixCell value={c} metric={matrixMetric} hasLeads={r.leadsByState[j] > 0} />
+                              </td>
+                            ))}
+                            <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-700 border-l border-slate-200">
+                              <MatrixCell value={r.total} metric={matrixMetric} hasLeads />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="px-4 py-2 text-[10.5px] text-slate-400 border-t border-slate-200">
+                    A <span className="text-slate-300 font-semibold">—</span> means the source bought no leads in that state — not that it earned nothing there.
+                    {' '}States are ordered by total leads; a thinner tail beyond the {matrix.states.length} shown is in the CSV.
+                    {retainerPerMonth > 0 && <> Retainers are billed per source, so they are split across a source&apos;s states pro-rata by lead count.</>}
+                  </p>
                 </div>
               )}
 
@@ -1047,6 +1122,104 @@ export default function LeadRoiPage() {
               </details>
             </div>
           </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** One matrix cell — formatted by metric. `hasLeads` false ⇒ the source never bought
+ *  a lead in that state, which is rendered as an em-dash and must NOT read as a zero. */
+function MatrixCell({ value, metric, hasLeads }: { value: number | null; metric: MatrixMetric; hasLeads: boolean }) {
+  if (!hasLeads || value == null) return <span className="text-slate-300">—</span>
+  const kind = MATRIX_METRICS.find(m => m.key === metric)?.kind ?? 'count'
+  if (kind === 'pct')   return <span className={value > 0 ? 'text-slate-700 font-medium' : 'text-slate-300'}>{pct(value)}</span>
+  if (kind === 'roi')   return <span className={`px-1.5 py-0.5 rounded-md text-xs font-bold ${value >= 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>{value.toFixed(2)}×</span>
+  if (kind === 'money') {
+    if (metric === 'netProfit') {
+      return <span className={value >= 0 ? 'text-emerald-700 font-medium' : 'text-red-600 font-medium'}>{formatCurrency(value)}</span>
+    }
+    return <span className={value > 0 ? 'text-rose-600' : 'text-slate-300'}>{value > 0 ? formatCurrency(value) : '—'}</span>
+  }
+  return <span className={value > 0 ? 'text-slate-700' : 'text-slate-300'}>{value > 0 ? value.toLocaleString() : '—'}</span>
+}
+
+/** Per-source geography with the full money set — "is this vendor worth buying HERE?"
+ *
+ *  Reconciliation is the contract: Σ spend, Σ revenue and Σ net profit across these
+ *  rows equal the source row above them exactly, retainer included (lib/leadRoi's
+ *  stateStats gives the last state the rounding remainder). The footer asserts it
+ *  visibly rather than asking the reader to trust it. */
+function SourceStatesTable({ source, deals, retainer, sourceSpend, sourceNetProfit }: {
+  source: string
+  deals: Deal[]
+  retainer: number
+  sourceSpend: number
+  sourceNetProfit: number
+}) {
+  const [showAll, setShowAll] = useState(false)
+  const rows = useMemo(() => stateStats(deals, retainer), [deals, retainer])
+  const TOP = 8
+  const shown = showAll ? rows : rows.slice(0, TOP)
+  const hidden = rows.length - shown.length
+  if (rows.length === 0) return null
+
+  return (
+    <div className="mb-3 bg-white border border-slate-200 rounded overflow-hidden">
+      <div className="px-3 py-2 border-b border-slate-200 flex items-center gap-2">
+        <MapPin className="w-3.5 h-3.5 text-slate-400" />
+        <h4 className="text-xs font-semibold text-slate-700">{source} by state</h4>
+        <span className="text-[10px] text-slate-400">{rows.length} state{rows.length === 1 ? '' : 's'}</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="bg-slate-50 border-b border-slate-200">
+            <tr className="text-right text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+              <th className="px-3 py-1.5 text-left">State</th>
+              <th className="px-2 py-1.5">Leads</th>
+              <th className="px-2 py-1.5 border-l border-slate-200">Resp %</th>
+              <th className="px-2 py-1.5" title="Reached underwriting">Sub %</th>
+              <th className="px-2 py-1.5">Funded</th>
+              <th className="px-2 py-1.5">Fund %</th>
+              <th className="px-2 py-1.5 border-l border-slate-200">Spend</th>
+              <th className="px-2 py-1.5" title={`Gross comp on funded × ${SPLIT_LABEL}`}>Net rev</th>
+              <th className="px-2 py-1.5">Net</th>
+              <th className="px-3 py-1.5">ROI</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {shown.map(r => (
+              <tr key={r.state} className="text-right">
+                <td className="px-3 py-1.5 text-left font-semibold text-slate-700">{r.state}</td>
+                <td className="px-2 py-1.5 tabular-nums text-slate-700">{r.n}</td>
+                <td className={`px-2 py-1.5 tabular-nums font-semibold border-l border-slate-200 ${RR_COLOR[rrBand(r.rr)]}`}>{pct(r.rr)}</td>
+                <td className="px-2 py-1.5 tabular-nums text-indigo-700 font-medium">{r.submitted > 0 ? pct(r.sr) : <span className="text-slate-300">—</span>}</td>
+                <td className="px-2 py-1.5 tabular-nums">{r.funded || <span className="text-slate-300">—</span>}</td>
+                <td className="px-2 py-1.5 tabular-nums text-slate-500">{pct(r.fr)}</td>
+                <td className="px-2 py-1.5 tabular-nums text-rose-600 border-l border-slate-200">{r.spend > 0 ? formatCurrency(r.spend) : <span className="text-slate-300">—</span>}</td>
+                <td className="px-2 py-1.5 tabular-nums text-emerald-700">{r.netRevenue > 0 ? formatCurrency(r.netRevenue) : <span className="text-slate-300">—</span>}</td>
+                <td className={`px-2 py-1.5 tabular-nums font-semibold ${
+                  (r.revenue === 0 && r.spend === 0) ? 'text-slate-300' : r.netProfit >= 0 ? 'text-emerald-700' : 'text-red-600'
+                }`}>{(r.revenue === 0 && r.spend === 0) ? '—' : formatCurrency(r.netProfit)}</td>
+                <td className="px-3 py-1.5">
+                  {r.roi == null
+                    ? <span className="text-slate-300">—</span>
+                    : <span className={`inline-block px-1.5 py-0.5 rounded font-bold tabular-nums ${r.roi >= 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>{r.roi.toFixed(2)}×</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="px-3 py-1.5 border-t border-slate-200 flex items-center justify-between gap-2 flex-wrap">
+        <span className="text-[10px] text-slate-400">
+          Adds up to {formatCurrency(sourceSpend)} spend · {formatCurrency(sourceNetProfit)} net across all {rows.length} state{rows.length === 1 ? '' : 's'}
+          {retainer > 0 && <> — the {formatCurrency(retainer)} retainer is split pro-rata by lead count</>}
+        </span>
+        {hidden > 0 && (
+          <button onClick={() => setShowAll(true)} className="text-[11px] text-blue-600 hover:text-blue-800 font-medium">
+            Show {hidden} more state{hidden === 1 ? '' : 's'}
+          </button>
         )}
       </div>
     </div>

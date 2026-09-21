@@ -30,13 +30,88 @@
 //   • LO            — single LO at a time via resolveLO (Efrain 2026-07-13: no combined
 //                     view). Tabs render from LOAN_OFFICERS so a future LO auto-appears.
 import type { Deal } from './types'
-import { PIPELINE_GROUPS } from './types'
+import { PIPELINE_GROUPS, LOAN_STATUSES } from './types'
 import { resolveLO } from './loanOfficer'
 import { isPurchased, isResponded, isCold, isCustomerOptout, isTeamRemoved, isFunded, matchesPurpose, type Purpose, type SourceScope } from './leadReport'
 import { totalComp } from './comp'
 
 export const NO_SOURCE = '(no source set)'
 export const sourceLabel = (d: Pick<Deal, 'source'>): string => (d.source ?? '').trim() || NO_SOURCE
+
+// ── Submission ─────────────────────────────────────────────────────────────────
+// "Submitted" = the loan reached underwriting. Efrain's call 2026-09-21: submission is
+// the earliest point a purchased lead has produced real work, and at 1–3% funded rates
+// it is the only mid-funnel number with enough volume to judge a vendor on.
+//
+// TWO clauses, and it is worth knowing exactly what each one contributes. Measured
+// live 2026-09-21 across 5,222 priced leads — submitted = 345 (6.6%):
+//
+//   status rank ≥ 'Submitted to UW' ......... 108
+//   + rescued by the arive_file_no clause ... 237
+//
+// The second clause exists because a deal stores only its CURRENT status. A loan that
+// reached underwriting and then died REGRESSES into a Not-Ready status, erasing the
+// fact it was ever submitted; an Arive file number is issued for a real file and is
+// never rewritten when the lead goes cold, so it survives that death. Those 237 split
+// into two populations that are NOT the same thing:
+//
+//   162 still in the Leads group — 151 `App Intake`, plus `Disclosed`, `Pre-Approved`,
+//       `Arive Lead`, `Qualification`, `Loan Setup`. A file was OPENED in the LOS;
+//       whether it has gone to underwriting is not knowable from the status.
+//    74 in Not Ready — `Not Ready - Timeframe` (22), `Remove from All Automations`
+//       (19), `Not Qualified - Credit` (4), `Lost to Competitor` (3), and a tail.
+//       These are the genuine information-loss rescues.
+//     1 in Loans in Process.
+//
+// ⚠️ So this counts "a real Arive file exists" as a submission. That is the definition
+// Efrain selected with the 345 figure in front of him, and it is the widest of the
+// three readings below. If an Arive file number is issued at APPLICATION rather than
+// at submission to underwriting, the honest label for this metric is "application
+// taken", not "reached UW" — flip SUBMISSION_RULE and the whole page, report, CSV and
+// fixtures follow, because nothing else reads either clause directly.
+//
+//   'file_or_status' (current) — status ≥ UW OR an Arive file .......... 345 · 6.6%
+//   'status_only'              — status ≥ UW only ....................... 108 · 2.1%
+//   'dead_file_or_status'      — status ≥ UW, OR a file on a DEAD deal .. 182 · 3.5%
+//
+// Funded needs no special case: every funded status ranks past 'Submitted to UW', so
+// submission % is always ≥ fund % and the funnel stage can never invert.
+export type SubmissionRule = 'file_or_status' | 'status_only' | 'dead_file_or_status'
+export const SUBMISSION_RULE: SubmissionRule = 'file_or_status'
+
+const STATUS_RANK: ReadonlyMap<string, number> = new Map(LOAN_STATUSES.map((s, i) => [s, i]))
+const SUBMITTED_RANK = STATUS_RANK.get('Submitted to UW') ?? Infinity
+const FINAL_RANK     = STATUS_RANK.get('Loan Finalized') ?? -Infinity
+
+// `pipeline_group` is OPTIONAL: only the 'dead_file_or_status' branch reads it, and
+// making it required would force every caller that just wants the status test — the
+// fixtures included — to supply a field it does not care about.
+type SubmissionInput = Pick<Deal, 'status' | 'arive_file_no'> & Partial<Pick<Deal, 'pipeline_group'>>
+
+/** The test under an EXPLICIT rule. Callers want `isSubmitted` — this is for the
+ *  fixtures and for anything that deliberately compares two readings side by side. */
+export function isSubmittedUnder(d: SubmissionInput, rule: SubmissionRule): boolean {
+  const r = STATUS_RANK.get((d.status ?? '').trim())
+  if (r != null && r >= SUBMITTED_RANK && r <= FINAL_RANK) return true
+  if (rule === 'status_only') return false
+  if (!(d.arive_file_no ?? '').trim()) return false
+  // 'dead_file_or_status' trusts the file only where the status can no longer be
+  // believed — a Not-Ready deal has lost whatever stage it actually died at.
+  return rule === 'file_or_status' || (d.pipeline_group ?? '') === 'Not Ready'
+}
+
+/** Did this loan reach underwriting? Single chokepoint — never inline either clause.
+ *
+ *  ⚠️ ONE parameter, deliberately. This was written with an optional `rule` second
+ *  argument and it silently broke the first caller that did `deals.filter(isSubmitted)`
+ *  — Array.filter passes (element, INDEX, array), so the index landed in `rule`, every
+ *  element after the first fell through to the 'dead_file_or_status' branch, and a
+ *  repo-wide count read 182 instead of 345 with no error anywhere. The rule is not a
+ *  parameter here precisely so that cannot happen again; use isSubmittedUnder to pick
+ *  one explicitly. */
+export function isSubmitted(d: SubmissionInput): boolean {
+  return isSubmittedUnder(d, SUBMISSION_RULE)
+}
 
 // ── LO revenue split ───────────────────────────────────────────────────────────
 // The loan officer keeps 85% of what a funded loan earns; the remaining 15% never
@@ -155,6 +230,8 @@ export type SourceStats = {
    *  separately so triage adoption can't masquerade as leads opting out. */
   teamRemoved: number; trate: number
   open: number; active: number; lost: number
+  /** Reached underwriting — isSubmitted (status rank OR an Arive file). Always ≥ funded. */
+  submitted: number; sr: number
   funded: number; fr: number
   fundedVolume: number; fundedAvg: number
   leadCost: number                // Σ lead_price
@@ -178,7 +255,7 @@ export function buildSourceStats(deals: Deal[], costs: Map<string, CostRow>, mon
       s = {
         source: src, total: 0, responded: 0, rr: 0, cold: 0, optout: 0, orate: 0,
         teamRemoved: 0, trate: 0,
-        open: 0, active: 0, lost: 0, funded: 0, fr: 0,
+        open: 0, active: 0, lost: 0, submitted: 0, sr: 0, funded: 0, fr: 0,
         fundedVolume: 0, fundedAvg: 0,
         leadCost: 0, retainer: cpm * months, spend: 0, revenue: 0, netRevenue: 0, netProfit: 0,
         roi: null, costPerFunded: null, costPerMonth: cpm, deals: [],
@@ -195,6 +272,7 @@ export function buildSourceStats(deals: Deal[], costs: Map<string, CostRow>, mon
     if (isCold(d)) s.cold++
     if (isCustomerOptout(d)) s.optout++
     if (isTeamRemoved(d)) s.teamRemoved++
+    if (isSubmitted(d)) s.submitted++
     // EVERY opportunity's lead_price is a REAL, SEPARATE charge — never dedupe it.
     // Efrain, 2026-07-28: "there are definitely leads that are purchased twice,
     // each opportunity with a cost is a REAL cost… there are never going to be
@@ -224,6 +302,7 @@ export function buildSourceStats(deals: Deal[], costs: Map<string, CostRow>, mon
     s.rr = s.total ? (100 * s.responded) / s.total : 0
     s.orate = s.total ? (100 * s.optout) / s.total : 0
     s.trate = s.total ? (100 * s.teamRemoved) / s.total : 0
+    s.sr = s.total ? (100 * s.submitted) / s.total : 0
     s.fr = s.total ? (100 * s.funded) / s.total : 0
     s.fundedAvg = s.funded ? s.fundedVolume / s.funded : 0
     s.spend = s.leadCost + s.retainer
@@ -244,6 +323,7 @@ export type RoiKpis = {
   optout: number; orate: number          // CUSTOMER opt-outs (STOP / DND-SMS)
   teamRemoved: number; trate: number     // team dispositions (Remove from All Automations)
   active: number
+  submitted: number; sr: number          // reached underwriting — isSubmitted
   funded: number; fr: number
   volume: number
   leadCost: number; retainer: number; spend: number
@@ -257,12 +337,13 @@ export type RoiKpis = {
 }
 
 export function rollupKpis(sources: SourceStats[]): RoiKpis {
-  let totalLeads = 0, responded = 0, cold = 0, optout = 0, teamRemoved = 0, active = 0, funded = 0
+  let totalLeads = 0, responded = 0, cold = 0, optout = 0, teamRemoved = 0, active = 0
+  let submitted = 0, funded = 0
   let volume = 0, leadCost = 0, retainer = 0, revenue = 0
   for (const s of sources) {
     totalLeads += s.total; responded += s.responded; cold += s.cold; optout += s.optout
     teamRemoved += s.teamRemoved
-    active += s.active; funded += s.funded; volume += s.fundedVolume
+    active += s.active; submitted += s.submitted; funded += s.funded; volume += s.fundedVolume
     leadCost += s.leadCost; retainer += s.retainer; revenue += s.revenue
   }
   const spend = leadCost + retainer
@@ -275,7 +356,8 @@ export function rollupKpis(sources: SourceStats[]): RoiKpis {
     totalLeads, responded, rr: (100 * responded) / safe,
     cold, crate: (100 * cold) / safe, optout, orate: (100 * optout) / safe,
     teamRemoved, trate: (100 * teamRemoved) / safe,
-    active, funded, fr: (100 * funded) / safe, volume,
+    active, submitted, sr: (100 * submitted) / safe,
+    funded, fr: (100 * funded) / safe, volume,
     leadCost, retainer, spend, revenue, netRevenue, netProfit: netRevenue - spend,
     roi: spend > 0 ? netRevenue / spend : null,
     costPerFunded: funded > 0 && spend > 0 ? spend / funded : null,
@@ -289,32 +371,195 @@ export type FunnelStage = { key: string; label: string; sub: string; n: number; 
 export function funnel(k: RoiKpis): FunnelStage[] {
   const pct = (n: number) => (k.totalLeads ? (100 * n) / k.totalLeads : 0)
   const becameLoan = k.active + k.funded
+  // `submitted` sits above `loan` by count, not below it: a loan that reached
+  // underwriting and later died is still a submission but is no longer active, so the
+  // funnel is NOT strictly monotonic between those two stages. That is a real fact
+  // about the pipeline, not a bug — the step-conversion chip can read over 100% there.
   return [
     { key: 'leads',     label: 'Leads',         sub: 'in scope',          n: k.totalLeads, pctOfLeads: 100 },
     { key: 'responded', label: 'Responded',     sub: 'engaged ≥ once',    n: k.responded,  pctOfLeads: pct(k.responded) },
+    { key: 'submitted', label: 'Submitted',     sub: 'reached UW',        n: k.submitted,  pctOfLeads: pct(k.submitted) },
     { key: 'loan',      label: 'Became a loan', sub: 'active + funded',   n: becameLoan,   pctOfLeads: pct(becameLoan) },
     { key: 'funded',    label: 'Funded',        sub: 'comp earned',       n: k.funded,     pctOfLeads: pct(k.funded) },
   ]
 }
 
 // ── Per-state rows ─────────────────────────────────────────────────────────────
-export type StateRow = { state: string; n: number; responded: number; rr: number; funded: number; fr: number }
+export type StateRow = { state: string; n: number; responded: number; rr: number; submitted: number; sr: number; funded: number; fr: number }
 export function stateRows(deals: Deal[]): StateRow[] {
   const map = new Map<string, StateRow>()
   for (const d of deals) {
     const t = (d.state ?? '').trim()
     const key = t ? t.toUpperCase().slice(0, 2) : '(none)'
     let r = map.get(key)
-    if (!r) { r = { state: key, n: 0, responded: 0, rr: 0, funded: 0, fr: 0 }; map.set(key, r) }
+    if (!r) { r = { state: key, n: 0, responded: 0, rr: 0, submitted: 0, sr: 0, funded: 0, fr: 0 }; map.set(key, r) }
     r.n++
     if (isResponded(d)) r.responded++
+    if (isSubmitted(d)) r.submitted++
     if (isFunded(d)) r.funded++
   }
   for (const r of map.values()) {
     r.rr = r.n ? (100 * r.responded) / r.n : 0
+    r.sr = r.n ? (100 * r.submitted) / r.n : 0
     r.fr = r.n ? (100 * r.funded) / r.n : 0
   }
   return [...map.values()].sort((a, b) => b.n - a.n)
+}
+
+// ── Per-state stats with the full money set ────────────────────────────────────
+// The "Per state" card above answers volume and conversion. This answers the money
+// question a lead buyer actually has: not "does Lendgo work?" but "does Lendgo work
+// in Pennsylvania?" Sources are geographically lopsided — measured 2026-09-21, Lendgo
+// spans 13 states, LMB 14, Lending Tree 14, OwnUp only 3 — so a vendor's headline ROI
+// can be carried entirely by one state and hide a money pit in the rest.
+//
+// RETAINER ALLOCATION. A retainer is billed per SOURCE, not per state, so there is no
+// ground truth for splitting it. It is allocated PRO-RATA BY LEAD COUNT and the last
+// state absorbs the rounding remainder, so Σ per-state spend equals the source row's
+// spend EXACTLY. That reconciliation is the point: a per-state table that doesn't add
+// up to the row above it is worse than no table. Every `lead_source_costs` row is
+// empty today (checked 2026-09-21), so this is dormant — but it must not silently
+// corrupt the totals the first time Efrain sets one. The UI discloses the split.
+export type StateStats = {
+  state: string
+  n: number
+  responded: number; rr: number
+  submitted: number; sr: number
+  funded: number; fr: number
+  fundedVolume: number
+  leadCost: number
+  retainer: number
+  spend: number
+  revenue: number                 // GROSS comp on funded
+  netRevenue: number              // × LO_SPLIT
+  netProfit: number
+  roi: number | null
+  costPerFunded: number | null
+}
+
+export function stateStats(deals: Deal[], retainer = 0): StateStats[] {
+  const map = new Map<string, StateStats>()
+  for (const d of deals) {
+    const t = (d.state ?? '').trim()
+    const key = t ? t.toUpperCase().slice(0, 2) : '(none)'
+    let r = map.get(key)
+    if (!r) {
+      r = {
+        state: key, n: 0, responded: 0, rr: 0, submitted: 0, sr: 0, funded: 0, fr: 0,
+        fundedVolume: 0, leadCost: 0, retainer: 0, spend: 0, revenue: 0,
+        netRevenue: 0, netProfit: 0, roi: null, costPerFunded: null,
+      }
+      map.set(key, r)
+    }
+    r.n++
+    if (isResponded(d)) r.responded++
+    if (isSubmitted(d)) r.submitted++
+    // Same rule as buildSourceStats: every opportunity's lead_price is a real,
+    // separate charge. Never dedupe by contact or vendor_lead_id.
+    r.leadCost += d.lead_price ?? 0
+    if (isFunded(d)) {
+      r.funded++
+      r.fundedVolume += d.loan_amount ?? 0
+      r.revenue += totalComp(d)
+    }
+  }
+  const rows = [...map.values()].sort((a, b) => b.n - a.n || a.state.localeCompare(b.state))
+  const totalLeads = rows.reduce((a, r) => a + r.n, 0)
+  let allocated = 0
+  rows.forEach((r, i) => {
+    // Last row takes the remainder so the column sums to `retainer` exactly.
+    r.retainer = i === rows.length - 1
+      ? retainer - allocated
+      : (totalLeads > 0 ? (retainer * r.n) / totalLeads : 0)
+    allocated += r.retainer
+    r.rr = r.n ? (100 * r.responded) / r.n : 0
+    r.sr = r.n ? (100 * r.submitted) / r.n : 0
+    r.fr = r.n ? (100 * r.funded) / r.n : 0
+    r.spend = r.leadCost + r.retainer
+    r.netRevenue = netOf(r.revenue)
+    r.netProfit = r.netRevenue - r.spend
+    r.roi = r.spend > 0 ? r.netRevenue / r.spend : null
+    r.costPerFunded = r.funded > 0 && r.spend > 0 ? r.spend / r.funded : null
+  })
+  return rows
+}
+
+// ── Source × state matrix ──────────────────────────────────────────────────────
+// One metric at a time across every source and every state, so a whole book of lead
+// spend can be scanned in one grid instead of one drill-down at a time.
+//
+// A null cell means the source bought NO leads in that state — which is different
+// from "bought leads and made nothing there" (0). The UI must render them differently
+// or an untouched state reads as a failure.
+export type MatrixMetric = 'leads' | 'submitted' | 'sr' | 'funded' | 'fr' | 'spend' | 'netProfit' | 'roi'
+
+export const MATRIX_METRICS: Array<{ key: MatrixMetric; label: string; kind: 'count' | 'pct' | 'money' | 'roi' }> = [
+  { key: 'leads',     label: 'Leads',      kind: 'count' },
+  { key: 'submitted', label: 'Submitted',  kind: 'count' },
+  { key: 'sr',        label: 'Sub %',      kind: 'pct'   },
+  { key: 'funded',    label: 'Funded',     kind: 'count' },
+  { key: 'fr',        label: 'Fund %',     kind: 'pct'   },
+  { key: 'spend',     label: 'Spend',      kind: 'money' },
+  { key: 'netProfit', label: 'Net profit', kind: 'money' },
+  { key: 'roi',       label: 'ROI',        kind: 'roi'   },
+]
+
+export type MatrixRow = {
+  source: string
+  cells: Array<number | null>     // aligned to `states`; null = no leads there
+  leadsByState: Array<number>     // for the cell tooltip — always the lead count
+  total: number | null            // the source-level value of the same metric
+}
+export type SourceStateMatrix = { states: string[]; rows: MatrixRow[] }
+
+const metricOf = (r: StateStats, m: MatrixMetric): number | null => {
+  switch (m) {
+    case 'leads':     return r.n
+    case 'submitted': return r.submitted
+    case 'sr':        return r.sr
+    case 'funded':    return r.funded
+    case 'fr':        return r.fr
+    case 'spend':     return r.spend
+    case 'netProfit': return r.netProfit
+    case 'roi':       return r.roi
+  }
+}
+const sourceMetricOf = (s: SourceStats, m: MatrixMetric): number | null => {
+  switch (m) {
+    case 'leads':     return s.total
+    case 'submitted': return s.submitted
+    case 'sr':        return s.sr
+    case 'funded':    return s.funded
+    case 'fr':        return s.fr
+    case 'spend':     return s.spend
+    case 'netProfit': return s.netProfit
+    case 'roi':       return s.roi
+  }
+}
+
+export function sourceStateMatrix(sources: SourceStats[], metric: MatrixMetric, maxStates = 14): SourceStateMatrix {
+  // Column order = total leads across ALL sources, so the busiest states sit left and
+  // the `maxStates` cut drops the thinnest tail rather than an arbitrary slice.
+  const leadsByState = new Map<string, number>()
+  const perSource = sources.map(s => ({ s, states: stateStats(s.deals, s.retainer) }))
+  for (const { states } of perSource) {
+    for (const r of states) leadsByState.set(r.state, (leadsByState.get(r.state) ?? 0) + r.n)
+  }
+  const states = [...leadsByState.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, maxStates)
+    .map(([st]) => st)
+
+  const rows: MatrixRow[] = perSource.map(({ s, states: rowStates }) => {
+    const by = new Map(rowStates.map(r => [r.state, r]))
+    return {
+      source: s.source,
+      cells: states.map(st => { const r = by.get(st); return r ? metricOf(r, metric) : null }),
+      leadsByState: states.map(st => by.get(st)?.n ?? 0),
+      total: sourceMetricOf(s, metric),
+    }
+  })
+  return { states, rows }
 }
 
 // ── Monthly spend-vs-revenue series ────────────────────────────────────────────

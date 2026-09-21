@@ -1,5 +1,12 @@
 # GOTCHAS — Lumin Deals
 
+### An optional 2nd parameter on a predicate is a loaded gun: `.filter(pred)` feeds it the INDEX
+**Tried:** Giving `isSubmitted(deal, rule = SUBMISSION_RULE)` an optional second argument so fixtures could test all three submission readings against one implementation. Every call site in the aggregation used it as `isSubmitted(d)`, which is correct.
+**Failed because:** The first caller that wrote `priced.filter(isSubmitted)` broke it silently. `Array.prototype.filter` invokes its callback as `(element, index, array)`, so the **index** landed in `rule`. Element 0 got `rule = 0`, which matched no branch and fell through to the strictest one; every later element did too. The repo-wide count read **182 instead of 345** — a plausible-looking number, no type error (the param is a union of string literals but `filter` is typed loosely enough at the call site), no runtime throw, nothing in the console. It was only caught because a live report printed a total that disagreed with a figure measured ten minutes earlier.
+**What works:** Don't put an optional parameter on a predicate that will ever be passed by reference. Split it: `isSubmitted(d)` takes exactly ONE argument and closes over the live constant; `isSubmittedUnder(d, rule)` is the explicit-rule form the fixtures call. A fixture now filters a mixed book and asserts the count matches an explicit `d => isSubmitted(d)` loop, so a re-added parameter fails the suite. Same hazard with `.map(Number.parseInt)` and any `.map(fn)` over a defaulted arg.
+**Project:** lumin-deals
+**Date:** 2026-09-21
+
 ### "Not locked" is two traps: a DB trigger that fakes it, and a UI filter that hides it
 **Tried:** Listing loans with no rate lock the obvious way — every deal where `lock_expiration` is null (or, worse, where `locked <> 'Yes'`), scoped by the dashboard's normal LO filter.
 **Failed because:** Three separate ways. (1) The `clear_lock_expiration_on_funded` DB trigger **nulls `lock_expiration` before any write lands on a funded status**, so all **136** funded rows read "no lock" and would bury the 10 real ones. (2) The hand-set `locked` Yes/No column has no importer and is now completely dead — `locked = 'Yes'` on **0 of 32** active escrows (2026-09-16) while 25 carry a real Arive expiry, so gating on the flag reports **every** escrow as unlocked. (3) The dashboard's LO filter defaults to Matt + Moe, and **7 of the 10** unlocked loans belong to Randy and Daniel — a risk list scoped that way silently hides most of the risk.

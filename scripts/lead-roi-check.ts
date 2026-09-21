@@ -4,6 +4,7 @@ import {
   rangeBounds, monthsBetween, parseLocalMs, anchorDate, filterDeals, buildSourceStats,
   rollupKpis, funnel, stateRows, monthlySeries, projection, sourceLabel,
   optout7dStats, insights, netOf, LO_SPLIT,
+  isSubmitted, isSubmittedUnder, stateStats, sourceStateMatrix,
   type CostRow, type RoiFilters,
 } from '../lib/leadRoi'
 import type { Deal } from '../lib/types'
@@ -121,7 +122,9 @@ approx('kpis netProfit runs on net', k.netProfit, 2300)
 approx('kpis avgComp = GROSS ÷ funded', k.avgComp, 1500)      // 3000 across 2 funded
 approx('kpis avgNetComp = NET ÷ funded', k.avgNetComp, 1275)  // what cost/funded must beat
 const fn = funnel(k)
-eq('funnel stages', fn.map(s => s.n), [4, 3, 2, 2])   // 0 active → became-a-loan = funded
+// leads, responded, SUBMITTED, became-a-loan, funded. 0 active → became-a-loan =
+// funded; both funded deals rank past 'Submitted to UW', so submitted = 2 as well.
+eq('funnel stages', fn.map(s => s.n), [4, 3, 2, 2, 2])
 
 // ── States ─────────────────────────────────────────────────────────────────────
 const st = stateRows(moes)
@@ -252,6 +255,129 @@ eq('worstRoi = Delta (underwater)', ins.worstRoi?.source, 'Delta')
 eq('highestOptout sized pick', ins.highestOptout?.source, 'Gamma')
 const insEmpty = insights([])
 eq('insights on empty book → all null', [insEmpty.bestRoi, insEmpty.topNet, insEmpty.bestResponse, insEmpty.worstRoi, insEmpty.highestOptout], [null, null, null, null, null])
+
+// ── Submission (isSubmitted) ───────────────────────────────────────────────────
+// Two clauses: status rank ≥ 'Submitted to UW', OR a non-empty arive_file_no.
+eq('status below UW is not submitted',        isSubmitted({ status: 'Disclosed',              arive_file_no: null }), false)
+eq('Loan Setup is not submitted',             isSubmitted({ status: 'Loan Setup',             arive_file_no: null }), false)
+eq('Submitted to UW is the boundary',         isSubmitted({ status: 'Submitted to UW',        arive_file_no: null }), true)
+eq('Approved w/ Conditions is past it',       isSubmitted({ status: 'Approved w/ Conditions', arive_file_no: null }), true)
+eq('Clear to Close is past it',               isSubmitted({ status: 'Clear to Close',         arive_file_no: null }), true)
+// Funded needs no special case — every funded status ranks past 'Submitted to UW'.
+eq('Loan Funded implies submitted',           isSubmitted({ status: 'Loan Funded',            arive_file_no: null }), true)
+eq('Broker Check Received implies submitted', isSubmitted({ status: 'Broker Check Received',  arive_file_no: null }), true)
+eq('Loan Finalized implies submitted',        isSubmitted({ status: 'Loan Finalized',         arive_file_no: null }), true)
+// ⚠️ The clause that carries ~23% of real submissions: a deal stores only its CURRENT
+// status, so a loan that reached UW and then died reads as Not-Ready. Measured live
+// 2026-09-21: 64 priced leads hold a real Arive file under a dead status.
+eq('dead status WITH an Arive file counts',   isSubmitted({ status: 'Not Ready - Timeframe',  arive_file_no: 'L-1001' }), true)
+eq('Remove from All Automations + file',      isSubmitted({ status: 'Remove from All Automations', arive_file_no: '77' }), true)
+eq('dead status WITHOUT a file does not',     isSubmitted({ status: 'Not Ready - Timeframe',  arive_file_no: null }), false)
+eq('whitespace-only file number is empty',    isSubmitted({ status: 'Ghosted',                arive_file_no: '   ' }), false)
+eq('unknown status, no file → false',         isSubmitted({ status: 'Some GHL Stage',         arive_file_no: null }), false)
+eq('unknown status WITH a file → true',       isSubmitted({ status: 'Some GHL Stage',         arive_file_no: 'L-9' }), true)
+
+// ⚠️ Regression guard. isSubmitted once took an optional `rule` second argument, so
+// `deals.filter(isSubmitted)` fed Array.filter's INDEX into it: element 0 used the real
+// rule and every later element silently fell through to a stricter branch. A repo-wide
+// count read 182 instead of 345 with no error raised. isSubmitted is one-arg now — this
+// pins that a filter over a mixed book agrees with an explicit per-element loop.
+const filterBook = [
+  { status: 'App Intake',            arive_file_no: 'L-1', pipeline_group: 'Leads' },
+  { status: 'App Intake',            arive_file_no: 'L-2', pipeline_group: 'Leads' },
+  { status: 'App Intake',            arive_file_no: 'L-3', pipeline_group: 'Leads' },
+  { status: 'Not Ready - Timeframe', arive_file_no: null,  pipeline_group: 'Not Ready' },
+]
+eq('filter(isSubmitted) is index-safe', filterBook.filter(isSubmitted).length, 3)
+eq('…and agrees with an explicit loop',
+  filterBook.filter(isSubmitted).length, filterBook.filter(d => isSubmitted(d)).length)
+
+// The rule switch — swapping SUBMISSION_RULE must move the whole page in lockstep,
+// so each branch is pinned here rather than left to the one live constant.
+eq("status_only ignores the Arive file",
+  isSubmittedUnder({ status: 'App Intake', arive_file_no: 'L-1', pipeline_group: 'Leads' }, 'status_only'), false)
+eq("status_only still counts a real UW status",
+  isSubmittedUnder({ status: 'Submitted to UW', arive_file_no: null, pipeline_group: 'Loans in Process' }, 'status_only'), true)
+eq("dead_file_or_status rescues a DEAD deal's file",
+  isSubmittedUnder({ status: 'Not Ready - Timeframe', arive_file_no: 'L-1', pipeline_group: 'Not Ready' }, 'dead_file_or_status'), true)
+eq("dead_file_or_status does NOT promote a live App Intake file",
+  isSubmittedUnder({ status: 'App Intake', arive_file_no: 'L-1', pipeline_group: 'Leads' }, 'dead_file_or_status'), false)
+eq("file_or_status promotes it",
+  isSubmittedUnder({ status: 'App Intake', arive_file_no: 'L-1', pipeline_group: 'Leads' }, 'file_or_status'), true)
+
+// Submission rolls up, and can never sit below funded.
+const subBook: Deal[] = [
+  deal({ id: 's1', source: 'Zed', status: 'Attempted Contact' }),
+  deal({ id: 's2', source: 'Zed', status: 'Submitted to UW' }),
+  deal({ id: 's3', source: 'Zed', status: 'Not Ready - Timeframe', arive_file_no: 'L-3' }),
+  deal({ id: 's4', source: 'Zed', pipeline_group: 'Funded', status: 'Loan Funded', funded_date: '2026-06-01', compensation_amount: 1000 }),
+]
+const subStats = buildSourceStats(subBook, new Map(), 1)
+eq('submitted counts status + arive-file + funded', subStats[0].submitted, 3)
+approx('sub rate = 3/4', subStats[0].sr, 75)
+const subK = rollupKpis(subStats)
+eq('kpis carry submitted', subK.submitted, 3)
+approx('kpi sub rate', subK.sr, 75)
+eq('submission is never below funded', subK.submitted >= subK.funded, true)
+const subFunnel = funnel(subK)
+eq('funnel has 5 stages', subFunnel.map(f => f.key), ['leads', 'responded', 'submitted', 'loan', 'funded'])
+eq('funnel Submitted count', subFunnel[2].n, 3)
+
+// ── stateStats: the full money set, and it MUST reconcile to the source row ─────
+const geoBook: Deal[] = [
+  deal({ id: 'c1', source: 'Geo', state: 'CA', lead_price: 40, status: 'Submitted to UW' }),
+  deal({ id: 'c2', source: 'Geo', state: 'ca', lead_price: 40, status: 'Attempted Contact' }),
+  deal({ id: 'c3', source: 'Geo', state: 'CA', lead_price: 40, pipeline_group: 'Funded', status: 'Loan Funded', funded_date: '2026-06-01', compensation_amount: 2000, loan_amount: 500000 }),
+  deal({ id: 'p1', source: 'Geo', state: 'PA', lead_price: 30, status: 'Ghosted' }),
+  deal({ id: 'p2', source: 'Geo', state: 'PA', lead_price: 30, status: 'Not Ready - Timeframe', arive_file_no: 'L-7' }),
+  deal({ id: 'n1', source: 'Geo', state: null,  lead_price: 20, status: 'New Lead' }),
+]
+const geoSrc = buildSourceStats(geoBook, new Map(), 1)[0]
+const geoStates = stateStats(geoBook, geoSrc.retainer)
+eq('states sorted by leads desc', geoStates.map(r => r.state), ['CA', 'PA', '(none)'])
+eq('state key is upper-cased and 2 chars', geoStates[0].state, 'CA')
+eq('blank state buckets to (none)', geoStates[2].state, '(none)')
+eq('CA submitted = UW + funded', geoStates[0].submitted, 2)
+eq('PA submitted comes from the Arive file', geoStates[1].submitted, 1)
+approx('CA net revenue is the LO share', geoStates[0].netRevenue, 1700)
+// Reconciliation — the contract the UI footer asserts out loud.
+approx('Σ state spend = source spend',      geoStates.reduce((a, r) => a + r.spend, 0), geoSrc.spend)
+approx('Σ state revenue = source revenue',  geoStates.reduce((a, r) => a + r.revenue, 0), geoSrc.revenue)
+approx('Σ state net profit = source net',   geoStates.reduce((a, r) => a + r.netProfit, 0), geoSrc.netProfit)
+eq('Σ state leads = source leads',          geoStates.reduce((a, r) => a + r.n, 0), geoSrc.total)
+eq('Σ state submitted = source submitted',  geoStates.reduce((a, r) => a + r.submitted, 0), geoSrc.submitted)
+eq('Σ state funded = source funded',        geoStates.reduce((a, r) => a + r.funded, 0), geoSrc.funded)
+
+// Retainer: billed per SOURCE, split pro-rata by lead count, last state absorbs the
+// remainder so the column sums EXACTLY. 100 over 6 leads = 3 CA + 2 PA + 1 (none).
+const geoCosts = new Map<string, CostRow>([['Geo', { source: 'Geo', cost_per_month: 100, notes: null, updated_at: '' }]])
+const geoSrcR = buildSourceStats(geoBook, geoCosts, 1)[0]
+const geoStatesR = stateStats(geoBook, geoSrcR.retainer)
+approx('retainer allocated to CA pro-rata', geoStatesR[0].retainer, 50)
+approx('retainer allocated to PA pro-rata', geoStatesR[1].retainer, 100 / 3)
+approx('Σ allocated retainer = the retainer EXACTLY', geoStatesR.reduce((a, r) => a + r.retainer, 0), 100, 1e-9)
+approx('Σ state spend still = source spend', geoStatesR.reduce((a, r) => a + r.spend, 0), geoSrcR.spend, 1e-9)
+eq('empty book → no state rows', stateStats([], 0).length, 0)
+
+// ── sourceStateMatrix ──────────────────────────────────────────────────────────
+const mxBook: Deal[] = [
+  ...geoBook,
+  deal({ id: 'o1', source: 'Other', state: 'CA', lead_price: 10, status: 'New Lead' }),
+  deal({ id: 'o2', source: 'Other', state: 'TX', lead_price: 10, status: 'New Lead' }),
+]
+const mxSources = buildSourceStats(mxBook, new Map(), 1)
+const mx = sourceStateMatrix(mxSources, 'leads')
+eq('columns ordered by total leads desc', mx.states, ['CA', 'PA', '(none)', 'TX'])
+eq('one row per source', mx.rows.map(r => r.source), ['Geo', 'Other'])
+// A null cell means the source bought NO leads there — NOT that it earned nothing.
+eq('Geo has no TX leads → null cell', mx.rows[0].cells[3], null)
+eq('Other has 1 TX lead', mx.rows[1].cells[3], 1)
+eq('row total = the source-level metric', mx.rows[0].total, mxSources[0].total)
+eq('cells sum to the row total', mx.rows[0].cells.reduce((a: number, c) => a + (c ?? 0), 0), mx.rows[0].total)
+eq('leadsByState always carries the count', mx.rows[1].leadsByState, [1, 0, 0, 1])
+const mxRoi = sourceStateMatrix(mxSources, 'roi')
+eq('roi row total = the source roi', mxRoi.rows[0].total, mxSources[0].roi)
+eq('maxStates trims the thin tail', sourceStateMatrix(mxSources, 'leads', 2).states, ['CA', 'PA'])
 
 // ── Misc ───────────────────────────────────────────────────────────────────────
 eq('sourceLabel blank → sentinel', sourceLabel({ source: '  ' }), '(no source set)')
