@@ -164,10 +164,27 @@ function ReportBody() {
   return (
     <div className="w-full h-full overflow-auto bg-slate-100 print:bg-white print:overflow-visible">
       <style>{`
+        /* The sheet is designed at 980px. A portrait letter page gives ~7.2in ≈ 690px of
+           printable width, so every wide table lost its right-hand columns — and because
+           each sits in an overflow-x-auto wrapper, they were CLIPPED rather than pushed,
+           so the loss was silent. Efrain hit this on the money columns (Revenue → ROI).
+           Three fixes, cheapest first: let the wrappers overflow instead of clip, let
+           header text wrap so columns can narrow, and shrink type + padding in print. */
+        @page { size: letter portrait; margin: 0.35in; }
         @media print {
           body { overflow: visible !important; display: block !important; }
           .noprint { display: none !important; }
           .sheet { box-shadow: none !important; border: 0 !important; border-radius: 0 !important; margin: 0 !important; max-width: none !important; }
+          /* A scroll container prints as a clip. Never clip in print. */
+          .fit { overflow: visible !important; }
+          /* Wide data tables: shrink to fit the page rather than lose columns. */
+          .wide-table { font-size: 7pt !important; width: 100% !important; table-layout: auto; }
+          .wide-table th, .wide-table td {
+            padding: 1px 2px !important;
+            white-space: normal !important;   /* headers may wrap — "NET REV" over two lines */
+            word-break: normal;
+            overflow-wrap: anywhere;          /* long currency never forces a column wider than the page */
+          }
         }
       `}</style>
       <div className="noprint sticky top-0 z-10 flex justify-end px-6 py-3">
@@ -318,8 +335,8 @@ function ReportBody() {
 
         {/* Source table */}
         <Section title="Per lead source">
-          <div className="overflow-x-auto border border-slate-200 rounded-lg">
-            <table className="w-full text-[12px]">
+          <div className="fit overflow-x-auto border border-slate-200 rounded-lg">
+            <table className="wide-table w-full text-[12px]">
               <thead>
                 <tr className="text-[9px] uppercase tracking-wide text-slate-500 bg-slate-50 border-b-2 border-slate-200">
                   <Th left>Source</Th><Th>Leads</Th><Th>Resp %</Th><Th>Opt-out</Th><Th>App %</Th><Th>Sub %</Th>{/* App = an Arive file exists (issued at application); Sub = status ≥ 'Submitted to UW'. See lib/leadRoi SUBMISSION_RULE */}
@@ -479,8 +496,8 @@ function ReportBody() {
         {/* Funded loans */}
         {fundedList.length > 0 && (
           <Section title="Funded loans in range">
-            <div className="overflow-x-auto border border-slate-200 rounded-lg">
-              <table className="w-full text-[12px]">
+            <div className="fit overflow-x-auto border border-slate-200 rounded-lg">
+              <table className="wide-table w-full text-[12px]">
                 <thead>
                   <tr className="text-[9px] uppercase tracking-wide text-slate-500 bg-slate-50 border-b-2 border-slate-200">
                     <Th left>Borrower</Th><Th left>Source</Th><Th>Lead in</Th><Th>Funded</Th><Th>Loan amount</Th><Th>Comp</Th>
@@ -544,8 +561,8 @@ function SourceStateBlock({ src }: { src: SourceStats }) {
           {src.total} leads · {rows.length} state{rows.length === 1 ? '' : 's'} · {formatCurrency(src.spend)} spend · {formatCurrency(src.netProfit)} net
         </span>
       </div>
-      <div className="overflow-x-auto border border-slate-200 rounded-lg">
-        <table className="w-full text-[11px]">
+      <div className="fit overflow-x-auto border border-slate-200 rounded-lg">
+        <table className="wide-table w-full text-[11px]">
           <thead>
             <tr className="text-[9px] uppercase tracking-wide text-slate-500 bg-slate-50 border-b border-slate-200">
               <Th left>State</Th><Th>Leads</Th><Th>Resp %</Th><Th>Opt-out</Th><Th>App %</Th><Th>Sub %</Th>

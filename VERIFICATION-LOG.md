@@ -1,6 +1,15 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-09-21] /lead-roi/report — money columns were being CLIPPED in print
+**Status:** CHANGED — tsc = the 7-error `main` baseline, `npm run build` ✓ exit 0, and the fit was **measured**, not eyeballed: the 17-column table renders **672px inside a 672px** printable area, overflow **0**, all columns present through ROI.
+**Issue:** Efrain, printing the Visual Report: "there are stats being cutoff." Revenue / Net rev / Net / ROI vanished off the right edge of every table.
+**Root cause:** the sheet is laid out at **980px**; a portrait letter page gives roughly **690–750px** of printable width. Every wide table sits in an `overflow-x-auto` wrapper, and **a scroll container prints as a clip** — so the columns were not shrunk or wrapped, they were silently deleted from the page. On screen the wrapper scrolls and everything looks fine, which is why this only showed up on paper. Adding App % and Sub % earlier today pushed both tables over the edge and exposed it.
+**Changes:** [app/lead-roi/report/page.tsx](app/lead-roi/report/page.tsx) — `@page { size: letter portrait; margin: 0.35in }`, and in `@media print`: `.fit { overflow: visible }` (never clip in print), plus `.wide-table` at 7pt with 1–2px cell padding, `white-space: normal` so headers may wrap, and `overflow-wrap: anywhere` so a long currency string can't force a column wider than the page. Applied to all three tables — per-lead-source, by-source-and-state, and funded loans.
+**Note:** screen rendering is untouched — every rule lives inside `@media print`, and `.fit` / `.wide-table` are inert otherwise.
+**Test Method:** Visual Report → Print / Save as PDF → the ROI column is present on every table. Verified pre-commit by rendering the table markup at 690px with the print rules forced on and reading `scrollWidth` vs `clientWidth` off the DOM (temporary `app/printtest` route, deleted before commit).
+**Result:** VERIFIED — overflow 0px, all 17 columns present, narrowest column 29px and headers still single-line at 7pt.
+
 ### [2026-09-21] /lead-roi — Source × state matrix REMOVED
 **Status:** CHANGED — tsc = the 7-error `main` baseline (0 new), `npm run build` ✓ exit 0, **174/174** fixtures (183 − 9 matrix fixtures deleted with the feature), eslint unchanged from baseline, live reconciliation re-run and still 10/10 OK.
 **Issue:** Efrain, after using it: remove the Source × state matrix from /lead-roi. The "One source, every state" tabbed section shipped hours later supersedes it — same data, every metric at once instead of one metric at a time, and it reads as a table rather than a grid of bare numbers.
