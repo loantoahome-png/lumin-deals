@@ -4,7 +4,7 @@ import {
   rangeBounds, monthsBetween, parseLocalMs, anchorDate, filterDeals, buildSourceStats,
   rollupKpis, funnel, stateRows, monthlySeries, projection, sourceLabel,
   optout7dStats, insights, netOf, LO_SPLIT,
-  isSubmitted, isApplied, isSubmittedUnder, SUBMISSION_RULE, stateStats,
+  isSubmitted, stateStats,
   type CostRow, type RoiFilters,
 } from '../lib/leadRoi'
 import { isPurchasedSource } from '../lib/leadReport'
@@ -123,9 +123,9 @@ approx('kpis netProfit runs on net', k.netProfit, 2300)
 approx('kpis avgComp = GROSS ÷ funded', k.avgComp, 1500)      // 3000 across 2 funded
 approx('kpis avgNetComp = NET ÷ funded', k.avgNetComp, 1275)  // what cost/funded must beat
 const fn = funnel(k)
-// leads, responded, APPLIED, SUBMITTED, became-a-loan, funded. 0 active → became-a-loan =
+// leads, responded, SUBMITTED, became-a-loan, funded. 0 active → became-a-loan =
 // funded; both funded deals rank past 'Submitted to UW', so submitted = 2 as well.
-eq('funnel stages', fn.map(s => s.n), [4, 3, 2, 2, 2, 2])
+eq('funnel stages', fn.map(s => s.n), [4, 3, 2, 2, 2])
 
 // ── States ─────────────────────────────────────────────────────────────────────
 const st = stateRows(moes)
@@ -258,109 +258,61 @@ const insEmpty = insights([])
 eq('insights on empty book → all null', [insEmpty.bestRoi, insEmpty.topNet, insEmpty.bestResponse, insEmpty.worstRoi, insEmpty.highestOptout], [null, null, null, null, null])
 
 // ── Submission (isSubmitted) ───────────────────────────────────────────────────
-// Status-rank test ONLY. `arive_file_no` is issued at APPLICATION (Efrain 2026-09-21),
-// so it is deliberately not read here — see the note in lib/leadRoi.ts.
-eq('status below UW is not submitted',        isSubmitted({ status: 'Disclosed',              arive_file_no: null }), false)
-eq('App Intake is not submitted',             isSubmitted({ status: 'App Intake',             arive_file_no: null }), false)
-eq('Loan Setup is not submitted',             isSubmitted({ status: 'Loan Setup',             arive_file_no: null }), false)
-eq('Submitted to UW is the boundary',         isSubmitted({ status: 'Submitted to UW',        arive_file_no: null }), true)
-eq('Approved w/ Conditions is past it',       isSubmitted({ status: 'Approved w/ Conditions', arive_file_no: null }), true)
-eq('Clear to Close is past it',               isSubmitted({ status: 'Clear to Close',         arive_file_no: null }), true)
+// Status-rank test ONLY.
+//
+// ⚠️ `arive_file_no` must never enter this. It is created at APPLICATION, not at
+// submission to UW (Efrain 2026-09-21), and counting it inflated the metric from 108
+// to 345 across 5,222 priced leads while mislabelling 151 open `App Intake` leads as
+// being in underwriting. The predicate now takes `Pick<Deal, 'status'>`, so the TYPE
+// is the guard — re-adding the clause does not compile. These fixtures pin the rank.
+eq('status below UW is not submitted',        isSubmitted({ status: 'Disclosed' }), false)
+eq('App Intake is not submitted',             isSubmitted({ status: 'App Intake' }), false)
+eq('Loan Setup is not submitted',             isSubmitted({ status: 'Loan Setup' }), false)
+eq('a dead status is not submitted',          isSubmitted({ status: 'Not Ready - Timeframe' }), false)
+eq('Submitted to UW is the boundary',         isSubmitted({ status: 'Submitted to UW' }), true)
+eq('Approved w/ Conditions is past it',       isSubmitted({ status: 'Approved w/ Conditions' }), true)
+eq('Clear to Close is past it',               isSubmitted({ status: 'Clear to Close' }), true)
 // Funded needs no special case — every funded status ranks past 'Submitted to UW'.
-eq('Loan Funded implies submitted',           isSubmitted({ status: 'Loan Funded',            arive_file_no: null }), true)
-eq('Broker Check Received implies submitted', isSubmitted({ status: 'Broker Check Received',  arive_file_no: null }), true)
-eq('Loan Finalized implies submitted',        isSubmitted({ status: 'Loan Finalized',         arive_file_no: null }), true)
-eq('unknown status → false',                  isSubmitted({ status: 'Some GHL Stage',         arive_file_no: null }), false)
+eq('Loan Funded implies submitted',           isSubmitted({ status: 'Loan Funded' }), true)
+eq('Broker Check Received implies submitted', isSubmitted({ status: 'Broker Check Received' }), true)
+eq('Loan Finalized implies submitted',        isSubmitted({ status: 'Loan Finalized' }), true)
+eq('unknown status → false',                  isSubmitted({ status: 'Some GHL Stage' }), false)
+eq('blank status → false',                    isSubmitted({ status: '' }), false)
 
-// ⚠️ THE REGRESSION THAT MATTERS. An Arive file number means an APPLICATION was taken,
-// not that the loan went to underwriting. Counting it here inflated the metric 108 →
-// 345 and labelled 151 open `App Intake` leads as submissions. If these four flip,
-// someone re-added the file clause to isSubmitted.
-eq('App Intake + Arive file is NOT submitted',
-  isSubmitted({ status: 'App Intake', arive_file_no: 'L-1001', pipeline_group: 'Leads' }), false)
-eq('dead status + Arive file is NOT submitted',
-  isSubmitted({ status: 'Not Ready - Timeframe', arive_file_no: 'L-1001', pipeline_group: 'Not Ready' }), false)
-eq('unknown status + Arive file is NOT submitted',
-  isSubmitted({ status: 'Some GHL Stage', arive_file_no: 'L-9' }), false)
-eq('an Arive file never overrides the rank',
-  isSubmitted({ status: 'Disclosed', arive_file_no: 'L-7' }), false)
-
-// The 'application' rule keeps the file clause — it measures the other milestone, and
-// is kept ready for an App % column. Pinning both so neither drifts into the other.
-eq("application rule counts an App Intake file",
-  isSubmittedUnder({ status: 'App Intake', arive_file_no: 'L-1' }, 'application'), true)
-eq("application rule counts a dead deal's file",
-  isSubmittedUnder({ status: 'Not Ready - Timeframe', arive_file_no: 'L-1' }, 'application'), true)
-eq("application rule without a file falls back to the rank",
-  isSubmittedUnder({ status: 'App Intake', arive_file_no: null }, 'application'), false)
-eq("application rule still counts a real UW status",
-  isSubmittedUnder({ status: 'Submitted to UW', arive_file_no: null }, 'application'), true)
-eq("status_only ignores the file",
-  isSubmittedUnder({ status: 'App Intake', arive_file_no: 'L-1' }, 'status_only'), false)
-eq('the live rule is status_only', SUBMISSION_RULE, 'status_only')
-eq('…and isSubmitted agrees with it',
-  isSubmitted({ status: 'App Intake', arive_file_no: 'L-1' }),
-  isSubmittedUnder({ status: 'App Intake', arive_file_no: 'L-1' }, SUBMISSION_RULE))
-
-// ⚠️ Regression guard. isSubmitted once took an optional `rule` second argument, so
+// ⚠️ Regression guard. isSubmitted once took an optional second argument, so
 // `deals.filter(isSubmitted)` fed Array.filter's INDEX into it: element 0 used the real
-// rule and every later element silently fell through to a different branch. A repo-wide
-// count read 182 instead of 345 with no error raised. isSubmitted is one-arg now — this
-// pins that a filter over a mixed book agrees with an explicit per-element loop.
+// rule and every later element silently took a different branch. A repo-wide count read
+// 182 instead of 345 with no error raised. isSubmitted is one-arg now — this pins that
+// a filter over a mixed book agrees with an explicit per-element loop.
 const filterBook = [
-  { status: 'Submitted to UW',       arive_file_no: null,  pipeline_group: 'Loans in Process' },
-  { status: 'Clear to Close',        arive_file_no: null,  pipeline_group: 'Loans in Process' },
-  { status: 'Loan Funded',           arive_file_no: null,  pipeline_group: 'Funded' },
-  { status: 'App Intake',            arive_file_no: 'L-2', pipeline_group: 'Leads' },
-  { status: 'Not Ready - Timeframe', arive_file_no: null,  pipeline_group: 'Not Ready' },
+  { status: 'Submitted to UW' },
+  { status: 'Clear to Close' },
+  { status: 'Loan Funded' },
+  { status: 'App Intake' },
+  { status: 'Not Ready - Timeframe' },
 ]
 eq('filter(isSubmitted) is index-safe', filterBook.filter(isSubmitted).length, 3)
 eq('…and agrees with an explicit loop',
   filterBook.filter(isSubmitted).length, filterBook.filter(d => isSubmitted(d)).length)
 
-// ── Application (isApplied) ────────────────────────────────────────────────────
-// The OTHER milestone. An Arive file number is issued at application, so it IS the
-// signal here — the exact clause isSubmitted must never use.
-eq('App Intake + Arive file IS applied',   isApplied({ status: 'App Intake', arive_file_no: 'L-1' }), true)
-eq('dead status + Arive file IS applied',  isApplied({ status: 'Not Ready - Timeframe', arive_file_no: 'L-1' }), true)
-eq('no file, early status → not applied',  isApplied({ status: 'App Intake', arive_file_no: null }), false)
-eq('whitespace file is empty',             isApplied({ status: 'App Intake', arive_file_no: '  ' }), false)
-// applied ⊇ submitted by construction: anything past UW on status counts either way,
-// so the funnel can never invert even if the file column was not imported.
-eq('a UW status with no file is still applied', isApplied({ status: 'Submitted to UW', arive_file_no: null }), true)
-eq('Loan Funded with no file is still applied', isApplied({ status: 'Loan Funded', arive_file_no: null }), true)
-eq('applied is index-safe under filter',
-  [
-    { status: 'App Intake',            arive_file_no: 'L-1' },
-    { status: 'App Intake',            arive_file_no: 'L-2' },
-    { status: 'Attempted Contact',     arive_file_no: null  },
-  ].filter(isApplied).length, 2)
-
 // Submission rolls up, and can never sit below funded.
 const subBook: Deal[] = [
   deal({ id: 's1', source: 'Zed', status: 'Attempted Contact' }),
   deal({ id: 's2', source: 'Zed', status: 'Submitted to UW' }),
+  // Holds an Arive file but died before UW — an APPLICATION, never a submission.
   deal({ id: 's3', source: 'Zed', status: 'Not Ready - Timeframe', arive_file_no: 'L-3' }),
   deal({ id: 's4', source: 'Zed', pipeline_group: 'Funded', status: 'Loan Funded', funded_date: '2026-06-01', compensation_amount: 1000 }),
 ]
 const subStats = buildSourceStats(subBook, new Map(), 1)
 eq('submitted counts the UW status + funded, NOT the Arive file', subStats[0].submitted, 2)
 approx('sub rate = 2/4', subStats[0].sr, 50)
-// s3 is the dead deal holding a file: an APPLICATION, not a submission.
-eq('applied counts the file too', subStats[0].applied, 3)
-approx('app rate = 3/4', subStats[0].ar, 75)
-eq('applied ≥ submitted', subStats[0].applied >= subStats[0].submitted, true)
 const subK = rollupKpis(subStats)
 eq('kpis carry submitted', subK.submitted, 2)
-eq('kpis carry applied', subK.applied, 3)
 approx('kpi sub rate', subK.sr, 50)
-approx('kpi app rate', subK.ar, 75)
 eq('submission is never below funded', subK.submitted >= subK.funded, true)
-eq('application is never below submission', subK.applied >= subK.submitted, true)
 const subFunnel = funnel(subK)
-eq('funnel has 6 stages', subFunnel.map(f => f.key), ['leads', 'responded', 'applied', 'submitted', 'loan', 'funded'])
-eq('funnel Applied count', subFunnel[2].n, 3)
-eq('funnel Submitted count', subFunnel[3].n, 2)
+eq('funnel has 5 stages', subFunnel.map(f => f.key), ['leads', 'responded', 'submitted', 'loan', 'funded'])
+eq('funnel Submitted count', subFunnel[2].n, 2)
 
 // ── stateStats: the full money set, and it MUST reconcile to the source row ─────
 const geoBook: Deal[] = [
@@ -380,8 +332,6 @@ eq('CA submitted = UW + funded', geoStates[0].submitted, 2)
 // PA's only candidate is a dead deal holding an Arive file — an APPLICATION, not
 // a submission, so it no longer counts.
 eq('PA Arive file does NOT count as submitted', geoStates[1].submitted, 0)
-eq('…but it DOES count as an application', geoStates[1].applied, 1)
-eq('Σ state applied = source applied', geoStates.reduce((a, r) => a + r.applied, 0), geoSrc.applied)
 approx('CA net revenue is the LO share', geoStates[0].netRevenue, 1700)
 // Reconciliation — the contract the UI footer asserts out loud.
 approx('Σ state spend = source spend',      geoStates.reduce((a, r) => a + r.spend, 0), geoSrc.spend)

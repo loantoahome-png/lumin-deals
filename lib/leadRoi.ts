@@ -39,93 +39,42 @@ export const NO_SOURCE = '(no source set)'
 export const sourceLabel = (d: Pick<Deal, 'source'>): string => (d.source ?? '').trim() || NO_SOURCE
 
 // ── Submission ─────────────────────────────────────────────────────────────────
-// "Submitted" = the loan reached UNDERWRITING. Efrain's call 2026-09-21: submission is
-// the earliest point a purchased lead has produced real work, and at 1–3% funded rates
-// it is the mid-funnel number a vendor gets judged on.
+// "Submitted" = the loan reached UNDERWRITING: status rank in
+// ['Submitted to UW' .. 'Loan Finalized']. Nothing else.
 //
-// ⚠️ THIS IS A STATUS-RANK TEST ONLY. It deliberately does NOT read `arive_file_no`.
+// ⚠️ IT MUST NEVER READ `arive_file_no`. That was tried on 2026-09-21 and was wrong:
+// **the Arive file number is created at APPLICATION, not at submission to UW**
+// (Efrain — a workflow fact, not derivable from the database). Counting it inflated
+// the metric from 108 to 345 across 5,222 priced leads (2.1% → 6.6%) and mislabelled
+// 151 open `App Intake` leads as being in underwriting. Four fixtures in
+// scripts/lead-roi-check.ts guard this; if they ever fail, someone re-added the clause.
 //
-// The first cut of this did, on the theory that an Arive file number proved the loan
-// had gone to underwriting and so rescued loans that were submitted and then died (a
-// deal stores only its CURRENT status, so a dead loan regresses into a Not-Ready stage
-// and erases its history). That theory was WRONG, and Efrain corrected it 2026-09-21:
-// **the Arive file number is created at APPLICATION, not at submission to UW.**
+// An App % column measuring that application milestone briefly existed and was removed
+// the same day at Efrain's request — the page reports submission, not application.
 //
-// So a file number proves an application was taken — nothing more. Counting it as a
-// submission inflated the metric from 108 to 345 across 5,222 priced leads (2.1% →
-// 6.6%) and, worse, mislabelled it: 162 of the 237 it added were still sitting in the
-// Leads group, 151 of them at `App Intake`. Those are open applications, not loans in
-// underwriting. Do not re-add the clause to THIS predicate.
-//
-// That also retired a third reading ('status ≥ UW, or a file on a DEAD deal'). Its
-// whole premise was that a file implies submission; once the file means application,
-// a dead deal holding one only proves the borrower applied before going cold, so it
-// mixed two different milestones under one label. Removed rather than left loaded.
-//
-// The application signal is still worth having — it has far more spread across vendors
-// than the UW rate does (OwnUp 13.1% vs LMB 7.0% vs Lendgo 3.3%, where the UW rate is
-// 4.4 / 2.6 / 1.3%) — so the 'application' rule below is kept and fixture-pinned,
-// ready for an App % column. It is just not what `isSubmitted` means.
+// ⚠️ Submission % is a FLOOR, not a true rate. A deal stores only its CURRENT status,
+// so a loan submitted to UW that is then declined regresses into a Not-Ready stage and
+// nothing in the schema recovers the fact it was ever submitted. In practice the rate
+// also sits very close to fund %, because most loans that reach underwriting fund.
 //
 // Funded needs no special case: every funded status ranks past 'Submitted to UW', so
-// submission % is always ≥ fund % and the funnel stage can never invert. In practice
-// the two sit very close, because most loans that reach underwriting go on to fund.
-export type SubmissionRule =
-  /** Status rank ≥ 'Submitted to UW'. The real underwriting test — 108 · 2.1%. */
-  | 'status_only'
-  /** Adds `arive_file_no`, which is issued at APPLICATION — so this measures the
-   *  application milestone, NOT submission. 345 · 6.6%. Kept for a future App % column. */
-  | 'application'
-
-export const SUBMISSION_RULE: SubmissionRule = 'status_only'
-
-/** UI copy derived from the rule, so a label can never drift from the arithmetic
- *  (same pattern as SPLIT_LABEL on the page). */
-export const SUBMISSION_LABEL = 'Submitted'
-export const SUBMISSION_DESC =
-  SUBMISSION_RULE === 'status_only'
-    ? "reached underwriting — status at or past 'Submitted to UW'"
-    : 'reached application — an Arive file exists, or the status is past it'
+// submission % is always ≥ fund % and the funnel stage can never invert.
+export const SUBMISSION_DESC = "reached underwriting — status at or past 'Submitted to UW'"
 
 const STATUS_RANK: ReadonlyMap<string, number> = new Map(LOAN_STATUSES.map((s, i) => [s, i]))
 const SUBMITTED_RANK = STATUS_RANK.get('Submitted to UW') ?? Infinity
 const FINAL_RANK     = STATUS_RANK.get('Loan Finalized') ?? -Infinity
 
-// `pipeline_group` is no longer read by any rule, but stays in the input type so a
-// caller passing a whole Deal keeps working and a future rule can use it.
-type SubmissionInput = Pick<Deal, 'status' | 'arive_file_no'> & Partial<Pick<Deal, 'pipeline_group'>>
-
-/** The test under an EXPLICIT rule. Callers want `isSubmitted` — this is for the
- *  fixtures and for anything that deliberately compares the two milestones. */
-export function isSubmittedUnder(d: SubmissionInput, rule: SubmissionRule): boolean {
-  const r = STATUS_RANK.get((d.status ?? '').trim())
-  if (r != null && r >= SUBMITTED_RANK && r <= FINAL_RANK) return true
-  return rule === 'application' && !!(d.arive_file_no ?? '').trim()
-}
-
 /** Did this loan reach underwriting? Single chokepoint — never inline the rank test.
  *
- *  ⚠️ ONE parameter, deliberately. This was written with an optional `rule` second
- *  argument and it silently broke the first caller that did `deals.filter(isSubmitted)`
- *  — Array.filter passes (element, INDEX, array), so the index landed in `rule`, every
- *  element after the first fell through to a different branch, and a repo-wide count
- *  read 182 instead of 345 with no error anywhere. The rule is not a parameter here
- *  precisely so that cannot happen again; use isSubmittedUnder to pick one explicitly. */
-export function isSubmitted(d: SubmissionInput): boolean {
-  return isSubmittedUnder(d, SUBMISSION_RULE)
-}
-
-/** Was an APPLICATION taken? An Arive file number is issued at application (Efrain
- *  2026-09-21), so its presence is the milestone — plus anything already past it on
- *  status, which keeps `applied ⊇ submitted` true by construction and stops the funnel
- *  inverting when a loan reaches UW without the file column having been imported yet.
- *
- *  This is the metric with real vendor spread: measured 2026-09-21 on Moe's book,
- *  OwnUp 13.1% / LMB 7.0% / FRU 5.1% / Lendgo 3.3%, where the UW rate is a flat
- *  4.4 / 2.6 / 1.8 / 1.3% and barely separates from fund %. Same one-argument rule as
- *  isSubmitted — see the note above about `.filter()` and the index. */
-export function isApplied(d: SubmissionInput): boolean {
-  return isSubmittedUnder(d, 'application')
+ *  ⚠️ ONE parameter, deliberately. An earlier version took an optional second argument
+ *  and it silently broke the first caller that wrote `deals.filter(isSubmitted)` —
+ *  Array.filter passes (element, INDEX, array), so the index landed in that parameter,
+ *  every element after the first took a different branch, and a repo-wide count read
+ *  182 instead of 345 with no error anywhere. Do not add a second parameter. */
+export function isSubmitted(d: Pick<Deal, 'status'>): boolean {
+  const r = STATUS_RANK.get((d.status ?? '').trim())
+  return r != null && r >= SUBMITTED_RANK && r <= FINAL_RANK
 }
 
 // ── LO revenue split ───────────────────────────────────────────────────────────
@@ -245,9 +194,6 @@ export type SourceStats = {
    *  separately so triage adoption can't masquerade as leads opting out. */
   teamRemoved: number; trate: number
   open: number; active: number; lost: number
-  /** Application taken — isApplied (an Arive file exists, or the status is past it).
-   *  Always ≥ submitted. The earlier, higher-volume milestone. */
-  applied: number; ar: number
   /** Reached underwriting — isSubmitted (status rank only). Always ≥ funded. */
   submitted: number; sr: number
   funded: number; fr: number
@@ -273,7 +219,7 @@ export function buildSourceStats(deals: Deal[], costs: Map<string, CostRow>, mon
       s = {
         source: src, total: 0, responded: 0, rr: 0, cold: 0, optout: 0, orate: 0,
         teamRemoved: 0, trate: 0,
-        open: 0, active: 0, lost: 0, applied: 0, ar: 0, submitted: 0, sr: 0, funded: 0, fr: 0,
+        open: 0, active: 0, lost: 0, submitted: 0, sr: 0, funded: 0, fr: 0,
         fundedVolume: 0, fundedAvg: 0,
         leadCost: 0, retainer: cpm * months, spend: 0, revenue: 0, netRevenue: 0, netProfit: 0,
         roi: null, costPerFunded: null, costPerMonth: cpm, deals: [],
@@ -290,7 +236,6 @@ export function buildSourceStats(deals: Deal[], costs: Map<string, CostRow>, mon
     if (isCold(d)) s.cold++
     if (isCustomerOptout(d)) s.optout++
     if (isTeamRemoved(d)) s.teamRemoved++
-    if (isApplied(d)) s.applied++
     if (isSubmitted(d)) s.submitted++
     // EVERY opportunity's lead_price is a REAL, SEPARATE charge — never dedupe it.
     // Efrain, 2026-07-28: "there are definitely leads that are purchased twice,
@@ -321,7 +266,6 @@ export function buildSourceStats(deals: Deal[], costs: Map<string, CostRow>, mon
     s.rr = s.total ? (100 * s.responded) / s.total : 0
     s.orate = s.total ? (100 * s.optout) / s.total : 0
     s.trate = s.total ? (100 * s.teamRemoved) / s.total : 0
-    s.ar = s.total ? (100 * s.applied) / s.total : 0
     s.sr = s.total ? (100 * s.submitted) / s.total : 0
     s.fr = s.total ? (100 * s.funded) / s.total : 0
     s.fundedAvg = s.funded ? s.fundedVolume / s.funded : 0
@@ -343,7 +287,6 @@ export type RoiKpis = {
   optout: number; orate: number          // CUSTOMER opt-outs (STOP / DND-SMS)
   teamRemoved: number; trate: number     // team dispositions (Remove from All Automations)
   active: number
-  applied: number; ar: number            // application taken — isApplied
   submitted: number; sr: number          // reached underwriting — isSubmitted
   funded: number; fr: number
   volume: number
@@ -359,12 +302,12 @@ export type RoiKpis = {
 
 export function rollupKpis(sources: SourceStats[]): RoiKpis {
   let totalLeads = 0, responded = 0, cold = 0, optout = 0, teamRemoved = 0, active = 0
-  let applied = 0, submitted = 0, funded = 0
+  let submitted = 0, funded = 0
   let volume = 0, leadCost = 0, retainer = 0, revenue = 0
   for (const s of sources) {
     totalLeads += s.total; responded += s.responded; cold += s.cold; optout += s.optout
     teamRemoved += s.teamRemoved
-    active += s.active; applied += s.applied; submitted += s.submitted
+    active += s.active; submitted += s.submitted
     funded += s.funded; volume += s.fundedVolume
     leadCost += s.leadCost; retainer += s.retainer; revenue += s.revenue
   }
@@ -378,8 +321,7 @@ export function rollupKpis(sources: SourceStats[]): RoiKpis {
     totalLeads, responded, rr: (100 * responded) / safe,
     cold, crate: (100 * cold) / safe, optout, orate: (100 * optout) / safe,
     teamRemoved, trate: (100 * teamRemoved) / safe,
-    active, applied, ar: (100 * applied) / safe,
-    submitted, sr: (100 * submitted) / safe,
+    active, submitted, sr: (100 * submitted) / safe,
     funded, fr: (100 * funded) / safe, volume,
     leadCost, retainer, spend, revenue, netRevenue, netProfit: netRevenue - spend,
     roi: spend > 0 ? netRevenue / spend : null,
@@ -401,7 +343,6 @@ export function funnel(k: RoiKpis): FunnelStage[] {
   return [
     { key: 'leads',     label: 'Leads',         sub: 'in scope',          n: k.totalLeads, pctOfLeads: 100 },
     { key: 'responded', label: 'Responded',     sub: 'engaged ≥ once',    n: k.responded,  pctOfLeads: pct(k.responded) },
-    { key: 'applied',   label: 'Applied',       sub: 'file opened',       n: k.applied,    pctOfLeads: pct(k.applied) },
     { key: 'submitted', label: 'Submitted',     sub: 'reached UW',        n: k.submitted,  pctOfLeads: pct(k.submitted) },
     { key: 'loan',      label: 'Became a loan', sub: 'active + funded',   n: becameLoan,   pctOfLeads: pct(becameLoan) },
     { key: 'funded',    label: 'Funded',        sub: 'comp earned',       n: k.funded,     pctOfLeads: pct(k.funded) },
@@ -409,23 +350,21 @@ export function funnel(k: RoiKpis): FunnelStage[] {
 }
 
 // ── Per-state rows ─────────────────────────────────────────────────────────────
-export type StateRow = { state: string; n: number; responded: number; rr: number; applied: number; ar: number; submitted: number; sr: number; funded: number; fr: number }
+export type StateRow = { state: string; n: number; responded: number; rr: number; submitted: number; sr: number; funded: number; fr: number }
 export function stateRows(deals: Deal[]): StateRow[] {
   const map = new Map<string, StateRow>()
   for (const d of deals) {
     const t = (d.state ?? '').trim()
     const key = t ? t.toUpperCase().slice(0, 2) : '(none)'
     let r = map.get(key)
-    if (!r) { r = { state: key, n: 0, responded: 0, rr: 0, applied: 0, ar: 0, submitted: 0, sr: 0, funded: 0, fr: 0 }; map.set(key, r) }
+    if (!r) { r = { state: key, n: 0, responded: 0, rr: 0, submitted: 0, sr: 0, funded: 0, fr: 0 }; map.set(key, r) }
     r.n++
     if (isResponded(d)) r.responded++
-    if (isApplied(d)) r.applied++
     if (isSubmitted(d)) r.submitted++
     if (isFunded(d)) r.funded++
   }
   for (const r of map.values()) {
     r.rr = r.n ? (100 * r.responded) / r.n : 0
-    r.ar = r.n ? (100 * r.applied) / r.n : 0
     r.sr = r.n ? (100 * r.submitted) / r.n : 0
     r.fr = r.n ? (100 * r.funded) / r.n : 0
   }
@@ -454,7 +393,6 @@ export type StateStats = {
   /** CUSTOMER opt-outs (STOP / DND-SMS) — same split as SourceStats. */
   optout: number; orate: number
   teamRemoved: number; trate: number
-  applied: number; ar: number
   submitted: number; sr: number
   open: number; active: number; lost: number
   funded: number; fr: number
@@ -478,7 +416,7 @@ export function stateStats(deals: Deal[], retainer = 0): StateStats[] {
     if (!r) {
       r = {
         state: key, n: 0, responded: 0, rr: 0, cold: 0, optout: 0, orate: 0,
-        teamRemoved: 0, trate: 0, applied: 0, ar: 0, submitted: 0, sr: 0,
+        teamRemoved: 0, trate: 0, submitted: 0, sr: 0,
         open: 0, active: 0, lost: 0, funded: 0, fr: 0,
         fundedVolume: 0, fundedAvg: 0, leadCost: 0, retainer: 0, spend: 0, revenue: 0,
         netRevenue: 0, netProfit: 0, roi: null, costPerFunded: null,
@@ -490,7 +428,6 @@ export function stateStats(deals: Deal[], retainer = 0): StateStats[] {
     if (isCold(d)) r.cold++
     if (isCustomerOptout(d)) r.optout++
     if (isTeamRemoved(d)) r.teamRemoved++
-    if (isApplied(d)) r.applied++
     if (isSubmitted(d)) r.submitted++
     // Same rule as buildSourceStats: every opportunity's lead_price is a real,
     // separate charge. Never dedupe by contact or vendor_lead_id.
@@ -517,7 +454,6 @@ export function stateStats(deals: Deal[], retainer = 0): StateStats[] {
     r.rr = r.n ? (100 * r.responded) / r.n : 0
     r.orate = r.n ? (100 * r.optout) / r.n : 0
     r.trate = r.n ? (100 * r.teamRemoved) / r.n : 0
-    r.ar = r.n ? (100 * r.applied) / r.n : 0
     r.sr = r.n ? (100 * r.submitted) / r.n : 0
     r.fr = r.n ? (100 * r.funded) / r.n : 0
     r.fundedAvg = r.funded ? r.fundedVolume / r.funded : 0

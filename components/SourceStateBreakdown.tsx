@@ -101,8 +101,7 @@ export default function SourceStateBreakdown({ sources, selected, onSelect }: {
               <th className="px-2 py-2 text-right">Leads</th>
               <th className="px-2 py-2 text-right border-l border-slate-200" title="Engaged at least once — Ghosted counts">Resp %</th>
               <th className="px-2 py-2 text-right" title="CUSTOMER opt-outs only: STOP · DND-SMS">Opt-out</th>
-              <th className="px-2 py-2 text-right border-l border-slate-200" title="An application was taken — an Arive file exists">App %</th>
-              <th className="px-2 py-2 text-right" title="Reached underwriting — status at or past 'Submitted to UW'">Sub %</th>
+              <th className="px-2 py-2 text-right border-l border-slate-200" title="Reached underwriting — status at or past 'Submitted to UW'">Sub %</th>
               <th className="px-2 py-2 text-right border-l border-slate-200">Open</th>
               <th className="px-2 py-2 text-right">Active</th>
               <th className="px-2 py-2 text-right">Lost</th>
@@ -128,11 +127,6 @@ export default function SourceStateBreakdown({ sources, selected, onSelect }: {
                   {r.optout ? <>{r.optout} <span className="text-slate-300">·</span> <span className="text-[11px] font-medium text-slate-500">{pct(r.orate)}</span></> : <span className="text-slate-300">—</span>}
                 </td>
                 <td className="px-2 py-2 text-right border-l border-slate-200">
-                  {r.applied > 0
-                    ? <span className="inline-block px-1.5 py-0.5 rounded-md text-xs font-semibold tabular-nums bg-sky-50 text-sky-700">{pct(r.ar)}</span>
-                    : <span className="tabular-nums text-slate-300">—</span>}
-                </td>
-                <td className="px-2 py-2 text-right">
                   {r.submitted > 0
                     ? <span className="inline-block px-1.5 py-0.5 rounded-md text-xs font-semibold tabular-nums bg-indigo-50 text-indigo-700">{pct(r.sr)}</span>
                     : <span className="tabular-nums text-slate-300">—</span>}

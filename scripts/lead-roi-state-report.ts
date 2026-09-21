@@ -12,7 +12,7 @@ import { readFileSync } from 'fs'
 import { createClient } from '@supabase/supabase-js'
 import {
   filterDeals, buildSourceStats, rollupKpis, stateStats,
-  isSubmitted, isSubmittedUnder, SUBMISSION_RULE, rangeBounds, monthsBetween,
+  isSubmitted, rangeBounds, monthsBetween,
 } from '../lib/leadRoi'
 import { LOAN_OFFICERS } from '../lib/types'
 import type { Deal } from '../lib/types'
@@ -40,16 +40,12 @@ async function main() {
     if (!data || data.length < 1000) break
   }
 
-  // Repo-wide submission split. `isSubmitted` is the UW rank test only — the Arive
-  // file number is issued at APPLICATION (Efrain 2026-09-21), so it is reported here
-  // as a SEPARATE milestone rather than folded into the submission count.
+  // Repo-wide submission. `isSubmitted` is a status-rank test — the Arive file number
+  // is created at APPLICATION and is deliberately never read (see lib/leadRoi).
   const priced = rows.filter(d => (d.lead_price ?? 0) > 0)
   const submitted = priced.filter(isSubmitted).length
-  const applied = priced.filter(d => isSubmittedUnder(d, 'application')).length
   console.log(`Priced leads (all LOs): ${priced.length}`)
-  console.log(`  submitted to UW (the live metric): ${submitted} (${pct(100 * submitted / priced.length)})`)
-  console.log(`  applications taken (Arive file):   ${applied} (${pct(100 * applied / priced.length)})  ← NOT counted as submitted`)
-  console.log(`  rule in force: ${SUBMISSION_RULE}\n`)
+  console.log(`  submitted to UW: ${submitted} (${pct(100 * submitted / priced.length)})\n`)
 
   const { start, end } = rangeBounds('all')
   const months = monthsBetween(start, end)
@@ -61,11 +57,11 @@ async function main() {
     if (!filtered.length) { console.log(`── ${lo} — no purchased leads\n`); continue }
     const sources = buildSourceStats(filtered, new Map(), months)
     const k = rollupKpis(sources)
-    console.log(`── ${lo} — ${k.totalLeads} agg leads · applied ${k.applied} (${pct(k.ar)}) · submitted ${k.submitted} (${pct(k.sr)}) · funded ${k.funded} (${pct(k.fr)})`)
-    console.log('   SOURCE                LEADS   APP %   SUB %  FUNDED   FUND %        SPEND      NET REV     ROI')
+    console.log(`── ${lo} — ${k.totalLeads} agg leads · submitted ${k.submitted} (${pct(k.sr)}) · funded ${k.funded} (${pct(k.fr)})`)
+    console.log('   SOURCE                LEADS   SUB %  FUNDED   FUND %        SPEND      NET REV     ROI')
     for (const s of sources.slice(0, 8)) {
       console.log(
-        `   ${s.source.padEnd(20)} ${String(s.total).padStart(5)}  ${pct(s.ar).padStart(6)}  ${pct(s.sr).padStart(6)}  ${String(s.funded).padStart(6)}  ${pct(s.fr).padStart(6)}  ${money(s.spend).padStart(11)}  ${money(s.netRevenue).padStart(11)}  ${roi(s.roi).padStart(6)}`,
+        `   ${s.source.padEnd(20)} ${String(s.total).padStart(5)}  ${pct(s.sr).padStart(6)}  ${String(s.funded).padStart(6)}  ${pct(s.fr).padStart(6)}  ${money(s.spend).padStart(11)}  ${money(s.netRevenue).padStart(11)}  ${roi(s.roi).padStart(6)}`,
       )
     }
     // Drill into the biggest source — the per-state table the page now renders,
@@ -73,15 +69,15 @@ async function main() {
     const top = sources[0]
     const st = stateStats(top.deals, top.retainer)
     console.log(`\n   ${top.source} by state:`)
-    console.log('     ST   LEADS   RESP %   APP %   SUB %  FUNDED       SPEND      NET REV          NET     ROI')
+    console.log('     ST   LEADS   RESP %   SUB %  FUNDED       SPEND      NET REV          NET     ROI')
     for (const r of st.slice(0, 8)) {
       console.log(
-        `     ${r.state.padEnd(5)}${String(r.n).padStart(5)}  ${pct(r.rr).padStart(7)} ${pct(r.ar).padStart(7)} ${pct(r.sr).padStart(7)}  ${String(r.funded).padStart(6)}  ${money(r.spend).padStart(10)}  ${money(r.netRevenue).padStart(11)}  ${money(r.netProfit).padStart(11)}  ${roi(r.roi).padStart(6)}`,
+        `     ${r.state.padEnd(5)}${String(r.n).padStart(5)}  ${pct(r.rr).padStart(7)} ${pct(r.sr).padStart(7)}  ${String(r.funded).padStart(6)}  ${money(r.spend).padStart(10)}  ${money(r.netRevenue).padStart(11)}  ${money(r.netProfit).padStart(11)}  ${roi(r.roi).padStart(6)}`,
       )
     }
     const sum = (f: (r: typeof st[number]) => number) => st.reduce((a, r) => a + f(r), 0)
     const ok = (a: number, b: number) => (Math.abs(a - b) < 0.01 ? 'OK' : `MISMATCH (${a} vs ${b})`)
-    console.log(`     reconcile → leads ${ok(sum(r => r.n), top.total)} · spend ${ok(sum(r => r.spend), top.spend)} · net ${ok(sum(r => r.netProfit), top.netProfit)} · submitted ${ok(sum(r => r.submitted), top.submitted)} · applied ${ok(sum(r => r.applied), top.applied)} · open ${ok(sum(r => r.open), top.open)} · active ${ok(sum(r => r.active), top.active)} · lost ${ok(sum(r => r.lost), top.lost)} · optout ${ok(sum(r => r.optout), top.optout)} · volume ${ok(sum(r => r.fundedVolume), top.fundedVolume)}`)
+    console.log(`     reconcile → leads ${ok(sum(r => r.n), top.total)} · spend ${ok(sum(r => r.spend), top.spend)} · net ${ok(sum(r => r.netProfit), top.netProfit)} · submitted ${ok(sum(r => r.submitted), top.submitted)} · open ${ok(sum(r => r.open), top.open)} · active ${ok(sum(r => r.active), top.active)} · lost ${ok(sum(r => r.lost), top.lost)} · optout ${ok(sum(r => r.optout), top.optout)} · volume ${ok(sum(r => r.fundedVolume), top.fundedVolume)}`)
 
     console.log()
   }

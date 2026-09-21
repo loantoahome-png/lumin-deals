@@ -1,6 +1,15 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-09-21] /lead-roi — App % REMOVED everywhere
+**Status:** CHANGED — tsc = the 7-error `main` baseline (0 new), `npm run build` ✓ exit 0, **149/149** fixtures (174 − the 25 that covered the removed code), eslint byte-identical to baseline on all four touched files, live reconciliation still 9/9 OK.
+**Issue:** Efrain: "get rid of the app% on the lead ROI page and everywhere else it could be." It shipped this morning and did not earn its place.
+**Changes — every surface, not just the column:** [lib/leadRoi.ts](lib/leadRoi.ts) — `isApplied`, `applied`/`ar` on `SourceStats` / `RoiKpis` / `StateRow` / `StateStats`, and the **Applied funnel stage** deleted (funnel back to 5 stages). `SubmissionRule` / `isSubmittedUnder` / `SUBMISSION_RULE` are gone too: with `'application'` retired the enum had one member, so `isSubmitted` is now a plain status-rank test. [app/lead-roi/page.tsx](app/lead-roi/page.tsx) — App % column + header + totals cell, the Applied KPI (grid 9 → 8), the drill-down App % column, the CSV's `Applied` / `App %`, drill-down colSpan 18 → 17, funnel palette back to 5. [components/SourceStateBreakdown.tsx](components/SourceStateBreakdown.tsx) — App % column. [app/lead-roi/report/page.tsx](app/lead-roi/report/page.tsx) — App % column, tfoot cell, the per-state `N app` line, the by-source-and-state column, funnel palette. Both `LEAD_COLS` copies drop `arive_file_no`.
+**⚠️ The removal made the rule self-enforcing.** `isSubmitted` now takes `Pick<Deal, 'status'>`, so re-adding the `arive_file_no` clause **does not compile**. That is a stronger guard than the four fixtures that were policing it, and the fixtures were rewritten around it. The reason it must never come back is preserved in the header comment: **an Arive file number is created at APPLICATION, not at submission to UW** — a workflow fact from Efrain, not derivable from the DB.
+**Note:** `arive_file_no` is only dropped from the two lead-roi column fetches. It stays everywhere else — Arive deep links, import matching, dedup, GlobalSearch — where it is load-bearing.
+**Test Method:** `/lead-roi` — no App % column, no Applied KPI, 5-stage funnel; CSV has no App columns; Visual Report likewise. `npx tsx scripts/lead-roi-state-report.ts`.
+**Result:** VERIFIED. Repo-wide grep for `isApplied|App %|'application'|SubmissionRule|isSubmittedUnder|SUBMISSION_RULE` across lib/app/components/scripts returns **only two explanatory comments**. Live: Moe 1,731 leads · submitted 33 (1.9%) · funded 27 (1.6%); per-state reconciliation 9/9 OK.
+
 ### [2026-09-21] lock-alerts cron — fired for nobody, and would have emailed dead loans
 **Status:** CHANGED — tsc = the 7-error `main` baseline, `npm run build` ✓ exit 0, `lock-status-check` 25 + `loan-outcome-check` 24 green, and the route itself was **run end-to-end** against live data in dry mode.
 **Issue:** Efrain: "fix the cron too." `app/api/cron/lock-alerts` was the last consumer of the dead `locked` flag.

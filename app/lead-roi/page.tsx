@@ -42,12 +42,10 @@ import {
 
 // broker_corr + net_discount_points are load-bearing for revenue, not decoration:
 // totalComp() adds the Non-Del Final Price credit and returns comp alone without them.
-// ⚠️ `arive_file_no` is load-bearing, not decoration: isSubmitted() reads it as the
-// second clause of the submission test and the predicate is INERT without the column
-// fetched. This is the same trap `loan_type` hit on 2026-07-28 — and it has to be
-// added to app/lead-roi/report/page.tsx's own copy of LEAD_COLS too, or the printable
-// report silently reports a lower submission count than the page.
-const LEAD_COLS = 'id,name,source,loan_officer,pipeline_group,status,loan_amount,state,loan_purpose,loan_type,lead_price,compensation_amount,broker_corr,net_discount_points,date_added_ghl,funded_date,created_at,ghl_opportunity_id,last_inbound_at,arive_file_no'
+// `arive_file_no` is deliberately NOT fetched: isSubmitted is a status-rank test and
+// must never read it (see lib/leadRoi). An App % column that did read it existed
+// briefly on 2026-09-21 and was removed the same day.
+const LEAD_COLS = 'id,name,source,loan_officer,pipeline_group,status,loan_amount,state,loan_purpose,loan_type,lead_price,compensation_amount,broker_corr,net_discount_points,date_added_ghl,funded_date,created_at,ghl_opportunity_id,last_inbound_at'
 
 const PURPOSE_TABS: Purpose[] = ['All', 'Purchase', 'Refinance']
 const SCOPE_TABS: SourceScope[] = ['Purchased', 'All']
@@ -222,7 +220,7 @@ export default function LeadRoiPage() {
   function exportCsv() {
     const headers = [
       'Source', 'Leads', 'Responded', 'Resp %', 'No Resp', 'Opt-out', 'Opt-out %', 'Team-removed', 'Team-removed %',
-      'Open', 'Active', 'Lost', 'Applied', 'App %', 'Submitted', 'Sub %', 'Funded', 'Fund %', 'Funded Volume', 'Avg Funded',
+      'Open', 'Active', 'Lost', 'Submitted', 'Sub %', 'Funded', 'Fund %', 'Funded Volume', 'Avg Funded',
       'Lead Cost', 'Retainer', 'Spend', 'Revenue (gross)', `Net Revenue (${SPLIT_LABEL})`,
       'Net Profit', 'ROI x', 'Cost per Funded', 'Monthly Cost',
     ]
@@ -232,7 +230,7 @@ export default function LeadRoiPage() {
     }
     const rows = visibleSources.map(s => [
       s.source, s.total, s.responded, s.rr.toFixed(1), s.cold, s.optout, s.orate.toFixed(1), s.teamRemoved, s.trate.toFixed(1),
-      s.open, s.active, s.lost, s.applied, s.ar.toFixed(1), s.submitted, s.sr.toFixed(1), s.funded, s.fr.toFixed(1), s.fundedVolume, s.fundedAvg.toFixed(0),
+      s.open, s.active, s.lost, s.submitted, s.sr.toFixed(1), s.funded, s.fr.toFixed(1), s.fundedVolume, s.fundedAvg.toFixed(0),
       s.leadCost.toFixed(0), s.retainer.toFixed(0), s.spend.toFixed(0), s.revenue.toFixed(0), s.netRevenue.toFixed(0),
       s.netProfit.toFixed(0), s.roi == null ? '' : s.roi.toFixed(2), s.costPerFunded == null ? '' : s.costPerFunded.toFixed(0),
       s.costPerMonth,
@@ -576,7 +574,7 @@ export default function LeadRoiPage() {
 
             {/* KPIs */}
             <div className="px-6 py-4 bg-slate-50/60 border-b border-slate-200 space-y-3">
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-9 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
                 <Kpi icon={<Users className="w-4 h-4 text-blue-500" />} label={scope === 'All' ? 'Total leads' : 'Agg leads'} value={kpis.totalLeads.toLocaleString()} />
                 <Kpi icon={<CheckCircle2 className="w-4 h-4 text-emerald-500" />} label="Responded" value={pct(kpis.rr)} sub={`${kpis.responded} leads`} valueClass={RR_COLOR[rrBand(kpis.rr)]} />
                 <Kpi icon={<X className="w-4 h-4 text-slate-400" />} label="No response" value={pct(kpis.crate)} sub={`${kpis.cold} leads`} />
@@ -585,9 +583,6 @@ export default function LeadRoiPage() {
                 <Kpi icon={<Calendar className="w-4 h-4 text-rose-500" />} label="Fast opt-outs" subWrap
                   value={o7.timed > 0 ? `${(100 * o7.within / (kpis.totalLeads || 1)).toFixed(1)}%` : '—'}
                   sub={o7.timed > 0 ? `${o7.within} of ${kpis.totalLeads} leads opted out ≤ ${o7.days}d · timing covers ${o7.timed}/${o7.optouts} opt-outs` : 'no timing logged yet'} />
-                <Kpi icon={<FileText className="w-4 h-4 text-sky-500" />} label="Applied" subWrap
-                  value={pct(kpis.ar)}
-                  sub={`${kpis.applied.toLocaleString()} had an application taken — an Arive file exists`} />
                 <Kpi icon={<FileCheck2 className="w-4 h-4 text-indigo-500" />} label="Submitted" subWrap
                   value={pct(kpis.sr)}
                   sub={`${kpis.submitted.toLocaleString()} ${SUBMISSION_DESC}`} />
@@ -623,7 +618,7 @@ export default function LeadRoiPage() {
                 {funnelStages.map((s, i) => {
                   const prev = funnelStages[i - 1]
                   const stepConv = prev && prev.n > 0 ? (100 * s.n) / prev.n : null
-                  const FUNNEL_BG = ['bg-indigo-200', 'bg-indigo-300', 'bg-sky-400', 'bg-indigo-400', 'bg-indigo-500', 'bg-indigo-600']
+                  const FUNNEL_BG = ['bg-indigo-200', 'bg-indigo-300', 'bg-indigo-400', 'bg-indigo-500', 'bg-indigo-600']
                   return (
                     <React.Fragment key={s.key}>
                       {stepConv != null && (
@@ -701,8 +696,7 @@ export default function LeadRoiPage() {
                           <th className="px-2 py-2.5 text-right">Leads</th>
                           <th className="px-2 py-2.5 text-right border-l border-slate-200" title="Engaged at least once — Ghosted counts">Resp %</th>
                           <th className="px-2 py-2.5 text-right" title="CUSTOMER opt-outs only: STOP · DND-SMS. Team dispositions (Remove from All Automations) are NOT counted here — they fold into Responded or No-response by whether the borrower ever replied.">Opt-out</th>
-                          <th className="px-2 py-2.5 text-right border-l border-slate-200" title="An application was taken — an Arive file number exists (Arive issues it at application), or the status is already past that point. The higher-volume milestone, and the one where vendors actually separate.">App %</th>
-                          <th className="px-2 py-2.5 text-right" title="Reached underwriting — status at or past 'Submitted to UW'. NOT based on the Arive file number, which is issued at application, not at submission. A deal stores only its CURRENT status, so a loan that was submitted and then died reads as Not-Ready and is not counted here — this rate is a floor.">Sub %</th>
+                          <th className="px-2 py-2.5 text-right border-l border-slate-200" title="Reached underwriting — status at or past 'Submitted to UW'. NOT based on the Arive file number, which is issued at application, not at submission. A deal stores only its CURRENT status, so a loan that was submitted and then died reads as Not-Ready and is not counted here — this rate is a floor.">Sub %</th>
                           <th className="px-2 py-2.5 text-right border-l border-slate-200">Open</th>
                           <th className="px-2 py-2.5 text-right">Active</th>
                           <th className="px-2 py-2.5 text-right">Lost</th>
@@ -742,12 +736,7 @@ export default function LeadRoiPage() {
                                     ? <>{s.optout} <span className="text-slate-300">·</span> <span className="text-[11px] font-medium text-slate-500">{pct(s.orate)}</span></>
                                     : <span className="text-slate-300">—</span>}
                                 </td>
-                                <td className="px-2 py-2 text-right border-l border-slate-200" title={`${s.applied} of ${s.total} leads had an application taken`}>
-                                  {s.applied > 0
-                                    ? <span className="inline-block px-1.5 py-0.5 rounded-md text-xs font-semibold tabular-nums bg-sky-50 text-sky-700">{pct(s.ar)}</span>
-                                    : <span className="tabular-nums text-slate-300">—</span>}
-                                </td>
-                                <td className="px-2 py-2 text-right" title={`${s.submitted} of ${s.total} leads reached underwriting`}>
+                                <td className="px-2 py-2 text-right border-l border-slate-200" title={`${s.submitted} of ${s.total} leads reached underwriting`}>
                                   {s.submitted > 0
                                     ? <span className="inline-block px-1.5 py-0.5 rounded-md text-xs font-semibold tabular-nums bg-indigo-50 text-indigo-700">{pct(s.sr)}</span>
                                     : <span className="tabular-nums text-slate-300">—</span>}
@@ -783,7 +772,7 @@ export default function LeadRoiPage() {
                               </tr>
                               {isExpanded && (
                                 <tr className="bg-indigo-50/30">
-                                  <td colSpan={18} className="px-6 py-3">
+                                  <td colSpan={17} className="px-6 py-3">
                                     <div className="flex items-center flex-wrap gap-2 mb-3 text-xs bg-white border border-slate-200 rounded px-3 py-2">
                                       <span className="text-slate-500 font-medium whitespace-nowrap">Flat monthly cost:</span>
                                       {editingCost === s.source ? (
@@ -834,8 +823,7 @@ export default function LeadRoiPage() {
                           <td className="px-2 py-2.5 text-right tabular-nums">{kpis.totalLeads}</td>
                           <td className={`px-2 py-2.5 text-right tabular-nums border-l border-slate-200 ${RR_COLOR[rrBand(kpis.rr)]}`}>{pct(kpis.rr)}</td>
                           <td className="px-2 py-2.5 text-right tabular-nums whitespace-nowrap">{kpis.optout} <span className="text-slate-400">·</span> <span className="text-[11px]">{pct(kpis.orate)}</span></td>
-                          <td className="px-2 py-2.5 text-right tabular-nums text-sky-700 border-l border-slate-200" title={`${kpis.applied} of ${kpis.totalLeads} leads had an application taken`}>{pct(kpis.ar)}</td>
-                          <td className="px-2 py-2.5 text-right tabular-nums text-indigo-700" title={`${kpis.submitted} of ${kpis.totalLeads} leads reached underwriting`}>{pct(kpis.sr)}</td>
+                          <td className="px-2 py-2.5 text-right tabular-nums text-indigo-700 border-l border-slate-200" title={`${kpis.submitted} of ${kpis.totalLeads} leads reached underwriting`}>{pct(kpis.sr)}</td>
                           <td className="px-2 py-2.5 text-right tabular-nums border-l border-slate-200">{visibleSources.reduce((a, s) => a + s.open, 0)}</td>
                           <td className="px-2 py-2.5 text-right tabular-nums">{kpis.active}</td>
                           <td className="px-2 py-2.5 text-right tabular-nums">{visibleSources.reduce((a, s) => a + s.lost, 0)}</td>
@@ -1137,7 +1125,6 @@ function SourceStatesTable({ source, deals, retainer, sourceSpend, sourceNetProf
               <th className="px-3 py-1.5 text-left">State</th>
               <th className="px-2 py-1.5">Leads</th>
               <th className="px-2 py-1.5 border-l border-slate-200">Resp %</th>
-              <th className="px-2 py-1.5" title="An application was taken — an Arive file exists">App %</th>
               <th className="px-2 py-1.5" title="Reached underwriting — status at or past 'Submitted to UW'">Sub %</th>
               <th className="px-2 py-1.5">Funded</th>
               <th className="px-2 py-1.5">Fund %</th>
@@ -1153,7 +1140,6 @@ function SourceStatesTable({ source, deals, retainer, sourceSpend, sourceNetProf
                 <td className="px-3 py-1.5 text-left font-semibold text-slate-700">{r.state}</td>
                 <td className="px-2 py-1.5 tabular-nums text-slate-700">{r.n}</td>
                 <td className={`px-2 py-1.5 tabular-nums font-semibold border-l border-slate-200 ${RR_COLOR[rrBand(r.rr)]}`}>{pct(r.rr)}</td>
-                <td className="px-2 py-1.5 tabular-nums text-sky-700 font-medium">{r.applied > 0 ? pct(r.ar) : <span className="text-slate-300">—</span>}</td>
                 <td className="px-2 py-1.5 tabular-nums text-indigo-700 font-medium">{r.submitted > 0 ? pct(r.sr) : <span className="text-slate-300">—</span>}</td>
                 <td className="px-2 py-1.5 tabular-nums">{r.funded || <span className="text-slate-300">—</span>}</td>
                 <td className="px-2 py-1.5 tabular-nums text-slate-500">{pct(r.fr)}</td>
