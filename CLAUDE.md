@@ -20,31 +20,47 @@ GHL "LD stage" workflow's `monetaryValue → {{opportunity.lead_value}}` custom 
 `loan-amount-provenance` memory + `~/.claude/handoffs/lumin-deals.md`. NOTE: visible on the next "Sync GHL";
 the opp value may not always equal the loan amount (GHL data quality — watch the in-process volume).
 
-## Recent Changes (2026-09-21) — /lead-roi: per-source states, App % and Sub %
+## Recent Changes (2026-09-21) — /lead-roi states + Sub %, and the dead rate-lock flag
 Spec `docs/specs/2026-09-21-lead-roi-states-and-submission-spec.md`, plan in `docs/plans/`.
-Expanding a source shows its **states with the full money set**, and a tabbed **"One source, every state"**
-section (`components/SourceStateBreakdown.tsx`) shows one source across every state with every source-table
-column. Source tabs cap at 6 then overflow to a **More (N)** dropdown — All-sources scope reaches **37
-sources** for Randy. The printable report gained a stacked **By source and state** section, **capped to
-purchased vendors** (`isPurchasedSource` in `lib/leadReport.ts`; ⚠️ exact match, not substring —
-`LendingTree Longform` is a real separate source). A Source × state matrix shipped and was then **removed**
-as superseded (`fdc5ee2`).
 
-Two new funnel milestones, and they are **NOT the same thing**:
-- **Sub %** = status rank ≥ `Submitted to UW` **only** — 108 of 5,225 priced leads (2.1%). It is a **FLOOR**:
-  a declined loan reverts to a Not-Ready status and nothing recovers the fact it reached UW.
-- **App %** = `isApplied` — an Arive file exists, or the status is past UW — 345 (6.6%). The metric with real
-  vendor spread (OwnUp 13.1% vs Lendgo 3.3%, where UW is 4.4% vs 1.3% and nearly duplicates Fund %).
+**/lead-roi — per-source geography.** Expanding a source shows its **states with the full money set**, and a
+tabbed **"One source, every state"** section (`components/SourceStateBreakdown.tsx`) shows one source across
+every state with every source-table column. Source tabs cap at 6 then overflow to a **More (N)** dropdown —
+All-sources scope reaches **37 sources** for Randy. ⚠️ that card must **not** have `overflow-hidden`; it
+clipped the dropdown into an invisible, dead button. The printable report gained a stacked **By source and
+state** section, **capped to purchased vendors** (`isPurchasedSource` in `lib/leadReport.ts`; ⚠️ exact match,
+not substring — `LendingTree Longform` is a real separate source). Per-state figures reconcile to the source
+row exactly; a retainer is split pro-rata by lead count with the last state taking the remainder.
+
+**Sub %** = status rank ≥ `Submitted to UW` **only** — 108 of ~5,246 priced leads (2.1%). It is a **FLOOR**:
+a declined loan reverts to a Not-Ready status and nothing recovers the fact it reached UW. It also sits very
+close to Fund %, because most loans that reach underwriting fund.
 
 ⚠️ **An Arive file number is created at APPLICATION, not at submission to UW** (Efrain, 2026-09-21 — a
 workflow fact, not derivable from the DB). Counting it as a submission inflated the metric 108 → 345 and
-labelled 151 open `App Intake` leads as underwriting. `SUBMISSION_RULE = 'status_only'` in `lib/leadRoi.ts`;
-four fixtures guard the clause from coming back. ⚠️ `arive_file_no` must stay in `LEAD_COLS` in **both**
-`app/lead-roi/page.tsx` and `app/lead-roi/report/page.tsx` or App % silently reads 0.
+labelled 151 open `App Intake` leads as underwriting. **`isSubmitted` takes `Pick<Deal, 'status'>`, so
+re-adding that clause does not compile** — the type is the guard.
 
-Verify with **`npx tsx scripts/lead-roi-state-report.ts`** (service-role, reconciles 10 columns) — `deals`
-RLS makes /lead-roi render empty under the auth-bypass dev server. Fixtures `lead-roi-check` 98 → **174**.
-Vault: `lead-roi-submission-and-states`.
+**Built and REMOVED the same day, at Efrain's request — don't re-propose either:** a Source × state matrix
+(`fdc5ee2`) and an **App %** column (`183e410`, which took `isApplied`, `SubmissionRule` and
+`isSubmittedUnder` with it).
+
+**Report formatting.** These tables carry 17 columns; at the old 12px/8px sizing the source table needed
+985px against the sheet's 898px content area, so it overflowed — a scrollbar per table on screen and a hard
+**clip** in print (⚠️ a scroll container prints as a clip, not a scrollbar). `.wide-table` is now 11px/5px at
+all times (845px), and print is **landscape**.
+
+**Rate lock — the dead `locked` flag is finally gone from both remaining consumers.** `/reports/escrows`
+read **0/32 locked** when the truth was 25/32; it now defers to `lib/lockStatus` and gained a **Needs lock**
+KPI. `app/api/cron/lock-alerts` had emailed one deal ever — and ⚠️ **gating on STATUS alone lets DEAD loans
+through** (22 of the 50 rows it queries are `Not Ready` + GHL-lost + adverse, because a declined loan keeps
+the stage it died at), so fixing the flag alone would have emailed four LOs about dead loans. `isClosedLoan`
+now guards it, and **`?dry=1`** resolves who would be mailed without sending.
+
+Verify with the service-role scripts — `deals` RLS makes these pages render empty under the auth-bypass dev
+server: **`lead-roi-state-report.ts`**, **`escrow-lock-report.ts`**, **`lock-alert-preview.ts`**. Fixtures:
+`lead-roi-check` 98 → **149**, `lock-status-check` 19 → **25**.
+Vault: `lead-roi-submission-and-states`, `lock-status-provenance`.
 
 ## Recent Changes (2026-09-16) — "Loans without a rate lock" on the Dashboard
 `/` now lists every active escrow with no live rate protection (spec `docs/specs/2026-09-16-unlocked-loans-spec.md`,
