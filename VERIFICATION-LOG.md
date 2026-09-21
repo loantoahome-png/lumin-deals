@@ -1,6 +1,15 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-09-21] /reports/escrows — rate lock now reads `lock_expiration`, not the dead flag
+**Status:** CHANGED — tsc = the 7-error `main` baseline, `npm run build` ✓ exit 0, `lock-status-check` **25** (was 19), `lead-roi-check` 174 and `lead-report-check` 140 still green, eslint identical to baseline, live figures verified via the new `scripts/escrow-lock-report.ts`.
+**Issue:** Efrain: "fix the lock flag on /reports/escrows." The report gated on `deal.locked === 'Yes'` **first** and returned "Not locked" for everything else.
+**Root cause — three bugs, not one.** (1) The `locked` Yes/No column has **no importer** and is dead: measured live 2026-09-21, **0 of 32** active escrows carry 'Yes' while **28** carry a real Arive `lock_expiration`. The KPI read **0/32** when the truth was **25/32**, and every loan printed "Not locked". (2) The page did its own date math with `new Date(iso)` on a **DATE-ONLY** column — UTC midnight, which lands a day early in Pacific — drifting the day count on **28 of 28** dated escrows (Dennis Keim showed 6d when the real figure is 7d). (3) An **expired** lock was reported as `locked: true`, so dead locks inflated the "Locked" KPI on top of everything else.
+**Changes:** [app/reports/escrows/page.tsx](app/reports/escrows/page.tsx) — `lockInfo` is now a **presentation adapter over `lockStatus`** (the page keeps its own wording, since a printed report wants the date spelled out); the local `daysUntil` / `MS_PER_DAY` are deleted and the expiring callout uses `lockDaysLeft`. Expired now reports `locked: false`. Added a **"Needs lock"** KPI — "Locked 25/32" alone leaves the 7 at-risk loans invisible, which is the one thing a lock report exists to catch. [scripts/lock-status-check.ts](scripts/lock-status-check.ts) — 6 KPI-band fixtures incl. `locked + needsLock` partitioning the escrows and an explicit guard that an expired lock is not counted as locked. [scripts/escrow-lock-report.ts](scripts/escrow-lock-report.ts) — **new** live verifier.
+**Test Method:** `npx tsx scripts/escrow-lock-report.ts` — must read `Locked 25/32 · Lock ≤7d 7 · Needs lock 7`. On the page, the KPI band and every per-loan lock chip.
+**Result:** VERIFIED. All LOs: **Locked 25/32 · ≤7d 7 · Needs lock 7** (3 expired + 4 never locked). Per LO — Matt 4/5, Moe 4/4, Randy 12/16, Daniel 5/7. The 3 expired locks were previously invisible: **Richard St Jean expired 23 days ago**, Artemio Castellanos 10d, Kyle Alexander 9d.
+**⚠️ Still open:** `app/api/cron/lock-alerts` remains on the dead flag, so the lock-expiry email still fires for nobody. Not touched — Efrain scoped this to the report.
+
 ### [2026-09-21] /lead-roi/report — money columns were being CLIPPED in print
 **Status:** CHANGED — tsc = the 7-error `main` baseline, `npm run build` ✓ exit 0, and the fit was **measured**, not eyeballed: the 17-column table renders **672px inside a 672px** printable area, overflow **0**, all columns present through ROI.
 **Issue:** Efrain, printing the Visual Report: "there are stats being cutoff." Revenue / Net rev / Net / ROI vanished off the right edge of every table.

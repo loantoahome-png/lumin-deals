@@ -106,5 +106,32 @@ eq('a lock expiring TODAY leads the locked list',
   ], TODAY).map(r => r.name),
   ['Today Tina', 'Later Larry'])
 
+// ── The /reports/escrows KPI band rests on these two invariants ────────────────
+// The report prints "Locked N/M" and "Needs lock K". Before 2026-09-21 it computed
+// both from the dead `locked` flag and read 0/32 while 25 escrows were really locked.
+// It now defers to lockStatus, so these invariants ARE the KPI band.
+const kpiBook = [
+  // live protection
+  { name: 'Locked Lou',  pipeline_group: 'Loans in Process', status: 'Docs Out', locked: 'No', lock_expiration: '2026-10-30' },
+  { name: 'Soon Sophie', pipeline_group: 'Loans in Process', status: 'Docs Out', locked: 'No', lock_expiration: '2026-09-20' },
+  { name: 'NoExpiry Nick', pipeline_group: 'Loans in Process', status: 'Docs Out', locked: 'Yes', lock_expiration: null },
+  // NO live protection
+  { name: 'Expired Ed',  pipeline_group: 'Loans in Process', status: 'Docs Out', locked: 'No', lock_expiration: '2026-08-01' },
+  { name: 'Never Ned',   pipeline_group: 'Loans in Process', status: 'Docs Out', locked: 'No', lock_expiration: null },
+  // not an escrow — must not be counted at all
+  { name: 'Funded Fred', pipeline_group: 'Funded', status: 'Loan Funded', locked: 'No', lock_expiration: null },
+]
+const kpi = lockCounts(kpiBook, TODAY)
+eq('KPI counts only active escrows', kpi.total, 5)
+eq('"Locked N" = live protection only', kpi.locked, 3)
+eq('"Needs lock" = expired + never locked', kpi.needsLock, 2)
+// ⚠️ An EXPIRED lock is NOT protection. The old report counted it as locked, which
+// inflated the KPI on top of the dead-flag bug. If this flips, that regressed.
+eq('an expired lock is NOT counted as locked', kpi.expired, 1)
+eq('locked + needsLock partitions the escrows', kpi.locked + kpi.needsLock, kpi.total)
+// The flag alone can never produce the count — this is the bug the report shipped with.
+eq('gating on the dead flag would report 1 of 5',
+  kpiBook.filter(d => d.pipeline_group === 'Loans in Process' && (d.locked || '').toLowerCase() === 'yes').length, 1)
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

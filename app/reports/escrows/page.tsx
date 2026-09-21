@@ -18,14 +18,8 @@ import { fetchAllDeals } from '@/lib/fetchAllDeals'
 import { Deal, LOAN_OFFICERS, STATUS_COLORS, PIPELINE_STATUSES } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { Printer, RefreshCw, ArrowLeft, Lock, AlertTriangle, UserCog, Flag, Ban } from 'lucide-react'
+import { lockStatus, lockDaysLeft } from '@/lib/lockStatus'
 import { LoFilter, useLoFilter, loSelected, DEFAULT_LOS } from '@/components/LoFilter'
-
-const MS_PER_DAY = 86_400_000
-const daysUntil = (iso: string | null | undefined): number | null => {
-  if (!iso) return null
-  const t = new Date(iso).getTime()
-  return isNaN(t) ? null : Math.floor((t - Date.now()) / MS_PER_DAY)
-}
 
 // Trim float noise for display (LTV like 66.4864… → 66.5; rates keep their eighths).
 const round = (v: number, n: number) => Math.round(v * 10 ** n) / 10 ** n
@@ -40,17 +34,42 @@ const TONE: Record<Tone, string> = {
   red: 'bg-red-100 text-red-700',
 }
 
-// Rate-lock summary for one deal.
+// Rate-lock summary for one deal — PRESENTATION ONLY. Every decision (is there live
+// protection? has it expired? how many days?) comes from lib/lockStatus, the single
+// chokepoint. This page keeps its own wording because a printed report wants the date
+// spelled out ("Locked · expires Sep 28, 2026 (7d)") where the dashboard card does not.
+//
+// ⚠️ This used to gate on `deal.locked === 'Yes'` FIRST and return "Not locked" for
+// everything else — but that column has NO importer and is dead: measured 2026-09-21,
+// 0 of 32 active escrows carry 'Yes' while 28 carry a real Arive `lock_expiration`. So
+// the report showed every escrow unlocked and the KPI read **0/32** when the truth was
+// **25/32**. It also did its own date math with `new Date(iso)` on a DATE-ONLY column,
+// which is UTC midnight and lands a day early in Pacific — that drifted the day count
+// on **28 of 28** dated escrows. Both bugs die by deferring to lockStatus.
+//
+// `expired` now reports `locked: false`. An expired lock is not protection, and counting
+// it as locked was inflating the KPI on top of everything else.
 function lockInfo(deal: Deal): { locked: boolean; label: string; tone: Tone; expiring: boolean; expired: boolean } {
-  const isLocked = (deal.locked || '').trim().toLowerCase() === 'yes'
-  if (!isLocked) return { locked: false, label: 'Not locked', tone: 'gray', expiring: false, expired: false }
-  if (!deal.lock_expiration) return { locked: true, label: 'Locked · no expiry set', tone: 'amber', expiring: false, expired: false }
-  const d = daysUntil(deal.lock_expiration)
-  const exp = formatDate(deal.lock_expiration)
-  if (d == null) return { locked: true, label: `Locked · ${exp}`, tone: 'green', expiring: false, expired: false }
-  if (d < 0) return { locked: true, label: `Lock EXPIRED ${exp}`, tone: 'red', expiring: false, expired: true }
-  if (d <= 7) return { locked: true, label: `Locked · expires ${exp} (${d}d)`, tone: 'amber', expiring: true, expired: false }
-  return { locked: true, label: `Locked · expires ${exp} (${d}d)`, tone: 'green', expiring: false, expired: false }
+  const s = lockStatus(deal)
+  const exp = s.expiration ? formatDate(s.expiration) : ''
+  switch (s.state) {
+    case 'unlocked':
+      return { locked: false, label: 'Not locked', tone: 'gray', expiring: false, expired: false }
+    case 'no-expiry':
+      return { locked: true, label: 'Locked · no expiry set', tone: 'amber', expiring: false, expired: false }
+    case 'expired':
+      return { locked: false, label: `Lock EXPIRED ${exp}`, tone: 'red', expiring: false, expired: true }
+    case 'expiring':
+      return {
+        locked: true, tone: 'amber', expiring: true, expired: false,
+        label: s.days === 0 ? `Locked · expires TODAY (${exp})` : `Locked · expires ${exp} (${s.days}d)`,
+      }
+    case 'locked':
+      return {
+        locked: true, tone: 'green', expiring: false, expired: false,
+        label: s.days == null ? `Locked · ${exp}` : `Locked · expires ${exp} (${s.days}d)`,
+      }
+  }
 }
 
 // Current next step + when it was entered. Prefer the latest next_action_log entry
@@ -116,14 +135,18 @@ function ReportInner() {
   }, [forLO])
 
   const kpis = useMemo(() => {
-    let locked = 0, expiring = 0
+    // `needsLock` = no live rate protection right now: expired, or never locked. It is
+    // the complement of `locked`, and it is reported because "Locked 25/32" alone leaves
+    // the 7 at-risk loans invisible — which is the one thing a lock report exists to catch.
+    let locked = 0, expiring = 0, needsLock = 0
     for (const d of forLO) {
       const li = lockInfo(d)
       if (li.locked) locked++
+      else needsLock++
       if (li.expiring) expiring++
     }
     const volume = forLO.reduce((s, d) => s + (d.loan_amount || 0), 0)
-    return { count: forLO.length, volume, locked, expiring }
+    return { count: forLO.length, volume, locked, expiring, needsLock }
   }, [forLO])
 
   // Loans whose rate lock expires within the next 7 days (soonest first).
@@ -197,11 +220,12 @@ function ReportInner() {
             </div>
 
             {/* KPI band */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-6">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-6">
               <Kpi label="Loans" value={String(kpis.count)} />
               <Kpi label="Volume" value={formatCurrency(kpis.volume)} />
               <Kpi label="Locked" value={`${kpis.locked}/${kpis.count}`} tone={kpis.locked ? 'green' : 'gray'} />
               <Kpi label="Lock ≤7d" value={String(kpis.expiring)} tone={kpis.expiring ? 'amber' : 'gray'} />
+              <Kpi label="Needs lock" value={String(kpis.needsLock)} tone={kpis.needsLock ? 'red' : 'gray'} />
             </div>
 
             {/* Locks expiring within the next 7 days — top callout (only when any apply) */}
@@ -214,7 +238,7 @@ function ReportInner() {
                 </div>
                 <div className="divide-y divide-amber-100">
                   {expiringDeals.map(d => {
-                    const dleft = daysUntil(d.lock_expiration)
+                    const dleft = lockDaysLeft(d.lock_expiration)
                     return (
                       <div key={d.id} className="flex items-center justify-between py-1.5 text-sm">
                         <span className="font-semibold text-slate-800">{d.name}</span>
