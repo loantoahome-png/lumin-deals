@@ -164,26 +164,41 @@ function ReportBody() {
   return (
     <div className="w-full h-full overflow-auto bg-slate-100 print:bg-white print:overflow-visible">
       <style>{`
-        /* The sheet is designed at 980px. A portrait letter page gives ~7.2in ≈ 690px of
-           printable width, so every wide table lost its right-hand columns — and because
-           each sits in an overflow-x-auto wrapper, they were CLIPPED rather than pushed,
-           so the loss was silent. Efrain hit this on the money columns (Revenue → ROI).
-           Three fixes, cheapest first: let the wrappers overflow instead of clip, let
-           header text wrap so columns can narrow, and shrink type + padding in print. */
-        @page { size: letter portrait; margin: 0.35in; }
+        /* ── Wide-table sizing ────────────────────────────────────────────────
+           These tables carry 17 columns. At the default 12px/8px-padding the
+           per-lead-source table needs 985px but the sheet's content area is ~900px,
+           so it overflowed its wrapper — on SCREEN that showed as a horizontal
+           scrollbar per table, and in PRINT the wrapper clipped it outright and the
+           money columns (Revenue → ROI) silently vanished.
+
+           Measured 2026-09-21 on a populated row against the sheet's 898px content area:
+           12px/8px = 985px (overflows), 11px/6px = 879px (19px headroom — too thin),
+           11px/5px = 845px (53px headroom). Took 11px/5px, and it applies at ALL times
+           — this was a screen bug as much as a print one. The headroom matters because
+           under "All sources" the first column carries names like
+           "Facebook Lead Ad - HELOC"; it wraps rather than pushing the table wider. */
+        .wide-table { font-size: 11px; }
+        .wide-table th, .wide-table td { padding: 4px 5px !important; }
+
+        /* Landscape: the sheet is ~980px ≈ 10.2in, and landscape letter minus 0.35in
+           margins is ~10.3in, so the tables print at their natural width instead of
+           being squeezed. Portrait offers ~7.8in and was borderline — the first attempt
+           kept portrait, shrank to 7pt and STILL lost the ROI column, because it was
+           measured against a tidy sample rather than a real row ("51 · 11.6%" in
+           Opt-out, "$1,063,857" in Volume). Don't go back to portrait without
+           re-measuring a populated table. */
+        @page { size: letter landscape; margin: 0.35in; }
         @media print {
           body { overflow: visible !important; display: block !important; }
           .noprint { display: none !important; }
           .sheet { box-shadow: none !important; border: 0 !important; border-radius: 0 !important; margin: 0 !important; max-width: none !important; }
-          /* A scroll container prints as a clip. Never clip in print. */
+          /* ⚠️ A scroll container prints as a CLIP, not a scrollbar. Never clip in print. */
           .fit { overflow: visible !important; }
-          /* Wide data tables: shrink to fit the page rather than lose columns. */
-          .wide-table { font-size: 7pt !important; width: 100% !important; table-layout: auto; }
+          .wide-table { font-size: 8pt !important; width: 100% !important; table-layout: auto; }
           .wide-table th, .wide-table td {
-            padding: 1px 2px !important;
-            white-space: normal !important;   /* headers may wrap — "NET REV" over two lines */
-            word-break: normal;
-            overflow-wrap: anywhere;          /* long currency never forces a column wider than the page */
+            padding: 2px 3px !important;
+            white-space: normal !important;   /* headers may wrap rather than force width */
+            overflow-wrap: anywhere;          /* a long currency can't widen a column past the page */
           }
         }
       `}</style>

@@ -1,6 +1,16 @@
 
 # Verification Log — Lumin Deals
 
+### [2026-09-21] /lead-roi/report — wide tables overflow on SCREEN too, not just print (2nd attempt)
+**Status:** CHANGED — tsc = the 7-error `main` baseline, `npm run build` ✓ exit 0, eslint unchanged, widths measured on the live report DOM.
+**Issue:** Efrain, after the first print fix shipped: "formatting is still off." His screenshot showed **horizontal scrollbars under each table** — and print preview does not render scrollbars. That was the tell: this is the **on-screen** layout, not only print.
+**What the first attempt got wrong.** It treated the problem as print-only and verified against a **tidy sample table** (Opt-out rendered `—`). A real row is wider — `164 · 10.3%` in Opt-out, `$5,947,435` in Volume — so the true width was under-measured and the ROI column still fell off. **Measuring a mock instead of a populated row is what made the first fix wrong.**
+**Root cause, measured on the live DOM:** the sheet's content area is **898px** (978 − 40px padding each side). At the default 12px font / 8px cell padding the 17-column per-lead-source table needs **985px** — it overflowed its `overflow-x-auto` wrapper, which on screen becomes a scrollbar per table and in print becomes a hard clip.
+**Changes:** [app/lead-roi/report/page.tsx](app/lead-roi/report/page.tsx) — `.wide-table` now applies at **all times**, not only in print: 11px font, 4×5px cell padding → **845px**, which is 53px inside the 898px content area. Headroom chosen deliberately: under "All sources" the first column carries names like `Facebook Lead Ad - HELOC`, which wraps rather than widening the table. Print additionally goes **landscape** (`@page { size: letter landscape }`) so ~10.3in of width means the tables print at natural width rather than being squeezed, plus `.fit { overflow: visible }` so a scroll container can never print as a clip.
+**Measurements (live DOM, populated row):** 12px/8px = 985px (overflows) · 11px/6px = 879px (19px headroom, too thin) · **11px/5px = 845px (53px headroom)** · sheet content = 898px.
+**Test Method:** open the Visual Report — no horizontal scrollbar on any table, ROI visible without scrolling. Print / Save as PDF → lands in landscape with every column present.
+**Result:** VERIFIED on screen by DOM measurement. ⚠️ Print orientation is now **landscape** — a deliberate call for 17-column tables, and trivially reverted to portrait if Efrain prefers (the 11px/5px sizing alone fits portrait's ~749px at the 8pt print size).
+
 ### [2026-09-21] /reports/escrows — rate lock now reads `lock_expiration`, not the dead flag
 **Status:** CHANGED — tsc = the 7-error `main` baseline, `npm run build` ✓ exit 0, `lock-status-check` **25** (was 19), `lead-roi-check` 174 and `lead-report-check` 140 still green, eslint identical to baseline, live figures verified via the new `scripts/escrow-lock-report.ts`.
 **Issue:** Efrain: "fix the lock flag on /reports/escrows." The report gated on `deal.locked === 'Yes'` **first** and returned "Not locked" for everything else.
