@@ -3296,8 +3296,8 @@ pre-fix behaviour re-stamped the contact's $23 on every pass, so surviving a rea
 distinguishes the pin from a write that merely has not been overwritten yet. Re-confirmed after
 the pass: Self Source 253 leads / $0, pin listed and honoured.
 
-### [2026-09-22] File: app/api/cron/lock-alerts/route.ts, scripts/lock-alert-preview.ts
-**Status:** CHANGED
+### [2026-09-22] File: lib/alertRecipients.ts, app/api/cron/lock-alerts/route.ts, scripts/lock-alert-preview.ts
+**Status:** VERIFIED
 **Issue:** Efrain does not want rate-lock alerts going to Daniel or Randy — only Moe and
 Matt. He was cc'd on a 3-day alert for Patricia Long addressed to Daniel. The lock-alerts
 cron was the ONLY alert job still routing to them: contingency-alerts and tasks/notify
@@ -3311,10 +3311,17 @@ Granger" in GHL, "Daniel McGrail-Granger" in Arive), so a denylist would silentl
 mailing on a name change and would mail any future LO by default. Mirrored the rule in
 scripts/lock-alert-preview.ts, which now also prints the in-window-but-not-emailed list so
 the exclusion is visible rather than invisible.
-**Test Method:** (1) npx tsx scripts/lock-alert-preview.ts — offline mirror; (2) the route's
-own ?dry=1 against deployed prod, which resolves recipients with no send and no dedup write.
+**Test Method:** (1) npx tsx scripts/lock-alert-preview.ts; (2) tsc + build.
+The route's own ?dry=1 was NOT used: CRON_SECRET lives only in Vercel and pulling prod
+secrets locally to check this is not worth it. Instead the recipient rule was extracted to
+lib/alertRecipients.ts and is now IMPORTED by both the cron and the preview, so the preview
+can no longer disagree with the job it previews — running it is a real test of the rule.
+⚠️ Scope of that claim: only the RECIPIENT decision is shared. The preview still re-declares
+ESCROW_STATUSES and WINDOWS, so it is not an end-to-end test of the whole cron.
 **Result:** (1) WOULD EMAIL 0; the 4 loans currently in a window (Michael Nouguier/Randy,
 Dutch Blue, Johnathan Morales, Patricia Long/Daniel) all move to "not emailed — LO not on
 the alert list". Next Moe/Matt alert is Dennis Keim at 5d. ⚠️ First preview run was WRONG
 (still listed all 4 as WOULD EMAIL) because a string replace in the preview silently missed;
-caught by actually running it. The route was never affected. (2) PENDING — post-deploy.
+caught by actually running it. The route was never affected — and this near-miss is exactly
+why the rule now lives in one shared file instead of two copies. (2) tsc clean on all touched
+files, build compiled successfully.

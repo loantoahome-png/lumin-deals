@@ -8,6 +8,7 @@ import { readFileSync } from 'fs'
 import { createClient } from '@supabase/supabase-js'
 import { lockDaysLeft } from '../lib/lockStatus'
 import { isClosedLoan } from '../lib/loanOutcome'
+import { isAlertLo } from '../lib/alertRecipients'
 
 const env = readFileSync(new URL('../.env.local', import.meta.url), 'utf8')
 const get = (n: string) => env.match(new RegExp(`^${n}=(.+)$`, 'm'))?.[1].trim() ?? ''
@@ -17,12 +18,8 @@ const sb = createClient(get('NEXT_PUBLIC_SUPABASE_URL'), get('SUPABASE_SERVICE_R
 const ESCROW_STATUSES = ['Loan Setup', 'Disclosed', 'Submitted to UW', 'Approved w/ Conditions',
   'Re-Submittal', 'Clear to Close', 'Docs Out', 'Docs Signed']
 const WINDOWS = [5, 3, 1, 0]
-// Mirrors ALERT_LOS in the route: Moe and Matt only (Efrain, 2026-09-22). Randy and
-// Daniel are deliberately excluded. Allowlist, so an unrecognised LO gets nothing.
-const isAlertLo = (lo: string | null | undefined): boolean => {
-  const n = (lo ?? '').trim().toLowerCase()
-  return n.length > 0 && (n.includes('matt') || n.includes('park') || n.includes('moe') || n.includes('sefati'))
-}
+// Recipients: imported from lib/alertRecipients, the SAME table the cron uses — this
+// preview must never be able to disagree with the job it previews.
 
 async function main() {
   const { data, error } = await sb.from('deals')
