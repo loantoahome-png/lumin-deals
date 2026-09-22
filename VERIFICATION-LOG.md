@@ -3295,3 +3295,26 @@ then the live GHL sync ran at 2026-09-21T20:30:10.988Z against the previous curs
 pre-fix behaviour re-stamped the contact's $23 on every pass, so surviving a real sync is what
 distinguishes the pin from a write that merely has not been overwritten yet. Re-confirmed after
 the pass: Self Source 253 leads / $0, pin listed and honoured.
+
+### [2026-09-22] File: app/api/cron/lock-alerts/route.ts, scripts/lock-alert-preview.ts
+**Status:** CHANGED
+**Issue:** Efrain does not want rate-lock alerts going to Daniel or Randy — only Moe and
+Matt. He was cc'd on a 3-day alert for Patricia Long addressed to Daniel. The lock-alerts
+cron was the ONLY alert job still routing to them: contingency-alerts and tasks/notify
+already resolve Matt/Moe only, and second-callback already excludes them by name regex.
+**Changes:** Replaced the four-branch getLoEmail with a single ALERT_LOS table (Matt, Moe)
+that drives BOTH eligibility and address, so the two can never disagree. Added isAlertLo
+and a gate in the loop with its own `skipped_not_alert_lo` counter, kept separate from
+`missing_lo_email` so a deliberate exclusion never reads as a missing env var. Deliberately
+an ALLOWLIST, not a denylist: LO names are not stable across systems (Daniel is "Danny
+Granger" in GHL, "Daniel McGrail-Granger" in Arive), so a denylist would silently resume
+mailing on a name change and would mail any future LO by default. Mirrored the rule in
+scripts/lock-alert-preview.ts, which now also prints the in-window-but-not-emailed list so
+the exclusion is visible rather than invisible.
+**Test Method:** (1) npx tsx scripts/lock-alert-preview.ts — offline mirror; (2) the route's
+own ?dry=1 against deployed prod, which resolves recipients with no send and no dedup write.
+**Result:** (1) WOULD EMAIL 0; the 4 loans currently in a window (Michael Nouguier/Randy,
+Dutch Blue, Johnathan Morales, Patricia Long/Daniel) all move to "not emailed — LO not on
+the alert list". Next Moe/Matt alert is Dennis Keim at 5d. ⚠️ First preview run was WRONG
+(still listed all 4 as WOULD EMAIL) because a string replace in the preview silently missed;
+caught by actually running it. The route was never affected. (2) PENDING — post-deploy.

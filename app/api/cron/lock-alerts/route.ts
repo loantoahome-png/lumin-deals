@@ -45,15 +45,39 @@ const ESCROW_STATUSES = [
   'Re-Submittal', 'Clear to Close', 'Docs Out', 'Docs Signed',
 ]
 
+// ── Who gets lock alerts ──────────────────────────────────────────────────
+// MOE AND MATT ONLY (Efrain, 2026-09-22). Randy and Daniel were receiving these
+// and do not want them; their entries were removed from this table, which is the
+// single place that decides both eligibility and address.
+//
+// ⚠️ This is an ALLOWLIST, and it must stay one. LO names are NOT stable across
+// systems — Daniel is "Danny Granger" in GHL but "Daniel McGrail-Granger" in Arive
+// (see the reporting-role note), and `loan_officer` is whatever the sync resolved.
+// A denylist would silently resume emailing an excluded LO the moment a name
+// changed, and would mail every LO added in future by default. An allowlist fails
+// closed: the worst case is a missed alert, visible in the run summary as
+// `skipped_not_alert_lo`, rather than an unwanted email nobody asked for.
+//
+// One table, so eligibility and address can never disagree — an LO who matches
+// here but has no env var set shows up under `missing_lo_email`, which is a real
+// config gap, as distinct from a deliberate exclusion.
+const ALERT_LOS: Array<{ match: (lo: string) => boolean; envVar: string }> = [
+  { match: lo => lo.includes('matt') || lo.includes('park'),   envVar: 'LO_EMAIL_MATT' },
+  { match: lo => lo.includes('moe')  || lo.includes('sefati'), envVar: 'LO_EMAIL_MOE'  },
+]
+
+/** Does this LO receive lock alerts at all? */
+function isAlertLo(loanOfficer: string | null | undefined): boolean {
+  const lo = (loanOfficer ?? '').trim().toLowerCase()
+  return lo.length > 0 && ALERT_LOS.some(e => e.match(lo))
+}
+
 // ── LO-name → email lookup ────────────────────────────────────────────────
 function getLoEmail(loanOfficer: string | null | undefined): string | null {
-  if (!loanOfficer) return null
-  const lo = loanOfficer.toLowerCase()
-  if (lo.includes('matt')) return process.env.LO_EMAIL_MATT || null
-  if (lo.includes('moe'))  return process.env.LO_EMAIL_MOE  || null
-  if (lo.includes('randy') || lo.includes('mathis')) return process.env.LO_EMAIL_RANDY || null
-  if (lo.includes('daniel') || lo.includes('mcgrail') || lo.includes('granger')) return process.env.LO_EMAIL_DANIEL || null
-  return null
+  const lo = (loanOfficer ?? '').trim().toLowerCase()
+  if (!lo) return null
+  const hit = ALERT_LOS.find(e => e.match(lo))
+  return hit ? (process.env[hit.envVar] || null) : null
 }
 
 // ── Date helpers ──────────────────────────────────────────────────────────
@@ -225,6 +249,7 @@ export async function GET(req: NextRequest) {
   let emailsSent = 0
   let alertsTriggered = 0
   let skippedClosed = 0
+  let skippedNotAlertLo = 0
   const noLoEmail: string[] = []
   const wouldSend: Array<{ deal: string; lo: string; to: string; daysOut: number; expires: string }> = []
   let lastSendResult: { dealName: string; ok: boolean; status?: number; body?: string; error?: string } | null = null
@@ -238,6 +263,10 @@ export async function GET(req: NextRequest) {
     // died at, so the status filter above does NOT exclude it (22 of 50 rows).
     if (isClosedLoan(d as unknown as Parameters<typeof isClosedLoan>[0])) { skippedClosed++; continue }
     scanned++
+
+    // Lock alerts go to Moe and Matt only — see ALERT_LOS. Counted separately from
+    // `missing_lo_email` so a deliberate exclusion never looks like a missing env var.
+    if (!isAlertLo(d.loan_officer as string | null)) { skippedNotAlertLo++; continue }
 
     const daysOut = lockDaysLeft(dateStr)
     if (daysOut == null || !WINDOWS.includes(daysOut)) continue
@@ -275,7 +304,8 @@ export async function GET(req: NextRequest) {
 
   console.log(
     `[Lock Alerts]${dryRun ? ' DRY RUN —' : ''} ${startedAt} — scanned ${scanned} locked active loans, ` +
-    `skipped ${skippedClosed} closed, triggered ${alertsTriggered}, emailed ${emailsSent}, ` +
+    `skipped ${skippedClosed} closed, skipped ${skippedNotAlertLo} not-alert-LO, ` +
+    `triggered ${alertsTriggered}, emailed ${emailsSent}, ` +
     `skipped-no-lo-email ${noLoEmail.length}`
   )
 
@@ -286,6 +316,8 @@ export async function GET(req: NextRequest) {
     finishedAt: new Date().toISOString(),
     scanned,
     skipped_closed_loans: skippedClosed,
+    skipped_not_alert_lo: skippedNotAlertLo,
+    alert_los: ALERT_LOS.map(e => e.envVar),
     alerts_triggered: alertsTriggered,
     emails_sent: emailsSent,
     would_send: dryRun ? wouldSend : undefined,
